@@ -2,63 +2,84 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8" />
-<title>강의 필기 도우미</title>
+<title>Screen Notes</title>
 <style>
   body { font: 14px/1.5 system-ui, sans-serif; margin: 0; padding: 16px; color: #1a1a1a; }
-  h1 { font-size: 15px; margin: 0 0 12px; }
+  h1 { font-size: 15px; margin: 0 0 4px; }
   button { font: inherit; padding: 8px 12px; border: 1px solid #999; border-radius: 6px; background: #fff; cursor: pointer; }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
   button.primary { background: #1a5fb4; color: #fff; border-color: #1a5fb4; }
   select { font: inherit; width: 100%; box-sizing: border-box; padding: 6px; margin-top: 4px; }
   label { font-size: 12px; color: #555; }
   #status { margin: 12px 0; padding: 8px; background: #f4f4f4; border-radius: 6px; min-height: 1.5em; white-space: pre-wrap; }
-  #result { width: 100%; height: 320px; box-sizing: border-box; margin-top: 8px; font: 13px/1.5 ui-monospace, monospace; }
+  #result { width: 100%; height: 300px; box-sizing: border-box; margin-top: 8px; font: 13px/1.5 ui-monospace, monospace; }
   .row { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
   .note { color: #666; font-size: 12px; margin-top: 12px; }
+  .banner { font-size: 12px; padding: 8px; border-radius: 6px; margin-bottom: 10px; }
+  .banner.ok { background: #e7f3ea; color: #1a5c33; }
+  .banner.warn { background: #fdf1e0; color: #7a4b00; }
+  #cropWrap { position: relative; display: none; margin-top: 8px; user-select: none; }
+  #cropWrap img { width: 100%; display: block; border-radius: 4px; }
+  #cropBox { position: absolute; border: 2px solid #1a5fb4; background: rgba(26,95,180,.15); display: none; }
 </style>
 </head>
 <body>
-  <h1>강의 필기 도우미</h1>
+  <h1>Screen Notes</h1>
+  <div class="note" style="margin: 0 0 10px;">화면 이미지는 기기 안에서만 처리되고 어디에도 저장되지 않습니다. 패널을 닫으면 모두 사라집니다.</div>
 
-  <label for="tabSelect">강의 영상이 열린 탭</label>
+  <div id="engineBanner" class="banner warn">엔진 확인 중...</div>
+
+  <label for="tabSelect">영상이 열린 탭</label>
   <div class="row">
     <select id="tabSelect"></select>
     <button id="refreshTabsBtn" title="탭 목록 새로고침">↻</button>
   </div>
 
-  <label for="modeSelect" style="display: block; margin-top: 8px;">캡처 모드</label>
+  <label for="modeSelect" style="display: block; margin-top: 8px;">캡처 영역</label>
   <select id="modeSelect">
-    <option value="slide">슬라이드 (전체 화면, 5초 간격) — 기본</option>
-    <option value="caption">자막 띠 (하단 20%, 2초 간격)</option>
+    <option value="region">영역 지정 (권장 — 강사 화면을 제외하고 슬라이드만)</option>
+    <option value="slide">전체 화면</option>
+    <option value="caption">하단 자막 띠</option>
   </select>
+
+  <div class="row" id="cropRow" style="display:none;">
+    <button id="previewBtn">현재 화면 불러오기</button>
+    <span class="note" id="cropHint" style="margin:0;">불러온 뒤 드래그해서 영역을 지정하세요</span>
+  </div>
+  <div id="cropWrap"><img id="cropImg" alt="" /><div id="cropBox"></div></div>
 
   <div class="row">
     <button id="startBtn" class="primary">캡처 시작</button>
+    <button id="stopBtn" disabled>중지 후 노트 생성</button>
   </div>
 
-  <div id="status">강의 영상을 재생한 뒤 탭을 고르고 시작을 누르세요.</div>
-  <div id="tokenUsage" style="font: 12px/1.4 monospace; color: #555; white-space: pre-wrap;">OCR(haiku) 입력 0 · 출력 0
-노트(sonnet) 입력 0 · 출력 0</div>
+  <div id="status">영상을 재생한 뒤 탭을 고르고 시작을 누르세요.</div>
+  <div id="tokenUsage" style="font: 12px/1.4 monospace; color: #555; white-space: pre-wrap;"></div>
 
-  <textarea id="result" placeholder="마크다운 노트가 여기 표시됩니다. 자동 생성 초안이니 반드시 직접 검토하세요." readonly></textarea>
+  <textarea id="result" placeholder="노트가 여기 표시됩니다. 자동 생성 초안이니 반드시 직접 검토하세요." readonly></textarea>
   <div class="row">
     <button id="copyBtn" disabled>복사</button>
     <button id="downloadBtn" disabled>.md 저장</button>
-    <button id="notesBtn" disabled title="재캡처 없이 저장된 스크립트로 노트만 다시 만듭니다">노트 생성</button>
+    <button id="notesBtn" disabled title="재캡처 없이 노트만 다시 만듭니다">노트 다시 생성</button>
   </div>
 
   <details style="margin-top: 12px;">
-    <summary style="cursor: pointer;">원본 OCR 스크립트</summary>
+    <summary style="cursor: pointer;">인식된 텍스트 (메모리에만 존재)</summary>
     <pre id="rawScript" style="font: 11px/1.4 monospace; white-space: pre-wrap; max-height: 240px; overflow-y: auto; background: #f4f4f4; padding: 6px; border-radius: 4px;"></pre>
   </details>
   <details style="margin-top: 8px;">
-    <summary style="cursor: pointer;">디버그 로그 (사이트가 F12를 막아둔 경우 여기서 확인)</summary>
+    <summary style="cursor: pointer;">디버그 로그</summary>
     <pre id="debugLog" style="font: 11px/1.4 monospace; white-space: pre-wrap; max-height: 200px; overflow-y: auto; background: #f4f4f4; padding: 6px; border-radius: 4px;"></pre>
   </details>
 
   <div class="note">
-    개인 학습용 도구입니다. 강의 영상의 캡처·재배포는 학칙이나 저작권 정책에 저촉될 수 있으니 결과물을 외부에 공유하지 마세요. 노트는 OCR 기반 자동 생성물이라 오독이 섞일 수 있습니다.
+    개인 학습용 도구입니다. 소속 기관의 원격수업 지침·이용약관을 먼저 확인하세요. 캡처물의 보관·재배포는 하지 마세요.
+    <a href="#" id="optionsLink">설정 열기</a>
   </div>
+
+  <script src="lib/mergeLines.js"></script>
+  <script src="lib/settings.js"></script>
+  <script src="lib/ai.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

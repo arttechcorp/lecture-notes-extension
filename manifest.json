@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "강의 필기 도우미",
-  "version": "0.1.0",
-  "description": "강의 영상 화면을 캡처·OCR해 타임스탬프가 붙은 마크다운 노트를 만듭니다. 개인 학습용 초안이며 항상 직접 검토하세요.",
+  "name": "Screen Notes — 영상 화면 AI 노트",
+  "version": "0.2.0",
+  "description": "재생 중인 영상 화면에서 학습 노트를 만듭니다. 화면 이미지는 기기 안에서만 처리되며 어디에도 저장되지 않습니다.",
   "permissions": ["storage", "sidePanel", "scripting", "tabs"],
-  "host_permissions": ["https://api.anthropic.com/*"],
+  "host_permissions": ["https://api.anthropic.com/*", "https://generativelanguage.googleapis.com/*"],
   "optional_host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"
@@ -14,6 +14,6 @@
   },
   "options_page": "options.html",
   "action": {
-    "default_title": "강의 필기 도우미 열기"
+    "default_title": "Screen Notes 열기"
   }
 }
