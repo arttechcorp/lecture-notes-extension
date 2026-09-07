@@ -12,9 +12,16 @@
 </style>
 </head>
 <body>
-  <h2>Claude API 키</h2>
-  <p>console.anthropic.com에서 발급한 본인 소유의 API 키를 입력하세요.</p>
-  <input id="apiKey" type="password" placeholder="sk-ant-..." />
+  <h2>노트 생성용 API 설정</h2>
+  <p>요약 작성을 위해 사용할 AI 제공자와 API 키를 입력하세요.</p>
+  <div style="margin-bottom: 8px;">
+    <select id="provider" style="padding: 6px; font: inherit;">
+      <option value="gemini">Gemini (Google AI Studio)</option>
+      <option value="anthropic">Claude (Anthropic)</option>
+    </select>
+    <a id="keyLink" href="#" target="_blank" rel="noreferrer" style="font-size: 13px; color: #1a5fb4; margin-left: 8px;">키 발급받기 →</a>
+  </div>
+  <input id="apiKey" type="password" placeholder="API 키 입력..." />
   <div style="margin-top: 8px;">
     <label><input type="checkbox" id="revealCb"> 키 보이기</label>
     <label style="margin-left: 12px;"><input type="checkbox" id="syncCb"> 이 키를 크롬 계정에 동기화 (다른 컴퓨터에서도 사용)</label>
