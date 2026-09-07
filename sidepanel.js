@@ -9,7 +9,12 @@ const els = {
   status: $("status"), result: $("result"), rawScript: $("rawScript"), tokenUsage: $("tokenUsage"),
   debugLog: $("debugLog"), banner: $("engineBanner"), cropRow: $("cropRow"), cropWrap: $("cropWrap"),
   cropImg: $("cropImg"), cropBox: $("cropBox"), cropHint: $("cropHint"),
+  outputFormat: $("outputFormat"), customPrompt: $("customPrompt"),
 };
+
+els.outputFormat.addEventListener("change", () => {
+  els.customPrompt.style.display = els.outputFormat.value === "custom" ? "block" : "none";
+});
 
 // --- 세션 상태 (메모리 전용) -----------------------------------------------------
 let transcript = []; // [{ time, text }]
@@ -176,19 +181,24 @@ const NOTES_SYSTEM =
   "출력은 마크다운 본문만. 인사말·설명·메타 코멘트를 덧붙이지 않는다.";
 
 function buildNotesPrompt(script, truncated) {
+  const format = els.outputFormat.value;
+  const custom = els.customPrompt.value.trim();
+  
+  let instruction = "";
+  if (format === "summary") {
+    instruction = "이 스크립트를 바탕으로 강의 내용을 잘 구조화된 핵심 요약본으로 작성해라.";
+  } else if (format === "reflection") {
+    instruction = "이 스크립트를 바탕으로 강의 내용을 듣고 느낀 점과 배운 점을 포함한 소감문을 작성해라. 1인칭 시점.";
+  } else if (format === "custom") {
+    instruction = `다음 조건을 반드시 지켜서 작성해라:\n조건: ${custom || '내용 요약'}`;
+  }
+
   return (
     `영상 제목: ${title}\n\n` +
-    `아래는 영상 화면을 인식해 얻은 텍스트다. 각 줄 앞의 [mm:ss]는 영상 내 위치다.\n` +
-    `---\n${script}\n---\n\n` +
-    `이걸로 학습용 마크다운 노트를 작성해라. 구성:\n` +
-    `1. ## 개요 — 무엇을 다뤘는지 3~4줄\n` +
-    `2. ## 목차 — [mm:ss] 주제 형식의 목록\n` +
-    `3. ## 핵심 개념 — 등장한 용어와 정의 (정의가 없으면 "정의 미기재"로 표시)\n` +
-    `4. ## 섹션별 정리 — 목차 각 항목을 타임스탬프와 함께 요지 정리\n` +
-    `5. ## 확인 필요 — 오독으로 보이는 부분, 문맥이 끊긴 구간 (없으면 생략)\n\n` +
-    `화면 인식 결과라 오탈자·중복·조각난 문장이 섞여 있다. 명백한 오독은 문맥으로 보정하되 ` +
-    `확신이 없으면 원문을 그대로 두고 5번에 적어라. 원문을 길게 그대로 옮기지 말고 요지로 정리해라.` +
-    (truncated ? `\n\n(스크립트가 길어 앞부분 ${MAX_SCRIPT_CHARS}자만 전달됐다. 노트 끝에 "이후 구간은 요약에 포함되지 않았습니다"라고 적어라.)` : "")
+    `아래는 영상 화면과 음성 인식을 통해 얻은 텍스트다. 각 줄 앞의 [mm:ss]는 영상 내 위치다.\n` +
+    `${instruction}\n\n[캡처 스크립트]\n${script}\n\n` +
+    `화면 인식(OCR)과 음성 인식 결과라 오탈자나 조각난 문장이 섞여 있다. 명백한 오독은 문맥으로 보정해라.` +
+    (truncated ? `\n\n(스크립트가 길어 앞부분 ${MAX_SCRIPT_CHARS}자만 전달됐다. 글 끝에 "이후 구간은 분량 제한으로 포함되지 않았습니다"라고 적어라.)` : "")
   );
 }
 
@@ -196,7 +206,7 @@ async function generateNotes() {
   if (!transcript.length) return fail("인식된 텍스트가 없습니다. 먼저 캡처를 실행하세요.");
   busy = true;
   els.notesBtn.disabled = true;
-  setStatus(`텍스트 ${transcript.length}줄로 노트 생성 중...`);
+  setStatus(`텍스트 ${transcript.length}줄로 결과물 생성 중...`);
   try {
     const full = transcript.map((e) => `[${formatTime(e.time)}] ${e.text}`).join("\n");
     const truncated = full.length > MAX_SCRIPT_CHARS;
@@ -205,23 +215,22 @@ async function generateNotes() {
     settings = await loadSettings();
     let text;
     if (settings.apiKey) {
-      // 여기서 나가는 건 텍스트뿐이다. 이미지는 절대 포함되지 않는다.
-      const body = buildSummaryBody(settings.provider, settings.summaryModel, NOTES_SYSTEM, prompt);
+      const body = buildSummaryBody(settings.provider, settings.summaryModel, "너는 훌륭한 학습 보조 AI다. 사용자의 지시를 철저히 따른다.", prompt);
       const res = await callRemote(settings.provider, settings.summaryModel, settings.apiKey, body);
       tokens.notes.input += res.input;
       tokens.notes.output += res.output;
       text = res.text;
     } else {
-      setStatus("API 키가 없어 온디바이스 모델로 노트를 만듭니다 (품질이 낮을 수 있습니다).");
+      setStatus("API 키가 없어 온디바이스 모델로 생성합니다 (품질이 낮을 수 있습니다).");
       const s = await createLocalSession();
-      text = await s.prompt(`${NOTES_SYSTEM}\n\n${prompt}`);
+      text = await s.prompt(prompt);
       if (s.destroy) s.destroy();
     }
     els.result.value = text;
     els.result.readOnly = false;
     els.copyBtn.disabled = false;
     els.downloadBtn.disabled = false;
-    setStatus("완료. 자동 생성 노트이니 직접 검토하세요. 패널을 닫으면 사라집니다.");
+    setStatus("완료. 자동 생성된 결과물입니다. 직접 내용을 검토하세요. 패널을 닫으면 사라집니다.");
     renderTokens();
   } catch (e) {
     return fail(String(e.message || e));
@@ -310,6 +319,16 @@ els.previewBtn.addEventListener("click", async () => {
   }
 });
 
+// // AudioCapturer 인스턴스
+let audioCapturer = new AudioCapturer();
+audioCapturer.onTranscript = (item) => {
+  if (!capturing) return;
+  transcript.push({ time: item.time, text: `[음성] ${item.text}` });
+  // 시간순 정렬
+  transcript.sort((a, b) => a.time.localeCompare(b.time));
+  renderRaw();
+};
+
 // --- 캡처 시작/중지 ----------------------------------------------------------------
 els.startBtn.addEventListener("click", async () => {
   if (engine === "none") {
@@ -318,6 +337,21 @@ els.startBtn.addEventListener("click", async () => {
   if (els.modeSelect.value === "region" && !cropRect) {
     return fail("영역을 먼저 지정하거나 캡처 영역을 '전체 화면'으로 바꾸세요.");
   }
+  
+  settings = await loadSettings();
+  if (settings.whisperEnabled) {
+    setStatus("음성 인식(Whisper) 모델 준비 중...");
+    try {
+      await audioCapturer.initModel((prog) => {
+        if (prog.status === 'progress') {
+          setStatus(`음성 모델 다운로드 중... ${Math.round(prog.progress)}%`);
+        }
+      });
+    } catch(e) {
+      log("Whisper 초기화 실패: " + e.message);
+    }
+  }
+
   transcript = [];
   queue = [];
   tokens.ocr = { input: 0, output: 0 };
@@ -333,6 +367,18 @@ els.startBtn.addEventListener("click", async () => {
   renderTokens();
   setStatus("스크립트 주입 중...");
   try {
+    const tabId = parseInt(els.tabSelect.value, 10);
+    // 탭 오디오 캡처 시도
+    if (settings.whisperEnabled) {
+      chrome.tabCapture.capture({ audio: true, video: false }, (stream) => {
+        if (stream) {
+          audioCapturer.startCapture(stream);
+        } else {
+          log("오디오 캡처 권한이 없거나 실패했습니다.");
+        }
+      });
+    }
+    
     (await connectToTab()).postMessage({ type: "START", mode: els.modeSelect.value, rect: cropRect });
     capturing = true;
     els.stopBtn.disabled = false;
@@ -350,6 +396,7 @@ els.startBtn.addEventListener("click", async () => {
 
 els.stopBtn.addEventListener("click", () => {
   capturing = false;
+  audioCapturer.stopCapture();
   if (port) port.disconnect();
   port = null;
   finishCapture();

@@ -60,7 +60,17 @@
   <div class="row">
     <button id="copyBtn" disabled>복사</button>
     <button id="downloadBtn" disabled>.md 저장</button>
-    <button id="notesBtn" disabled title="재캡처 없이 노트만 다시 만듭니다">노트 다시 생성</button>
+  </div>
+  
+  <div style="margin-top: 12px; background: #f9f9f9; padding: 10px; border-radius: 6px; border: 1px solid #ddd;">
+    <label for="outputFormat" style="display: block; font-weight: bold; margin-bottom: 4px;">출력 형태 선택</label>
+    <select id="outputFormat" style="margin-bottom: 8px;">
+      <option value="summary">핵심 요약본</option>
+      <option value="reflection">강의 소감문</option>
+      <option value="custom">직접 입력</option>
+    </select>
+    <textarea id="customPrompt" placeholder="원하는 조건을 입력하세요 (예: 표 형식으로 정리해줘)" style="display:none; width:100%; height:60px; box-sizing: border-box; font:inherit; margin-bottom: 8px;"></textarea>
+    <button id="notesBtn" disabled title="재캡처 없이 선택한 형태로 노트를 다시 만듭니다" style="width: 100%;">이 형태로 (다시) 생성</button>
   </div>
 
   <details style="margin-top: 12px;">
@@ -79,6 +89,7 @@
 
   <script src="lib/mergeLines.js"></script>
   <script src="lib/settings.js"></script>
+  <script src="lib/audio.js"></script>
   <script src="lib/ai.js"></script>
   <script src="sidepanel.js"></script>
 </body>

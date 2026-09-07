@@ -4,6 +4,7 @@ const syncCb = document.getElementById("syncCb");
 const revealCb = document.getElementById("revealCb");
 const providerEl = document.getElementById("provider");
 const keyLink = document.getElementById("keyLink");
+const whisperCb = document.getElementById("whisperCb");
 
 const PROVIDER_URLS = {
   gemini: "https://aistudio.google.com/apikey",
@@ -17,10 +18,13 @@ function updateLink() {
 providerEl.addEventListener("change", updateLink);
 
 async function loadSettings() {
-  let { apiKey, provider } = await chrome.storage.local.get(["apiKey", "provider"]);
+  let { apiKey, provider, whisperEnabled } = await chrome.storage.local.get(["apiKey", "provider", "whisperEnabled"]);
   
   if (provider) {
     providerEl.value = provider;
+  }
+  if (whisperEnabled) {
+    whisperCb.checked = true;
   }
   updateLink();
 
@@ -45,8 +49,9 @@ revealCb.addEventListener("change", () => {
 document.getElementById("saveBtn").addEventListener("click", async () => {
   const key = apiKeyEl.value.trim();
   const provider = providerEl.value;
+  const whisperEnabled = whisperCb.checked;
   
-  await chrome.storage.local.set({ provider });
+  await chrome.storage.local.set({ provider, whisperEnabled });
   
   if (syncCb.checked) {
     await chrome.storage.sync.set({ apiKey: key });

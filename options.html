@@ -29,6 +29,20 @@
   <button id="saveBtn">저장</button>
   <span id="saved" hidden>저장됨</span>
   <p class="note">키가 유출되면 본인 계정으로 과금될 수 있습니다. 안전하게 보관하세요.</p>
+  
+  <hr style="margin: 24px 0; border: none; border-top: 1px solid #eee;" />
+  
+  <h2>음성 인식 (STT) 설정</h2>
+  <div style="background: #f9f9f9; padding: 12px; border-radius: 6px; border: 1px solid #ddd;">
+    <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer;">
+      <input type="checkbox" id="whisperCb" style="width: auto; margin-top: 4px;">
+      <div>
+        <strong style="display: block;">고품질 음성 인식 (Local Whisper) 사용</strong>
+        <span class="note" style="display: block; margin-top: 4px;">크롬 내장 마이크 기능 대신, 강의 탭의 소리를 직접 가로채어 분석하는 오프라인 AI를 다운로드합니다. (최초 1회 약 80MB 다운로드 필요)</span>
+      </div>
+    </label>
+  </div>
+  
   <script src="options.js"></script>
 </body>
 </html>
