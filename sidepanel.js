@@ -28,6 +28,7 @@ let localSession = null;
 let cropRect = null; // 0~1 정규화
 let settings = null;
 let engine = "local"; // "local" | "remote" | "none"
+let lastVideoTime = 0; // content.js가 알려주는 영상 재생 위치(초)
 
 const tokens = { ocr: { input: 0, output: 0 }, notes: { input: 0, output: 0 } };
 
@@ -121,6 +122,7 @@ function onPortMessage(msg) {
     if (msg.stage === "error") return fail(msg.detail);
     setStatus(`${msg.detail}${queue.length ? ` · OCR 대기 ${queue.length}배치` : ""}`);
   }
+  if (msg.type === "tick") lastVideoTime = msg.t;
   if (msg.type === "log") log(msg.text);
   if (msg.type === "preview") showPreview(msg.dataUrl);
   if (msg.type === "frames") {
@@ -321,11 +323,13 @@ els.previewBtn.addEventListener("click", async () => {
 
 // // AudioCapturer 인스턴스
 let audioCapturer = new AudioCapturer();
+// 오디오 청크에 벽시계가 아니라 영상 시각을 찍기 위한 공급자. 배속·탐색에도 OCR과 눈금이 맞는다.
+audioCapturer.getVideoTime = () => lastVideoTime;
 audioCapturer.onTranscript = (item) => {
   if (!capturing) return;
   transcript.push({ time: item.time, text: `[음성] ${item.text}` });
-  // 시간순 정렬
-  transcript.sort((a, b) => a.time.localeCompare(b.time));
+  // time은 OCR 경로와 같은 "초" 숫자다. 문자열 비교로 정렬하면 OCR 항목에서 터진다.
+  transcript.sort((a, b) => a.time - b.time);
   renderRaw();
 };
 
@@ -367,19 +371,13 @@ els.startBtn.addEventListener("click", async () => {
   renderTokens();
   setStatus("스크립트 주입 중...");
   try {
-    const tabId = parseInt(els.tabSelect.value, 10);
-    // 탭 오디오 캡처 시도
-    if (settings.whisperEnabled) {
-      chrome.tabCapture.capture({ audio: true, video: false }, (stream) => {
-        if (stream) {
-          audioCapturer.startCapture(stream);
-        } else {
-          log("오디오 캡처 권한이 없거나 실패했습니다.");
-        }
-      });
-    }
-    
+    // connectToTab이 먼저다 — 여기서 받는 호스트 권한이 탭 오디오 캡처의 전제조건이다.
     (await connectToTab()).postMessage({ type: "START", mode: els.modeSelect.value, rect: cropRect });
+    if (settings.whisperEnabled) {
+      audioCapturer
+        .startFromTab(Number(els.tabSelect.value))
+        .catch((e) => log("오디오 캡처 실패: " + (e.message || e)));
+    }
     capturing = true;
     els.stopBtn.disabled = false;
   } catch (e) {

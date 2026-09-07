@@ -108,6 +108,9 @@
         if (batch.length >= cfg.batchSize) flushBatch();
       }
     }
+    // 음성 인식 쪽이 벽시계 대신 영상 시각으로 타임스탬프를 찍게 한다.
+    // 배속·탐색 때 벽시계는 영상 시각과 어긋난다(2배속이면 2배로 벌어진다).
+    send({ type: "tick", t: video.currentTime });
     if (video.ended) {
       flushBatch();
       capturing = false;
