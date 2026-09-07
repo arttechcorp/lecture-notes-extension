@@ -217,11 +217,22 @@ async function generateNotes() {
     settings = await loadSettings();
     let text;
     if (settings.apiKey) {
-      const body = buildSummaryBody(settings.provider, settings.summaryModel, "너는 훌륭한 학습 보조 AI다. 사용자의 지시를 철저히 따른다.", prompt);
-      const res = await callRemote(settings.provider, settings.summaryModel, settings.apiKey, body);
-      tokens.notes.input += res.input;
-      tokens.notes.output += res.output;
-      text = res.text;
+      try {
+        const body = buildSummaryBody(settings.provider, settings.summaryModel, "너는 훌륭한 학습 보조 AI다. 사용자의 지시를 철저히 따른다.", prompt);
+        const res = await callRemote(settings.provider, settings.summaryModel, settings.apiKey, body);
+        tokens.notes.input += res.input;
+        tokens.notes.output += res.output;
+        text = res.text;
+      } catch (e) {
+        if (e.message.includes("503") || e.message.includes("UNAVAILABLE") || e.message.includes("429")) {
+          setStatus("API 서버가 혼잡하여(503/429) 로컬 AI로 전환하여 요약을 시도합니다...");
+          const s = await createLocalSession();
+          text = await s.prompt(prompt);
+          if (s.destroy) s.destroy();
+        } else {
+          throw e;
+        }
+      }
     } else {
       setStatus("API 키가 없어 온디바이스 모델로 생성합니다 (품질이 낮을 수 있습니다).");
       const s = await createLocalSession();
