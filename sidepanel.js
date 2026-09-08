@@ -171,6 +171,8 @@ async function drainQueue() {
       if (transcript.length && !busy) els.notesBtn.disabled = false;
     }
   } catch (e) {
+    // 온디바이스 세션이 죽었을 수 있다. 참조를 버려서 다음 시도가 새로 만들게 한다.
+    localSession = null;
     fail(String(e.message || e));
   } finally {
     draining = false;
