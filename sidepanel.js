@@ -29,6 +29,9 @@ let cropRect = null; // 0~1 정규화
 let settings = null;
 let engine = "local"; // "local" | "remote" | "none"
 let lastVideoTime = 0; // content.js가 알려주는 영상 재생 위치(초)
+// 에러가 뜬 뒤에는 상태줄을 잠근다. content.js가 5초마다 보내는 진행 메시지가
+// 같은 자리에 덮어써서, 에러가 5초만 보이고 흔적 없이 사라지던 문제를 막는다.
+let statusSticky = false;
 
 const tokens = { ocr: { input: 0, output: 0 }, notes: { input: 0, output: 0 } };
 
@@ -121,7 +124,7 @@ async function connectToTab() {
 function onPortMessage(msg) {
   if (msg.type === "progress") {
     if (msg.stage === "error") return fail(msg.detail);
-    setStatus(`${msg.detail}${queue.length ? ` · OCR 대기 ${queue.length}배치` : ""}`);
+    if (!statusSticky) setStatus(`${msg.detail}${queue.length ? ` · OCR 대기 ${queue.length}배치` : ""}`);
   }
   if (msg.type === "tick") lastVideoTime = msg.t;
   if (msg.type === "audio") audioCapturer.pushAudio(msg);
@@ -139,6 +142,19 @@ function onPortMessage(msg) {
   }
 }
 
+// 온디바이스 모델의 최초 다운로드는 사용자 제스처가 있을 때만 시작할 수 있다.
+// drainQueue()는 포트 메시지 핸들러에서 돌기 때문에 제스처가 없다 — 시작 버튼
+// 클릭은 이미 수 초 전이라 만료됐다. 그래서 모델을 아직 안 받은 기기에서는
+// create()가 실패하고, 그 실패가 상태줄에서 덮여 사라지면서 "아무 일도 안 일어남"으로
+// 보였다. 모델이 이미 받아진 기기에서는 다운로드가 필요 없어 그냥 통과했다.
+async function prepareLocalSession() {
+  if (engine !== "local" || localSession) return;
+  setStatus("온디바이스 모델 준비 중... 처음이면 다운로드에 수 분 걸립니다.");
+  log("온디바이스 모델 세션 생성 시도");
+  localSession = await createLocalSession((p) => setStatus(`온디바이스 모델 다운로드 ${Math.round(p * 100)}%`));
+  log("온디바이스 모델 준비 완료");
+}
+
 // --- OCR 큐 ----------------------------------------------------------------------
 const ocrModelFor = (p) => (p === "gemini" ? "gemini-flash-latest" : "claude-haiku-4-5-20251001");
 
@@ -151,10 +167,7 @@ async function drainQueue() {
       setStatus(`OCR 처리 중 (${frames.length}장, 대기 ${queue.length}배치)`);
       let lines;
       if (engine === "local") {
-        if (!localSession) {
-          setStatus("온디바이스 모델 준비 중... 처음이면 다운로드에 수 분 걸립니다.");
-          localSession = await createLocalSession((p) => setStatus(`모델 다운로드 ${Math.round(p * 100)}%`));
-        }
+        await prepareLocalSession(); // 보통은 시작 버튼에서 이미 끝나 있다
         lines = await ocrLocal(localSession, frames, (i, n) => setStatus(`온디바이스 OCR ${i}/${n}`));
       } else if (engine === "remote") {
         const model = ocrModelFor(settings.provider);
@@ -278,6 +291,7 @@ function finishCapture() {
   els.stopBtn.disabled = true;
   els.startBtn.disabled = false;
   if (!transcript.length && !queue.length && !draining) {
+    log("캡처 종료 — 인식된 텍스트 0줄");
     return setStatus("화면에서 텍스트를 얻지 못했습니다. 슬라이드가 없는 영상일 수 있습니다.");
   }
   // 남은 OCR 배치를 다 처리한 뒤에 노트를 만든다.
@@ -291,7 +305,16 @@ function finishCapture() {
 function fail(message) {
   busy = false;
   capturing = false;
+  // 상태줄은 진행 메시지에 덮인다. 로그에 남겨야 사후에 원인을 볼 수 있다.
+  log(`오류: ${message}`);
+  statusSticky = true;
   setStatus(`오류: ${message}`);
+  // 포트를 끊지 않으면 content.js가 계속 프레임을 보내고, 매번 같은 실패를 조용히
+  // 반복한다. UI는 이미 "중지됨"으로 보이는데 실제로는 캡처가 돌고 있었다.
+  if (port) {
+    port.disconnect();
+    port = null;
+  }
   els.startBtn.disabled = false;
   els.stopBtn.disabled = true;
   els.notesBtn.disabled = !transcript.length;
@@ -380,6 +403,18 @@ els.startBtn.addEventListener("click", async () => {
     return fail("영역을 먼저 지정하거나 캡처 영역을 '전체 화면'으로 바꾸세요.");
   }
   
+  // 제스처가 만료되기 전에 먼저 한다. 아래 Whisper 다운로드는 수 분이 걸릴 수 있어
+  // 그 뒤로 미루면 제스처가 죽는다.
+  statusSticky = false;
+  try {
+    await prepareLocalSession();
+  } catch (e) {
+    return fail(
+      `온디바이스 모델을 준비하지 못했습니다: ${e.message || e} — 확장 옵션의 안내 화면에서 ` +
+        `모델 내려받기를 먼저 실행하거나, 설정에서 API 키를 넣고 원격 OCR을 켜세요.`
+    );
+  }
+
   settings = await loadSettings();
   if (settings.whisperEnabled) {
     setStatus("음성 인식(Whisper) 모델 준비 중...");
