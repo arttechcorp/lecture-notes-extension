@@ -125,6 +125,7 @@ function onPortMessage(msg) {
   }
   if (msg.type === "tick") lastVideoTime = msg.t;
   if (msg.type === "audio") audioCapturer.pushAudio(msg);
+  if (msg.type === "silence") log(`[음성] ${Math.round(msg.t)}초 구간 무음 — 건너뜀 (RMS ${msg.rms.toFixed(5)})`);
   if (msg.type === "log") log(msg.text);
   if (msg.type === "preview") showPreview(msg.dataUrl);
   if (msg.type === "frames") {

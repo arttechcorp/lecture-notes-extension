@@ -78,6 +78,14 @@
   const AUDIO_HZ = 16000;
   const CHUNK = AUDIO_HZ * 5; // Whisper에 넘길 5초 단위
 
+  // 무음 청크는 Whisper에 넣지 않는다. 넣으면 빈 결과가 아니라 환각이 나온다
+  // ("감사합니다", "시청해주셔서 감사합니다" 같은 정형구) — 학습 데이터의 자막 상투구다.
+  // 관측된 말소리 RMS는 0.014 근처. 임계값은 그보다 한참 아래여야 조용한 발화를 안 버린다.
+  const SILENCE_RMS = 0.002; // 약 -54 dBFS
+  // RMS만 보면 5초 중 4초가 무음이고 한 단어만 있는 청크가 잘려나간다.
+  // 순간 최대값이 함께 낮을 때만 무음으로 판정한다.
+  const SILENCE_PEAK = 0.02;
+
   // 확장 포트 메시지는 structured clone이 아니라 JSON이다. Float32Array를 그대로 넣으면
   // {"0":0.01,...} 로 부풀어 터진다. int16 PCM + base64가 가장 싼 전송 형식.
   function encodePcm(buf, len) {
@@ -120,8 +128,19 @@
           buf[off++] = input[i];
           if (off >= CHUNK) {
             let sum = 0;
-            for (let k = 0; k < CHUNK; k++) sum += buf[k] * buf[k];
-            send({ type: "audio", pcm: encodePcm(buf, CHUNK), t: chunkStart, rms: Math.sqrt(sum / CHUNK) });
+            let peak = 0;
+            for (let k = 0; k < CHUNK; k++) {
+              sum += buf[k] * buf[k];
+              const abs = buf[k] < 0 ? -buf[k] : buf[k];
+              if (abs > peak) peak = abs;
+            }
+            const rms = Math.sqrt(sum / CHUNK);
+            // base64 인코딩 전에 거른다 — 버릴 청크에 그 비용을 쓸 이유가 없다.
+            if (rms < SILENCE_RMS && peak < SILENCE_PEAK) {
+              send({ type: "silence", t: chunkStart, rms, peak });
+            } else {
+              send({ type: "audio", pcm: encodePcm(buf, CHUNK), t: chunkStart, rms });
+            }
             chunkStart = video.currentTime;
             off = 0;
           }
