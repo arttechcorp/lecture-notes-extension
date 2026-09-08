@@ -194,8 +194,6 @@ function buildNotesPrompt(script, truncated) {
   let instruction = "";
   if (format === "summary") {
     instruction = "이 스크립트를 바탕으로 강의 내용을 잘 구조화된 핵심 요약본으로 작성해라.";
-  } else if (format === "reflection") {
-    instruction = "이 스크립트를 바탕으로 강의 내용을 듣고 느낀 점과 배운 점을 포함한 소감문을 작성해라. 1인칭 시점.";
   } else if (format === "custom") {
     instruction = `다음 조건을 반드시 지켜서 작성해라:\n조건: ${custom || '내용 요약'}`;
   }
