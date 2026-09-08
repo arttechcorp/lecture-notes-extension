@@ -42,6 +42,13 @@
     <option value="caption">하단 자막 띠</option>
   </select>
 
+  <label for="langSelect" style="display: block; margin-top: 8px;">음성 인식 언어</label>
+  <select id="langSelect">
+    <option value="auto">자동 감지</option>
+    <option value="korean">한국어</option>
+    <option value="english">영어</option>
+  </select>
+
   <div class="row" id="cropRow" style="display:none;">
     <button id="previewBtn">현재 화면 불러오기</button>
     <span class="note" id="cropHint" style="margin:0;">불러온 뒤 드래그해서 영역을 지정하세요</span>

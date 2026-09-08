@@ -4,7 +4,7 @@
 // chrome.storage에 절대 들어가지 않는다. 패널이 닫히면 이 페이지와 함께 사라진다.
 const $ = (id) => document.getElementById(id);
 const els = {
-  tabSelect: $("tabSelect"), modeSelect: $("modeSelect"), startBtn: $("startBtn"), stopBtn: $("stopBtn"),
+  tabSelect: $("tabSelect"), modeSelect: $("modeSelect"), langSelect: $("langSelect"), startBtn: $("startBtn"), stopBtn: $("stopBtn"),
   copyBtn: $("copyBtn"), downloadBtn: $("downloadBtn"), notesBtn: $("notesBtn"), previewBtn: $("previewBtn"),
   status: $("status"), result: $("result"), rawScript: $("rawScript"), tokenUsage: $("tokenUsage"),
   debugLog: $("debugLog"), banner: $("engineBanner"), cropRow: $("cropRow"), cropWrap: $("cropWrap"),
@@ -52,6 +52,7 @@ function renderRaw() {
 // --- 엔진 판정 -------------------------------------------------------------------
 async function detectEngine() {
   settings = await loadSettings();
+  els.langSelect.value = settings.whisperLang;
   const status = await localAvailability();
   if (status === "available") {
     engine = "local";
@@ -317,6 +318,12 @@ function showPreview(dataUrl) {
   });
 })();
 
+// 강의마다 언어가 다르므로 패널에서 바로 바꾼다. 고른 값은 다음 실행까지 남는다.
+els.langSelect.addEventListener("change", () => {
+  audioCapturer.language = els.langSelect.value; // 캡처 도중 바꿔도 다음 청크부터 반영된다
+  saveSettings({ whisperLang: els.langSelect.value });
+});
+
 els.modeSelect.addEventListener("change", () => {
   const isRegion = els.modeSelect.value === "region";
   els.cropRow.style.display = isRegion ? "flex" : "none";
@@ -359,6 +366,7 @@ els.startBtn.addEventListener("click", async () => {
   if (settings.whisperEnabled) {
     setStatus("음성 인식(Whisper) 모델 준비 중...");
     try {
+      audioCapturer.language = els.langSelect.value;
       await audioCapturer.initModel((prog) => {
         if (prog.status === 'progress') {
           setStatus(`음성 모델 다운로드 중... ${Math.round(prog.progress)}%`);
