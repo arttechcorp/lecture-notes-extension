@@ -9,10 +9,13 @@ $("consent").addEventListener("change", async (e) => {
 });
 
 // --- 2. 온디바이스 상태 -----------------------------------------------------------
-function setLocalState(cls, text) {
+function setLocalState(cls, text, detail) {
   const el = $("localState");
   el.className = `state ${cls}`;
-  el.textContent = text;
+  el.textContent = detail ? `${text}
+
+[진단] 이미지 입력: ${detail}` : text;
+  el.style.whiteSpace = "pre-wrap";
 }
 
 // downloading 상태는 스스로 풀리기를 기다려야 한다. 그런데 페이지 로드 때 한 번만
@@ -40,6 +43,9 @@ async function refreshLocal() {
     );
   }
   const status = await localAvailability();
+  // 텍스트 전용 상태도 같이 읽는다. 둘이 갈리면 원인이 "모델이 없다"가 아니라
+  // "이미지 입력 능력이 없다"라는 뜻이고, 조치가 완전히 다르다.
+  const textStatus = await localAvailability({});
   if (status !== "downloading") {
     stopPolling();
     downloadingSince = 0;
@@ -48,7 +54,13 @@ async function refreshLocal() {
     setLocalState("ok", "사용 가능합니다. 설정할 것이 없습니다 — 화면 이미지가 기기를 벗어나지 않습니다.");
     $("downloadBtn").style.display = "none";
   } else if (status === "downloadable") {
-    setLocalState("warn", "사용 가능하지만 모델을 아직 내려받지 않았습니다. 아래 버튼을 누르세요(수 GB, 몇 분 소요).");
+    setLocalState(
+      "warn",
+      textStatus === "available"
+        ? "텍스트 모델은 준비됐지만 이미지 입력 능력이 아직 없습니다. 이 확장은 화면 OCR에 이미지 입력이 필요합니다. " +
+            "아래 버튼을 누르면 그 부분을 내려받습니다. (chrome://components 에 버전이 보여도 이 상태일 수 있습니다.)"
+        : "사용 가능하지만 모델을 아직 내려받지 않았습니다. 아래 버튼을 누르세요(수 GB, 몇 분 소요)."
+    );
     $("downloadBtn").style.display = "inline-block";
   } else if (status === "downloading") {
     if (!downloadingSince) downloadingSince = Date.now();
@@ -69,6 +81,8 @@ async function refreshLocal() {
     );
     $("downloadBtn").style.display = "none";
   }
+  // 두 값이 갈리면 chrome://components 의 버전 표시와 여기가 왜 어긋나는지가 설명된다.
+  $("localState").textContent += `\n\n[진단] 이미지 입력 ${status} · 텍스트 전용 ${textStatus}`;
 }
 
 $("downloadBtn").addEventListener("click", async () => {
