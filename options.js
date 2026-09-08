@@ -23,9 +23,8 @@ async function loadSettings() {
   if (provider) {
     providerEl.value = provider;
   }
-  if (whisperEnabled) {
-    whisperCb.checked = true;
-  }
+  
+  whisperCb.checked = !!whisperEnabled;
   updateLink();
 
   if (apiKey) {
@@ -44,6 +43,12 @@ loadSettings();
 
 revealCb.addEventListener("change", () => {
   apiKeyEl.type = revealCb.checked ? "text" : "password";
+});
+
+whisperCb.addEventListener("change", async () => {
+  await chrome.storage.local.set({ whisperEnabled: whisperCb.checked });
+  savedEl.hidden = false;
+  setTimeout(() => (savedEl.hidden = true), 1500);
 });
 
 document.getElementById("saveBtn").addEventListener("click", async () => {
