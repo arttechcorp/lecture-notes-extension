@@ -15,14 +15,35 @@ function setLocalState(cls, text) {
   el.textContent = text;
 }
 
+// downloading 상태는 스스로 풀리기를 기다려야 한다. 그런데 페이지 로드 때 한 번만
+// 확인하면 "완료 후 다시 확인하세요"라고 해놓고 다시 확인할 방법을 안 주는 꼴이다.
+// 진행률도 안 보여서 받고 있는지 멈췄는지 구분이 안 된다. 그래서 직접 폴링한다.
+let pollTimer = null;
+let downloadingSince = 0;
+
+function stopPolling() {
+  if (pollTimer) clearTimeout(pollTimer);
+  pollTimer = null;
+}
+
+const mmss = (ms) => {
+  const sec = Math.floor(ms / 1000);
+  return `${Math.floor(sec / 60)}분 ${String(sec % 60).padStart(2, "0")}초`;
+};
+
 async function refreshLocal() {
   if (typeof LanguageModel === "undefined") {
+    stopPolling();
     return setLocalState(
       "bad",
       "이 브라우저에는 내장 AI가 없습니다. Chrome 138 이상인지 확인하세요. 3번에서 API 키를 넣으면 원격으로 쓸 수 있지만, 그 경우 화면 이미지가 외부로 전송됩니다."
     );
   }
   const status = await localAvailability();
+  if (status !== "downloading") {
+    stopPolling();
+    downloadingSince = 0;
+  }
   if (status === "available") {
     setLocalState("ok", "사용 가능합니다. 설정할 것이 없습니다 — 화면 이미지가 기기를 벗어나지 않습니다.");
     $("downloadBtn").style.display = "none";
@@ -30,8 +51,16 @@ async function refreshLocal() {
     setLocalState("warn", "사용 가능하지만 모델을 아직 내려받지 않았습니다. 아래 버튼을 누르세요(수 GB, 몇 분 소요).");
     $("downloadBtn").style.display = "inline-block";
   } else if (status === "downloading") {
-    setLocalState("warn", "모델을 내려받는 중입니다. 완료 후 다시 확인하세요.");
+    if (!downloadingSince) downloadingSince = Date.now();
+    setLocalState(
+      "warn",
+      `모델을 내려받는 중입니다 (경과 ${mmss(Date.now() - downloadingSince)}). 완료되면 이 화면이 저절로 바뀝니다. ` +
+        "수 GB라 네트워크에 따라 오래 걸릴 수 있습니다. 실제 진행률은 chrome://on-device-internals 에서 볼 수 있습니다."
+    );
     $("downloadBtn").style.display = "none";
+    // 완료를 스스로 감지한다. 5초면 화면이 살아 있다는 게 보이고 부담도 없다.
+    stopPolling();
+    pollTimer = setTimeout(refreshLocal, 5000);
   } else {
     setLocalState(
       "bad",
@@ -49,10 +78,15 @@ $("downloadBtn").addEventListener("click", async () => {
     if (session.destroy) session.destroy();
     await refreshLocal();
   } catch (e) {
-    setLocalState("bad", `다운로드 실패: ${e.message || e}`);
+    setLocalState("bad", `다운로드 실패: ${e.message || e} — 아래 "다시 확인"으로 상태를 새로 읽을 수 있습니다.`);
   } finally {
     $("downloadBtn").disabled = false;
   }
+});
+
+$("recheckBtn").addEventListener("click", () => {
+  downloadingSince = 0; // 수동 확인이면 경과 시간도 새로 센다
+  refreshLocal();
 });
 
 // --- 3. API 키 -------------------------------------------------------------------
