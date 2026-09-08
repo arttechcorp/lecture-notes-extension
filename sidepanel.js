@@ -35,9 +35,15 @@ let statusSticky = false;
 
 const tokens = { ocr: { input: 0, output: 0 }, notes: { input: 0, output: 0 } };
 
+// OCR 대기 배치 상한. slide 모드 기준 배치당 8장이니 최대 32장(약 5MB)까지만 쥔다.
+const MAX_QUEUE_BATCHES = 4;
+
 const setStatus = (t) => (els.status.textContent = t);
+// 로그는 2시간짜리 강의면 수천 줄까지 자란다. 오래된 건 진단에 쓸모가 없다.
+const LOG_MAX_LINES = 500;
 const log = (t) => {
-  els.debugLog.textContent += `${t}\n`;
+  const lines = (els.debugLog.textContent + t + "\n").split("\n");
+  els.debugLog.textContent = lines.slice(-LOG_MAX_LINES).join("\n");
   els.debugLog.scrollTop = els.debugLog.scrollHeight;
 };
 
@@ -133,6 +139,14 @@ function onPortMessage(msg) {
   if (msg.type === "preview") showPreview(msg.dataUrl);
   if (msg.type === "frames") {
     queue.push({ frames: msg.frames, times: msg.times });
+    // 프레임은 JPEG data URL이라 장당 100~200KB다. OCR이 캡처보다 느리면 큐가
+    // 끝없이 자란다 — 2시간 강의면 수백 MB까지 가고 결국 패널이 죽는다.
+    // 오래된 배치를 버려서 메모리를 확정적으로 묶는다. 슬라이드는 몇 초 사이에
+    // 크게 바뀌지 않으므로 손실보다 죽지 않는 쪽이 낫다.
+    while (queue.length > MAX_QUEUE_BATCHES) {
+      const dropped = queue.shift();
+      log(`OCR 처리가 밀려 프레임 ${dropped.frames.length}장을 버렸습니다 (대기 ${queue.length}배치)`);
+    }
     drainQueue();
   }
   if (msg.type === "done") {
