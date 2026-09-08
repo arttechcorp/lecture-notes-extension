@@ -123,6 +123,7 @@ function onPortMessage(msg) {
     setStatus(`${msg.detail}${queue.length ? ` · OCR 대기 ${queue.length}배치` : ""}`);
   }
   if (msg.type === "tick") lastVideoTime = msg.t;
+  if (msg.type === "audio") audioCapturer.pushAudio(msg);
   if (msg.type === "log") log(msg.text);
   if (msg.type === "preview") showPreview(msg.dataUrl);
   if (msg.type === "frames") {
@@ -336,6 +337,7 @@ els.previewBtn.addEventListener("click", async () => {
 let audioCapturer = new AudioCapturer();
 // 오디오 청크에 벽시계가 아니라 영상 시각을 찍기 위한 공급자. 배속·탐색에도 OCR과 눈금이 맞는다.
 audioCapturer.getVideoTime = () => lastVideoTime;
+audioCapturer.onLog = (m) => log(m);
 audioCapturer.onTranscript = (item) => {
   if (!capturing) return;
   transcript.push({ time: item.time, text: `[음성] ${item.text}` });
@@ -382,12 +384,15 @@ els.startBtn.addEventListener("click", async () => {
   renderTokens();
   setStatus("스크립트 주입 중...");
   try {
-    // connectToTab이 먼저다 — 여기서 받는 호스트 권한이 탭 오디오 캡처의 전제조건이다.
-    (await connectToTab()).postMessage({ type: "START", mode: els.modeSelect.value, rect: cropRect });
-    if (settings.whisperEnabled) {
-      audioCapturer
-        .startFromTab(Number(els.tabSelect.value))
-        .catch((e) => log("오디오 캡처 실패: " + (e.message || e)));
+    // 오디오도 같은 포트로 온다 — content script가 <video>에서 직접 딴다.
+    (await connectToTab()).postMessage({
+      type: "START",
+      mode: els.modeSelect.value,
+      rect: cropRect,
+      audio: settings.whisperEnabled,
+    });
+    if (!settings.whisperEnabled) {
+      log("음성 인식이 꺼져 있습니다 (설정에서 켤 수 있습니다). 화면 OCR만 동작합니다.");
     }
     capturing = true;
     els.stopBtn.disabled = false;

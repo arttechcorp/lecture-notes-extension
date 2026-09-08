@@ -8,14 +8,3 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
     chrome.tabs.create({ url: chrome.runtime.getURL("onboarding.html") });
   }
 });
-
-// tabCapture.capture()는 사이드패널에서 쓸 수 없고 대상 탭도 고를 수 없다.
-// MV3에서 특정 탭의 오디오를 잡는 정식 경로는 여기서 stream id를 발급받아
-// 소비자(사이드패널)가 getUserMedia로 여는 것이다. 오디오는 여길 지나가지 않는다.
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg?.type !== "GET_TAB_STREAM_ID") return;
-  chrome.tabCapture.getMediaStreamId({ targetTabId: msg.tabId }, (streamId) => {
-    sendResponse({ streamId, error: chrome.runtime.lastError?.message });
-  });
-  return true; // 비동기 응답
-});

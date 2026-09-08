@@ -15,6 +15,8 @@
 
   let capturing = false;
   let batch = [];
+  let audioCtx = null;
+  let audioProc = null;
   let lastDiffSample = null;
   let port = null;
 
@@ -68,6 +70,81 @@
     return drawRect(video, px, Math.round(px.w * scale), Math.round(px.h * scale)).toDataURL("image/jpeg", 0.7);
   }
 
+  // ── 오디오 ────────────────────────────────────────────────────────────────
+  // tabCapture는 쓰지 않는다. tabCapture는 activeTab 부여(= 그 탭에서 확장 아이콘 클릭)를
+  // 요구하는데, 강의 뷰어처럼 툴바 없는 창에서 열리는 페이지에서는 아이콘을 누를 방법이 없다.
+  // 대신 여기, 이미 영상에 접근하고 있는 컨텍스트에서 <video>의 오디오를 직접 딴다.
+  // 추가 권한이 하나도 필요 없고, 창이 몇 개든 어떤 탭이든 똑같이 동작한다.
+  const AUDIO_HZ = 16000;
+  const CHUNK = AUDIO_HZ * 5; // Whisper에 넘길 5초 단위
+
+  // 확장 포트 메시지는 structured clone이 아니라 JSON이다. Float32Array를 그대로 넣으면
+  // {"0":0.01,...} 로 부풀어 터진다. int16 PCM + base64가 가장 싼 전송 형식.
+  function encodePcm(buf, len) {
+    const bytes = new Uint8Array(len * 2);
+    const view = new DataView(bytes.buffer);
+    for (let i = 0; i < len; i++) {
+      const v = Math.max(-1, Math.min(1, buf[i]));
+      view.setInt16(i * 2, v < 0 ? v * 0x8000 : v * 0x7fff, true);
+    }
+    let s = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(s);
+  }
+
+  async function startAudio(video) {
+    if (audioProc) return; // 이미 붙어 있다
+    try {
+      // createMediaElementSource는 엘리먼트당 딱 한 번만 된다. 재시작에 대비해 캐시한다.
+      if (!video.__lnAudio) {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: AUDIO_HZ });
+        const src = ctx.createMediaElementSource(video);
+        src.connect(ctx.destination); // 소리는 계속 스피커로 나가야 한다
+        video.__lnAudio = { ctx, src };
+      }
+      const { ctx, src } = video.__lnAudio;
+      audioCtx = ctx;
+      // 재생 중인 페이지라 보통 running이지만, suspended면 영상이 무음이 된다.
+      if (ctx.state === "suspended") await ctx.resume();
+
+      // AudioWorklet은 페이지 CSP가 확장 URL 모듈 로드를 막을 수 있다.
+      // ScriptProcessor는 폐기 예정이지만 로드할 파일이 없어 어디서든 뜬다.
+      const proc = ctx.createScriptProcessor(4096, 1, 1);
+      let buf = new Float32Array(CHUNK);
+      let off = 0;
+      let chunkStart = video.currentTime;
+      proc.onaudioprocess = (e) => {
+        if (!capturing) return;
+        const input = e.inputBuffer.getChannelData(0);
+        for (let i = 0; i < input.length; i++) {
+          buf[off++] = input[i];
+          if (off >= CHUNK) {
+            let sum = 0;
+            for (let k = 0; k < CHUNK; k++) sum += buf[k] * buf[k];
+            send({ type: "audio", pcm: encodePcm(buf, CHUNK), t: chunkStart, rms: Math.sqrt(sum / CHUNK) });
+            chunkStart = video.currentTime;
+            off = 0;
+          }
+        }
+      };
+      src.connect(proc);
+      proc.connect(ctx.destination); // 연결돼 있어야 onaudioprocess가 돈다 (출력은 무음)
+      audioProc = proc;
+      debugLog("오디오 캡처 시작", { state: ctx.state, sampleRate: ctx.sampleRate });
+    } catch (e) {
+      report("error", `영상 오디오에 연결하지 못했습니다: ${e.name} ${e.message}`);
+    }
+  }
+
+  function stopAudio() {
+    if (audioProc) {
+      audioProc.onaudioprocess = null;
+      audioProc.disconnect();
+      audioProc = null;
+    }
+    audioCtx = null; // ctx/src는 엘리먼트에 캐시된 채 남긴다 (재연결용)
+  }
+
   // 사이트별 캡처 가능 여부를 미리 판정한다. 이게 없으면 사이트마다 원인 불명으로 죽는다.
   // DRM 영상에서는 캡처를 시도하지 않고 중단한다 — 기술적 보호조치를 우회하지 않는다는 정책.
   function preflight(video, px, cfg) {
@@ -114,6 +191,7 @@
     if (video.ended) {
       flushBatch();
       capturing = false;
+      stopAudio();
       send({ type: "done", title: document.title });
       return;
     }
@@ -121,7 +199,7 @@
     setTimeout(() => captureLoop(video, px, cfg), cfg.interval / (video.playbackRate || 1));
   }
 
-  function startCapture(mode, rect) {
+  function startCapture(mode, rect, wantAudio) {
     const video = getVideo();
     if (!video) return; // 이 프레임엔 영상이 없다 — 다른 프레임이 처리한다
     const cfg = MODES[mode] || MODES.slide;
@@ -137,6 +215,7 @@
     lastDiffSample = null;
     debugLog("캡처 시작", { mode, videoWidth: video.videoWidth, videoHeight: video.videoHeight, px });
     report("capture", "캡처 시작");
+    if (wantAudio) startAudio(video);
     captureLoop(video, px, cfg);
   }
 
@@ -157,13 +236,15 @@
     if (p.name !== "capture") return;
     port = p;
     p.onMessage.addListener((msg) => {
-      if (msg.type === "START") startCapture(msg.mode, msg.rect);
+      if (msg.type === "START") startCapture(msg.mode, msg.rect, msg.audio);
+      if (msg.type === "STOP") { capturing = false; stopAudio(); }
       if (msg.type === "PREVIEW") sendPreview();
     });
     // 사이드패널이 닫히면 포트가 끊긴다 → 캡처를 즉시 멈춘다.
     // "패널이 열려 있는 동안만 동작한다"는 무저장 설계의 수명 보장.
     p.onDisconnect.addListener(() => {
       capturing = false;
+      stopAudio();
       batch = [];
       lastDiffSample = null;
       port = null;
