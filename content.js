@@ -18,6 +18,7 @@
   let audioCtx = null;
   let audioProc = null;
   let pitchWas = null;
+  let ocrEngine = "local"; // 사이드패널이 START로 알려준다 — 엔진마다 원하는 입력 크기가 다르다
   let lastDiffSample = null;
   let port = null;
 
@@ -43,7 +44,11 @@
     const c = document.createElement("canvas");
     c.width = destW;
     c.height = destH;
-    c.getContext("2d").drawImage(video, px.x, px.y, px.w, px.h, 0, 0, destW, destH);
+    const ctx = c.getContext("2d");
+    // 확대할 때 획이 계단지면 OCR이 바로 나빠진다.
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(video, px.x, px.y, px.w, px.h, 0, 0, destW, destH);
     return c;
   }
 
@@ -66,9 +71,24 @@
     return sum / a.length;
   }
 
+  // Tesseract는 글자 획이 뭉개지면 급격히 나빠진다. Nano처럼 1024로 줄이면 저해상도
+  // 강의에서 읽을 게 남지 않는다. 그래서 줄이지 않고, 오히려 작으면 키워서 넘긴다.
+  // Tesseract는 대략 글자 높이 20px 이상을 원하는데, 720p 영상의 슬라이드 본문은
+  // 그에 한참 못 미친다. 확대해도 정보가 늘지는 않지만 획 경계가 살아나서 실제로 는다.
+  // JPEG 품질도 올린다 — 0.7은 텍스트 가장자리에 링잉을 남긴다.
+  const TESS_MIN_WIDTH = 1600;
+  const TESS_MAX_WIDTH = 2560; // 무한정 키우면 큐·포트 부담만 커진다
   function captureFrame(video, px, cfg) {
-    const scale = cfg.maxWidth && px.w > cfg.maxWidth ? cfg.maxWidth / px.w : 1;
-    return drawRect(video, px, Math.round(px.w * scale), Math.round(px.h * scale)).toDataURL("image/jpeg", 0.7);
+    let destW = px.w;
+    let quality = 0.7;
+    if (ocrEngine === "tesseract") {
+      destW = Math.min(TESS_MAX_WIDTH, Math.max(px.w, TESS_MIN_WIDTH));
+      quality = 0.92;
+    } else if (cfg.maxWidth && px.w > cfg.maxWidth) {
+      destW = cfg.maxWidth; // Nano는 큰 이미지를 싫어한다 (컨텍스트·크래시)
+    }
+    const scale = destW / px.w;
+    return drawRect(video, px, Math.round(px.w * scale), Math.round(px.h * scale)).toDataURL("image/jpeg", quality);
   }
 
   // ── 오디오 ────────────────────────────────────────────────────────────────
@@ -270,7 +290,7 @@
     capturing = true;
     batch = [];
     lastDiffSample = null;
-    debugLog("캡처 시작", { mode, videoWidth: video.videoWidth, videoHeight: video.videoHeight, px });
+    debugLog("캡처 시작", { mode, ocrEngine, videoWidth: video.videoWidth, videoHeight: video.videoHeight, px });
     report("capture", "캡처 시작");
     if (wantAudio) startAudio(video);
     captureLoop(video, px, cfg);
@@ -293,7 +313,10 @@
     if (p.name !== "capture") return;
     port = p;
     p.onMessage.addListener((msg) => {
-      if (msg.type === "START") startCapture(msg.mode, msg.rect, msg.audio);
+      if (msg.type === "START") {
+        ocrEngine = msg.ocr || "local";
+        startCapture(msg.mode, msg.rect, msg.audio);
+      }
       if (msg.type === "STOP") { capturing = false; stopAudio(); }
       if (msg.type === "PREVIEW") sendPreview();
     });

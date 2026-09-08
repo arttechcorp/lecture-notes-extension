@@ -496,6 +496,8 @@ els.startBtn.addEventListener("click", async () => {
       mode: els.modeSelect.value,
       rect: cropRect,
       audio: settings.whisperEnabled,
+      ocr: engine, // 엔진마다 원하는 프레임 크기가 다르다
+
     });
     if (!settings.whisperEnabled) {
       log("음성 인식이 꺼져 있습니다 (설정에서 켤 수 있습니다). 화면 OCR만 동작합니다.");
