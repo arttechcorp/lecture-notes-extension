@@ -25,6 +25,7 @@ let busy = false; // 노트 생성 중 중복 실행 방지
 let queue = []; // OCR 대기 중인 프레임 배치
 let draining = false;
 let localSession = null;
+let tessReady = false;
 let cropRect = null; // 0~1 정규화
 let settings = null;
 let engine = "local"; // "local" | "remote" | "none"
@@ -48,7 +49,8 @@ const log = (t) => {
 };
 
 function renderTokens() {
-  const ocrLabel = engine === "local" ? "OCR(온디바이스, 무료)" : "OCR(원격)";
+  const OCR_LABEL = { local: "OCR(Nano, 무료)", tesseract: "OCR(Tesseract, 무료)", remote: "OCR(원격)", none: "OCR(없음)" };
+  const ocrLabel = OCR_LABEL[engine] || "OCR";
   els.tokenUsage.textContent =
     `${ocrLabel} 입력 ${tokens.ocr.input.toLocaleString()} · 출력 ${tokens.ocr.output.toLocaleString()}\n` +
     `노트 입력 ${tokens.notes.input.toLocaleString()} · 출력 ${tokens.notes.output.toLocaleString()}`;
@@ -63,10 +65,24 @@ async function detectEngine() {
   settings = await loadSettings();
   els.langSelect.value = settings.whisperLang;
   const status = await localAvailability();
-  if (status === "available") {
+  const pref = settings.ocrEngine;
+  if (pref === "tesseract") {
+    engine = "tesseract";
+    els.banner.className = "banner ok";
+    els.banner.textContent = "Tesseract OCR 사용 — 화면 이미지가 기기를 벗어나지 않습니다.";
+  } else if (status === "available") {
     engine = "local";
     els.banner.className = "banner ok";
-    els.banner.textContent = "온디바이스 OCR 사용 가능 — 화면 이미지가 기기를 벗어나지 않습니다.";
+    els.banner.textContent = "온디바이스 OCR(Nano) 사용 가능 — 화면 이미지가 기기를 벗어나지 않습니다.";
+  } else if (pref === "auto") {
+    // Nano가 "받으면 된다"는 상태여도 auto에서는 기다리지 않는다. 수 GB를 받게 만드느니
+    // 지금 당장 돌아가는 Tesseract를 쓴다. Nano를 원하면 설정에서 명시적으로 고르면 된다.
+    engine = "tesseract";
+    els.banner.className = "banner ok";
+    els.banner.textContent =
+      status === "downloading"
+        ? "Nano 모델을 내려받는 중이라 Tesseract OCR로 동작합니다 — 이미지가 기기를 벗어나지 않습니다."
+        : "Nano를 쓸 수 없어 Tesseract OCR로 동작합니다 — 이미지가 기기를 벗어나지 않습니다.";
   } else if (status === "downloadable" || status === "downloading") {
     engine = "local";
     els.banner.className = "banner warn";
@@ -161,6 +177,17 @@ function onPortMessage(msg) {
 // 클릭은 이미 수 초 전이라 만료됐다. 그래서 모델을 아직 안 받은 기기에서는
 // create()가 실패하고, 그 실패가 상태줄에서 덮여 사라지면서 "아무 일도 안 일어남"으로
 // 보였다. 모델이 이미 받아진 기기에서는 다운로드가 필요 없어 그냥 통과했다.
+async function prepareTesseract() {
+  if (engine !== "tesseract" || tessReady) return;
+  setStatus("Tesseract OCR 준비 중... 처음이면 언어 데이터를 읽는 데 잠시 걸립니다.");
+  log("Tesseract 워커 생성 시도");
+  await createTesseractWorker((m) => {
+    if (m && m.status) setStatus(`Tesseract ${m.status}${m.progress ? ` ${Math.round(m.progress * 100)}%` : ""}`);
+  });
+  tessReady = true;
+  log("Tesseract 준비 완료");
+}
+
 async function prepareLocalSession() {
   if (engine !== "local" || localSession) return;
   setStatus("온디바이스 모델 준비 중... 처음이면 다운로드에 수 분 걸립니다.");
@@ -183,6 +210,9 @@ async function drainQueue() {
       if (engine === "local") {
         await prepareLocalSession(); // 보통은 시작 버튼에서 이미 끝나 있다
         lines = await ocrLocal(localSession, frames, (i, n) => setStatus(`온디바이스 OCR ${i}/${n}`));
+      } else if (engine === "tesseract") {
+        await prepareTesseract();
+        lines = await ocrTesseract(await createTesseractWorker(), frames, (i, n) => setStatus(`Tesseract OCR ${i}/${n}`));
       } else if (engine === "remote") {
         const model = ocrModelFor(settings.provider);
         const res = await callRemote(settings.provider, model, settings.apiKey, buildOcrBody(settings.provider, model, frames));
@@ -422,10 +452,11 @@ els.startBtn.addEventListener("click", async () => {
   statusSticky = false;
   try {
     await prepareLocalSession();
+    await prepareTesseract();
   } catch (e) {
     return fail(
-      `온디바이스 모델을 준비하지 못했습니다: ${e.message || e} — 확장 옵션의 안내 화면에서 ` +
-        `모델 내려받기를 먼저 실행하거나, 설정에서 API 키를 넣고 원격 OCR을 켜세요.`
+      `온디바이스 OCR을 준비하지 못했습니다: ${e.message || e} — 설정에서 OCR 엔진을 바꾸거나, ` +
+        `안내 화면에서 Nano 모델 내려받기를 먼저 실행하세요.`
     );
   }
 

@@ -5,6 +5,7 @@ const revealCb = document.getElementById("revealCb");
 const providerEl = document.getElementById("provider");
 const keyLink = document.getElementById("keyLink");
 const whisperCb = document.getElementById("whisperCb");
+const ocrEngineEl = document.getElementById("ocrEngine");
 
 const PROVIDER_URLS = {
   gemini: "https://aistudio.google.com/apikey",
@@ -18,7 +19,8 @@ function updateLink() {
 providerEl.addEventListener("change", updateLink);
 
 async function loadSettings() {
-  let { apiKey, provider, whisperEnabled } = await chrome.storage.local.get(["apiKey", "provider", "whisperEnabled"]);
+  let { apiKey, provider, whisperEnabled, ocrEngine } = await chrome.storage.local.get(["apiKey", "provider", "whisperEnabled", "ocrEngine"]);
+  ocrEngineEl.value = ocrEngine || "auto";
   
   if (provider) {
     providerEl.value = provider;
@@ -45,6 +47,12 @@ revealCb.addEventListener("change", () => {
   apiKeyEl.type = revealCb.checked ? "text" : "password";
 });
 
+ocrEngineEl.addEventListener("change", async () => {
+  await chrome.storage.local.set({ ocrEngine: ocrEngineEl.value });
+  savedEl.hidden = false;
+  setTimeout(() => (savedEl.hidden = true), 1500);
+});
+
 whisperCb.addEventListener("change", async () => {
   await chrome.storage.local.set({ whisperEnabled: whisperCb.checked });
   savedEl.hidden = false;
@@ -56,7 +64,7 @@ document.getElementById("saveBtn").addEventListener("click", async () => {
   const provider = providerEl.value;
   const whisperEnabled = whisperCb.checked;
   
-  await chrome.storage.local.set({ provider, whisperEnabled });
+  await chrome.storage.local.set({ provider, whisperEnabled, ocrEngine: ocrEngineEl.value });
   
   if (syncCb.checked) {
     await chrome.storage.sync.set({ apiKey: key });

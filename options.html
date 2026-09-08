@@ -32,6 +32,16 @@
   
   <hr style="margin: 24px 0; border: none; border-top: 1px solid #eee;" />
   
+  <h2>화면 인식 (OCR) 엔진</h2>
+  <select id="ocrEngine" style="padding: 6px; font: inherit;">
+    <option value="auto">자동 (Nano가 준비돼 있으면 Nano, 아니면 Tesseract)</option>
+    <option value="nano">Chrome Nano (정확도 높음, 디스크 22GB·VRAM 4GB 필요)</option>
+    <option value="tesseract">Tesseract (요건 없음, 인쇄된 슬라이드에 강함)</option>
+  </select>
+  <p class="note">둘 다 기기 안에서만 동작합니다. 화면 이미지는 어디로도 전송되지 않습니다.</p>
+
+  <hr style="margin: 24px 0; border: none; border-top: 1px solid #eee;" />
+
   <h2>음성 인식 (STT) 설정</h2>
   <div style="background: #f9f9f9; padding: 12px; border-radius: 6px; border: 1px solid #ddd;">
     <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer;">
