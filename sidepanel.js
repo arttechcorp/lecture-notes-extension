@@ -180,6 +180,7 @@ async function drainQueue() {
 }
 
 // --- 노트 생성 (텍스트만 전송) -------------------------------------------------------
+// 원격 모델에만 적용되는 상한. 온디바이스는 잘라내는 대신 구간별로 요약해 합친다.
 const MAX_SCRIPT_CHARS = 30000;
 
 const NOTES_SYSTEM =
@@ -207,6 +208,26 @@ function buildNotesPrompt(script, truncated) {
   );
 }
 
+// 온디바이스 모델은 컨텍스트가 작아 스크립트를 통째로 못 받는다("The input is too large").
+// 잘라 버리는 대신 구간별로 요약한 뒤 그 요약들을 다시 요약한다. 세션은 매번 새로 뜬다.
+async function notesLocal(full, onProgress) {
+  const s = await createLocalSession();
+  try {
+    return await summarizeLocal(
+      s,
+      full,
+      (part, isPartial) =>
+        isPartial
+          ? "아래는 강의 스크립트의 한 구간이다. 이 구간에서 다룬 내용을 빠짐없이, 사실만 간결히 정리해라. " +
+            "인사말이나 메타 코멘트를 붙이지 마라.\n\n" + part
+          : buildNotesPrompt(part, false),
+      onProgress
+    );
+  } finally {
+    if (s.destroy) s.destroy();
+  }
+}
+
 async function generateNotes() {
   if (!transcript.length) return fail("인식된 텍스트가 없습니다. 먼저 캡처를 실행하세요.");
   busy = true;
@@ -229,18 +250,14 @@ async function generateNotes() {
       } catch (e) {
         if (e.message.includes("503") || e.message.includes("UNAVAILABLE") || e.message.includes("429")) {
           setStatus("API 서버가 혼잡하여(503/429) 로컬 AI로 전환하여 요약을 시도합니다...");
-          const s = await createLocalSession();
-          text = await s.prompt(prompt);
-          if (s.destroy) s.destroy();
+          text = await notesLocal(full, setStatus);
         } else {
           throw e;
         }
       }
     } else {
       setStatus("API 키가 없어 온디바이스 모델로 생성합니다 (품질이 낮을 수 있습니다).");
-      const s = await createLocalSession();
-      text = await s.prompt(prompt);
-      if (s.destroy) s.destroy();
+      text = await notesLocal(full, setStatus);
     }
     els.result.value = text;
     els.result.readOnly = false;
