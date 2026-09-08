@@ -4,6 +4,7 @@
   "version": "0.2.0",
   "description": "재생 중인 영상 화면에서 학습 노트를 만듭니다. 화면 이미지는 기기 안에서만 처리되며 어디에도 저장되지 않습니다.",
   "permissions": [
+    "activeTab",
     "storage",
     "sidePanel",
     "scripting",
@@ -11,14 +12,12 @@
     "tabCapture"
   ],
   "host_permissions": [
+    "<all_urls>",
     "https://api.anthropic.com/*",
     "https://generativelanguage.googleapis.com/*",
     "https://huggingface.co/*",
     "https://*.hf.co/*",
     "https://cdn-lfs.huggingface.co/*"
-  ],
-  "optional_host_permissions": [
-    "<all_urls>"
   ],
   "background": {
     "service_worker": "background.js"
