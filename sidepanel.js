@@ -216,13 +216,19 @@ function renderSettingsSummary() {
 }
 
 // 하단에는 지금 쓰고 있는 플랜 이름을 둔다. 토큰 수는 사용자에게 의미가 없다.
+const SCOPE_LABEL = {
+  none: "기기 안에서만",
+  summary: "요약만 외부로",
+  full: "원문 외부로",
+};
+
 function renderPlan() {
   if (settings.apiKey) {
-    els.planName.textContent = "내 API 키";
-    els.planUse.textContent = PROVIDER_LABEL[settings.provider] || settings.provider;
+    els.planName.textContent = "내 API 키 · " + (PROVIDER_LABEL[settings.provider] || settings.provider);
+    els.planUse.textContent = SCOPE_LABEL[settings.remoteScope] || settings.remoteScope;
   } else {
     els.planName.textContent = "무료 플랜";
-    els.planUse.textContent = "기기 안에서 처리";
+    els.planUse.textContent = "기기 안에서만";
   }
 }
 
@@ -402,7 +408,7 @@ function buildNotesPrompt(script, truncated) {
 // 온디바이스 모델은 컨텍스트가 작아 스크립트를 통째로 못 받는다("The input is too large").
 // 잘라 버리는 대신 구간별로 요약한 뒤 그 요약들을 다시 요약한다. 세션은 매번 새로 뜬다.
 async function notesLocal(full, onProgress) {
-  const s = await createLocalSession();
+  const s = await createLocalSession(undefined, {}); // 텍스트만 — 이미지 능력 불필요
   try {
     return await summarizeLocal(
       s,
@@ -419,6 +425,30 @@ async function notesLocal(full, onProgress) {
   }
 }
 
+// 원격 호출 한 번. 프롬프트를 만드는 쪽에서 무엇을 담을지 이미 정해져 있다.
+async function notesRemote(prompt) {
+  const body = buildSummaryBody(
+    settings.provider,
+    settings.summaryModel,
+    "너는 훌륭한 학습 보조 AI다. 사용자의 지시를 철저히 따른다.",
+    prompt
+  );
+  const res = await callRemote(settings.provider, settings.summaryModel, settings.apiKey, body);
+  tokens.notes.input += res.input;
+  tokens.notes.output += res.output;
+  return res.text;
+}
+
+// 기기 안에서 먼저 요약해 원문 표현을 걷어낸다.
+async function condense(full, onProgress) {
+  const s = await createLocalSession(undefined, {}); // 텍스트만 — 이미지 능력 불필요
+  try {
+    return await condenseLocal(s, full, onProgress);
+  } finally {
+    if (s.destroy) s.destroy();
+  }
+}
+
 async function generateNotes() {
   if (!transcript.length) return fail("인식된 텍스트가 없습니다. 먼저 캡처를 실행하세요.");
   busy = true;
@@ -430,25 +460,46 @@ async function generateNotes() {
     const prompt = buildNotesPrompt(truncated ? full.slice(0, MAX_SCRIPT_CHARS) : full, truncated);
 
     settings = await loadSettings();
+    const scope = settings.apiKey ? settings.remoteScope : "none";
+    // 노트 생성은 텍스트 전용이다. 이미지 능력 유무로 판정하면 안 된다.
+    const localReady = (await localAvailability({})) === "available";
+
+    // "요약만 보내기"인데 로컬 요약기가 없으면 원격으로 넘기지 않고 멈춘다.
+    // 프라이버시 설정이 조용히 약해지는 것이 가장 나쁘다 — 원문이 나갈 바에는
+    // 무엇을 하면 되는지 알려주고 사용자가 정하게 한다.
+    if (scope === "summary" && !localReady) {
+      return fail(
+        "이 기기에서는 기기 내 요약 모델(Chrome 내장)을 쓸 수 없습니다. " +
+          "'요약만 보내기' 설정에서는 강의 원문을 그대로 외부로 보내지 않으므로 노트를 만들지 않았습니다. " +
+          "설정에서 모델을 내려받거나, 외부 전송을 '전체 스크립트'로 바꾸세요."
+      );
+    }
+    if (scope === "none" && !localReady) {
+      return fail(
+        "노트를 만들 방법이 없습니다. 설정에서 Chrome 내장 모델을 내려받거나, API 키를 넣으세요."
+      );
+    }
+
     let text;
-    if (settings.apiKey) {
+    if (scope === "none") {
+      setStatus("기기 안에서 노트를 만드는 중...");
+      text = await notesLocal(full, setStatus);
+    } else {
+      // summary면 원문 대신 로컬 요약본을 프롬프트에 넣는다.
+      const payload = scope === "summary" ? await condense(full, setStatus) : prompt;
+      const remotePrompt = scope === "summary" ? buildNotesPrompt(payload, false) : payload;
+      setStatus("노트를 만드는 중...");
       try {
-        const body = buildSummaryBody(settings.provider, settings.summaryModel, "너는 훌륭한 학습 보조 AI다. 사용자의 지시를 철저히 따른다.", prompt);
-        const res = await callRemote(settings.provider, settings.summaryModel, settings.apiKey, body);
-        tokens.notes.input += res.input;
-        tokens.notes.output += res.output;
-        text = res.text;
+        text = await notesRemote(remotePrompt);
       } catch (e) {
         if (e.message.includes("503") || e.message.includes("UNAVAILABLE") || e.message.includes("429")) {
-          setStatus("API 서버가 혼잡하여(503/429) 로컬 AI로 전환하여 요약을 시도합니다...");
+          if (!localReady) throw e;
+          setStatus("API 서버가 혼잡하여(503/429) 기기 안에서 생성합니다...");
           text = await notesLocal(full, setStatus);
         } else {
           throw e;
         }
       }
-    } else {
-      setStatus("API 키가 없어 온디바이스 모델로 생성합니다 (품질이 낮을 수 있습니다).");
-      text = await notesLocal(full, setStatus);
     }
     els.result.value = text;
     els.result.readOnly = false;

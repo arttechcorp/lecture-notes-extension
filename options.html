@@ -32,6 +32,24 @@
   
   <hr style="margin: 24px 0; border: none; border-top: 1px solid #eee;" />
   
+  <h2>노트 생성 시 외부 전송</h2>
+  <select id="remoteScope" style="padding: 6px; font: inherit;">
+    <option value="summary">기기 안에서 먼저 요약하고, 요약본만 보내기 (권장)</option>
+    <option value="none">아무것도 보내지 않기 (기기 안에서만 생성)</option>
+    <option value="full">스크립트 원문을 그대로 보내기</option>
+  </select>
+  <p class="note">
+    저작권은 사실이 아니라 표현을 보호합니다. 강의 원문 문장을 그대로 외부로 보내는 것과,
+    기기 안에서 다시 쓴 요약을 보내는 것은 노출의 성격이 다릅니다. 권장값은 원문이 기기를
+    벗어나지 않게 합니다. 화면 이미지와 음성은 이 설정과 무관하게 전송되지 않습니다.
+  </p>
+  <p class="note">
+    "요약본만 보내기"는 Chrome 내장 모델이 필요합니다. 그 모델을 쓸 수 없는 기기에서는
+    원문을 대신 보내지 않고 노트 생성을 중단합니다.
+  </p>
+
+  <hr style="margin: 24px 0; border: none; border-top: 1px solid #eee;" />
+
   <h2>화면 인식 (OCR) 엔진</h2>
   <select id="ocrEngine" style="padding: 6px; font: inherit;">
     <option value="auto">자동 (Nano가 준비돼 있으면 Nano, 아니면 Tesseract)</option>
