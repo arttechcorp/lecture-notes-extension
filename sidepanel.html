@@ -18,6 +18,10 @@
       --ok: #4fc38b; --ok-soft: #10301f;
     }
   }
+  /* hidden 속성은 UA 스타일의 [hidden]{display:none}으로만 동작한다. 작성자 규칙에
+     display가 하나라도 걸리면(#onboard가 그랬다) 조용히 뚫린다. 단계 전환이 전부
+     .hidden에 의존하므로 여기서 못을 박는다. */
+  [hidden] { display: none !important; }
   * { box-sizing: border-box; }
   body {
     font: 13.5px/1.55 system-ui, sans-serif; margin: 0; padding: 14px;

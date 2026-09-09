@@ -33,9 +33,14 @@ const els = {
 // --- 단계 전환 -------------------------------------------------------------------
 // 한 화면에 주된 행동은 하나만 둔다. 준비·진행·결과를 동시에 보여주면
 // 처음 여는 사람이 무엇부터 눌러야 할지 알 수 없다.
-let stage = "ready";
+let stage = "onboard";
 function setStage(name) {
+  // 동의 전에는 온보딩 말고 아무것도 열지 않는다. 게이트를 "화면을 숨긴다"에만
+  // 맡겼다가 #onboard의 display 규칙 하나에 통째로 뚫렸다. 모든 전환이 여길
+  // 지나가므로, 개별 버튼마다 가드를 다는 대신 여기서 한 번 막는다.
+  if (name !== "onboard" && !(settings && settings.consentAccepted)) name = "onboard";
   stage = name;
+  els.onboard.hidden = name !== "onboard";
   els.stageReady.hidden = name !== "ready";
   els.stageLive.hidden = name !== "live";
   els.stageDone.hidden = name !== "done";
@@ -718,8 +723,7 @@ els.againBtn.addEventListener("click", () => {
 // --- 온보딩 (패널 안에서 끝낸다) ------------------------------------------------------
 // 별도 탭으로 띄우면 맥락이 끊긴다. 세 가지만 확인하고 바로 첫 캡처로 넘어간다.
 async function runOnboarding() {
-  els.onboard.hidden = false;
-  els.stageReady.hidden = true;
+  setStage("onboard");
   els.obWhisper.checked = settings.whisperEnabled;
 
   const status = await localAvailability();
@@ -752,7 +756,8 @@ async function runOnboarding() {
   els.obConsent.addEventListener("change", () => (els.obDone.disabled = !els.obConsent.checked));
   els.obDone.addEventListener("click", async () => {
     await saveSettings({ consentAccepted: true, whisperEnabled: els.obWhisper.checked });
-    els.onboard.hidden = true;
+    settings.consentAccepted = true; // setStage가 이 값을 본다. 저장만으로는 안 바뀐다.
+    settings.whisperEnabled = els.obWhisper.checked;
     setStage("ready");
     await detectEngine();
   });
