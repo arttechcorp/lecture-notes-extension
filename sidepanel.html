@@ -4,94 +4,308 @@
 <meta charset="utf-8" />
 <title>Screen Notes</title>
 <style>
-  body { font: 14px/1.5 system-ui, sans-serif; margin: 0; padding: 16px; color: #1a1a1a; }
-  h1 { font-size: 15px; margin: 0 0 4px; }
-  button { font: inherit; padding: 8px 12px; border: 1px solid #999; border-radius: 6px; background: #fff; cursor: pointer; }
-  button:disabled { opacity: 0.5; cursor: not-allowed; }
-  button.primary { background: #1a5fb4; color: #fff; border-color: #1a5fb4; }
-  select { font: inherit; width: 100%; box-sizing: border-box; padding: 6px; margin-top: 4px; }
-  label { font-size: 12px; color: #555; }
-  #status { margin: 12px 0; padding: 8px; background: #f4f4f4; border-radius: 6px; min-height: 1.5em; white-space: pre-wrap; }
-  #result { width: 100%; height: 300px; box-sizing: border-box; margin-top: 8px; font: 13px/1.5 ui-monospace, monospace; }
-  .row { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
-  .note { color: #666; font-size: 12px; margin-top: 12px; }
-  .banner { font-size: 12px; padding: 8px; border-radius: 6px; margin-bottom: 10px; }
-  .banner.ok { background: #e7f3ea; color: #1a5c33; }
-  .banner.warn { background: #fdf1e0; color: #7a4b00; }
+  :root {
+    --ink: #15181f; --muted: #626c7b; --line: #e0e4eb; --sunk: #f1f3f7; --card: #fff;
+    --accent: #3b4fd8; --accent-soft: #eaecfc;
+    --live: #c2410c; --live-soft: #fdede3;
+    --ok: #0b6e45; --ok-soft: #e3f3eb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #e6eaf0; --muted: #99a4b3; --line: #262f3a; --sunk: #1d242d; --card: #151a21;
+      --accent: #8b9bff; --accent-soft: #1b2140;
+      --live: #f59158; --live-soft: #3a2115;
+      --ok: #4fc38b; --ok-soft: #10301f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font: 13.5px/1.55 system-ui, sans-serif; margin: 0; padding: 14px;
+    color: var(--ink); background: var(--card);
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  h1 { font-size: 14px; margin: 0; font-weight: 600; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+  button {
+    font: inherit; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--card); color: var(--ink); cursor: pointer;
+  }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; width: 100%; padding: 11px; font-size: 14px; }
+  button.danger { background: var(--live); border-color: var(--live); color: #fff; font-weight: 600; width: 100%; padding: 11px; font-size: 14px; }
+  button.link { border: 0; background: none; color: var(--accent); font-weight: 600; padding: 0; font-size: 12.5px; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btnrow { display: flex; gap: 6px; }
+  .btnrow button { flex: 1; font-size: 12.5px; padding: 8px 6px; }
+
+  select, textarea, input[type="text"] {
+    font: inherit; width: 100%; padding: 7px 8px; border-radius: 7px;
+    border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  }
+  label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 3px; }
+  .field + .field { margin-top: 10px; }
+
+  /* 준비 카드 */
+  .readycard { background: var(--sunk); border-radius: 9px; padding: 10px 11px; display: flex; flex-direction: column; gap: 7px; }
+  .checkrow { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+  .checkrow .mark { width: 15px; font-weight: 700; color: var(--ok); flex-shrink: 0; }
+  .checkrow .mark.warn { color: var(--live); }
+  .checkrow .mark.off { color: var(--muted); }
+  .checkrow .what { flex: 1; }
+  .checkrow .val { color: var(--muted); font-size: 12px; text-align: right; }
+  .detail { font-size: 12px; color: var(--muted); margin: 0; }
+
+  /* 설정 서랍 */
+  .settingbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12.5px;
+  }
+  .settingbar .summary { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #settingsDrawer { border: 1px solid var(--line); border-radius: 8px; padding: 11px; }
+
+  /* 진행 */
+  .statusline { display: flex; align-items: center; gap: 8px; }
+  .pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 100px; font-size: 11.5px; font-weight: 600; }
+  .pill.live { background: var(--live-soft); color: var(--live); }
+  .pill.ok { background: var(--ok-soft); color: var(--ok); }
+  .pulse { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: blink 1.4s ease-in-out infinite; }
+  @keyframes blink { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
+  @media (prefers-reduced-motion: reduce) { .pulse { animation: none } }
+  .sub { color: var(--muted); font-size: 12.5px; }
+
+  .counters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .counter { background: var(--sunk); border-radius: 8px; padding: 8px 9px; }
+  .counter b { display: block; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.15; }
+  .counter span { font-size: 11px; color: var(--muted); }
+
+  .feed { background: var(--sunk); border-radius: 8px; padding: 9px 10px; display: flex; flex-direction: column; gap: 6px; }
+  .feed .head { font-size: 11.5px; color: var(--muted); display: flex; justify-content: space-between; }
+  #feedLines { display: flex; flex-direction: column; gap: 4px; font-size: 12px; line-height: 1.45; }
+  #feedLines div { display: flex; gap: 7px; color: var(--muted); }
+  #feedLines div:last-child { color: var(--ink); }
+  #feedLines .t { font-family: ui-monospace, monospace; font-size: 11px; flex-shrink: 0; }
+  #feedLines .empty { color: var(--muted); }
+
+  .alert { border-radius: 8px; padding: 9px 10px; font-size: 12.5px; display: flex; flex-direction: column; gap: 5px; }
+  .alert.warn { background: var(--live-soft); color: var(--live); }
+  .alert b { font-weight: 600; }
+
+  #result { width: 100%; height: 240px; font: 12.5px/1.55 ui-monospace, monospace; resize: vertical; }
+
+  details { font-size: 12px; }
+  details summary { cursor: pointer; color: var(--muted); }
+  details pre {
+    font: 11px/1.45 ui-monospace, monospace; white-space: pre-wrap; max-height: 200px;
+    overflow-y: auto; background: var(--sunk); padding: 7px; border-radius: 6px; margin: 6px 0 0;
+  }
+
+  footer { border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+  #planLine { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+  #planName { font-weight: 600; }
+  #planUse { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .legal { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+
+  /* 영역 지정 */
   #cropWrap { position: relative; display: none; margin-top: 8px; user-select: none; }
-  #cropWrap img { width: 100%; display: block; border-radius: 4px; }
-  #cropBox { position: absolute; border: 2px solid #1a5fb4; background: rgba(26,95,180,.15); display: none; }
+  #cropWrap img { width: 100%; display: block; border-radius: 6px; }
+  #cropBox { position: absolute; border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); display: none; }
+
+  /* 온보딩 */
+  #onboard { display: flex; flex-direction: column; gap: 12px; }
+  .step { display: grid; grid-template-columns: 20px 1fr; gap: 9px; align-items: start; }
+  .step .n { font-size: 11px; font-family: ui-monospace, monospace; color: var(--accent); padding-top: 2px; }
+  .step .c { display: flex; flex-direction: column; gap: 5px; }
+  .step b { font-size: 13px; font-weight: 600; }
+  .step .why { font-size: 12px; color: var(--muted); }
+  .checkline { display: flex; gap: 7px; align-items: flex-start; font-size: 12.5px; }
+  .checkline input { margin-top: 3px; }
 </style>
 </head>
 <body>
+
+<div class="topbar">
   <h1>Screen Notes</h1>
-  <div class="note" style="margin: 0 0 10px;">화면 이미지는 기기 안에서만 처리되고 어디에도 저장되지 않습니다. 패널을 닫으면 모두 사라집니다.</div>
+  <button class="link" id="settingsLink" type="button">설정</button>
+</div>
 
-  <div id="engineBanner" class="banner warn">엔진 확인 중...</div>
+<!-- ── 온보딩 (첫 실행 시에만) ─────────────────────────────────── -->
+<div id="onboard" hidden>
+  <p class="detail">처음이시군요. 세 가지만 확인하면 됩니다.</p>
 
-  <label for="tabSelect">영상이 열린 탭</label>
-  <div class="row">
-    <select id="tabSelect"></select>
-    <button id="refreshTabsBtn" title="탭 목록 새로고침">↻</button>
+  <div class="step">
+    <span class="n">1</span>
+    <span class="c">
+      <b>어떻게 동작하는지</b>
+      <span class="why">재생 중인 영상의 화면과 소리를 읽어 학습 노트를 만듭니다. 화면·소리는 이 기기 안에서만 처리되고, 패널을 닫으면 모두 사라집니다.</span>
+      <label class="checkline"><input type="checkbox" id="obConsent" />
+        <span>개인 학습용으로만 쓰고, 소속 기관의 원격수업 지침을 따르겠습니다.</span></label>
+    </span>
   </div>
 
-  <label for="modeSelect" style="display: block; margin-top: 8px;">캡처 영역</label>
-  <select id="modeSelect">
-    <option value="region">영역 지정 (권장 — 강사 화면을 제외하고 슬라이드만)</option>
-    <option value="slide">전체 화면</option>
-    <option value="caption">하단 자막 띠</option>
-  </select>
-
-  <label for="langSelect" style="display: block; margin-top: 8px;">음성 인식 언어</label>
-  <select id="langSelect">
-    <option value="auto">자동 감지</option>
-    <option value="korean">한국어</option>
-    <option value="english">영어</option>
-  </select>
-
-  <div class="row" id="cropRow" style="display:none;">
-    <button id="previewBtn">현재 화면 불러오기</button>
-    <span class="note" id="cropHint" style="margin:0;">불러온 뒤 드래그해서 영역을 지정하세요</span>
-  </div>
-  <div id="cropWrap"><img id="cropImg" alt="" /><div id="cropBox"></div></div>
-
-  <div class="row">
-    <button id="startBtn" class="primary">캡처 시작</button>
-    <button id="stopBtn" disabled>중지 후 노트 생성</button>
+  <div class="step">
+    <span class="n">2</span>
+    <span class="c">
+      <b>화면 글자 읽기</b>
+      <span class="why" id="obEngineWhy">확인 중...</span>
+      <button id="obEngineBtn" type="button" hidden>Nano 모델 내려받기</button>
+    </span>
   </div>
 
-  <div id="status">영상을 재생한 뒤 탭을 고르고 시작을 누르세요.</div>
-  <div id="tokenUsage" style="font: 12px/1.4 monospace; color: #555; white-space: pre-wrap;"></div>
-
-  <textarea id="result" placeholder="노트가 여기 표시됩니다. 자동 생성 초안이니 반드시 직접 검토하세요." readonly></textarea>
-  <div class="row">
-    <button id="copyBtn" disabled>복사</button>
-    <button id="downloadBtn" disabled>.md 저장</button>
+  <div class="step">
+    <span class="n">3</span>
+    <span class="c">
+      <b>말소리 받아쓰기</b>
+      <span class="why">강의 음성을 글로 옮깁니다. 처음 켤 때 약 80MB를 내려받고, 그 뒤로는 기기 안에서 동작합니다.</span>
+      <label class="checkline"><input type="checkbox" id="obWhisper" />
+        <span>말소리도 받아쓰기 (권장)</span></label>
+    </span>
   </div>
-  
-  <div style="margin-top: 12px; background: #f9f9f9; padding: 10px; border-radius: 6px; border: 1px solid #ddd;">
-    <label for="outputFormat" style="display: block; font-weight: bold; margin-bottom: 4px;">출력 형태 선택</label>
-    <select id="outputFormat" style="margin-bottom: 8px;">
+
+  <button class="primary" id="obDone" type="button" disabled>시작하기</button>
+</div>
+
+<!-- ── 준비 ────────────────────────────────────────────────── -->
+<div id="stageReady" hidden>
+  <div class="readycard">
+    <div class="checkrow">
+      <span class="mark" id="markEngine">·</span><span class="what">화면 글자 읽기</span>
+      <span class="val" id="engineBanner">확인 중</span>
+    </div>
+    <div class="checkrow">
+      <span class="mark" id="markVoice">·</span><span class="what">말소리 받아쓰기</span>
+      <span class="val" id="voiceState">—</span>
+    </div>
+    <div class="checkrow">
+      <span class="mark" id="markTab">·</span><span class="what">영상 탭</span>
+      <span class="val" id="tabState">—</span>
+    </div>
+  </div>
+  <p class="detail" id="engineDetail" hidden></p>
+
+  <div class="settingbar">
+    <span class="summary" id="settingsSummary">—</span>
+    <button class="link" id="settingsToggle" type="button">변경</button>
+  </div>
+
+  <button class="primary" id="startBtn" type="button">캡처 시작</button>
+  <p class="detail">영상을 재생한 뒤 시작하세요.</p>
+</div>
+
+<!-- ── 설정 서랍 (준비/완료 양쪽에서 같은 것을 연다) ───────────── -->
+<div id="settingsDrawer" hidden>
+  <div class="field">
+    <label for="tabSelect">영상이 열린 탭</label>
+    <div style="display:flex; gap:6px;">
+      <select id="tabSelect"></select>
+      <button id="refreshTabsBtn" title="탭 목록 새로고침" type="button">↻</button>
+    </div>
+  </div>
+
+  <div class="field">
+    <label for="modeSelect">캡처 영역</label>
+    <select id="modeSelect">
+      <option value="region">영역 지정 (권장 — 슬라이드만)</option>
+      <option value="slide">전체 화면</option>
+      <option value="caption">하단 자막 띠</option>
+    </select>
+    <div id="cropRow" style="display:none; margin-top:6px;">
+      <button id="previewBtn" type="button">현재 화면 불러오기</button>
+      <p class="detail" id="cropHint" style="margin-top:5px;">불러온 뒤 드래그해서 영역을 지정하세요</p>
+    </div>
+    <div id="cropWrap"><img id="cropImg" alt="" /><div id="cropBox"></div></div>
+  </div>
+
+  <div class="field">
+    <label for="langSelect">음성 인식 언어</label>
+    <select id="langSelect">
+      <option value="auto">자동 감지</option>
+      <option value="korean">한국어</option>
+      <option value="english">영어</option>
+    </select>
+  </div>
+
+  <div class="field">
+    <label for="outputFormat">노트 형태</label>
+    <select id="outputFormat">
       <option value="summary">핵심 요약본</option>
       <option value="custom">직접 입력</option>
     </select>
-    <textarea id="customPrompt" placeholder="원하는 조건을 입력하세요 (예: 표 형식으로 정리해줘)" style="display:none; width:100%; height:60px; box-sizing: border-box; font:inherit; margin-bottom: 8px;"></textarea>
-    <button id="notesBtn" disabled title="재캡처 없이 선택한 형태로 노트를 다시 만듭니다" style="width: 100%;">이 형태로 (다시) 생성</button>
+    <textarea id="customPrompt" rows="3" placeholder="원하는 조건을 입력하세요 (예: 표 형식으로 정리해줘)" style="display:none; margin-top:6px;"></textarea>
   </div>
 
-  <details style="margin-top: 12px;">
-    <summary style="cursor: pointer;">인식된 텍스트 (메모리에만 존재)</summary>
-    <pre id="rawScript" style="font: 11px/1.4 monospace; white-space: pre-wrap; max-height: 240px; overflow-y: auto; background: #f4f4f4; padding: 6px; border-radius: 4px;"></pre>
-  </details>
-  <details style="margin-top: 8px;">
-    <summary style="cursor: pointer;">디버그 로그</summary>
-    <pre id="debugLog" style="font: 11px/1.4 monospace; white-space: pre-wrap; max-height: 200px; overflow-y: auto; background: #f4f4f4; padding: 6px; border-radius: 4px;"></pre>
-  </details>
+  <button id="settingsClose" type="button" style="width:100%; margin-top:11px;">닫기</button>
+</div>
 
-  <div class="note">
-    개인 학습용 도구입니다. 소속 기관의 원격수업 지침·이용약관을 먼저 확인하세요. 캡처물의 보관·재배포는 하지 마세요.
+<!-- ── 캡처 중 ─────────────────────────────────────────────── -->
+<div id="stageLive" hidden>
+  <div class="statusline">
+    <span class="pill live"><span class="pulse"></span>캡처 중</span>
+    <span class="sub" id="elapsed">00:00</span>
+  </div>
+
+  <div class="counters">
+    <div class="counter"><b id="cntSlides">0</b><span>슬라이드</span></div>
+    <div class="counter"><b id="cntVoice">0</b><span>음성 줄</span></div>
+    <div class="counter"><b id="cntQueue">0</b><span>처리 대기</span></div>
+  </div>
+
+  <div class="feed">
+    <div class="head"><span>지금 인식 중</span><span>최근 3줄</span></div>
+    <div id="feedLines"><div class="empty">아직 인식된 내용이 없습니다.</div></div>
+  </div>
+
+  <div class="alert warn" id="panelAlert" hidden></div>
+
+  <button class="danger" id="stopBtn" type="button" disabled>중지하고 노트 만들기</button>
+</div>
+
+<!-- ── 완료 ────────────────────────────────────────────────── -->
+<div id="stageDone" hidden>
+  <div class="statusline">
+    <span class="pill ok" id="donePill">노트 완성</span>
+    <span class="sub" id="doneSummary"></span>
+  </div>
+
+  <textarea id="result" placeholder="노트가 여기 표시됩니다. 자동 생성 초안이니 반드시 직접 검토하세요." readonly></textarea>
+
+  <div class="settingbar">
+    <span class="summary" id="formatSummary">형태: 핵심 요약본</span>
+    <button class="link" id="formatToggle" type="button">변경</button>
+  </div>
+
+  <div class="btnrow">
+    <button id="copyBtn" type="button" disabled>복사</button>
+    <button id="downloadBtn" type="button" disabled>.md 저장</button>
+    <button id="notesBtn" type="button" disabled title="재캡처 없이 선택한 형태로 다시 만듭니다">다시 만들기</button>
+  </div>
+
+  <button id="againBtn" type="button" style="width:100%;">새로 캡처하기</button>
+</div>
+
+<!-- ── 공통 ────────────────────────────────────────────────── -->
+<div id="status" class="detail" style="min-height:1.4em; white-space:pre-wrap;"></div>
+
+<details>
+  <summary>인식된 텍스트 전체 (메모리에만 존재)</summary>
+  <pre id="rawScript"></pre>
+</details>
+<details>
+  <summary>디버그 로그</summary>
+  <pre id="debugLog"></pre>
+</details>
+
+<footer>
+  <div id="planLine">
+    <span id="planName">무료 플랜</span>
+    <span id="planUse">기기 안에서 처리</span>
+  </div>
+  <div id="tokenUsage" class="legal" style="font-family: ui-monospace, monospace; white-space: pre-wrap;"></div>
+  <p class="legal">
+    개인 학습용 도구입니다. 캡처물의 보관·재배포는 하지 마세요.
     <a href="#" id="optionsLink">설정 열기</a>
-  </div>
+  </p>
+</footer>
 
   <script src="lib/vendor/tesseract/tesseract.min.js"></script>
   <script src="lib/mergeLines.js"></script>

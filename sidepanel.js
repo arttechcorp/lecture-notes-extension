@@ -10,10 +10,42 @@ const els = {
   debugLog: $("debugLog"), banner: $("engineBanner"), cropRow: $("cropRow"), cropWrap: $("cropWrap"),
   cropImg: $("cropImg"), cropBox: $("cropBox"), cropHint: $("cropHint"),
   outputFormat: $("outputFormat"), customPrompt: $("customPrompt"),
+  // 단계 전환
+  stageReady: $("stageReady"), stageLive: $("stageLive"), stageDone: $("stageDone"),
+  onboard: $("onboard"), obConsent: $("obConsent"), obWhisper: $("obWhisper"),
+  obEngineWhy: $("obEngineWhy"), obEngineBtn: $("obEngineBtn"), obDone: $("obDone"),
+  // 준비 카드
+  markEngine: $("markEngine"), markVoice: $("markVoice"), markTab: $("markTab"),
+  voiceState: $("voiceState"), tabState: $("tabState"), engineDetail: $("engineDetail"),
+  // 설정 서랍
+  drawer: $("settingsDrawer"), settingsToggle: $("settingsToggle"), settingsClose: $("settingsClose"),
+  settingsSummary: $("settingsSummary"), formatSummary: $("formatSummary"), formatToggle: $("formatToggle"),
+  settingsLink: $("settingsLink"),
+  // 진행
+  elapsed: $("elapsed"), cntSlides: $("cntSlides"), cntVoice: $("cntVoice"), cntQueue: $("cntQueue"),
+  feedLines: $("feedLines"), panelAlert: $("panelAlert"),
+  // 완료
+  doneSummary: $("doneSummary"), againBtn: $("againBtn"),
+  // 하단
+  planName: $("planName"), planUse: $("planUse"),
 };
+
+// --- 단계 전환 -------------------------------------------------------------------
+// 한 화면에 주된 행동은 하나만 둔다. 준비·진행·결과를 동시에 보여주면
+// 처음 여는 사람이 무엇부터 눌러야 할지 알 수 없다.
+let stage = "ready";
+function setStage(name) {
+  stage = name;
+  els.stageReady.hidden = name !== "ready";
+  els.stageLive.hidden = name !== "live";
+  els.stageDone.hidden = name !== "done";
+  if (name !== "ready") els.drawer.hidden = true;
+}
 
 els.outputFormat.addEventListener("change", () => {
   els.customPrompt.style.display = els.outputFormat.value === "custom" ? "block" : "none";
+  renderSettingsSummary();
+  saveSettings({ outputFormat: els.outputFormat.value });
 });
 
 // --- 세션 상태 (메모리 전용) -----------------------------------------------------
@@ -48,55 +80,151 @@ const log = (t) => {
   els.debugLog.scrollTop = els.debugLog.scrollHeight;
 };
 
+// 토큰 수는 원격 호출로 실제 과금이 일어났을 때만 의미가 있다. 로컬만 쓰는
+// 사용자에게 0이 두 줄 떠 있는 건 정보가 아니라 잡음이다.
 function renderTokens() {
-  const OCR_LABEL = { local: "OCR(Nano, 무료)", tesseract: "OCR(Tesseract, 무료)", remote: "OCR(원격)", none: "OCR(없음)" };
-  const ocrLabel = OCR_LABEL[engine] || "OCR";
+  const total = tokens.ocr.input + tokens.ocr.output + tokens.notes.input + tokens.notes.output;
+  if (!total) return (els.tokenUsage.textContent = "");
   els.tokenUsage.textContent =
-    `${ocrLabel} 입력 ${tokens.ocr.input.toLocaleString()} · 출력 ${tokens.ocr.output.toLocaleString()}\n` +
-    `노트 입력 ${tokens.notes.input.toLocaleString()} · 출력 ${tokens.notes.output.toLocaleString()}`;
+    `이번 세션 토큰 — 화면 ${(tokens.ocr.input + tokens.ocr.output).toLocaleString()} · ` +
+    `노트 ${(tokens.notes.input + tokens.notes.output).toLocaleString()}`;
 }
 
 function renderRaw() {
   els.rawScript.textContent = transcript.map((e) => `[${formatTime(e.time)}] ${e.text}`).join("\n");
+  renderProgress();
 }
 
+// 진행 중에는 숫자가 살아 움직여야 한다. "프레임 3장 대기 중" 한 줄이 5초마다
+// 덮어써지는 것만으로는 동작하는지 멈췄는지 알 수 없다.
+function renderProgress() {
+  const voice = transcript.filter((e) => e.text.startsWith("[음성]"));
+  els.cntSlides.textContent = transcript.length - voice.length;
+  els.cntVoice.textContent = voice.length;
+  els.cntQueue.textContent = queue.length;
+
+  const last = transcript.slice(-3);
+  if (!last.length) {
+    els.feedLines.innerHTML = '<div class="empty">아직 인식된 내용이 없습니다.</div>';
+    return;
+  }
+  els.feedLines.textContent = "";
+  for (const item of last) {
+    const row = document.createElement("div");
+    const t = document.createElement("span");
+    t.className = "t";
+    t.textContent = formatTime(item.time);
+    const body = document.createElement("span");
+    body.textContent = item.text.replace(/^\[음성\] /, "");
+    row.append(t, body);
+    els.feedLines.appendChild(row);
+  }
+}
+
+let elapsedTimer = null;
+function startElapsed() {
+  const t0 = Date.now();
+  const tick = () => {
+    const s = Math.floor((Date.now() - t0) / 1000);
+    els.elapsed.textContent = `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+  };
+  tick();
+  clearInterval(elapsedTimer);
+  elapsedTimer = setInterval(tick, 1000);
+}
+function stopElapsed() { clearInterval(elapsedTimer); elapsedTimer = null; }
+
 // --- 엔진 판정 -------------------------------------------------------------------
+// 준비 상태는 개발자의 말이 아니라 사용자의 말로 적는다.
+// "온디바이스 OCR(Nano) 사용 가능"이 아니라 "화면 글자 읽기 — 준비됨".
+function setRow(mark, cls, valEl, text) {
+  mark.textContent = cls === "ok" ? "✓" : cls === "warn" ? "!" : "·";
+  mark.className = "mark" + (cls === "ok" ? "" : cls === "warn" ? " warn" : " off");
+  if (valEl) valEl.textContent = text;
+}
+
 async function detectEngine() {
   settings = await loadSettings();
   els.langSelect.value = settings.whisperLang;
+  els.outputFormat.value = settings.outputFormat || "summary";
+
   const status = await localAvailability();
   const pref = settings.ocrEngine;
+  let detail = "";
+
   if (pref === "tesseract") {
     engine = "tesseract";
-    els.banner.className = "banner ok";
-    els.banner.textContent = "Tesseract OCR 사용 — 화면 이미지가 기기를 벗어나지 않습니다.";
+    setRow(els.markEngine, "ok", els.banner, "준비됨");
   } else if (status === "available") {
     engine = "local";
-    els.banner.className = "banner ok";
-    els.banner.textContent = "온디바이스 OCR(Nano) 사용 가능 — 화면 이미지가 기기를 벗어나지 않습니다.";
+    setRow(els.markEngine, "ok", els.banner, "준비됨");
   } else if (pref === "auto") {
-    // Nano가 "받으면 된다"는 상태여도 auto에서는 기다리지 않는다. 수 GB를 받게 만드느니
-    // 지금 당장 돌아가는 Tesseract를 쓴다. Nano를 원하면 설정에서 명시적으로 고르면 된다.
+    // Nano가 "받으면 된다"는 상태여도 기다리지 않는다. 지금 도는 쪽을 쓴다.
     engine = "tesseract";
-    els.banner.className = "banner ok";
-    els.banner.textContent =
+    setRow(els.markEngine, "ok", els.banner, "준비됨");
+    detail =
       status === "downloading"
-        ? "Nano 모델을 내려받는 중이라 Tesseract OCR로 동작합니다 — 이미지가 기기를 벗어나지 않습니다."
-        : "Nano를 쓸 수 없어 Tesseract OCR로 동작합니다 — 이미지가 기기를 벗어나지 않습니다.";
+        ? "Chrome 내장 모델을 내려받는 중이라, 그동안 Tesseract로 읽습니다."
+        : "Chrome 내장 모델을 쓸 수 없어 Tesseract로 읽습니다.";
   } else if (status === "downloadable" || status === "downloading") {
     engine = "local";
-    els.banner.className = "banner warn";
-    els.banner.textContent = "온디바이스 모델을 아직 내려받지 않았습니다. 첫 캡처 때 자동으로 내려받습니다(수 분 소요).";
+    setRow(els.markEngine, "warn", els.banner, "모델 필요");
+    detail = "Chrome 내장 모델을 아직 내려받지 않았습니다. 캡처를 시작하면 자동으로 내려받습니다(수 분).";
   } else if (settings.allowRemoteOcr && settings.apiKey) {
     engine = "remote";
-    els.banner.className = "banner warn";
-    els.banner.textContent = "온디바이스 OCR 불가 → 원격 OCR로 동작합니다. 캡처 이미지가 외부 제공자로 전송됩니다.";
+    setRow(els.markEngine, "warn", els.banner, "원격");
+    detail = "이 기기에서는 기기 내 인식을 쓸 수 없어 원격으로 처리합니다. 캡처 이미지가 외부로 전송됩니다.";
   } else {
     engine = "none";
-    els.banner.className = "banner warn";
-    els.banner.textContent = "이 기기에서는 온디바이스 OCR을 쓸 수 없습니다. 설정에서 상태를 확인하세요.";
+    setRow(els.markEngine, "warn", els.banner, "사용 불가");
+    detail = "화면 글자를 읽을 방법이 없습니다. 설정에서 인식 엔진을 확인하세요.";
   }
+
+  els.engineDetail.textContent = detail;
+  els.engineDetail.hidden = !detail;
+
+  setRow(
+    els.markVoice,
+    settings.whisperEnabled ? "ok" : "off",
+    els.voiceState,
+    settings.whisperEnabled ? "켜짐" : "꺼짐"
+  );
+
+  renderSettingsSummary();
+  renderPlan();
   renderTokens();
+}
+
+// 설정은 한 줄로 접어둔다. 대부분 기본값으로 쓰고, 바꿀 때만 편다.
+const MODE_LABEL = { region: "슬라이드 영역만", slide: "전체 화면", caption: "하단 자막 띠" };
+const LANG_LABEL = { auto: "언어 자동", korean: "한국어", english: "영어" };
+const FORMAT_LABEL = { summary: "핵심 요약본", custom: "직접 입력" };
+
+function renderSettingsSummary() {
+  const parts = [
+    MODE_LABEL[els.modeSelect.value] || els.modeSelect.value,
+    LANG_LABEL[els.langSelect.value] || els.langSelect.value,
+    FORMAT_LABEL[els.outputFormat.value] || els.outputFormat.value,
+  ];
+  els.settingsSummary.textContent = parts.join(" · ");
+  els.formatSummary.textContent = "형태: " + (FORMAT_LABEL[els.outputFormat.value] || els.outputFormat.value);
+}
+
+// 하단에는 지금 쓰고 있는 플랜 이름을 둔다. 토큰 수는 사용자에게 의미가 없다.
+function renderPlan() {
+  if (settings.apiKey) {
+    els.planName.textContent = "내 API 키";
+    els.planUse.textContent = PROVIDER_LABEL[settings.provider] || settings.provider;
+  } else {
+    els.planName.textContent = "무료 플랜";
+    els.planUse.textContent = "기기 안에서 처리";
+  }
+}
+
+function renderTabRow() {
+  const opt = els.tabSelect.selectedOptions[0];
+  const ok = !!opt;
+  setRow(els.markTab, ok ? "ok" : "warn", els.tabState, ok ? opt.textContent.split(" — ")[1] || opt.textContent : "없음");
 }
 
 // --- 탭 선택 (사이트 하드코딩 없음) ------------------------------------------------
@@ -120,6 +248,7 @@ async function loadTabs() {
     els.tabSelect.appendChild(opt);
   }
   if (!tabs.length) setStatus("열린 http(s) 탭이 없습니다. 영상을 먼저 여세요.");
+  renderTabRow();
 }
 
 // --- 탭 연결 + 포트 프로토콜 -------------------------------------------------------
@@ -320,6 +449,9 @@ async function generateNotes() {
     els.result.readOnly = false;
     els.copyBtn.disabled = false;
     els.downloadBtn.disabled = false;
+    const voice = transcript.filter((e) => e.text.startsWith("[음성]")).length;
+    els.doneSummary.textContent = `슬라이드 ${transcript.length - voice}장 · 음성 ${voice}줄`;
+    setStage("done");
     setStatus("완료. 자동 생성된 결과물입니다. 직접 내용을 검토하세요. 패널을 닫으면 사라집니다.");
     renderTokens();
   } catch (e) {
@@ -336,7 +468,10 @@ function finishCapture() {
   els.startBtn.disabled = false;
   if (!transcript.length && !queue.length && !draining) {
     log("캡처 종료 — 인식된 텍스트 0줄");
-    return setStatus("화면에서 텍스트를 얻지 못했습니다. 슬라이드가 없는 영상일 수 있습니다.");
+    stopElapsed();
+    els.panelAlert.textContent = "화면에서 텍스트를 얻지 못했습니다. 슬라이드가 없는 영상이거나 캡처 영역이 빗나갔을 수 있습니다.";
+    els.panelAlert.hidden = false;
+    return setStatus("");
   }
   // 남은 OCR 배치를 다 처리한 뒤에 노트를 만든다.
   const wait = setInterval(() => {
@@ -353,6 +488,11 @@ function fail(message) {
   log(`오류: ${message}`);
   statusSticky = true;
   setStatus(`오류: ${message}`);
+  stopElapsed();
+  // 진행 화면에서는 그 자리에 띄운다. 상태줄은 진행 메시지에 덮이고,
+  // 디버그 로그는 접혀 있어서 아무도 열지 않는다 — 이번 디버깅에서 반복해 물린 지점.
+  els.panelAlert.textContent = message;
+  els.panelAlert.hidden = false;
   // 포트를 끊지 않으면 content.js가 계속 프레임을 보내고, 매번 같은 실패를 조용히
   // 반복한다. UI는 이미 "중지됨"으로 보이는데 실제로는 캡처가 돌고 있었다.
   if (port) {
@@ -405,11 +545,13 @@ function showPreview(dataUrl) {
 
 // 강의마다 언어가 다르므로 패널에서 바로 바꾼다. 고른 값은 다음 실행까지 남는다.
 els.langSelect.addEventListener("change", () => {
+  renderSettingsSummary();
   audioCapturer.language = els.langSelect.value; // 캡처 도중 바꿔도 다음 청크부터 반영된다
   saveSettings({ whisperLang: els.langSelect.value });
 });
 
 els.modeSelect.addEventListener("change", () => {
+  renderSettingsSummary();
   const isRegion = els.modeSelect.value === "region";
   els.cropRow.style.display = isRegion ? "flex" : "none";
   if (!isRegion) els.cropWrap.style.display = "none";
@@ -450,6 +592,7 @@ els.startBtn.addEventListener("click", async () => {
   // 제스처가 만료되기 전에 먼저 한다. 아래 Whisper 다운로드는 수 분이 걸릴 수 있어
   // 그 뒤로 미루면 제스처가 죽는다.
   statusSticky = false;
+  els.panelAlert.hidden = true;
   try {
     await prepareLocalSession();
     await prepareTesseract();
@@ -504,6 +647,9 @@ els.startBtn.addEventListener("click", async () => {
     }
     capturing = true;
     els.stopBtn.disabled = false;
+    setStage("live");
+    startElapsed();
+    renderProgress();
   } catch (e) {
     return fail(String(e.message || e));
   }
@@ -518,6 +664,7 @@ els.startBtn.addEventListener("click", async () => {
 
 els.stopBtn.addEventListener("click", () => {
   capturing = false;
+  stopElapsed();
   audioCapturer.stopCapture();
   if (port) port.disconnect();
   port = null;
@@ -550,11 +697,82 @@ els.downloadBtn.addEventListener("click", () => {
   URL.revokeObjectURL(a.href);
 });
 
+els.tabSelect.addEventListener("change", renderTabRow);
 $("refreshTabsBtn").addEventListener("click", loadTabs);
+
+// --- 설정 서랍 --------------------------------------------------------------------
+const openDrawer = () => { els.drawer.hidden = false; els.drawer.scrollIntoView({ block: "nearest" }); };
+els.settingsToggle.addEventListener("click", openDrawer);
+els.formatToggle.addEventListener("click", openDrawer);
+els.settingsClose.addEventListener("click", () => { els.drawer.hidden = true; renderSettingsSummary(); });
+els.settingsLink.addEventListener("click", () => chrome.runtime.openOptionsPage());
+
+// 완료 화면에서 다시 준비 화면으로.
+els.againBtn.addEventListener("click", () => {
+  els.result.value = "";
+  setStatus("");
+  setStage("ready");
+  loadTabs();
+});
+
+// --- 온보딩 (패널 안에서 끝낸다) ------------------------------------------------------
+// 별도 탭으로 띄우면 맥락이 끊긴다. 세 가지만 확인하고 바로 첫 캡처로 넘어간다.
+async function runOnboarding() {
+  els.onboard.hidden = false;
+  els.stageReady.hidden = true;
+  els.obWhisper.checked = settings.whisperEnabled;
+
+  const status = await localAvailability();
+  if (status === "available") {
+    els.obEngineWhy.textContent = "Chrome 내장 모델을 쓸 수 있습니다. 설정할 것이 없습니다.";
+  } else if (status === "downloadable") {
+    els.obEngineWhy.textContent =
+      "지금은 Tesseract로 읽습니다. Chrome 내장 모델을 받으면 인식이 더 정확해집니다(수 GB, 몇 분).";
+    els.obEngineBtn.hidden = false;
+  } else if (status === "downloading") {
+    els.obEngineWhy.textContent = "Chrome 내장 모델을 내려받는 중입니다. 그동안 Tesseract로 읽습니다.";
+  } else {
+    els.obEngineWhy.textContent = "이 기기에서는 Tesseract로 읽습니다. 추가 설치가 필요 없습니다.";
+  }
+
+  els.obEngineBtn.addEventListener("click", async () => {
+    els.obEngineBtn.disabled = true;
+    els.obEngineWhy.textContent = "내려받는 중...";
+    try {
+      const sess = await createLocalSession((p) => (els.obEngineWhy.textContent = `내려받는 중 ${Math.round(p * 100)}%`));
+      if (sess.destroy) sess.destroy();
+      els.obEngineWhy.textContent = "완료됐습니다.";
+      els.obEngineBtn.hidden = true;
+    } catch (e) {
+      els.obEngineWhy.textContent = `내려받지 못했습니다: ${e.message || e} — Tesseract로 계속 쓸 수 있습니다.`;
+      els.obEngineBtn.disabled = false;
+    }
+  });
+
+  els.obConsent.addEventListener("change", () => (els.obDone.disabled = !els.obConsent.checked));
+  els.obDone.addEventListener("click", async () => {
+    await saveSettings({ consentAccepted: true, whisperEnabled: els.obWhisper.checked });
+    els.onboard.hidden = true;
+    setStage("ready");
+    await (async () => {
+  settings = await loadSettings();
+  if (!settings.consentAccepted) await runOnboarding();
+  else setStage("ready");
+  await detectEngine();
+})();
+  });
+}
+
+
 $("optionsLink").addEventListener("click", (e) => {
   e.preventDefault();
   chrome.runtime.openOptionsPage();
 });
 
 loadTabs();
-detectEngine();
+(async () => {
+  settings = await loadSettings();
+  if (!settings.consentAccepted) await runOnboarding();
+  else setStage("ready");
+  await detectEngine();
+})();
