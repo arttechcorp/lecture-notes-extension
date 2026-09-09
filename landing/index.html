@@ -1,0 +1,516 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Summrizei — 강의를 학습 노트로</title>
+<meta name="description" content="재생 중인 강의 영상의 슬라이드와 말소리를 읽어 시각이 박힌 학습 노트로 만드는 Chrome 확장 프로그램입니다." />
+<meta name="theme-color" content="#000000" />
+<link rel="canonical" href="https://summrizei.vercel.app/" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="Summrizei — 강의를 학습 노트로" />
+<meta property="og:description" content="강의를 보는 동안 노트가 쌓입니다. 화면과 음성은 컴퓨터를 벗어나지 않습니다." />
+<meta property="og:locale" content="ko_KR" />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23000'/%3E%3Ctext x='16' y='23' font-family='Georgia,serif' font-size='19' fill='%23fff' text-anchor='middle'%3ES%3C/text%3E%3C/svg%3E" />
+</head>
+<body>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,400;6..96,500&family=Gowun+Batang:wght@400;700&family=IBM+Plex+Sans+KR:wght@300;400;500;600&display=swap">
+<style>
+  :root {
+    --paper: #FFFFFF;
+    --ground: #F7F7F7;
+    --ink: #000000;
+    --ash: #6E6E6E;
+    --rule: #E3E3E3;
+    --sunk: #F1F1F1;
+
+    --film-a: #131313;
+    --film-b: #000000;
+    --onfilm: #FFFFFF;
+    --onfilm-dim: #8E8E8E;
+    --film-rule: #2E2E2E;
+    --film-raise: #1C1C1C;
+
+    --r-lg: 20px;
+    --r-md: 14px;
+    --r-sm: 10px;
+
+    --lift-1: 0 1px 2px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.04);
+    --lift-2: 0 2px 4px rgba(0,0,0,.05), 0 14px 34px rgba(0,0,0,.09);
+    --lift-3: 0 4px 10px rgba(0,0,0,.07), 0 28px 64px rgba(0,0,0,.13);
+    --edge: inset 0 1px 0 rgba(255,255,255,.9);
+
+    --serif: "Bodoni Moda", "Times New Roman", serif;
+    --myeongjo: "Gowun Batang", "Apple SD Gothic Neo", serif;
+    --sans: "IBM Plex Sans KR", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #0E0E0E;
+      --ground: #070707;
+      --ink: #FFFFFF;
+      --ash: #9A9A9A;
+      --rule: #2C2C2C;
+      --sunk: #171717;
+
+      --film-a: #FAFAFA;
+      --film-b: #E9E9E9;
+      --onfilm: #000000;
+      --onfilm-dim: #5C5C5C;
+      --film-rule: #CFCFCF;
+      --film-raise: #FFFFFF;
+
+      --lift-1: 0 1px 2px rgba(0,0,0,.5);
+      --lift-2: 0 2px 6px rgba(0,0,0,.55), 0 14px 34px rgba(0,0,0,.45);
+      --lift-3: 0 6px 14px rgba(0,0,0,.6), 0 28px 64px rgba(0,0,0,.5);
+      --edge: inset 0 1px 0 rgba(255,255,255,.07);
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #0E0E0E; --ground: #070707; --ink: #FFFFFF; --ash: #9A9A9A;
+    --rule: #2C2C2C; --sunk: #171717;
+    --film-a: #FAFAFA; --film-b: #E9E9E9; --onfilm: #000000; --onfilm-dim: #5C5C5C;
+    --film-rule: #CFCFCF; --film-raise: #FFFFFF;
+    --lift-1: 0 1px 2px rgba(0,0,0,.5);
+    --lift-2: 0 2px 6px rgba(0,0,0,.55), 0 14px 34px rgba(0,0,0,.45);
+    --lift-3: 0 6px 14px rgba(0,0,0,.6), 0 28px 64px rgba(0,0,0,.5);
+    --edge: inset 0 1px 0 rgba(255,255,255,.07);
+  }
+
+  * { box-sizing: border-box; }
+  /* 한국어는 기본값에서 음절 사이 아무데서나 줄이 바뀐다. keep-all 이면 어절
+     단위로만 끊긴다. 끊을 곳이 없는 긴 문자열을 위해 안전판을 같이 둔다. */
+  body, h1, h2, h3, h4, p, li, span, div, a { word-break: keep-all; overflow-wrap: anywhere; }
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16.5px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 28px; }
+  .narrow { max-width: 660px; }
+  a { color: inherit; }
+  h1, h2, h3 { margin: 0; font-weight: 400; }
+
+  /* ── 히어로 ─────────────────────────────────────────── */
+  .hero {
+    position: relative;
+    padding: 104px 0 92px;
+    text-align: center;
+    background: var(--paper);
+    border-radius: 0 0 var(--r-lg) var(--r-lg);
+    box-shadow: var(--lift-1);
+    overflow: hidden;
+  }
+  /* 워드마크 뒤로 아주 옅은 조도. 흑백에서 깊이는 색이 아니라 빛으로 낸다. */
+  .hero::before {
+    content: "";
+    position: absolute; inset: -30% 20% auto;
+    height: 420px;
+    background: radial-gradient(ellipse at center, rgba(0,0,0,.055), transparent 68%);
+    pointer-events: none;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .hero::before { background: radial-gradient(ellipse at center, rgba(255,255,255,.07), transparent 68%); }
+  }
+  :root[data-theme="dark"] .hero::before { background: radial-gradient(ellipse at center, rgba(255,255,255,.07), transparent 68%); }
+  .hero > .wrap { position: relative; }
+
+  .wordmark {
+    font-family: var(--serif);
+    font-size: clamp(46px, 11vw, 116px);
+    line-height: 1;
+    letter-spacing: .06em;
+    margin: 0 0 4px;
+    animation: settle 1400ms cubic-bezier(.16,.84,.28,1) both;
+  }
+  .wordmark .i { font-style: italic; }
+  @keyframes settle { from { letter-spacing: .34em; opacity: 0; } to { letter-spacing: .06em; opacity: 1; } }
+
+  .hero .rule {
+    width: 44px; height: 1px; background: var(--ink);
+    margin: 26px auto 24px; transform-origin: center;
+    animation: widen 1100ms 500ms cubic-bezier(.16,.84,.28,1) both;
+  }
+  @keyframes widen { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+  .hero h1 {
+    font-family: var(--myeongjo);
+    font-size: clamp(21px, 3.4vw, 30px);
+    line-height: 1.55; max-width: 20ch; margin: 0 auto 18px; text-wrap: balance;
+  }
+  .hero p { color: var(--ash); max-width: 42ch; margin: 0 auto 34px; font-size: 15.5px; text-wrap: pretty; }
+
+  .install {
+    display: inline-block;
+    background: linear-gradient(180deg, #262626, #000000);
+    color: #FFFFFF;
+    font-weight: 500; font-size: 16px; letter-spacing: .01em;
+    padding: 17px 42px; border-radius: 100px; text-decoration: none;
+    box-shadow: var(--lift-2), inset 0 1px 0 rgba(255,255,255,.16);
+    transition: transform 180ms ease, box-shadow 180ms ease;
+  }
+  :root[data-theme="dark"] .install,
+  :root:not([data-theme="light"]) .install { }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .install {
+      background: linear-gradient(180deg, #FFFFFF, #DCDCDC);
+      color: #000000;
+      box-shadow: var(--lift-2), inset 0 1px 0 rgba(255,255,255,.9);
+    }
+  }
+  :root[data-theme="dark"] .install {
+    background: linear-gradient(180deg, #FFFFFF, #DCDCDC);
+    color: #000000;
+    box-shadow: var(--lift-2), inset 0 1px 0 rgba(255,255,255,.9);
+  }
+  .install:hover { transform: translateY(-2px); box-shadow: var(--lift-3), inset 0 1px 0 rgba(255,255,255,.2); }
+  .install:focus-visible { outline: 2px solid var(--ink); outline-offset: 4px; }
+  .under-btn { margin-top: 16px; font-size: 13.5px; color: var(--ash); }
+
+  /* ── 변환 띠 ────────────────────────────────────────── */
+  .film {
+    background: linear-gradient(165deg, var(--film-a), var(--film-b));
+    color: var(--onfilm);
+    padding: 92px 0 100px;
+    margin: 22px 0;
+    border-radius: var(--r-lg);
+    box-shadow: var(--lift-3);
+    overflow: hidden;
+  }
+  .film-outer { padding: 0 22px; }
+  .film .wrap { display: grid; grid-template-columns: 1.05fr .95fr; gap: 56px; align-items: center; }
+  @media (max-width: 860px) { .film .wrap { grid-template-columns: 1fr; gap: 40px; } }
+
+  .film h2 { font-family: var(--myeongjo); font-size: clamp(24px, 3.6vw, 34px); line-height: 1.5; margin-bottom: 16px; text-wrap: balance; max-width: 14ch; }
+  .film p { color: var(--onfilm-dim); font-size: 15.5px; max-width: 38ch; text-wrap: pretty; }
+
+  .slide {
+    background: var(--film-raise);
+    border: 1px solid var(--film-rule);
+    border-radius: var(--r-md);
+    padding: 26px 28px;
+    box-shadow: 0 18px 44px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06);
+    will-change: transform;
+  }
+  .slide .head { font-family: var(--myeongjo); font-size: 17px; padding-bottom: 12px; border-bottom: 1px solid var(--film-rule); margin-bottom: 16px; }
+  .slide ul { margin: 0; padding-left: 16px; font-size: 13.5px; line-height: 1.9; color: var(--onfilm-dim); }
+  .slide ul b { color: var(--onfilm); font-weight: 500; }
+  .chart { margin-top: 18px; }
+
+  .notes { display: flex; flex-direction: column; gap: 11px; will-change: transform; }
+  .noteline { display: grid; grid-template-columns: 52px 1fr; gap: 14px; align-items: baseline; font-size: 14.5px; }
+  .noteline .tc { font-family: var(--serif); font-size: 13px; color: var(--onfilm-dim); font-variant-numeric: tabular-nums; letter-spacing: .04em; }
+  .noteline .tx { border-bottom: 1px solid var(--film-rule); padding-bottom: 10px; }
+  .noteline:last-child .tx { border-bottom: 0; }
+
+  /* ── 일반 섹션 ───────────────────────────────────────── */
+  section.band { padding: 96px 0; }
+  .sechead { margin-bottom: 44px; }
+  .sechead h2 { font-family: var(--myeongjo); font-size: clamp(25px, 4vw, 36px); line-height: 1.45; margin-bottom: 14px; text-wrap: balance; max-width: 18ch; }
+  .sechead p { color: var(--ash); max-width: 50ch; margin: 0; font-size: 15.5px; text-wrap: pretty; }
+
+  /* ── 플랜 ───────────────────────────────────────────── */
+  .plans { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; align-items: stretch; }
+  @media (max-width: 900px) { .plans { grid-template-columns: 1fr; } }
+
+  /* 기본 두 장은 지면 위에 얹힌 얇은 판, 가운데 하나만 들어올린다.
+     같은 카드를 세 번 찍지 않는 것이 계층을 만든다. */
+  .plan {
+    border: 1px solid var(--rule);
+    border-radius: var(--r-lg);
+    padding: 30px 26px 32px;
+    display: flex; flex-direction: column; gap: 18px;
+    background: var(--paper);
+  }
+  .plan.feature {
+    box-shadow: var(--lift-3), var(--edge);
+    border-color: transparent;
+    transform: translateY(-10px);
+    padding-bottom: 42px;
+  }
+  @media (max-width: 900px) { .plan.feature { transform: none; } }
+
+  .plan-name { font-family: var(--serif); font-size: 27px; line-height: 1; }
+  .plan-price { font-size: 15px; }
+  .plan-price b { font-weight: 600; font-size: 23px; }
+  .plan-price span { color: var(--ash); }
+
+  .spec { font-size: 13.5px; color: var(--ash); line-height: 1.75; }
+  .spec div { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--rule); padding: 6px 0; }
+  .spec div:last-child { border-bottom: 0; }
+  .spec div b { color: var(--ink); font-weight: 500; text-align: right; }
+
+  .sample-label { font-size: 12.5px; color: var(--ash); }
+  .sample {
+    border-radius: var(--r-md);
+    background: var(--sunk);
+    box-shadow: inset 0 1px 3px rgba(0,0,0,.07);
+    padding: 17px 18px;
+    font-size: 13.5px; line-height: 1.72; flex: 1;
+  }
+  .sample h4 { font-family: var(--myeongjo); font-size: 15px; margin: 0 0 9px; font-weight: 700; }
+  .sample p { margin: 0 0 8px; }
+  .sample p:last-child { margin-bottom: 0; }
+  .sample ul { margin: 0; padding-left: 16px; }
+  .sample li { margin-bottom: 5px; }
+  .sample .tc { font-family: var(--serif); font-size: 12px; color: var(--ash); font-variant-numeric: tabular-nums; }
+  .sample.raw { color: var(--ash); font-weight: 300; }
+
+  /* ── 데이터 흐름 ─────────────────────────────────────── */
+  .flow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  @media (max-width: 780px) { .flow { grid-template-columns: 1fr; } }
+  .flow-item {
+    background: var(--paper);
+    border-radius: var(--r-md);
+    padding: 24px 24px 26px;
+    box-shadow: var(--lift-1);
+  }
+  .flow-item h3 { font-family: var(--myeongjo); font-size: 18px; margin-bottom: 8px; }
+  .flow-item p { color: var(--ash); font-size: 14.5px; margin: 0; text-wrap: pretty; }
+
+  /* ── 푸터 ────────────────────────────────────────────── */
+  footer {
+    background: linear-gradient(165deg, var(--film-a), var(--film-b));
+    color: var(--onfilm);
+    padding: 68px 0 44px;
+    border-radius: var(--r-lg) var(--r-lg) 0 0;
+    box-shadow: var(--lift-3);
+    margin-top: 22px;
+  }
+  .foot-top { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 40px; }
+  @media (max-width: 780px) { .foot-top { grid-template-columns: 1fr; gap: 30px; } }
+  .foot-mark { font-family: var(--serif); font-size: 30px; letter-spacing: .05em; margin-bottom: 12px; }
+  .foot-top p { color: var(--onfilm-dim); font-size: 14px; max-width: 34ch; margin: 0; }
+  .foot-col h4 { font-size: 13px; font-weight: 600; margin: 0 0 12px; }
+  .foot-col ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+  .foot-col a { color: var(--onfilm-dim); text-decoration: none; font-size: 14px; border-bottom: 1px solid transparent; }
+  .foot-col a:hover, .foot-col a:focus-visible { color: var(--onfilm); border-bottom-color: var(--onfilm); }
+  .foot-bottom { margin-top: 46px; padding-top: 22px; border-top: 1px solid var(--film-rule); display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; color: var(--onfilm-dim); font-size: 13px; }
+  .pending { border: 1px dashed var(--film-rule); border-radius: var(--r-md); padding: 15px 17px; margin-top: 26px; color: var(--onfilm-dim); font-size: 13px; }
+  .pending b { color: var(--onfilm); font-weight: 500; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .wordmark, .hero .rule { animation: none; }
+    .slide, .notes { transform: none !important; }
+    .install:hover { transform: none; }
+  }
+</style>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="wordmark">Summr<span class="i">i</span>zei</div>
+    <div class="rule"></div>
+    <h1>강의를 보는 동안, 노트가 쌓입니다</h1>
+    <p>재생 중인 강의 영상의 슬라이드와 말소리를 읽어 시각이 박힌 학습 노트로 만듭니다. 화면과 음성은 컴퓨터 밖으로 나가지 않습니다.</p>
+    <a class="install" href="https://chromewebstore.google.com/" target="_blank" rel="noopener">Summrizei 설치하기</a>
+    <p class="under-btn">Chrome 웹 스토어에서 설치합니다. 무료로 시작하고 카드는 필요하지 않습니다.</p>
+  </div>
+</header>
+
+<div class="film-outer">
+<section class="film" id="film">
+  <div class="wrap">
+    <div>
+      <div class="slide" id="slideLayer">
+        <div class="head">투자안 평가: NPV와 IRR</div>
+        <ul>
+          <li><b>NPV</b> — 할인율이 오르면 감소</li>
+          <li><b>IRR</b> — NPV를 0으로 만드는 할인율</li>
+          <li>규모가 다른 대안에서는 두 지표가 엇갈림</li>
+        </ul>
+        <svg class="chart" viewBox="0 0 300 108" role="img" aria-label="할인율이 오를수록 순현재가치가 감소하는 곡선">
+          <line x1="26" y1="90" x2="292" y2="90" stroke="var(--film-rule)" stroke-width="1"/>
+          <line x1="26" y1="6" x2="26" y2="90" stroke="var(--film-rule)" stroke-width="1"/>
+          <path d="M26 16 C 96 34, 150 66, 292 84" fill="none" stroke="var(--onfilm)" stroke-width="1.5"/>
+          <circle cx="196" cy="72" r="3" fill="var(--onfilm)"/>
+          <text x="204" y="68" font-family="Bodoni Moda, serif" font-size="10" fill="var(--onfilm-dim)">IRR</text>
+          <text x="30" y="104" font-family="IBM Plex Sans KR, sans-serif" font-size="9" fill="var(--onfilm-dim)">할인율</text>
+          <text x="2" y="14" font-family="IBM Plex Sans KR, sans-serif" font-size="9" fill="var(--onfilm-dim)">NPV</text>
+        </svg>
+      </div>
+    </div>
+    <div>
+      <h2>화면과 말소리가 한 줄기 노트로</h2>
+      <p>슬라이드에서 읽은 글자와 받아쓴 음성이 영상 시각을 기준으로 한 줄에 놓입니다. 배속으로 봐도 시각이 어긋나지 않습니다.</p>
+      <div class="notes" id="noteLayer" style="margin-top:26px;">
+        <div class="noteline"><span class="tc">11:40</span><span class="tx">순현재가치법과 내부수익률법의 차이</span></div>
+        <div class="noteline"><span class="tc">12:05</span><span class="tx">할인율이 높아지면 NPV는 감소한다</span></div>
+        <div class="noteline"><span class="tc">12:31</span><span class="tx">두 지표가 충돌하면 NPV를 따른다</span></div>
+        <div class="noteline"><span class="tc">13:58</span><span class="tx">회수기간법은 화폐의 시간가치를 반영하지 않는다</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+</div>
+
+<section class="band">
+  <div class="wrap">
+    <div class="sechead narrow">
+      <h2>같은 강의, 세 가지 결과</h2>
+      <p>플랜을 나누는 것은 기능 목록이 아니라 노트의 깊이입니다. 아래는 위 강의의 같은 대목을 각 플랜으로 처리한 실제 형태입니다.</p>
+    </div>
+
+    <div class="plans">
+      <div class="plan">
+        <div class="plan-name">Free</div>
+        <div class="plan-price"><b>0원</b> <span>계정도 카드도 없이</span></div>
+        <div class="spec">
+          <div><span>글자 인식</span><b>Tesseract</b></div>
+          <div><span>말소리</span><b>Whisper</b></div>
+          <div><span>노트 정리</span><b>Chrome 내장 모델</b></div>
+          <div><span>처리 위치</span><b>내 컴퓨터</b></div>
+        </div>
+        <div class="sample-label">결과</div>
+        <div class="sample raw">
+          <p><span class="tc">12:05</span> 할인율이 높아지면 NPV는 감소한다</p>
+          <p><span class="tc">12:31</span> 두 지표가 충돌하면 NPV를 따른다고 했습니다</p>
+          <p><span class="tc">13:58</span> 회수기간법은 시간가치를 반영하지 않으므로</p>
+          <p>인식한 문장을 시각순으로 모아 줍니다. 문장을 다듬거나 구조를 만들지는 않습니다.</p>
+        </div>
+      </div>
+
+      <div class="plan feature">
+        <div class="plan-name">Basic</div>
+        <div class="plan-price"><b>4,900원</b> <span>월 60편</span></div>
+        <div class="spec">
+          <div><span>글자 인식</span><b>Tesseract</b></div>
+          <div><span>말소리</span><b>Whisper</b></div>
+          <div><span>노트 정리</span><b>Gemini Flash-Lite</b></div>
+          <div><span>처리 위치</span><b>요약본만 전송</b></div>
+        </div>
+        <div class="sample-label">결과</div>
+        <div class="sample">
+          <h4>투자안 평가</h4>
+          <p>할인율과 순현재가치는 반대로 움직인다. 할인율이 오르면 NPV는 줄어든다.</p>
+          <ul>
+            <li>IRR은 NPV를 0으로 만드는 할인율 <span class="tc">12:05</span></li>
+            <li>두 지표가 엇갈리면 NPV를 기준으로 판단 <span class="tc">12:31</span></li>
+            <li>회수기간법은 시간가치를 반영하지 않음 <span class="tc">13:58</span></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="plan">
+        <div class="plan-name">Premium</div>
+        <div class="plan-price"><b>7,900원</b> <span>월 30편</span></div>
+        <div class="spec">
+          <div><span>글자 인식</span><b>Tesseract</b></div>
+          <div><span>말소리</span><b>Whisper</b></div>
+          <div><span>노트 정리</span><b>Claude Sonnet</b></div>
+          <div><span>처리 위치</span><b>요약본만 전송</b></div>
+        </div>
+        <div class="sample-label">결과</div>
+        <div class="sample">
+          <h4>투자안 평가: 두 지표가 엇갈릴 때</h4>
+          <p>강의의 핵심은 NPV와 IRR이 다른 답을 낼 수 있다는 점, 그리고 그때 무엇을 따를지다.</p>
+          <ul>
+            <li><b>NPV</b>는 절대 금액을, <b>IRR</b>은 수익률을 본다. 그래서 투자 규모가 크게 다른 대안을 비교하면 순위가 뒤집힌다 <span class="tc">12:31</span></li>
+            <li>이때는 NPV를 따른다. 기업 가치의 증가분을 직접 재기 때문이다</li>
+            <li>회수기간법은 보조 지표로만 쓴다. 화폐의 시간가치를 무시하고, 회수 이후의 현금흐름도 버린다 <span class="tc">13:58</span></li>
+          </ul>
+          <p>시험에 나오면 “규모가 다른 두 대안”이라는 조건을 먼저 확인할 것.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band" style="padding-top:0;">
+  <div class="wrap">
+    <div class="sechead narrow">
+      <h2>강의 화면과 음성은 컴퓨터를 벗어나지 않습니다</h2>
+      <p>유료 플랜에서도 마찬가지입니다. 외부로 나가는 것은 컴퓨터 안에서 먼저 만든 요약본뿐이며, 그마저도 설정에서 끌 수 있습니다.</p>
+    </div>
+    <div class="flow">
+      <div class="flow-item">
+        <h3>화면 이미지</h3>
+        <p>슬라이드 캡처는 브라우저 안에서 글자로 바뀌고 즉시 버려집니다. 저장되지도, 전송되지도 않습니다.</p>
+      </div>
+      <div class="flow-item">
+        <h3>강의 음성</h3>
+        <p>받아쓰기 모델이 컴퓨터 안에서 돕니다. 소리가 서버로 올라가는 일은 없습니다.</p>
+      </div>
+      <div class="flow-item">
+        <h3>인식된 텍스트</h3>
+        <p>유료 플랜은 원문 대신 컴퓨터 안에서 다시 쓴 요약본을 보냅니다. 무료 플랜은 아무것도 보내지 않습니다.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-top">
+      <div>
+        <div class="foot-mark">Summr<span style="font-style:italic">i</span>zei</div>
+        <p>온라인 강의를 학습 노트로 바꾸는 Chrome 확장 프로그램입니다.</p>
+      </div>
+      <div class="foot-col">
+        <h4>약관과 방침</h4>
+        <ul>
+          <li><a href="#privacy">개인정보처리방침</a></li>
+          <li><a href="#terms">이용약관</a></li>
+          <li><a href="#copyright">저작권 및 이용 지침</a></li>
+          <li><a href="#refund">결제 및 환불 정책</a></li>
+          <li><a href="#oss">오픈소스 라이선스 고지</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>문의</h4>
+        <ul>
+          <li><a href="mailto:jihwanbu26@gmail.com">jihwanbu26@gmail.com</a></li>
+          <li><a href="#privacy">개인정보 보호책임자</a></li>
+          <li><a href="https://chromewebstore.google.com/" target="_blank" rel="noopener">Chrome 웹 스토어</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="pending">
+      <b>결제 개시 전까지 채워야 하는 항목</b> — 전자상거래법에 따라 상호, 대표자명, 사업자등록번호,
+      통신판매업 신고번호, 사업장 주소, 호스팅 제공자를 이 자리에 표시해야 합니다. 결제를 대행 판매자(Paddle 등)에
+      맡기더라도 판매 주체 정보는 별도로 확인이 필요합니다.
+    </div>
+
+    <div class="foot-bottom">
+      <span>© 2026 Summrizei</span>
+      <span>개인 학습용 도구입니다. 소속 기관의 원격수업 지침을 먼저 확인하세요.</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var reduce = window.matchMedia("(prefers-reduced-motion: reduce)");
+    var film = document.getElementById("film");
+    var slide = document.getElementById("slideLayer");
+    var notes = document.getElementById("noteLayer");
+    if (!film || !slide || !notes) return;
+    var ticking = false;
+
+    function apply() {
+      ticking = false;
+      if (reduce.matches) { slide.style.transform = notes.style.transform = ""; return; }
+      var r = film.getBoundingClientRect();
+      var vh = window.innerHeight || 800;
+      if (r.bottom < -200 || r.top > vh + 200) return;
+      var p = (r.top + r.height / 2 - vh / 2) / (vh / 2 + r.height / 2);
+      p = Math.max(-1, Math.min(1, p));
+      slide.style.transform = "translate3d(0," + (p * 26).toFixed(2) + "px,0)";
+      notes.style.transform = "translate3d(0," + (p * -20).toFixed(2) + "px,0)";
+    }
+    function onScroll() { if (!ticking) { ticking = true; requestAnimationFrame(apply); } }
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    reduce.addEventListener("change", apply);
+    apply();
+  })();
+</script>
+</body>
+</html>
