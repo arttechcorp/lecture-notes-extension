@@ -273,6 +273,7 @@
   }
   .flow-item h3 { font-family: var(--myeongjo); font-size: 18px; margin-bottom: 8px; }
   .flow-item p { color: var(--ash); font-size: 14.5px; margin: 0; text-wrap: pretty; }
+  .detail-note { color: var(--ash); font-size: 13.5px; margin: 22px 0 0; max-width: 70ch; text-wrap: pretty; }
 
   /* ── 푸터 ────────────────────────────────────────────── */
   footer {
@@ -307,7 +308,7 @@
     <div class="wordmark">Summr<span class="i">i</span>zei</div>
     <div class="rule"></div>
     <h1>강의를 보는 동안, 노트가 쌓입니다</h1>
-    <p>재생 중인 강의 영상의 슬라이드와 말소리를 읽어 시각이 박힌 학습 노트로 만듭니다. 화면과 음성은 컴퓨터 밖으로 나가지 않습니다.</p>
+    <p>재생 중인 강의 영상의 슬라이드와 말소리를 읽어 시각이 박힌 학습 노트로 만듭니다. 강의 음성은 어느 플랜에서도 컴퓨터 밖으로 나가지 않습니다.</p>
     <a class="install" href="https://chromewebstore.google.com/" target="_blank" rel="noopener">Summrizei 설치하기</a>
     <p class="under-btn">Chrome 웹 스토어에서 설치합니다. 무료로 시작하고 카드는 필요하지 않습니다.</p>
   </div>
@@ -361,10 +362,10 @@
         <div class="plan-name">Free</div>
         <div class="plan-price"><b>0원</b> <span>계정도 카드도 없이</span></div>
         <div class="spec">
-          <div><span>글자 인식</span><b>Tesseract</b></div>
-          <div><span>말소리</span><b>Whisper</b></div>
+          <div><span>글자 인식</span><b>Tesseract (기기 안)</b></div>
+          <div><span>말소리</span><b>Whisper (기기 안)</b></div>
           <div><span>노트 정리</span><b>Chrome 내장 모델</b></div>
-          <div><span>처리 위치</span><b>내 컴퓨터</b></div>
+          <div><span>외부 전송</span><b>없음</b></div>
         </div>
         <div class="sample-label">결과</div>
         <div class="sample raw">
@@ -379,10 +380,10 @@
         <div class="plan-name">Basic</div>
         <div class="plan-price"><b>4,900원</b> <span>월 60편</span></div>
         <div class="spec">
-          <div><span>글자 인식</span><b>Tesseract</b></div>
-          <div><span>말소리</span><b>Whisper</b></div>
+          <div><span>글자 인식</span><b>Gemini Flash-Lite</b></div>
+          <div><span>말소리</span><b>Whisper (기기 안)</b></div>
           <div><span>노트 정리</span><b>Gemini Flash-Lite</b></div>
-          <div><span>처리 위치</span><b>요약본만 전송</b></div>
+          <div><span>외부 전송</span><b>슬라이드 이미지·요약본</b></div>
         </div>
         <div class="sample-label">결과</div>
         <div class="sample">
@@ -398,12 +399,12 @@
 
       <div class="plan">
         <div class="plan-name">Premium</div>
-        <div class="plan-price"><b>7,900원</b> <span>월 30편</span></div>
+        <div class="plan-price"><b>13,000원</b> <span>월 30편</span></div>
         <div class="spec">
-          <div><span>글자 인식</span><b>Tesseract</b></div>
-          <div><span>말소리</span><b>Whisper</b></div>
+          <div><span>글자 인식</span><b>Claude Sonnet</b></div>
+          <div><span>말소리</span><b>Whisper (기기 안)</b></div>
           <div><span>노트 정리</span><b>Claude Sonnet</b></div>
-          <div><span>처리 위치</span><b>요약본만 전송</b></div>
+          <div><span>외부 전송</span><b>슬라이드 이미지·요약본</b></div>
         </div>
         <div class="sample-label">결과</div>
         <div class="sample">
@@ -424,23 +425,25 @@
 <section class="band" style="padding-top:0;">
   <div class="wrap">
     <div class="sechead narrow">
-      <h2>강의 화면과 음성은 컴퓨터를 벗어나지 않습니다</h2>
-      <p>유료 플랜에서도 마찬가지입니다. 외부로 나가는 것은 컴퓨터 안에서 먼저 만든 요약본뿐이며, 그마저도 설정에서 끌 수 있습니다.</p>
+      <h2>무엇이 컴퓨터를 벗어나는지</h2>
+      <p>플랜마다 다릅니다. 아래가 전부이며, 유료 플랜에서 전송되는 내용은 모델 학습에 사용되지 않고 30일 안에 삭제됩니다.</p>
     </div>
     <div class="flow">
       <div class="flow-item">
-        <h3>화면 이미지</h3>
-        <p>슬라이드 캡처는 브라우저 안에서 글자로 바뀌고 즉시 버려집니다. 저장되지도, 전송되지도 않습니다.</p>
+        <h3>강의 음성</h3>
+        <p>어느 플랜에서도 나가지 않습니다. 받아쓰기 모델이 컴퓨터 안에서 돌고, 소리가 서버로 올라가는 일은 없습니다.</p>
       </div>
       <div class="flow-item">
-        <h3>강의 음성</h3>
-        <p>받아쓰기 모델이 컴퓨터 안에서 돕니다. 소리가 서버로 올라가는 일은 없습니다.</p>
+        <h3>슬라이드 이미지</h3>
+        <p>무료 플랜은 컴퓨터 안에서 글자로 바꾸고 즉시 버립니다. 유료 플랜은 더 정확히 읽기 위해 이미지를 인식 서버로 보냅니다.</p>
       </div>
       <div class="flow-item">
         <h3>인식된 텍스트</h3>
-        <p>유료 플랜은 원문 대신 컴퓨터 안에서 다시 쓴 요약본을 보냅니다. 무료 플랜은 아무것도 보내지 않습니다.</p>
+        <p>강의 원문 그대로가 아니라, 컴퓨터 안에서 다시 쓴 요약본만 보냅니다. 무료 플랜은 이것도 보내지 않습니다.</p>
       </div>
     </div>
+    <p class="detail-note">유료 플랜의 인식 서버는 대한민국 밖에 있습니다. 가입 시 개인정보 국외 이전에 관한 고지를 확인하게 됩니다.
+    슬라이드 외의 화면이 함께 담기지 않도록, 캡처 영역을 슬라이드로 지정해 사용하시기를 권합니다.</p>
   </div>
 </section>
 
@@ -458,6 +461,7 @@
           <li><a href="#terms">이용약관</a></li>
           <li><a href="#copyright">저작권 및 이용 지침</a></li>
           <li><a href="#refund">결제 및 환불 정책</a></li>
+          <li><a href="#transfer">개인정보 국외 이전 고지</a></li>
           <li><a href="#oss">오픈소스 라이선스 고지</a></li>
         </ul>
       </div>

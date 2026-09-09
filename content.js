@@ -77,12 +77,26 @@
   // JPEG 품질도 올린다 — 0.7은 텍스트 가장자리에 링잉을 남긴다.
   const TESS_MIN_WIDTH = 1600;
   const TESS_MAX_WIDTH = 2560; // 무한정 키우면 큐·포트 부담만 커진다
+
+  // 원격 OCR은 프레임 크기가 곧 돈이다. Gemini는 768x768 타일당 258토큰이라
+  // 폭을 768로 맞추면 타일이 한 장으로 떨어지고, Claude는 면적에 비례하므로
+  // 1024x576 대비 토큰이 약 44% 줄어든다. 인쇄된 슬라이드 글자를 읽는 데는
+  // 768px면 충분하다.
+  const REMOTE_MAX_WIDTH = 768;
+  // 강의 한 편이 보낼 수 있는 프레임 상한. 이게 없으면 슬라이드가 자주 넘어가는
+  // 강의 하나가 월 손익을 뒤집는다. 상한을 넘으면 캡처만 멈추고 음성은 계속 간다.
+  const REMOTE_FRAME_CAP = 60;
+  let remoteFrames = 0;
+
   function captureFrame(video, px, cfg) {
     let destW = px.w;
     let quality = 0.7;
     if (ocrEngine === "tesseract") {
       destW = Math.min(TESS_MAX_WIDTH, Math.max(px.w, TESS_MIN_WIDTH));
       quality = 0.92;
+    } else if (ocrEngine === "remote") {
+      destW = Math.min(REMOTE_MAX_WIDTH, px.w);
+      quality = 0.85; // 압축 잡음이 인식을 깎지 않을 만큼만
     } else if (cfg.maxWidth && px.w > cfg.maxWidth) {
       destW = cfg.maxWidth; // Nano는 큰 이미지를 싫어한다 (컨텍스트·크래시)
     }
@@ -237,11 +251,17 @@
     if (!capturing) return;
     if (!video.paused && !video.ended) {
       const sample = sampleForDiff(video, px, cfg);
-      if (diffScore(sample, lastDiffSample) > cfg.diffThreshold) {
+      const capped = ocrEngine === "remote" && remoteFrames >= REMOTE_FRAME_CAP;
+      if (!capped && diffScore(sample, lastDiffSample) > cfg.diffThreshold) {
         lastDiffSample = sample;
         batch.push({ frame: captureFrame(video, px, cfg), time: video.currentTime });
+        if (ocrEngine === "remote") remoteFrames++;
         report("capture", `프레임 ${batch.length}장 대기 중`);
         if (batch.length >= cfg.batchSize) flushBatch();
+        if (ocrEngine === "remote" && remoteFrames === REMOTE_FRAME_CAP) {
+          flushBatch();
+          debugLog(`원격 인식 프레임 상한 ${REMOTE_FRAME_CAP}장에 도달했습니다. 화면 캡처를 멈추고 음성 인식만 계속합니다.`);
+        }
       }
     }
     // 음성 인식 쪽이 벽시계 대신 영상 시각으로 타임스탬프를 찍게 한다.
@@ -270,6 +290,7 @@
     if (problem) return report("error", problem);
 
     capturing = true;
+    remoteFrames = 0;
     batch = [];
     lastDiffSample = null;
     debugLog("캡처 시작", { mode, ocrEngine, videoWidth: video.videoWidth, videoHeight: video.videoHeight, px });
