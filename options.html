@@ -2,24 +2,76 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8" />
-<title>강의 필기 도우미 - 설정</title>
+<title>Summrizei 설정</title>
 <style>
-  body { font: 14px/1.6 system-ui, sans-serif; max-width: 480px; margin: 32px auto; padding: 0 16px; }
-  input { width: 100%; box-sizing: border-box; padding: 8px; font: inherit; }
-  button { margin-top: 8px; padding: 8px 12px; font: inherit; cursor: pointer; }
-  #saved { color: #1a5fb4; margin-left: 8px; }
-  .note { color: #666; font-size: 12px; margin-top: 16px; }
+  :root {
+    --paper: #ffffff; --ground: #f6f6f6; --ink: #000000; --ash: #6e6e6e;
+    --faint: #9a9a9a; --rule: #e4e4e4; --sunk: #f1f1f1;
+    --r-lg: 14px; --r-md: 10px;
+    --lift-1: 0 1px 2px rgba(0,0,0,.06), 0 1px 6px rgba(0,0,0,.04);
+    --lift-2: 0 2px 5px rgba(0,0,0,.07), 0 10px 26px rgba(0,0,0,.09);
+    --inset: inset 0 1px 3px rgba(0,0,0,.07);
+    --btn-face: linear-gradient(180deg, #2a2a2a, #000000);
+    --btn-text: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #121212; --ground: #0a0a0a; --ink: #ffffff; --ash: #9d9d9d;
+      --faint: #6b6b6b; --rule: #2a2a2a; --sunk: #1a1a1a;
+      --lift-1: 0 1px 2px rgba(0,0,0,.6);
+      --lift-2: 0 2px 6px rgba(0,0,0,.6), 0 10px 26px rgba(0,0,0,.5);
+      --inset: inset 0 1px 3px rgba(0,0,0,.5);
+      --btn-face: linear-gradient(180deg, #ffffff, #d9d9d9);
+      --btn-text: #000000;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font: 14.5px/1.65 system-ui, sans-serif; max-width: 560px; margin: 0 auto;
+    padding: 40px 20px 72px; color: var(--ink); background: var(--ground);
+  }
+  h2 { font-size: 15px; font-weight: 600; letter-spacing: .03em; margin: 0 0 6px; }
+  h2 + p { margin-top: 0; color: var(--ash); font-size: 13.5px; }
+  hr { border: none; border-top: 1px solid var(--rule); margin: 28px 0; }
+  a { color: var(--ink); text-underline-offset: 3px; }
+
+  input[type="text"], input[type="password"], select {
+    width: 100%; padding: 9px 10px; font: inherit; border-radius: var(--r-md);
+    border: 1px solid var(--rule); background: var(--sunk); color: var(--ink);
+    box-shadow: var(--inset);
+  }
+  select { width: auto; min-width: 260px; max-width: 100%; }
+  input:focus-visible, select:focus-visible, button:focus-visible {
+    outline: 2px solid var(--ink); outline-offset: 2px;
+  }
+  input[type="checkbox"] { width: auto; accent-color: var(--ink); }
+
+  button {
+    margin-top: 10px; padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer;
+    border-radius: 100px; border: 1px solid transparent;
+    background: var(--btn-face); color: var(--btn-text); box-shadow: var(--lift-2);
+    transition: transform 140ms ease, box-shadow 140ms ease;
+  }
+  button:hover { transform: translateY(-1px); }
+  @media (prefers-reduced-motion: reduce) { button:hover { transform: none } }
+
+  #saved { color: var(--ash); margin-left: 10px; font-size: 13px; }
+  .note { color: var(--ash); font-size: 12.5px; margin-top: 12px; }
+  .card {
+    background: var(--paper); border-radius: var(--r-lg); padding: 14px 15px;
+    box-shadow: var(--lift-1);
+  }
 </style>
 </head>
 <body>
   <h2>노트 생성용 API 설정</h2>
   <p>요약 작성을 위해 사용할 AI 제공자와 API 키를 입력하세요.</p>
   <div style="margin-bottom: 8px;">
-    <select id="provider" style="padding: 6px; font: inherit;">
+    <select id="provider">
       <option value="gemini">Gemini (Google AI Studio)</option>
       <option value="anthropic">Claude (Anthropic)</option>
     </select>
-    <a id="keyLink" href="#" target="_blank" rel="noreferrer" style="font-size: 13px; color: #1a5fb4; margin-left: 8px;">키 발급받기 →</a>
+    <a id="keyLink" href="#" target="_blank" rel="noreferrer" style="font-size: 13px; margin-left: 8px;">키 발급받기 →</a>
   </div>
   <input id="apiKey" type="password" placeholder="API 키 입력..." />
   <div style="margin-top: 8px;">
@@ -30,45 +82,33 @@
   <span id="saved" hidden>저장됨</span>
   <p class="note">키가 유출되면 본인 계정으로 과금될 수 있습니다. 안전하게 보관하세요.</p>
   
-  <hr style="margin: 24px 0; border: none; border-top: 1px solid #eee;" />
-  
-  <h2>노트 생성 시 외부 전송</h2>
-  <select id="remoteScope" style="padding: 6px; font: inherit;">
-    <option value="summary">기기 안에서 먼저 요약하고, 요약본만 보내기 (권장)</option>
-    <option value="none">아무것도 보내지 않기 (기기 안에서만 생성)</option>
-    <option value="full">스크립트 원문을 그대로 보내기</option>
-  </select>
-  <p class="note">
-    저작권은 사실이 아니라 표현을 보호합니다. 강의 원문 문장을 그대로 외부로 보내는 것과,
-    기기 안에서 다시 쓴 요약을 보내는 것은 노출의 성격이 다릅니다. 권장값은 원문이 기기를
-    벗어나지 않게 합니다. 화면 이미지와 음성은 이 설정과 무관하게 전송되지 않습니다.
-  </p>
-  <p class="note">
-    "요약본만 보내기"는 Chrome 내장 모델이 필요합니다. 그 모델을 쓸 수 없는 기기에서는
-    원문을 대신 보내지 않고 노트 생성을 중단합니다.
-  </p>
+  <hr  />
 
-  <hr style="margin: 24px 0; border: none; border-top: 1px solid #eee;" />
+  <h2>화면 인식 (OCR)</h2>
+  <div class="card">
+    <strong>Tesseract.js (온디바이스, 무료)</strong>
+    <p class="note" style="margin-top: 4px;">사양 제약 없이 100% 기기 안에서만 화면 글자를 인식합니다. 화면 이미지는 어떤 외부 서버로도 전송되지 않습니다.</p>
+  </div>
 
-  <h2>화면 인식 (OCR) 엔진</h2>
-  <select id="ocrEngine" style="padding: 6px; font: inherit;">
-    <option value="auto">자동 (Nano가 준비돼 있으면 Nano, 아니면 Tesseract)</option>
-    <option value="nano">Chrome Nano (정확도 높음, 디스크 22GB·VRAM 4GB 필요)</option>
-    <option value="tesseract">Tesseract (요건 없음, 인쇄된 슬라이드에 강함)</option>
-  </select>
-  <p class="note">둘 다 기기 안에서만 동작합니다. 화면 이미지는 어디로도 전송되지 않습니다.</p>
-
-  <hr style="margin: 24px 0; border: none; border-top: 1px solid #eee;" />
+  <hr  />
 
   <h2>음성 인식 (STT) 설정</h2>
-  <div style="background: #f9f9f9; padding: 12px; border-radius: 6px; border: 1px solid #ddd;">
+  <div class="card">
     <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer;">
       <input type="checkbox" id="whisperCb" style="width: auto; margin-top: 4px;">
       <div>
-        <strong style="display: block;">고품질 음성 인식 (Local Whisper) 사용</strong>
-        <span class="note" style="display: block; margin-top: 4px;">재생 중인 영상의 소리를 기기 안에서만 분석합니다. 인식 언어는 사이드패널에서 고릅니다. (최초 1회 약 80MB 다운로드 필요)</span>
+        <strong style="display: block;">로컬 음성 인식 (Local Whisper) 사용</strong>
+        <span class="note" style="display: block; margin-top: 4px;">재생 중인 영상의 소리를 기기 안에서만 분석합니다. (외부 유출 없음)</span>
       </div>
     </label>
+
+    <div style="margin-top: 14px;">
+      <label for="whisperModel" style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px;">인식 모델 크기</label>
+      <select id="whisperModel" style="min-width: 100%;">
+        <option value="tiny">Tiny 모델 (약 40MB, RAM 150MB — 권장, 저사양 및 빠른 시작)</option>
+        <option value="base">Base 모델 (약 200MB, RAM 800MB — 고사양 데스크탑용)</option>
+      </select>
+    </div>
   </div>
   
   <script src="options.js"></script>

@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Screen Notes — 영상 화면 AI 노트",
+  "name": "Summrizei — 강의 노트",
   "version": "0.2.0",
   "description": "재생 중인 영상 화면에서 학습 노트를 만듭니다. 화면 이미지는 기기 안에서만 처리되며 어디에도 저장되지 않습니다.",
   "permissions": [
@@ -25,7 +25,7 @@
   },
   "options_page": "options.html",
   "action": {
-    "default_title": "Screen Notes 열기"
+    "default_title": "Summrizei 열기"
   },
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"

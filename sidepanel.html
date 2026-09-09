@@ -2,134 +2,187 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8" />
-<title>Screen Notes</title>
+<title>Summrizei</title>
 <style>
+  /* 흑백. 색이 없으므로 계층은 명도와 그림자로만 만든다.
+     상태(정상/주의/꺼짐)도 색이 아니라 채움과 굵기로 구분한다. */
   :root {
-    --ink: #15181f; --muted: #626c7b; --line: #e0e4eb; --sunk: #f1f3f7; --card: #fff;
-    --accent: #3b4fd8; --accent-soft: #eaecfc;
-    --live: #c2410c; --live-soft: #fdede3;
-    --ok: #0b6e45; --ok-soft: #e3f3eb;
+    --paper: #ffffff;
+    --ground: #f6f6f6;
+    --ink: #000000;
+    --ash: #6e6e6e;
+    --faint: #9a9a9a;
+    --rule: #e4e4e4;
+    --sunk: #f1f1f1;
+    --r-lg: 14px;
+    --r-md: 10px;
+    --lift-1: 0 1px 2px rgba(0,0,0,.06), 0 1px 6px rgba(0,0,0,.04);
+    --lift-2: 0 2px 5px rgba(0,0,0,.07), 0 10px 26px rgba(0,0,0,.09);
+    --inset: inset 0 1px 3px rgba(0,0,0,.07);
+    --btn-face: linear-gradient(180deg, #2a2a2a, #000000);
+    --btn-text: #ffffff;
+    --btn-edge: inset 0 1px 0 rgba(255,255,255,.18);
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --ink: #e6eaf0; --muted: #99a4b3; --line: #262f3a; --sunk: #1d242d; --card: #151a21;
-      --accent: #8b9bff; --accent-soft: #1b2140;
-      --live: #f59158; --live-soft: #3a2115;
-      --ok: #4fc38b; --ok-soft: #10301f;
+      --paper: #121212;
+      --ground: #0a0a0a;
+      --ink: #ffffff;
+      --ash: #9d9d9d;
+      --faint: #6b6b6b;
+      --rule: #2a2a2a;
+      --sunk: #1a1a1a;
+      --lift-1: 0 1px 2px rgba(0,0,0,.6);
+      --lift-2: 0 2px 6px rgba(0,0,0,.6), 0 10px 26px rgba(0,0,0,.5);
+      --inset: inset 0 1px 3px rgba(0,0,0,.5);
+      --btn-face: linear-gradient(180deg, #ffffff, #d9d9d9);
+      --btn-text: #000000;
+      --btn-edge: inset 0 1px 0 rgba(255,255,255,.9);
     }
   }
-  /* hidden 속성은 UA 스타일의 [hidden]{display:none}으로만 동작한다. 작성자 규칙에
-     display가 하나라도 걸리면(#onboard가 그랬다) 조용히 뚫린다. 단계 전환이 전부
-     .hidden에 의존하므로 여기서 못을 박는다. */
+
   [hidden] { display: none !important; }
   * { box-sizing: border-box; }
   body {
-    font: 13.5px/1.55 system-ui, sans-serif; margin: 0; padding: 14px;
-    color: var(--ink); background: var(--card);
+    font: 13.5px/1.6 system-ui, sans-serif; margin: 0; padding: 14px;
+    color: var(--ink); background: var(--ground);
     display: flex; flex-direction: column; gap: 12px;
   }
-  h1 { font-size: 14px; margin: 0; font-weight: 600; }
+  h1 { font-size: 14px; margin: 0; font-weight: 600; letter-spacing: .04em; }
   .topbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 
   button {
-    font: inherit; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px;
-    background: var(--card); color: var(--ink); cursor: pointer;
+    font: inherit; padding: 8px 12px; border: 1px solid var(--rule); border-radius: var(--r-md);
+    background: var(--paper); color: var(--ink); cursor: pointer; box-shadow: var(--lift-1);
+    transition: transform 140ms ease, box-shadow 140ms ease;
   }
-  button:disabled { opacity: .45; cursor: not-allowed; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; width: 100%; padding: 11px; font-size: 14px; }
-  button.danger { background: var(--live); border-color: var(--live); color: #fff; font-weight: 600; width: 100%; padding: 11px; font-size: 14px; }
-  button.link { border: 0; background: none; color: var(--accent); font-weight: 600; padding: 0; font-size: 12.5px; }
-  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button:hover:not(:disabled) { transform: translateY(-1px); box-shadow: var(--lift-2); }
+  button:disabled { opacity: .4; cursor: not-allowed; box-shadow: none; }
+  button.primary, button.danger {
+    font-weight: 600; width: 100%; padding: 12px; font-size: 14px; border-radius: 100px;
+  }
+  button.primary {
+    background: var(--btn-face); color: var(--btn-text); border-color: transparent;
+    box-shadow: var(--lift-2), var(--btn-edge);
+  }
+  /* 중지는 되돌릴 수 없는 행동이라 굵은 테두리로 구분한다. 색을 쓰지 않는다. */
+  button.danger { background: var(--paper); color: var(--ink); border: 1.5px solid var(--ink); box-shadow: var(--lift-1); }
+  button.link {
+    border: 0; background: none; color: var(--ash); font-weight: 500; padding: 0;
+    font-size: 12.5px; box-shadow: none; text-decoration: underline; text-underline-offset: 3px;
+  }
+  button.link:hover { color: var(--ink); transform: none; box-shadow: none; }
+  button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
   .btnrow { display: flex; gap: 6px; }
-  .btnrow button { flex: 1; font-size: 12.5px; padding: 8px 6px; }
+  .btnrow button { flex: 1; font-size: 12.5px; padding: 9px 6px; }
 
   select, textarea, input[type="text"] {
-    font: inherit; width: 100%; padding: 7px 8px; border-radius: 7px;
-    border: 1px solid var(--line); background: var(--card); color: var(--ink);
+    font: inherit; width: 100%; padding: 8px 9px; border-radius: var(--r-md);
+    border: 1px solid var(--rule); background: var(--sunk); color: var(--ink); box-shadow: var(--inset);
   }
-  label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 3px; }
-  .field + .field { margin-top: 10px; }
+  select:focus-visible, textarea:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+  label { font-size: 12px; color: var(--ash); display: block; margin-bottom: 4px; }
+  .field + .field { margin-top: 11px; }
 
-  /* 준비 카드 */
-  .readycard { background: var(--sunk); border-radius: 9px; padding: 10px 11px; display: flex; flex-direction: column; gap: 7px; }
-  .checkrow { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
-  .checkrow .mark { width: 15px; font-weight: 700; color: var(--ok); flex-shrink: 0; }
-  .checkrow .mark.warn { color: var(--live); }
-  .checkrow .mark.off { color: var(--muted); }
+  .readycard {
+    background: var(--paper); border-radius: var(--r-lg); padding: 12px 13px;
+    display: flex; flex-direction: column; gap: 8px; box-shadow: var(--lift-1);
+  }
+  .checkrow { display: flex; align-items: center; gap: 9px; font-size: 12.5px; }
+  /* 상태는 색이 아니라 채움으로 읽힌다: 채운 원=정상, 속 빈 원=주의, 옅은 원=꺼짐 */
+  .checkrow .mark {
+    width: 15px; height: 15px; flex-shrink: 0; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 700; line-height: 1;
+    background: var(--ink); color: var(--paper);
+  }
+  .checkrow .mark.warn { background: transparent; color: var(--ink); border: 1.5px solid var(--ink); }
+  .checkrow .mark.off { background: var(--rule); color: var(--faint); }
   .checkrow .what { flex: 1; }
-  .checkrow .val { color: var(--muted); font-size: 12px; text-align: right; }
-  .detail { font-size: 12px; color: var(--muted); margin: 0; }
+  .checkrow .val { color: var(--ash); font-size: 12px; text-align: right; }
+  .detail { font-size: 12px; color: var(--ash); margin: 0; }
 
-  /* 설정 서랍 */
   .settingbar {
     display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12.5px;
+    background: var(--paper); border-radius: var(--r-md); padding: 9px 11px; font-size: 12.5px;
+    box-shadow: var(--lift-1);
   }
-  .settingbar .summary { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #settingsDrawer { border: 1px solid var(--line); border-radius: 8px; padding: 11px; }
+  .settingbar .summary { color: var(--ash); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #settingsDrawer { background: var(--paper); border-radius: var(--r-lg); padding: 13px; box-shadow: var(--lift-2); }
 
-  /* 진행 */
   .statusline { display: flex; align-items: center; gap: 8px; }
-  .pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 100px; font-size: 11.5px; font-weight: 600; }
-  .pill.live { background: var(--live-soft); color: var(--live); }
-  .pill.ok { background: var(--ok-soft); color: var(--ok); }
-  .pulse { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: blink 1.4s ease-in-out infinite; }
-  @keyframes blink { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
-  @media (prefers-reduced-motion: reduce) { .pulse { animation: none } }
-  .sub { color: var(--muted); font-size: 12.5px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border-radius: 100px; font-size: 11.5px; font-weight: 600; }
+  .pill.live { background: var(--ink); color: var(--paper); }
+  .pill.ok { background: var(--paper); color: var(--ink); box-shadow: var(--lift-1); }
+  .pulse { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: blink 1.4s ease-in-out infinite; }
+  @keyframes blink { 0%,100% { opacity: 1 } 50% { opacity: .2 } }
+  @media (prefers-reduced-motion: reduce) {
+    .pulse { animation: none }
+    button:hover:not(:disabled) { transform: none }
+  }
+  .sub { color: var(--ash); font-size: 12.5px; }
 
-  .counters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-  .counter { background: var(--sunk); border-radius: 8px; padding: 8px 9px; }
-  .counter b { display: block; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.15; }
-  .counter span { font-size: 11px; color: var(--muted); }
+  .counters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+  .counter { background: var(--paper); border-radius: var(--r-md); padding: 10px 11px; box-shadow: var(--lift-1); }
+  .counter b { display: block; font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.15; }
+  .counter span { font-size: 11px; color: var(--ash); }
 
-  .feed { background: var(--sunk); border-radius: 8px; padding: 9px 10px; display: flex; flex-direction: column; gap: 6px; }
-  .feed .head { font-size: 11.5px; color: var(--muted); display: flex; justify-content: space-between; }
-  #feedLines { display: flex; flex-direction: column; gap: 4px; font-size: 12px; line-height: 1.45; }
-  #feedLines div { display: flex; gap: 7px; color: var(--muted); }
+  .feed {
+    background: var(--sunk); border-radius: var(--r-md); padding: 10px 11px;
+    display: flex; flex-direction: column; gap: 7px; box-shadow: var(--inset);
+  }
+  .feed .head { font-size: 11.5px; color: var(--faint); display: flex; justify-content: space-between; }
+  #feedLines { display: flex; flex-direction: column; gap: 5px; font-size: 12px; line-height: 1.45; }
+  #feedLines div { display: flex; gap: 8px; color: var(--ash); }
   #feedLines div:last-child { color: var(--ink); }
-  #feedLines .t { font-family: ui-monospace, monospace; font-size: 11px; flex-shrink: 0; }
-  #feedLines .empty { color: var(--muted); }
+  #feedLines .t { font-family: ui-monospace, monospace; font-size: 11px; flex-shrink: 0; color: var(--faint); }
 
-  .alert { border-radius: 8px; padding: 9px 10px; font-size: 12.5px; display: flex; flex-direction: column; gap: 5px; }
-  .alert.warn { background: var(--live-soft); color: var(--live); }
+  /* 경고도 색 없이. 반전으로 눈에 띄게 한다. */
+  .alert {
+    border-radius: var(--r-md); padding: 11px 12px; font-size: 12.5px;
+    display: flex; flex-direction: column; gap: 5px;
+    background: var(--ink); color: var(--paper); box-shadow: var(--lift-2);
+  }
   .alert b { font-weight: 600; }
 
-  #result { width: 100%; height: 240px; font: 12.5px/1.55 ui-monospace, monospace; resize: vertical; }
+  #result { width: 100%; height: 240px; font: 12.5px/1.6 ui-monospace, monospace; resize: vertical; }
 
   details { font-size: 12px; }
-  details summary { cursor: pointer; color: var(--muted); }
+  details summary { cursor: pointer; color: var(--ash); }
   details pre {
     font: 11px/1.45 ui-monospace, monospace; white-space: pre-wrap; max-height: 200px;
-    overflow-y: auto; background: var(--sunk); padding: 7px; border-radius: 6px; margin: 6px 0 0;
+    overflow-y: auto; background: var(--sunk); padding: 9px; border-radius: var(--r-md);
+    margin: 7px 0 0; box-shadow: var(--inset); color: var(--ash);
   }
 
-  footer { border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+  footer { border-top: 1px solid var(--rule); padding-top: 11px; display: flex; flex-direction: column; gap: 7px; }
   #planLine { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
   #planName { font-weight: 600; }
-  #planUse { color: var(--muted); font-variant-numeric: tabular-nums; }
-  .legal { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+  #planUse { color: var(--ash); font-variant-numeric: tabular-nums; }
+  .legal { font-size: 11.5px; color: var(--faint); line-height: 1.45; }
 
-  /* 영역 지정 */
-  #cropWrap { position: relative; display: none; margin-top: 8px; user-select: none; }
-  #cropWrap img { width: 100%; display: block; border-radius: 6px; }
-  #cropBox { position: absolute; border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); display: none; }
+  #cropWrap { position: relative; display: none; margin-top: 9px; user-select: none; }
+  #cropWrap img { width: 100%; display: block; border-radius: var(--r-md); }
+  #cropBox { position: absolute; border: 2px solid var(--ink); background: rgba(0,0,0,.14); display: none; }
+  @media (prefers-color-scheme: dark) { #cropBox { background: rgba(255,255,255,.16); } }
 
-  /* 온보딩 */
-  #onboard { display: flex; flex-direction: column; gap: 12px; }
-  .step { display: grid; grid-template-columns: 20px 1fr; gap: 9px; align-items: start; }
-  .step .n { font-size: 11px; font-family: ui-monospace, monospace; color: var(--accent); padding-top: 2px; }
-  .step .c { display: flex; flex-direction: column; gap: 5px; }
+  #onboard {
+    display: flex; flex-direction: column; gap: 13px;
+    background: var(--paper); border-radius: var(--r-lg); padding: 15px; box-shadow: var(--lift-2);
+  }
+  .step { display: grid; grid-template-columns: 18px 1fr; gap: 10px; align-items: start; }
+  .step .n { font-size: 11px; font-family: ui-monospace, monospace; color: var(--faint); padding-top: 3px; }
+  .step .c { display: flex; flex-direction: column; gap: 6px; }
   .step b { font-size: 13px; font-weight: 600; }
-  .step .why { font-size: 12px; color: var(--muted); }
-  .checkline { display: flex; gap: 7px; align-items: flex-start; font-size: 12.5px; }
-  .checkline input { margin-top: 3px; }
+  .step .why { font-size: 12px; color: var(--ash); }
+  .checkline { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; }
+  .checkline input { margin-top: 3px; accent-color: var(--ink); }
 </style>
 </head>
 <body>
 
 <div class="topbar">
-  <h1>Screen Notes</h1>
+  <h1>Summrizei</h1>
   <button class="link" id="settingsLink" type="button">설정</button>
 </div>
 
