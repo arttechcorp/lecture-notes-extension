@@ -17,7 +17,6 @@
   let batch = [];
   let audioCtx = null;
   let audioProc = null;
-  let pitchWas = null;
   let ocrEngine = "local"; // 사이드패널이 START로 알려준다 — 엔진마다 원하는 입력 크기가 다르다
   let lastDiffSample = null;
   let port = null;
@@ -108,25 +107,6 @@
   const SILENCE_PEAK = 0.02;
 
   // 배속 재생 보정.
-  // 크롬은 기본적으로 배속 재생 시 음정을 보정한다(preservesPitch). 그러면 소리는
-  // "음정 그대로, 말만 2배 빠른" 형태가 되는데, Whisper는 정상 속도로 학습돼 있어
-  // 이걸 잘 못 알아듣는다. 되돌리려면 음정 유지 타임 스트레칭이 필요하다 — 비싸다.
-  //
-  // 대신 캡처 중에는 음정 보정을 끈다. 그러면 배속 오디오가 "원본을 R배 빠른
-  // 샘플레이트로 재생한 것"과 수학적으로 동일해지므로, R배로 리샘플링하기만 하면
-  // 원본이 음정·속도 모두 정확히 복원된다. 대가는 재생 중 목소리가 높아지는 것뿐이다.
-  function stretch(src, len, rate) {
-    const out = new Float32Array(Math.min(Math.round(len * rate), AUDIO_HZ * 30));
-    for (let i = 0; i < out.length; i++) {
-      const x = i / rate;
-      const i0 = x | 0;
-      const a = src[i0];
-      const b = i0 + 1 < len ? src[i0 + 1] : a;
-      out[i] = a + (b - a) * (x - i0); // 선형 보간
-    }
-    return out;
-  }
-
   // 확장 포트 메시지는 structured clone이 아니라 JSON이다. Float32Array를 그대로 넣으면
   // {"0":0.01,...} 로 부풀어 터진다. int16 PCM + base64가 가장 싼 전송 형식.
   function encodePcm(buf, len) {
@@ -153,9 +133,6 @@
       }
       const { ctx, src } = video.__lnAudio;
       audioCtx = ctx;
-      pitchWas = video.preservesPitch !== undefined ? video.preservesPitch : video.webkitPreservesPitch;
-      if ("preservesPitch" in video) video.preservesPitch = false;
-      else if ("webkitPreservesPitch" in video) video.webkitPreservesPitch = false;
       // 재생 중인 페이지라 보통 running이지만, suspended면 영상이 무음이 된다.
       if (ctx.state === "suspended") await ctx.resume();
 
@@ -165,6 +142,9 @@
       let buf = new Float32Array(CHUNK);
       let off = 0;
       let chunkStart = video.currentTime;
+      let silentCount = 0;
+      let corsWarned = false;
+
       proc.onaudioprocess = (e) => {
         if (!capturing) return;
         const input = e.inputBuffer.getChannelData(0);
@@ -179,14 +159,24 @@
               if (abs > peak) peak = abs;
             }
             const rms = Math.sqrt(sum / CHUNK);
+
+            // CORS 무음 감지: 영상이 재생 중이고 볼륨이 켜져 있는데 3연속 완벽한 무음(0)이면 CORS 보안 차단일 가능성이 높음
+            if (rms < 0.00001 && !video.paused && video.volume > 0 && !video.muted) {
+              silentCount++;
+              if (silentCount >= 3 && !corsWarned) {
+                corsWarned = true;
+                debugLog("이 영상은 CORS 보안 정책으로 인해 페이지 내 직접 오디오 추출이 무음(0)으로 차단되고 있습니다.");
+              }
+            } else if (rms >= SILENCE_RMS) {
+              silentCount = 0;
+            }
+
             // base64 인코딩 전에 거른다 — 버릴 청크에 그 비용을 쓸 이유가 없다.
             if (rms < SILENCE_RMS && peak < SILENCE_PEAK) {
               send({ type: "silence", t: chunkStart, rms, peak });
             } else {
-              // 청크 중간에 배속이 바뀌면 그 청크만 살짝 어긋난다. 감수할 만한 오차다.
               const rate = video.playbackRate || 1;
-              const out = rate === 1 ? buf : stretch(buf, CHUNK, rate);
-              send({ type: "audio", pcm: encodePcm(out, out.length), t: chunkStart, rms, rate });
+              send({ type: "audio", pcm: encodePcm(buf, CHUNK), t: chunkStart, rms, rate });
             }
             chunkStart = video.currentTime;
             off = 0;
@@ -199,7 +189,6 @@
       debugLog("오디오 캡처 시작", {
         state: ctx.state,
         sampleRate: ctx.sampleRate,
-        note: "배속 인식을 위해 음정 보정을 껐습니다 — 배속 재생 시 목소리가 높게 들립니다",
       });
     } catch (e) {
       report("error", `영상 오디오에 연결하지 못했습니다: ${e.name} ${e.message}`);
@@ -212,13 +201,6 @@
       audioProc.disconnect();
       audioProc = null;
     }
-    // 음정 보정은 원래대로 돌려놓는다. 캡처가 끝나면 다람쥐 소리를 참을 이유가 없다.
-    const v = getVideo();
-    if (v && pitchWas !== null) {
-      if ("preservesPitch" in v) v.preservesPitch = pitchWas;
-      else if ("webkitPreservesPitch" in v) v.webkitPreservesPitch = pitchWas;
-    }
-    pitchWas = null;
     audioCtx = null; // ctx/src는 엘리먼트에 캐시된 채 남긴다 (재연결용)
   }
 

@@ -153,46 +153,26 @@ async function detectEngine() {
   els.langSelect.value = settings.whisperLang;
   els.outputFormat.value = settings.outputFormat || "summary";
 
-  const status = await localAvailability();
-  const pref = settings.ocrEngine;
   let detail = "";
-
-  if (pref === "tesseract") {
-    engine = "tesseract";
-    setRow(els.markEngine, "ok", els.banner, "준비됨");
-  } else if (status === "available") {
-    engine = "local";
-    setRow(els.markEngine, "ok", els.banner, "준비됨");
-  } else if (pref === "auto") {
-    // Nano가 "받으면 된다"는 상태여도 기다리지 않는다. 지금 도는 쪽을 쓴다.
-    engine = "tesseract";
-    setRow(els.markEngine, "ok", els.banner, "준비됨");
-    detail =
-      status === "downloading"
-        ? "Chrome 내장 모델을 내려받는 중이라, 그동안 Tesseract로 읽습니다."
-        : "Chrome 내장 모델을 쓸 수 없어 Tesseract로 읽습니다.";
-  } else if (status === "downloadable" || status === "downloading") {
-    engine = "local";
-    setRow(els.markEngine, "warn", els.banner, "모델 필요");
-    detail = "Chrome 내장 모델을 아직 내려받지 않았습니다. 캡처를 시작하면 자동으로 내려받습니다(수 분).";
-  } else if (settings.allowRemoteOcr && settings.apiKey) {
+  if (settings.allowRemoteOcr && settings.apiKey) {
     engine = "remote";
-    setRow(els.markEngine, "warn", els.banner, "원격");
-    detail = "이 기기에서는 기기 내 인식을 쓸 수 없어 원격으로 처리합니다. 캡처 이미지가 외부로 전송됩니다.";
+    setRow(els.markEngine, "ok", els.banner, "원격");
+    detail = "화면 글자를 원격 API로 처리합니다. 캡처 이미지가 외부로 전송됩니다.";
   } else {
-    engine = "none";
-    setRow(els.markEngine, "warn", els.banner, "사용 불가");
-    detail = "화면 글자를 읽을 방법이 없습니다. 설정에서 인식 엔진을 확인하세요.";
+    engine = "tesseract";
+    setRow(els.markEngine, "ok", els.banner, "준비됨 (Tesseract)");
+    detail = "기기 안에서 100% 로컬로 화면 글자를 읽습니다. (사양 무관, 외부 유출 없음)";
   }
 
   els.engineDetail.textContent = detail;
   els.engineDetail.hidden = !detail;
 
+  const whisperModelName = (settings.whisperModel === "base") ? "Base" : "Tiny";
   setRow(
     els.markVoice,
     settings.whisperEnabled ? "ok" : "off",
     els.voiceState,
-    settings.whisperEnabled ? "켜짐" : "꺼짐"
+    settings.whisperEnabled ? `켜짐 (${whisperModelName})` : "꺼짐"
   );
 
   renderSettingsSummary();
@@ -215,20 +195,13 @@ function renderSettingsSummary() {
   els.formatSummary.textContent = "형태: " + (FORMAT_LABEL[els.outputFormat.value] || els.outputFormat.value);
 }
 
-// 하단에는 지금 쓰고 있는 플랜 이름을 둔다. 토큰 수는 사용자에게 의미가 없다.
-const SCOPE_LABEL = {
-  none: "기기 안에서만",
-  summary: "요약만 외부로",
-  full: "원문 외부로",
-};
-
 function renderPlan() {
   if (settings.apiKey) {
     els.planName.textContent = "내 API 키 · " + (PROVIDER_LABEL[settings.provider] || settings.provider);
-    els.planUse.textContent = SCOPE_LABEL[settings.remoteScope] || settings.remoteScope;
+    els.planUse.textContent = "원격 요약";
   } else {
     els.planName.textContent = "무료 플랜";
-    els.planUse.textContent = "기기 안에서만";
+    els.planUse.textContent = "API 키 등록 필요";
   }
 }
 
@@ -328,14 +301,6 @@ async function prepareTesseract() {
   log("Tesseract 준비 완료");
 }
 
-async function prepareLocalSession() {
-  if (engine !== "local" || localSession) return;
-  setStatus("온디바이스 모델 준비 중... 처음이면 다운로드에 수 분 걸립니다.");
-  log("온디바이스 모델 세션 생성 시도");
-  localSession = await createLocalSession((p) => setStatus(`온디바이스 모델 다운로드 ${Math.round(p * 100)}%`));
-  log("온디바이스 모델 준비 완료");
-}
-
 // --- OCR 큐 ----------------------------------------------------------------------
 const ocrModelFor = (p) => (p === "gemini" ? "gemini-flash-latest" : "claude-haiku-4-5-20251001");
 
@@ -347,20 +312,15 @@ async function drainQueue() {
       const { frames, times } = queue.shift();
       setStatus(`OCR 처리 중 (${frames.length}장, 대기 ${queue.length}배치)`);
       let lines;
-      if (engine === "local") {
-        await prepareLocalSession(); // 보통은 시작 버튼에서 이미 끝나 있다
-        lines = await ocrLocal(localSession, frames, (i, n) => setStatus(`온디바이스 OCR ${i}/${n}`));
-      } else if (engine === "tesseract") {
-        await prepareTesseract();
-        lines = await ocrTesseract(await createTesseractWorker(), frames, (i, n) => setStatus(`Tesseract OCR ${i}/${n}`));
-      } else if (engine === "remote") {
+      if (engine === "remote") {
         const model = ocrModelFor(settings.provider);
         const res = await callRemote(settings.provider, model, settings.apiKey, buildOcrBody(settings.provider, model, frames));
         tokens.ocr.input += res.input;
         tokens.ocr.output += res.output;
         lines = parseOcrJson(res.text);
       } else {
-        throw new Error("사용 가능한 OCR 엔진이 없습니다.");
+        await prepareTesseract();
+        lines = await ocrTesseract(await createTesseractWorker(), frames, (i, n) => setStatus(`Tesseract OCR ${i}/${n}`));
       }
       transcript = mergeLines(zipEntries(lines, times), transcript);
       renderRaw();
@@ -368,8 +328,6 @@ async function drainQueue() {
       if (transcript.length && !busy) els.notesBtn.disabled = false;
     }
   } catch (e) {
-    // 온디바이스 세션이 죽었을 수 있다. 참조를 버려서 다음 시도가 새로 만들게 한다.
-    localSession = null;
     fail(String(e.message || e));
   } finally {
     draining = false;
@@ -439,16 +397,6 @@ async function notesRemote(prompt) {
   return res.text;
 }
 
-// 기기 안에서 먼저 요약해 원문 표현을 걷어낸다.
-async function condense(full, onProgress) {
-  const s = await createLocalSession(undefined, {}); // 텍스트만 — 이미지 능력 불필요
-  try {
-    return await condenseLocal(s, full, onProgress);
-  } finally {
-    if (s.destroy) s.destroy();
-  }
-}
-
 async function generateNotes() {
   if (!transcript.length) return fail("인식된 텍스트가 없습니다. 먼저 캡처를 실행하세요.");
   busy = true;
@@ -460,47 +408,13 @@ async function generateNotes() {
     const prompt = buildNotesPrompt(truncated ? full.slice(0, MAX_SCRIPT_CHARS) : full, truncated);
 
     settings = await loadSettings();
-    const scope = settings.apiKey ? settings.remoteScope : "none";
-    // 노트 생성은 텍스트 전용이다. 이미지 능력 유무로 판정하면 안 된다.
-    const localReady = (await localAvailability({})) === "available";
-
-    // "요약만 보내기"인데 로컬 요약기가 없으면 원격으로 넘기지 않고 멈춘다.
-    // 프라이버시 설정이 조용히 약해지는 것이 가장 나쁘다 — 원문이 나갈 바에는
-    // 무엇을 하면 되는지 알려주고 사용자가 정하게 한다.
-    if (scope === "summary" && !localReady) {
-      return fail(
-        "이 기기에서는 기기 내 요약 모델(Chrome 내장)을 쓸 수 없습니다. " +
-          "'요약만 보내기' 설정에서는 강의 원문을 그대로 외부로 보내지 않으므로 노트를 만들지 않았습니다. " +
-          "설정에서 모델을 내려받거나, 외부 전송을 '전체 스크립트'로 바꾸세요."
-      );
-    }
-    if (scope === "none" && !localReady) {
-      return fail(
-        "노트를 만들 방법이 없습니다. 설정에서 Chrome 내장 모델을 내려받거나, API 키를 넣으세요."
-      );
+    if (!settings.apiKey) {
+      return fail("노트를 생성하려면 설정에서 API 키(Claude 또는 Gemini)를 등록해야 합니다. 하단 '설정 열기'에서 키를 입력하세요.");
     }
 
-    let text;
-    if (scope === "none") {
-      setStatus("기기 안에서 노트를 만드는 중...");
-      text = await notesLocal(full, setStatus);
-    } else {
-      // summary면 원문 대신 로컬 요약본을 프롬프트에 넣는다.
-      const payload = scope === "summary" ? await condense(full, setStatus) : prompt;
-      const remotePrompt = scope === "summary" ? buildNotesPrompt(payload, false) : payload;
-      setStatus("노트를 만드는 중...");
-      try {
-        text = await notesRemote(remotePrompt);
-      } catch (e) {
-        if (e.message.includes("503") || e.message.includes("UNAVAILABLE") || e.message.includes("429")) {
-          if (!localReady) throw e;
-          setStatus("API 서버가 혼잡하여(503/429) 기기 안에서 생성합니다...");
-          text = await notesLocal(full, setStatus);
-        } else {
-          throw e;
-        }
-      }
-    }
+    setStatus("노트를 만드는 중...");
+    const text = await notesRemote(prompt);
+
     els.result.value = text;
     els.result.readOnly = false;
     els.copyBtn.disabled = false;
@@ -650,27 +564,28 @@ els.startBtn.addEventListener("click", async () => {
   statusSticky = false;
   els.panelAlert.hidden = true;
   try {
-    await prepareLocalSession();
     await prepareTesseract();
   } catch (e) {
-    return fail(
-      `온디바이스 OCR을 준비하지 못했습니다: ${e.message || e} — 설정에서 OCR 엔진을 바꾸거나, ` +
-        `안내 화면에서 Nano 모델 내려받기를 먼저 실행하세요.`
-    );
+    return fail(`Tesseract OCR을 준비하지 못했습니다: ${e.message || e}`);
   }
 
   settings = await loadSettings();
   if (settings.whisperEnabled) {
-    setStatus("음성 인식(Whisper) 모델 준비 중...");
+    const modelName = settings.whisperModel === "base" ? "Base" : "Tiny";
+    setStatus(`음성 인식(Whisper ${modelName}) 모델 준비 중...`);
     try {
       audioCapturer.language = els.langSelect.value;
+      audioCapturer.model = settings.whisperModel || "tiny";
       await audioCapturer.initModel((prog) => {
         if (prog.status === 'progress') {
-          setStatus(`음성 모델 다운로드 중... ${Math.round(prog.progress)}%`);
+          setStatus(`음성 모델(${modelName}) 다운로드 중... ${Math.round(prog.progress)}%`);
         }
-      });
+      }, audioCapturer.model);
     } catch(e) {
-      log("Whisper 초기화 실패: " + e.message);
+      const errText = `음성 인식(Whisper) 초기화 실패: ${e.message || e}`;
+      log(errText);
+      els.panelAlert.textContent = `${errText} — 음성 없이 화면 글자(OCR)만 진행됩니다.`;
+      els.panelAlert.hidden = false;
     }
   }
 
@@ -777,32 +692,8 @@ async function runOnboarding() {
   setStage("onboard");
   els.obWhisper.checked = settings.whisperEnabled;
 
-  const status = await localAvailability();
-  if (status === "available") {
-    els.obEngineWhy.textContent = "Chrome 내장 모델을 쓸 수 있습니다. 설정할 것이 없습니다.";
-  } else if (status === "downloadable") {
-    els.obEngineWhy.textContent =
-      "지금은 Tesseract로 읽습니다. Chrome 내장 모델을 받으면 인식이 더 정확해집니다(수 GB, 몇 분).";
-    els.obEngineBtn.hidden = false;
-  } else if (status === "downloading") {
-    els.obEngineWhy.textContent = "Chrome 내장 모델을 내려받는 중입니다. 그동안 Tesseract로 읽습니다.";
-  } else {
-    els.obEngineWhy.textContent = "이 기기에서는 Tesseract로 읽습니다. 추가 설치가 필요 없습니다.";
-  }
-
-  els.obEngineBtn.addEventListener("click", async () => {
-    els.obEngineBtn.disabled = true;
-    els.obEngineWhy.textContent = "내려받는 중...";
-    try {
-      const sess = await createLocalSession((p) => (els.obEngineWhy.textContent = `내려받는 중 ${Math.round(p * 100)}%`));
-      if (sess.destroy) sess.destroy();
-      els.obEngineWhy.textContent = "완료됐습니다.";
-      els.obEngineBtn.hidden = true;
-    } catch (e) {
-      els.obEngineWhy.textContent = `내려받지 못했습니다: ${e.message || e} — Tesseract로 계속 쓸 수 있습니다.`;
-      els.obEngineBtn.disabled = false;
-    }
-  });
+  els.obEngineWhy.textContent = "Tesseract.js (온디바이스, 무료) — 사양 제약 없이 기기 안에서 글자를 읽습니다.";
+  els.obEngineBtn.hidden = true;
 
   els.obConsent.addEventListener("change", () => (els.obDone.disabled = !els.obConsent.checked));
   els.obDone.addEventListener("click", async () => {
