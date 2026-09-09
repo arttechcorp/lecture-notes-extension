@@ -754,12 +754,7 @@ async function runOnboarding() {
     await saveSettings({ consentAccepted: true, whisperEnabled: els.obWhisper.checked });
     els.onboard.hidden = true;
     setStage("ready");
-    await (async () => {
-  settings = await loadSettings();
-  if (!settings.consentAccepted) await runOnboarding();
-  else setStage("ready");
-  await detectEngine();
-})();
+    await detectEngine();
   });
 }
 
