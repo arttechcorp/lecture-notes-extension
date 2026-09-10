@@ -7,6 +7,7 @@ const keyLink = document.getElementById("keyLink");
 const whisperCb = document.getElementById("whisperCb");
 const whisperModelEl = document.getElementById("whisperModel");
 const ocrEnabledCb = document.getElementById("ocrEnabledCb");
+const ocrEngineSelect = document.getElementById("ocrEngineSelect");
 
 const PROVIDER_URLS = {
   gemini: "https://aistudio.google.com/apikey",
@@ -14,66 +15,109 @@ const PROVIDER_URLS = {
 };
 
 function updateLink() {
-  keyLink.href = PROVIDER_URLS[providerEl.value];
+  if (keyLink && providerEl) {
+    keyLink.href = PROVIDER_URLS[providerEl.value] || "#";
+  }
 }
 
-providerEl.addEventListener("change", updateLink);
+if (providerEl) {
+  providerEl.addEventListener("change", updateLink);
+}
 
 async function populateSettings() {
-  const { apiKey, provider, whisperEnabled, whisperModel, syncKey, ocrEnabled } = await loadSettings();
+  const { apiKey, provider, whisperEnabled, whisperModel, syncKey, ocrEnabled, ocrEngine } = await loadSettings();
   
-  whisperModelEl.value = whisperModel || "tiny";
+  if (whisperModelEl) {
+    whisperModelEl.value = whisperModel || "tiny";
+  }
   
-  if (provider) {
+  if (providerEl && provider) {
     providerEl.value = provider;
   }
   
-  whisperCb.checked = !!whisperEnabled;
+  if (whisperCb) {
+    whisperCb.checked = !!whisperEnabled;
+  }
   if (ocrEnabledCb) {
     ocrEnabledCb.checked = ocrEnabled !== false;
   }
+  if (ocrEngineSelect) {
+    ocrEngineSelect.value = ocrEngine || "nano";
+  }
   updateLink();
 
-  apiKeyEl.value = apiKey || "";
-  syncCb.checked = !!syncKey;
+  if (apiKeyEl) {
+    apiKeyEl.value = apiKey || "";
+  }
+  if (syncCb) {
+    syncCb.checked = !!syncKey;
+  }
 }
 
 populateSettings();
 
-revealCb.addEventListener("change", () => {
-  apiKeyEl.type = revealCb.checked ? "text" : "password";
-});
+if (revealCb && apiKeyEl) {
+  revealCb.addEventListener("change", () => {
+    apiKeyEl.type = revealCb.checked ? "text" : "password";
+  });
+}
 
-whisperCb.addEventListener("change", async () => {
-  await chrome.storage.local.set({ whisperEnabled: whisperCb.checked });
-  savedEl.hidden = false;
-  setTimeout(() => (savedEl.hidden = true), 1500);
-});
+if (whisperCb) {
+  whisperCb.addEventListener("change", async () => {
+    await chrome.storage.local.set({ whisperEnabled: whisperCb.checked });
+    if (savedEl) {
+      savedEl.hidden = false;
+      setTimeout(() => (savedEl.hidden = true), 1500);
+    }
+  });
+}
 
-whisperModelEl.addEventListener("change", async () => {
-  await chrome.storage.local.set({ whisperModel: whisperModelEl.value });
-  savedEl.hidden = false;
-  setTimeout(() => (savedEl.hidden = true), 1500);
-});
+if (whisperModelEl) {
+  whisperModelEl.addEventListener("change", async () => {
+    await chrome.storage.local.set({ whisperModel: whisperModelEl.value });
+    if (savedEl) {
+      savedEl.hidden = false;
+      setTimeout(() => (savedEl.hidden = true), 1500);
+    }
+  });
+}
 
 if (ocrEnabledCb) {
   ocrEnabledCb.addEventListener("change", async () => {
     await chrome.storage.local.set({ ocrEnabled: ocrEnabledCb.checked });
-    savedEl.hidden = false;
-    setTimeout(() => (savedEl.hidden = true), 1500);
+    if (savedEl) {
+      savedEl.hidden = false;
+      setTimeout(() => (savedEl.hidden = true), 1500);
+    }
   });
 }
 
-document.getElementById("saveBtn").addEventListener("click", async () => {
-  const key = apiKeyEl.value.trim();
-  const provider = providerEl.value;
-  const whisperEnabled = whisperCb.checked;
-  const whisperModel = whisperModelEl.value;
-  const ocrEnabled = ocrEnabledCb ? ocrEnabledCb.checked : true;
-  
-  await chrome.storage.local.set({ provider, whisperEnabled, whisperModel, ocrEnabled });
-  
-  await saveApiKey(key, syncCb.checked);
-  savedEl.hidden = false;
-  setTimeout(() => (savedEl.hidden = true), 1500);
-});
+if (ocrEngineSelect) {
+  ocrEngineSelect.addEventListener("change", async () => {
+    await chrome.storage.local.set({ ocrEngine: ocrEngineSelect.value });
+    if (savedEl) {
+      savedEl.hidden = false;
+      setTimeout(() => (savedEl.hidden = true), 1500);
+    }
+  });
+}
+
+const saveBtn = document.getElementById("saveBtn");
+if (saveBtn) {
+  saveBtn.addEventListener("click", async () => {
+    const key = apiKeyEl ? apiKeyEl.value.trim() : "";
+    const provider = providerEl ? providerEl.value : "gemini";
+    const whisperEnabled = whisperCb ? whisperCb.checked : false;
+    const whisperModel = whisperModelEl ? whisperModelEl.value : "tiny";
+    const ocrEnabled = ocrEnabledCb ? ocrEnabledCb.checked : true;
+    const ocrEngine = ocrEngineSelect ? ocrEngineSelect.value : "nano";
+    
+    await chrome.storage.local.set({ provider, whisperEnabled, whisperModel, ocrEnabled, ocrEngine });
+    
+    await saveApiKey(key, syncCb ? syncCb.checked : false);
+    if (savedEl) {
+      savedEl.hidden = false;
+      setTimeout(() => (savedEl.hidden = true), 1500);
+    }
+  });
+}

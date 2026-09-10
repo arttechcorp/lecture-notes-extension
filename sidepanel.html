@@ -288,6 +288,14 @@
     <p class="detail" style="margin: 4px 0 0;">끄면 화면 캡처 없이 음성(Whisper)만으로 깨끗하게 노트를 만듭니다.</p>
   </div>
 
+  <div class="field" id="ocrEngineField">
+    <label for="ocrEngineSelect">화면 인식(OCR) 엔진</label>
+    <select id="ocrEngineSelect">
+      <option value="nano">Gemini Nano (Chrome 내장 · 고품질)</option>
+      <option value="tesseract">Tesseract.js (경량 로컬)</option>
+    </select>
+  </div>
+
   <div class="field" id="cropField">
     <label for="modeSelect">캡처 영역</label>
     <select id="modeSelect">
@@ -354,6 +362,7 @@
     <span class="pill ok" id="donePill">노트 완성</span>
     <span class="sub" id="doneSummary"></span>
   </div>
+  <div class="alert warn" id="doneAlert" hidden></div>
   <h2 class="result-title" id="resultTitle">나의 강의 노트</h2>
 
   <textarea id="result" aria-label="강의 노트 내용" placeholder="노트가 여기 표시됩니다. 인식된 내용을 직접 검토해 주세요." readonly></textarea>

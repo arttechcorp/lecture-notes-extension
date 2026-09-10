@@ -3,12 +3,18 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Summrizei 설정</title>
+<title>설정 — Summrizei</title>
 <style>
   :root {
-    --paper: #ffffff; --ground: #f3f3f2; --ink: #181818; --ash: #666666;
-    --faint: #767676; --rule: #e4e4e4; --sunk: #f1f1f1;
-    --r-lg: 14px; --r-md: 10px;
+    --paper: #ffffff;
+    --ground: #f3f3f2;
+    --ink: #181818;
+    --ash: #666666;
+    --faint: #767676;
+    --rule: #e4e4e4;
+    --sunk: #f1f1f1;
+    --r-lg: 14px;
+    --r-md: 10px;
     --lift-1: 0 1px 2px rgba(0,0,0,.06), 0 1px 6px rgba(0,0,0,.04);
     --lift-2: 0 2px 5px rgba(0,0,0,.07), 0 10px 26px rgba(0,0,0,.09);
     --inset: inset 0 1px 3px rgba(0,0,0,.07);
@@ -17,8 +23,13 @@
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --paper: #121212; --ground: #0a0a0a; --ink: #ffffff; --ash: #9d9d9d;
-      --faint: #a0a0a0; --rule: #2a2a2a; --sunk: #1a1a1a;
+      --paper: #121212;
+      --ground: #0a0a0a;
+      --ink: #ffffff;
+      --ash: #9d9d9d;
+      --faint: #a0a0a0;
+      --rule: #2a2a2a;
+      --sunk: #1a1a1a;
       --lift-1: 0 1px 2px rgba(0,0,0,.6);
       --lift-2: 0 2px 6px rgba(0,0,0,.6), 0 10px 26px rgba(0,0,0,.5);
       --inset: inset 0 1px 3px rgba(0,0,0,.5);
@@ -84,29 +95,11 @@
 </style>
 </head>
 <body>
-  <header><div class="brand">Summrizei</div><h1>나에게 맞는 기록 방식.</h1><p class="lead">무료 타임라인부터 AI 요약까지, 필요한 기능만 설정하세요.</p></header>
-  <div class="free-banner"><strong>Free · API 키 없이 바로 시작</strong><p>화면 글자와 음성을 기기에서 인식하고, 원문을 시간순 노트로 정리합니다. 복사와 Markdown 저장까지 무료예요.</p></div>
-  <section class="card" aria-labelledby="apiHeading">
-  <div class="section-top"><h2 id="apiHeading">AI 요약 연결</h2><span class="badge">선택 기능</span></div>
-  <p class="note">인식된 원문을 핵심 요약본으로 바꾸고 싶다면 개인 API 키를 연결하세요. API 사용료는 선택한 제공자에서 별도로 부과할 수 있습니다.</p>
-  <div class="form-field"><label for="provider">AI 제공자</label><select id="provider">
-      <option value="gemini">Gemini (Google AI Studio)</option>
-      <option value="anthropic">Claude (Anthropic)</option>
-    </select></div>
-  <div class="form-field"><label for="apiKey">API 키</label><input id="apiKey" type="password" placeholder="선택한 제공자의 API 키를 입력하세요" autocomplete="off" spellcheck="false" aria-describedby="apiHelp" /></div>
-  <div class="checklist">
-    <label><input type="checkbox" id="revealCb"><span>키 보이기</span></label>
-    <label><input type="checkbox" id="syncCb"><span>Chrome 계정에 키 동기화 · 다른 컴퓨터에서도 사용</span></label>
-  </div>
-  <div class="save-row"><button id="saveBtn" type="button">연결 설정 저장</button><a id="keyLink" href="#" target="_blank" rel="noreferrer">API 키 발급받기 ↗</a></div>
-  <p class="note setting-note" id="apiHelp">저장한 뒤 열어 둔 노트 패널에서 ‘다시 만들기’를 누르세요. 키를 비워 저장하면 연결을 해제합니다. AI 요약 시 인식된 텍스트가 해당 제공자에게 전송됩니다.</p>
-  <p id="saved" role="status" aria-live="polite" hidden>저장됨</p>
-  </section>
-
-  <hr />
+  <header><div class="brand">Summrizei</div><h1>나에게 맞는 기록 방식.</h1><p class="lead">무료 타임라인부터 온디바이스 AI 요약까지, 필요한 기능만 설정하세요.</p></header>
+  <div class="free-banner"><strong>100% 무료 · 온디바이스 AI 구동</strong><p>화면 글자와 음성을 기기 안에서 Gemini Nano/Tesseract와 Whisper로 인식하고 요약 노트를 만듭니다. 외부 API 키 없이 무료로 이용할 수 있습니다.</p></div>
 
   <section class="card" aria-labelledby="ocrHeading">
-    <div class="section-top"><h2 id="ocrHeading">화면 글자 읽기</h2><span class="badge">자동 저장</span></div>
+    <div class="section-top"><h2 id="ocrHeading">화면 글자 읽기 (OCR)</h2><span class="badge">자동 저장</span></div>
     <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer;">
       <input type="checkbox" id="ocrEnabledCb" style="width: auto; margin-top: 4px;">
       <div>
@@ -114,10 +107,18 @@
         <span class="note" style="display: block; margin-top: 4px;">끄면 화면 캡처를 건너뛰고 말소리(Whisper)만으로 노트를 만듭니다. CPU와 메모리가 절약되고 화면 자막 오독 노이즈가 사라집니다.</span>
       </div>
     </label>
-    <p class="note" style="margin-top: 10px;">기본 화면 인식은 Tesseract로 기기 안에서 처리됩니다.</p>
+
+    <div style="margin-top: 16px;">
+      <label for="ocrEngineSelect" style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px;">OCR 엔진 선택</label>
+      <select id="ocrEngineSelect" style="min-width: 100%;">
+        <option value="nano">Gemini Nano (Chrome 내장 · 고품질 온디바이스 AI)</option>
+        <option value="tesseract">Tesseract.js (경량 로컬 · 모든 PC 호환)</option>
+      </select>
+      <p class="note" style="margin-top: 6px;">Gemini Nano는 Chrome 128+ 내장 AI를 사용합니다. 미지원 환경에서는 Tesseract로 자동 대체됩니다.</p>
+    </div>
   </section>
 
-  <hr  />
+  <hr />
 
   <section class="card" aria-labelledby="voiceHeading">
     <div class="section-top"><h2 id="voiceHeading">말소리 받아쓰기</h2><span class="badge">자동 저장</span></div>
@@ -138,6 +139,30 @@
     </div>
     <p class="note" id="voiceSaved" role="status" aria-live="polite">변경 사항은 다음 캡처부터 적용됩니다.</p>
   </section>
+
+  <hr />
+
+  <section class="card" aria-labelledby="apiHeading">
+    <details>
+      <summary style="cursor: pointer; font-weight: 600; font-size: 15px; color: var(--ink);">
+        외부 API 키 연결 (선택 사항)
+      </summary>
+      <p class="note" style="margin-top: 10px;">온디바이스 Nano 외에 별도 클라우드 API(Google AI Studio, Anthropic)로 요약하고 싶을 때만 입력하세요. 비워두면 기기 안에서 무료로 처리됩니다.</p>
+      <div class="form-field"><label for="provider">AI 제공자</label><select id="provider">
+          <option value="gemini">Gemini (Google AI Studio)</option>
+          <option value="anthropic">Claude (Anthropic)</option>
+        </select></div>
+      <div class="form-field"><label for="apiKey">API 키</label><input id="apiKey" type="password" placeholder="선택한 제공자의 API 키를 입력하세요" autocomplete="off" spellcheck="false" aria-describedby="apiHelp" /></div>
+      <div class="checklist">
+        <label><input type="checkbox" id="revealCb"><span>키 보이기</span></label>
+        <label><input type="checkbox" id="syncCb"><span>Chrome 계정에 키 동기화 · 다른 컴퓨터에서도 사용</span></label>
+      </div>
+      <div class="save-row"><button id="saveBtn" type="button">API 연결 설정 저장</button><a id="keyLink" href="#" target="_blank" rel="noreferrer">API 키 발급받기 ↗</a></div>
+      <p class="note setting-note" id="apiHelp">키를 비워 저장하면 연결을 해제하고 100% 로컬 모델로 복귀합니다.</p>
+      <p id="saved" role="status" aria-live="polite" hidden>저장됨</p>
+    </details>
+  </section>
+
   <footer>캡처한 내용과 노트는 자동으로 보관하지 않습니다. 필요한 노트는 패널을 닫기 전에 직접 저장해 주세요.</footer>
   
   <script src="lib/settings.js"></script>

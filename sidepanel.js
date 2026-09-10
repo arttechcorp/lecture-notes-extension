@@ -20,7 +20,7 @@ const els = {
   // 설정 서랍
   drawer: $("settingsDrawer"), settingsToggle: $("settingsToggle"), settingsClose: $("settingsClose"),
   settingsSummary: $("settingsSummary"), formatSummary: $("formatSummary"), formatToggle: $("formatToggle"),
-  settingsLink: $("settingsLink"), ocrEnabledToggle: $("ocrEnabledToggle"), cropField: $("cropField"),
+  settingsLink: $("settingsLink"), ocrEnabledToggle: $("ocrEnabledToggle"), ocrEngineSelect: $("ocrEngineSelect"), ocrEngineField: $("ocrEngineField"), cropField: $("cropField"), doneAlert: $("doneAlert"),
   // 진행
   elapsed: $("elapsed"), cntSlides: $("cntSlides"), cntVoice: $("cntVoice"), cntQueue: $("cntQueue"),
   feedLines: $("feedLines"), panelAlert: $("panelAlert"),
@@ -166,6 +166,12 @@ async function detectEngine() {
   if (els.cropField) {
     els.cropField.hidden = settings.ocrEnabled === false;
   }
+  if (els.ocrEngineField) {
+    els.ocrEngineField.hidden = settings.ocrEnabled === false;
+  }
+  if (els.ocrEngineSelect) {
+    els.ocrEngineSelect.value = settings.ocrEngine || "nano";
+  }
 
   let detail = "";
   if (settings.ocrEnabled === false) {
@@ -176,10 +182,25 @@ async function detectEngine() {
     engine = "remote";
     setRow(els.markEngine, "ok", els.banner, "원격");
     detail = "화면 글자를 원격 API로 처리합니다. 캡처 이미지가 외부로 전송됩니다.";
+  } else if (settings.ocrEngine === "nano") {
+    const status = typeof localAvailability !== "undefined" ? await localAvailability() : "unavailable";
+    if (status === "available") {
+      engine = "nano";
+      setRow(els.markEngine, "ok", els.banner, "Gemini Nano · 온디바이스");
+      detail = "Chrome 내장 Gemini Nano가 기기 안에서 화면 글자를 읽습니다.";
+    } else if (status === "downloadable" || status === "downloading") {
+      engine = "nano";
+      setRow(els.markEngine, "warn", els.banner, "다운로드 필요");
+      detail = "Chrome 내장 Gemini Nano 모델 다운로드가 필요합니다.";
+    } else {
+      engine = "tesseract";
+      setRow(els.markEngine, "ok", els.banner, "Tesseract (대체)");
+      detail = "이 기기에서는 Gemini Nano를 사용할 수 없어 Tesseract로 대체 동작합니다.";
+    }
   } else {
     engine = "tesseract";
     setRow(els.markEngine, "ok", els.banner, "로컬 · 무료");
-    detail = "슬라이드 글자가 선명하고 크게 보일수록 더 정확하게 읽을 수 있어요.";
+    detail = "Tesseract가 사양 제약 없이 기기 안에서 글자를 읽습니다.";
   }
 
   els.engineDetail.textContent = detail;
@@ -318,6 +339,16 @@ function onPortMessage(msg) {
 // 클릭은 이미 수 초 전이라 만료됐다. 그래서 모델을 아직 안 받은 기기에서는
 // create()가 실패하고, 그 실패가 상태줄에서 덮여 사라지면서 "아무 일도 안 일어남"으로
 // 보였다. 모델이 이미 받아진 기기에서는 다운로드가 필요 없어 그냥 통과했다.
+async function prepareLocalSession() {
+  if (localSession) return;
+  setStatus("온디바이스 Gemini Nano 모델 준비 중...");
+  log("Gemini Nano 세션 생성 시도");
+  localSession = await createLocalSession((p) => {
+    setStatus(`Gemini Nano 모델 다운로드 중 ${Math.round(p * 100)}%`);
+  });
+  log("Gemini Nano 준비 완료");
+}
+
 async function prepareTesseract() {
   if (engine !== "tesseract" || tessReady) return;
   setStatus("Tesseract OCR 준비 중... 처음이면 언어 데이터를 읽는 데 잠시 걸립니다.");
@@ -346,6 +377,9 @@ async function drainQueue() {
         tokens.ocr.input += res.input;
         tokens.ocr.output += res.output;
         lines = parseOcrJson(res.text);
+      } else if (engine === "nano") {
+        await prepareLocalSession();
+        lines = await ocrLocal(localSession, frames, (i, n) => setStatus(`Gemini Nano OCR ${i}/${n}`));
       } else {
         await prepareTesseract();
         lines = await ocrTesseract(await createTesseractWorker(), frames, (i, n) => setStatus(`Tesseract OCR ${i}/${n}`));
@@ -467,6 +501,7 @@ async function generateNotes() {
   busy = true;
   statusSticky = false;
   els.panelAlert.hidden = true;
+  if (els.doneAlert) els.doneAlert.hidden = true;
   setStage("done");
   els.donePill.textContent = "노트 생성 중";
   els.againBtn.disabled = true;
@@ -479,28 +514,49 @@ async function generateNotes() {
   try {
     settings = await loadSettings();
     renderPlan();
-    if (!settings.apiKey || els.outputFormat.value === "timeline") {
+    if (els.outputFormat.value === "timeline") {
       showNote(buildTimeline(), "timeline");
-      setStatus(els.outputFormat.value === "timeline"
-        ? "원문 타임라인이 준비됐어요. API를 사용하지 않았습니다."
-        : "API 키 없이 원문 타임라인을 만들었어요. AI 요약은 아래에서 선택해 연결할 수 있습니다.");
+      setStatus("원문 타임라인이 준비됐어요.");
       return;
     }
 
     const full = transcript.map((e) => `[${formatTime(e.time)}] ${e.text}`).join("\n");
-    const truncated = full.length > MAX_SCRIPT_CHARS;
-    const prompt = buildNotesPrompt(truncated ? full.slice(0, MAX_SCRIPT_CHARS) : full, truncated);
+    const localReady = typeof localAvailability !== "undefined" && (await localAvailability({})) === "available";
 
-    setStatus("노트를 만드는 중...");
-    const text = await notesRemote(prompt);
+    let text = "";
+    if (localReady) {
+      setStatus("기기 안에서 Gemini Nano로 요약 노트를 작성하는 중...");
+      log("기기 내 Gemini Nano 요약 시작");
+      text = await notesLocal(full, setStatus);
+    } else if (settings.apiKey) {
+      if (!settings.apiKey) throw new Error("API 키가 없습니다.");
+      const truncated = full.length > MAX_SCRIPT_CHARS;
+      const prompt = buildNotesPrompt(truncated ? full.slice(0, MAX_SCRIPT_CHARS) : full, truncated);
+      setStatus("원격 API로 요약 노트를 작성하는 중...");
+      text = await notesRemote(prompt);
+      renderTokens();
+    } else {
+      showNote(buildTimeline(), "timeline");
+      const notice = "기기 내 요약 모델(Gemini Nano)을 사용할 수 없고 등록된 API 키가 없어 원문 타임라인으로 출력되었습니다.";
+      setStatus(notice);
+      if (els.doneAlert) {
+        els.doneAlert.textContent = notice + " (Chrome 128+ 내장 AI를 켜거나 필요 시 API 키를 연결하세요)";
+        els.doneAlert.hidden = false;
+      }
+      return;
+    }
 
     if (!text.trim()) throw new Error("AI가 빈 결과를 반환했습니다. 원문 타임라인을 확인하거나 다시 만들어 주세요.");
     showNote(text);
     setStatus("완료. 자동 생성된 결과물입니다. 직접 내용을 검토하세요. 패널을 닫으면 사라집니다.");
-    renderTokens();
   } catch (e) {
     if (!els.result.value) showNote(buildTimeline(), "timeline");
-    return fail(String(e.message || e));
+    const errMsg = `요약 중 오류가 발생하여 원문 타임라인으로 보존되었습니다: ${e.message || e}`;
+    if (els.doneAlert) {
+      els.doneAlert.textContent = errMsg;
+      els.doneAlert.hidden = false;
+    }
+    return fail(errMsg);
   } finally {
     busy = false;
     els.againBtn.disabled = false;
@@ -559,6 +615,10 @@ function fail(message) {
   // 디버그 로그는 접혀 있어서 아무도 열지 않는다 — 이번 디버깅에서 반복해 물린 지점.
   els.panelAlert.textContent = message;
   els.panelAlert.hidden = false;
+  if (els.doneAlert) {
+    els.doneAlert.textContent = message;
+    els.doneAlert.hidden = false;
+  }
   // 포트를 끊지 않으면 content.js가 계속 프레임을 보내고, 매번 같은 실패를 조용히
   // 반복한다. UI는 이미 "중지됨"으로 보이는데 실제로는 캡처가 돌고 있었다.
   if (port) {
@@ -636,6 +696,14 @@ if (els.ocrEnabledToggle) {
   });
 }
 
+if (els.ocrEngineSelect) {
+  els.ocrEngineSelect.addEventListener("change", async () => {
+    const ocrEngine = els.ocrEngineSelect.value;
+    await saveSettings({ ocrEngine });
+    await detectEngine();
+  });
+}
+
 els.previewBtn.addEventListener("click", async () => {
   try {
     (await connectToTab()).postMessage({ type: "PREVIEW" });
@@ -686,9 +754,24 @@ els.startBtn.addEventListener("click", async () => {
     const capturePort = await connectToTab();
     settings = await loadSettings();
     const ocrWanted = settings.ocrEnabled !== false;
-    engine = ocrWanted ? (settings.allowRemoteOcr && settings.apiKey ? "remote" : "tesseract") : "none";
     if (ocrWanted) {
-      await prepareTesseract();
+      if (settings.allowRemoteOcr && settings.apiKey) {
+        engine = "remote";
+      } else if (settings.ocrEngine === "nano") {
+        const nanoStat = typeof localAvailability !== "undefined" ? await localAvailability() : "unavailable";
+        if (nanoStat === "available") {
+          engine = "nano";
+          await prepareLocalSession();
+        } else {
+          engine = "tesseract";
+          await prepareTesseract();
+        }
+      } else {
+        engine = "tesseract";
+        await prepareTesseract();
+      }
+    } else {
+      engine = "none";
     }
     let audioEnabled = settings.whisperEnabled;
     if (audioEnabled) {
