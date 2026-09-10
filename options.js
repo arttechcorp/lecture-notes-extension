@@ -10,6 +10,7 @@ const ocrEnabledCb = document.getElementById("ocrEnabledCb");
 const ocrEngineSelect = document.getElementById("ocrEngineSelect");
 
 const PROVIDER_URLS = {
+  openrouter: "https://openrouter.ai/keys",
   gemini: "https://aistudio.google.com/apikey",
   anthropic: "https://console.anthropic.com/settings/keys"
 };

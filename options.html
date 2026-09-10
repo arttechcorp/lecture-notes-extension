@@ -147,10 +147,11 @@
       <summary style="cursor: pointer; font-weight: 600; font-size: 15px; color: var(--ink);">
         외부 API 키 연결 (선택 사항)
       </summary>
-      <p class="note" style="margin-top: 10px;">온디바이스 Nano 외에 별도 클라우드 API(Google AI Studio, Anthropic)로 요약하고 싶을 때만 입력하세요. 비워두면 기기 안에서 무료로 처리됩니다.</p>
+      <p class="note" style="margin-top: 10px;">온디바이스 Nano 외에 별도 클라우드 API(OpenRouter, Anthropic, Google AI Studio)로 요약하고 싶을 때 입력하세요. 비워두면 기기 안에서 무료로 처리됩니다.</p>
       <div class="form-field"><label for="provider">AI 제공자</label><select id="provider">
-          <option value="gemini">Gemini (Google AI Studio)</option>
+          <option value="openrouter">Claude Sonnet 5 (OpenRouter)</option>
           <option value="anthropic">Claude (Anthropic)</option>
+          <option value="gemini">Gemini (Google AI Studio)</option>
         </select></div>
       <div class="form-field"><label for="apiKey">API 키</label><input id="apiKey" type="password" placeholder="선택한 제공자의 API 키를 입력하세요" autocomplete="off" spellcheck="false" aria-describedby="apiHelp" /></div>
       <div class="checklist">

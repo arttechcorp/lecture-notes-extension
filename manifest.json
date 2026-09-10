@@ -13,10 +13,14 @@
     "<all_urls>",
     "https://api.anthropic.com/*",
     "https://generativelanguage.googleapis.com/*",
+    "https://openrouter.ai/*",
     "https://huggingface.co/*",
     "https://*.hf.co/*",
     "https://cdn-lfs.huggingface.co/*"
   ],
+  "sandbox": {
+    "pages": ["sandbox.html"]
+  },
   "background": {
     "service_worker": "background.js"
   },
