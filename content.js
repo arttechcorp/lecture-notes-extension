@@ -7,14 +7,23 @@
   window.__lectureNotesLoaded = true;
 
   // ponytail: 영상마다 다른 튜닝값. 프레임을 너무 많이/적게 잡으면 여기를 조정.
+  // diffThreshold 는 48x27 축소본의 "평균" 밝기 차다(0~255). 슬라이드는 배경과
+  // 틀이 그대로고 글자만 바뀌는 경우가 대부분이라, 안 바뀐 픽셀이 평균을 희석한다.
+  // 실측에서 명백한 슬라이드 전환이 17.1로 나와 기준 20을 못 넘었다. 10으로 내린다.
   const MODES = {
-    slide: { interval: 5000, diffThreshold: 20, batchSize: 8, maxWidth: 1024, sample: [48, 27] },
+    slide: { interval: 5000, diffThreshold: 10, batchSize: 8, maxWidth: 1024, sample: [48, 27] },
     caption: { interval: 2000, diffThreshold: 12, batchSize: 15, maxWidth: 0, rect: { x: 0, y: 0.8, w: 1, h: 0.2 }, sample: [48, 12] },
-    region: { interval: 5000, diffThreshold: 20, batchSize: 8, maxWidth: 1024, sample: [48, 27] },
+    region: { interval: 5000, diffThreshold: 10, batchSize: 8, maxWidth: 1024, sample: [48, 27] },
   };
+
+  // 배치가 8장을 채울 때까지 기다리면, 슬라이드가 드문 강의에서는 캡처를 멈출
+  // 때까지 인식이 한 건도 시작되지 않는다. 그 기다림이 통째로 "노트 생성 시간"으로
+  // 체감된다. 첫 프레임이 담긴 뒤 이만큼 지나면 덜 찼어도 보낸다.
+  const BATCH_MAX_WAIT = 30000;
 
   let capturing = false;
   let batch = [];
+  let batchStartedAt = 0; // 이 배치의 첫 프레임이 담긴 시각. 시간 초과 전송 판단용
   let audioCtx = null;
   let audioProc = null;
   let ocrEngine = "local"; // 사이드패널이 START로 알려준다 — 엔진마다 원하는 입력 크기가 다르다
@@ -261,6 +270,7 @@
   // 프레임은 포트로 넘기는 즉시 참조를 끊는다 (GC 대상이 되게).
   function flushBatch() {
     if (batch.length === 0) return;
+    batchStartedAt = 0;
     const frames = batch.map((e) => e.frame);
     const times = batch.map((e) => e.time);
     batch = [];
@@ -284,6 +294,7 @@
       const capped = ocrEngine === "remote" && remoteFrames >= REMOTE_FRAME_CAP;
       if (!capped && diffScore(sample, lastDiffSample) > cfg.diffThreshold) {
         lastDiffSample = sample;
+        if (batch.length === 0) batchStartedAt = Date.now();
         batch.push({ frame: captureFrame(video, px, cfg), time: video.currentTime });
         if (ocrEngine === "remote") remoteFrames++;
         report("capture", `프레임 ${batch.length}장 대기 중`);
@@ -294,6 +305,10 @@
           debugLog(`원격 인식 프레임 상한 ${REMOTE_FRAME_CAP}장에 도달했습니다. 화면 캡처를 멈추고 음성 인식만 계속합니다.`);
         }
       }
+    }
+    if (batch.length && batchStartedAt && Date.now() - batchStartedAt >= BATCH_MAX_WAIT) {
+      debugLog(`배치 대기 ${BATCH_MAX_WAIT / 1000}초 초과 — ${batch.length}장으로 먼저 보냅니다`);
+      flushBatch();
     }
     // 음성 인식 쪽이 벽시계 대신 영상 시각으로 타임스탬프를 찍게 한다.
     // 배속·탐색 때 벽시계는 영상 시각과 어긋난다(2배속이면 2배로 벌어진다).
