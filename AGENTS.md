@@ -34,7 +34,7 @@ Rules for Codex, Claude Code, and Antigravity.
 - Ponytail: Follow lazy senior dev mode (`.agents/rules/ponytail.md`, `.agents/skills/ponytail`). Prefer YAGNI, standard platform features, and minimal diffs.
 - UI/UX Pro Max: Follow UI/UX design intelligence (`.agents/skills/ui-ux-pro-max`).
 - Archify: Create and render architecture, workflow, sequence, data-flow, and lifecycle diagrams (`.agents/skills/archify`).
-- Antigravity Agent: `gemini-flash` (`.agents/agents/gemini-flash.md`) using Gemini 3.8 Flash for high-speed implementation, syntax checks, and test verification.
+- Antigravity Agent: `gemini-flash` (`.agents/agents/gemini-flash.md`) using Gemini 3.8 Flash, configured strictly for Antigravity CLI (`agy --agent gemini-flash`) for high-speed implementation, syntax checks, invariant audits, and QA test verification.
 
 ## 5. Verification
 
