@@ -1,0 +1,207 @@
+#!/usr/bin/env node
+// 여러 모델을 같은 입력으로 돌려 나란히 비교한다.
+//
+// 왜 필요한가: 가격표로는 못 고른다. 이 제품의 값어치는 "한국어 노트 품질"
+// 하나인데 그건 스펙 시트에 없다. 같은 강의를 여러 모델에 넣고 결과를 눈으로
+// 봐야 정해진다.
+//
+// OpenRouter 키 하나로 전부 부른다. 모델 슬러그는 자주 바뀌므로 하드코딩하지
+// 않고 카탈로그에서 찾아 맞춘다. 가격도 카탈로그 값을 그대로 써서, 실제 사용량
+// 기준 원가를 뽑는다.
+//
+//   set OPENROUTER_API_KEY=sk-or-...            (Windows)
+//   export OPENROUTER_API_KEY=sk-or-...         (bash)
+//
+//   node tools/compare-models.mjs list qwen                 카탈로그 검색
+//   node tools/compare-models.mjs notes script.txt          노트 품질 비교
+//   node tools/compare-models.mjs ocr slide.png             글자 인식 비교
+//
+// script.txt 는 확장 패널의 "인식된 텍스트 전체"를 복사해 붙이면 된다.
+
+import fs from "node:fs";
+import path from "node:path";
+
+const KEY = process.env.OPENROUTER_API_KEY;
+const API = "https://openrouter.ai/api/v1";
+const KRW = Number(process.env.USD_KRW || 1450);
+
+// 후보. 카탈로그에서 이 조각들을 모두 포함하는 첫 모델을 고른다.
+// 바꾸고 싶으면 여기만 손대면 된다.
+const CANDIDATES = {
+  notes: [
+    ["gemini", "flash-lite"],
+    ["claude", "haiku-4.5"],
+    ["claude", "sonnet-5"],
+    ["deepseek", "v4-flash"],
+    ["qwen3.7-flash"],
+    ["gemma-3-27b"],
+  ],
+  ocr: [
+    ["gemini", "flash-lite"],
+    ["claude", "haiku-4.5"],
+    ["claude", "sonnet-5"],
+    ["qwen3-vl-32b"],
+    ["deepseek", "vision"],
+  ],
+};
+
+const NOTES_PROMPT = (script) =>
+  `아래는 대학 강의 영상에서 화면 인식(OCR)과 음성 인식으로 얻은 텍스트다. ` +
+  `각 줄 앞의 [mm:ss]는 영상 내 위치다. 이걸로 잘 구조화된 한국어 학습 노트를 작성해라.\n` +
+  `오탈자나 조각난 문장이 섞여 있으니 명백한 오독은 문맥으로 보정해라. ` +
+  `주어진 텍스트에 실제로 있는 내용만 쓰고 없는 내용을 지어내지 마라. ` +
+  `마크다운 본문만 출력하고 인사말이나 메타 코멘트를 붙이지 마라.\n\n${script}`;
+
+const OCR_PROMPT =
+  "이 강의 슬라이드에 보이는 텍스트를 그대로 옮겨 적어라. " +
+  "줄바꿈은 유지하고, 읽을 수 없는 부분은 [?]로 표시해라. 설명이나 추측을 덧붙이지 마라.";
+
+const die = (m) => { console.error(m); process.exit(1); };
+
+async function catalog() {
+  const res = await fetch(`${API}/models`);
+  if (!res.ok) die(`카탈로그를 못 받았다: ${res.status}`);
+  return (await res.json()).data;
+}
+
+// 조각을 전부 포함하는 모델을 찾는다. 두 가지를 걸러야 한다:
+//   ":batch" 같은 변종 접미사 — 배치는 비동기라 대화형에 못 쓴다
+//   "~" 접두사 — OpenRouter 의 비정식 라우팅
+// 남은 것 중 id 가 가장 짧은 것을 고른다. 접미사가 붙을수록 곁가지라는 뜻이다.
+function resolve(models, parts, needVision) {
+  const hit = models
+    .filter((m) => {
+      const id = m.id.toLowerCase();
+      if (id.startsWith("~") || id.includes(":")) return false;
+      if (!parts.every((p) => id.includes(p))) return false;
+      if (needVision) {
+        const mods = m.architecture?.input_modalities || m.architecture?.modality || "";
+        if (!String(mods).includes("image")) return false;
+      }
+      return Number(m.pricing?.prompt) > 0;
+    })
+    .sort((a, b) => a.id.length - b.id.length);
+  return hit[0] || null;
+}
+
+async function call(model, content) {
+  const t0 = Date.now();
+  const res = await fetch(`${API}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${KEY}`,
+      "X-Title": "Summrizei model comparison",
+    },
+    body: JSON.stringify({
+      model: model.id,
+      messages: [{ role: "user", content }],
+      max_tokens: 3000,
+    }),
+  });
+  const ms = Date.now() - t0;
+  const body = await res.json();
+  if (!res.ok || body.error) {
+    return { ms, error: body.error?.message || `HTTP ${res.status}`, text: "", usage: {} };
+  }
+  return {
+    ms,
+    text: body.choices?.[0]?.message?.content || "(빈 응답)",
+    usage: body.usage || {},
+    error: null,
+  };
+}
+
+const costKrw = (model, usage) =>
+  ((usage.prompt_tokens || 0) * Number(model.pricing.prompt) +
+    (usage.completion_tokens || 0) * Number(model.pricing.completion)) * KRW;
+
+async function main() {
+  const [mode, arg] = process.argv.slice(2);
+  if (!mode) die("사용법: node tools/compare-models.mjs list|notes|ocr [파일]");
+
+  const models = await catalog();
+
+  if (mode === "list") {
+    const q = (arg || "").toLowerCase();
+    const rows = models
+      .filter((m) => m.id.toLowerCase().includes(q))
+      .sort((a, b) => Number(a.pricing.prompt) - Number(b.pricing.prompt))
+      .slice(0, 40);
+    if (!rows.length) return console.log(`"${arg}" 에 맞는 모델이 없다.`);
+    console.log("모델 ID".padEnd(52) + "입력 $/1M".padStart(11) + "출력 $/1M".padStart(11) + "  이미지");
+    for (const m of rows) {
+      const img = String(m.architecture?.input_modalities || "").includes("image") ? "O" : "";
+      console.log(
+        m.id.padEnd(52) +
+          (Number(m.pricing.prompt) * 1e6).toFixed(2).padStart(11) +
+          (Number(m.pricing.completion) * 1e6).toFixed(2).padStart(11) +
+          "  " + img
+      );
+    }
+    return;
+  }
+
+  if (!KEY) die("OPENROUTER_API_KEY 가 없다. https://openrouter.ai/keys 에서 발급해 환경변수로 넣어라.");
+  if (!arg) die(`사용법: node tools/compare-models.mjs ${mode} <파일>`);
+  if (!fs.existsSync(arg)) die(`파일이 없다: ${arg}`);
+
+  const isOcr = mode === "ocr";
+  let content;
+  if (isOcr) {
+    const ext = path.extname(arg).slice(1).toLowerCase() || "png";
+    const b64 = fs.readFileSync(arg).toString("base64");
+    content = [
+      { type: "text", text: OCR_PROMPT },
+      { type: "image_url", image_url: { url: `data:image/${ext === "jpg" ? "jpeg" : ext};base64,${b64}` } },
+    ];
+  } else {
+    content = NOTES_PROMPT(fs.readFileSync(arg, "utf8").trim());
+  }
+
+  const picked = [];
+  for (const parts of CANDIDATES[isOcr ? "ocr" : "notes"]) {
+    const m = resolve(models, parts, isOcr);
+    if (m) picked.push(m);
+    else console.error(`  건너뜀 — "${parts.join(" ")}" 에 맞는 ${isOcr ? "이미지 지원 " : ""}모델이 없다`);
+  }
+  if (!picked.length) die("돌릴 모델이 하나도 없다.");
+
+  console.log(`${picked.length}개 모델로 ${isOcr ? "글자 인식" : "노트 생성"} 비교\n`);
+  const results = [];
+  for (const m of picked) {
+    process.stdout.write(`  ${m.id} ... `);
+    const r = await call(m, content);
+    results.push({ model: m, ...r });
+    console.log(r.error ? `실패 (${r.error})` : `${(r.ms / 1000).toFixed(1)}초, ${costKrw(m, r.usage).toFixed(1)}원`);
+  }
+
+  // 결과는 파일로. 터미널에서 긴 한국어 노트를 나란히 읽기는 어렵다.
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const out = path.join(path.dirname(arg), `compare-${mode}-${stamp}.md`);
+  const lines = [
+    `# ${isOcr ? "글자 인식" : "노트 생성"} 비교`,
+    "",
+    `입력: \`${arg}\` · 환율 ${KRW}원/달러 · ${new Date().toLocaleString("ko-KR")}`,
+    "",
+    "| 모델 | 입력 tok | 출력 tok | 시간 | 원가 | 강의 30편 |",
+    "|---|---:|---:|---:|---:|---:|",
+  ];
+  for (const r of results) {
+    if (r.error) { lines.push(`| ${r.model.id} | — | — | — | 실패 | ${r.error} |`); continue; }
+    const c = costKrw(r.model, r.usage);
+    lines.push(
+      `| ${r.model.id} | ${r.usage.prompt_tokens ?? "?"} | ${r.usage.completion_tokens ?? "?"} | ` +
+        `${(r.ms / 1000).toFixed(1)}초 | ${c.toFixed(1)}원 | ${Math.round(c * 30).toLocaleString()}원 |`
+    );
+  }
+  lines.push("", "> 강의 1편 = 이 입력 1회 기준이다. 실제로는 OCR이 프레임 수만큼 반복되므로 그쪽은 따로 곱해야 한다.", "");
+  for (const r of results) {
+    lines.push(`## ${r.model.id}`, "");
+    lines.push(r.error ? `실패: ${r.error}` : r.text.trim(), "");
+  }
+  fs.writeFileSync(out, lines.join("\n"), "utf8");
+  console.log(`\n결과: ${out}`);
+}
+
+main().catch((e) => die(String(e.stack || e)));
