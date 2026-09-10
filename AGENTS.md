@@ -20,13 +20,10 @@ Rules for Codex, Claude Code, and Antigravity.
 
 ## 3. Git & Branching
 
-- Default: commit to your own `<initial>/dev` branch. Do not create a new branch per task or per agent.
-- Identify user initial via `git config user.name`, `user.email`, or GitHub user:
-  - `coconutdoyou` (Kiwook) -> `w`
-  - `qnwlghks` (Jihwan) -> `b`
-  - Fallback: ask user if neither matches.
-- New branch only when the user asks, or when work must be isolated (risky refactor, parallel spike). Then use `<initial>/<task-slug>` (no agent segment) and delete it after merge.
-- Never commit directly to `main`; merge via PR from `<initial>/dev`.
+- Use one shared branch: `main`. Commit changes on `main`.
+- Do not create branches per agent, person, or task. Create a separate branch only when the user explicitly requests it.
+- Before pushing, fetch and integrate remote changes without rewriting history. Never force-push shared history.
+- Preserve other agents' uncommitted work; do not reset or overwrite it.
 - Use Conventional Commits (`feat:`, `fix:`).
 
 ## 4. Agent Rules & Skills
