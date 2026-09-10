@@ -277,7 +277,6 @@
     color: var(--ink);
     transform: none;
     box-shadow: none;
-  }
   button:focus-visible {
     outline: 2px solid var(--brand);
     outline-offset: 2px;
@@ -491,8 +490,6 @@
     50% { opacity: 0.35; transform: scale(0.85); }
   }
   @media (prefers-reduced-motion: reduce) {
-    .pulse { animation: none; }
-    button:hover:not(:disabled) { transform: none; }
     *, *::before, *::after {
       animation-duration: 0.01ms !important;
       animation-iteration-count: 1 !important;
@@ -862,7 +859,6 @@
     <label for="tabSelect">영상이 열린 탭</label>
     <div style="display:flex; gap:6px;">
       <select id="tabSelect"></select>
-      <button id="refreshTabsBtn" title="탭 목록 새로고침" aria-label="탭 목록 새로고침" type="button">↻</button>
       <button id="refreshTabsBtn" title="탭 목록 새로고침" aria-label="탭 목록 새로고침" type="button"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.19"/></svg></button>
     </div>
   </div>
