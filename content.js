@@ -215,7 +215,16 @@
         sampleRate: ctx.sampleRate,
       });
     } catch (e) {
-      report("error", `영상 오디오에 연결하지 못했습니다: ${e.name} ${e.message}`);
+      if (
+        e.name === "InvalidStateError" ||
+        String(e.message || "").includes("already connected") ||
+        String(e.message || "").includes("MediaElementSource") ||
+        String(e.message || "").includes("점유")
+      ) {
+        report("error", "영상 오디오가 이전 세션에 연결되어 있습니다. 강의 탭을 새로고침(F5)한 뒤 다시 캡처를 시작해 주세요.");
+      } else {
+        report("error", `영상 오디오에 연결하지 못했습니다: ${e.name} ${e.message}`);
+      }
     }
   }
 
