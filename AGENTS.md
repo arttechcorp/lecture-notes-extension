@@ -20,10 +20,13 @@ Rules for Codex, Claude Code, and Antigravity.
 
 ## 3. Git & Branching
 
-- Use one shared branch: `main`. Commit changes on `main`.
-- Do not create branches per agent, person, or task. Create a separate branch only when the user explicitly requests it.
-- Before pushing, fetch and integrate remote changes without rewriting history. Never force-push shared history.
-- Preserve other agents' uncommitted work; do not reset or overwrite it.
+- Default: commit to your own `<initial>/dev` branch. Do not create a new branch per task or per agent.
+- Identify user initial via `git config user.name`, `user.email`, or GitHub user:
+  - `coconutdoyou` (Kiwook) -> `w`
+  - `qnwlghks` (Jihwan) -> `b`
+  - Fallback: ask user if neither matches.
+- New branch only when the user asks, or when work must be isolated (risky refactor, parallel spike). Then use `<initial>/<task-slug>` (no agent segment) and delete it after merge.
+- Never commit directly to `main`; merge via PR from `<initial>/dev`.
 - Use Conventional Commits (`feat:`, `fix:`).
 
 ## 4. Agent Rules & Skills
@@ -31,7 +34,6 @@ Rules for Codex, Claude Code, and Antigravity.
 - Ponytail: Follow lazy senior dev mode (`.agents/rules/ponytail.md`, `.agents/skills/ponytail`). Prefer YAGNI, standard platform features, and minimal diffs.
 - UI/UX Pro Max: Follow UI/UX design intelligence (`.agents/skills/ui-ux-pro-max`).
 - Archify: Create and render architecture, workflow, sequence, data-flow, and lifecycle diagrams (`.agents/skills/archify`).
-- Antigravity Agent: `gemini-flash` (`.agents/agents/gemini-flash.md`) using Gemini 3.8 Flash for high-speed implementation, syntax checks, and test verification.
 
 ## 5. Verification
 
