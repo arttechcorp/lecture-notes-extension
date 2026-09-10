@@ -7,13 +7,12 @@
   window.__lectureNotesLoaded = true;
 
   // ponytail: 영상마다 다른 튜닝값. 프레임을 너무 많이/적게 잡으면 여기를 조정.
-  // diffThreshold 는 48x27 축소본의 "평균" 밝기 차다(0~255). 슬라이드는 배경과
-  // 틀이 그대로고 글자만 바뀌는 경우가 대부분이라, 안 바뀐 픽셀이 평균을 희석한다.
-  // 실측에서 명백한 슬라이드 전환이 17.1로 나와 기준 20을 못 넘었다. 10으로 내린다.
+  // diffThreshold 는 "뚜렷하게 바뀐 픽셀의 비율(%)"이다. 3%면 축소본 1296픽셀 중
+  // 39픽셀 — 슬라이드에서 글자 한두 줄이 바뀌는 정도다. 잡음은 0%에 가깝다.
   const MODES = {
-    slide: { interval: 5000, diffThreshold: 10, batchSize: 8, maxWidth: 1024, sample: [48, 27] },
-    caption: { interval: 2000, diffThreshold: 12, batchSize: 15, maxWidth: 0, rect: { x: 0, y: 0.8, w: 1, h: 0.2 }, sample: [48, 12] },
-    region: { interval: 5000, diffThreshold: 10, batchSize: 8, maxWidth: 1024, sample: [48, 27] },
+    slide: { interval: 5000, diffThreshold: 3, batchSize: 8, maxWidth: 1024, sample: [48, 27] },
+    caption: { interval: 2000, diffThreshold: 5, batchSize: 15, maxWidth: 0, rect: { x: 0, y: 0.8, w: 1, h: 0.2 }, sample: [48, 12] },
+    region: { interval: 5000, diffThreshold: 3, batchSize: 8, maxWidth: 1024, sample: [48, 27] },
   };
 
   // 배치가 8장을 채울 때까지 기다리면, 슬라이드가 드문 강의에서는 캡처를 멈출
@@ -73,8 +72,24 @@
     return gray;
   }
 
+  // 한 픽셀이 이만큼 넘게 움직여야 "바뀌었다"고 센다. 압축 잡음은 대개 ±5 안쪽이다.
+  const PIXEL_DELTA = 24;
+
+  // 묻고 싶은 것은 "평균이 얼마나 움직였나"가 아니라 "얼마나 많은 픽셀이 뚜렷하게
+  // 바뀌었나"다. 평균 절대차는 안 바뀐 배경이 값을 희석한다 — 슬라이드는 배경과
+  // 틀이 그대로고 글자만 바뀌므로 이 희석이 심하다. 실측에서 명백한 슬라이드
+  // 전환이 평균차 17.1로 나와 기준을 못 넘었는데, 같은 변화를 비율로 재면 10%다.
+  // 압축 잡음은 픽셀당 변화가 작아 이 지표에서 0%에 가깝게 떨어진다.
   function diffScore(a, b) {
     if (!a || !b) return Infinity;
+    let changed = 0;
+    for (let i = 0; i < a.length; i++) if (Math.abs(a[i] - b[i]) > PIXEL_DELTA) changed++;
+    return (changed / a.length) * 100; // 바뀐 픽셀 비율(%)
+  }
+
+  // 진단용. 예전 지표를 나란히 찍어 기준을 실측으로 맞출 수 있게 남긴다.
+  function meanAbsDiff(a, b) {
+    if (!a || !b) return 0;
     let sum = 0;
     for (let i = 0; i < a.length; i++) sum += Math.abs(a[i] - b[i]);
     return sum / a.length;
@@ -287,8 +302,9 @@
       // 30초에 한 번만 — 루프가 살아 있는지와 기준을 넘는지를 동시에 보여준다.
       if (++tickCount % 6 === 0) {
         debugLog(
-          `캡처 감시 — 변화량 ${score === Infinity ? "첫프레임" : score.toFixed(1)} ` +
-            `(기준 ${cfg.diffThreshold}), 모은 프레임 ${batch.length}/${cfg.batchSize}장`
+          `캡처 감시 — 변경 ${score === Infinity ? "첫프레임" : score.toFixed(1) + "%"} ` +
+            `(기준 ${cfg.diffThreshold}%, 평균차 ${meanAbsDiff(sample, lastDiffSample).toFixed(1)}), ` +
+            `모은 프레임 ${batch.length}/${cfg.batchSize}장`
         );
       }
       const capped = ocrEngine === "remote" && remoteFrames >= REMOTE_FRAME_CAP;
@@ -298,7 +314,7 @@
         batch.push({ frame: captureFrame(video, px, cfg), time: video.currentTime });
         if (ocrEngine === "remote") remoteFrames++;
         report("capture", `프레임 ${batch.length}장 대기 중`);
-        debugLog(`프레임 포착 ${batch.length}/${cfg.batchSize}장 (변화량 ${score.toFixed(1)})`);
+        debugLog(`프레임 포착 ${batch.length}/${cfg.batchSize}장 (변경 ${score === Infinity ? "첫프레임" : score.toFixed(1) + "%"})`);
         if (batch.length >= cfg.batchSize) flushBatch();
         if (ocrEngine === "remote" && remoteFrames === REMOTE_FRAME_CAP) {
           flushBatch();
