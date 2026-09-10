@@ -1,0 +1,257 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Summrizei — 강의 인식 아키텍처 제안",
+    "output": "architecture-proposal.html",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    {
+      "id": "lecture",
+      "type": "external",
+      "label": "강의 탭",
+      "sublabel": "영상 · 슬라이드 ROI",
+      "pos": [
+        20,
+        285
+      ],
+      "size": [
+        200,
+        80
+      ]
+    },
+    {
+      "id": "control",
+      "type": "backend",
+      "label": "서비스 워커",
+      "sublabel": "시작 · 권한 · 세션 조회",
+      "pos": [
+        285,
+        65
+      ],
+      "size": [
+        200,
+        80
+      ],
+      "tag": "강의 상태 보관 안 함"
+    },
+    {
+      "id": "session",
+      "type": "frontend",
+      "label": "Offscreen 세션",
+      "sublabel": "캡처 · 시계 · 처리량 제어",
+      "pos": [
+        285,
+        285
+      ],
+      "size": [
+        200,
+        80
+      ],
+      "tag": "원본은 제한된 RAM"
+    },
+    {
+      "id": "visual-gate",
+      "type": "backend",
+      "label": "화면 변화 감지",
+      "sublabel": "전환 · 누적 필기 · 안정화",
+      "pos": [
+        550,
+        190
+      ],
+      "size": [
+        200,
+        80
+      ]
+    },
+    {
+      "id": "ocr",
+      "type": "backend",
+      "label": "OCR 워커",
+      "sublabel": "영문 · 한글 · 영역별 인식",
+      "pos": [
+        815,
+        190
+      ],
+      "size": [
+        200,
+        80
+      ]
+    },
+    {
+      "id": "vad",
+      "type": "backend",
+      "label": "AudioWorklet + VAD",
+      "sublabel": "16 kHz · 발화 단위 버퍼",
+      "pos": [
+        550,
+        450
+      ],
+      "size": [
+        200,
+        80
+      ]
+    },
+    {
+      "id": "asr",
+      "type": "backend",
+      "label": "ASR 워커",
+      "sublabel": "다국어 Whisper · 순차 처리",
+      "pos": [
+        815,
+        450
+      ],
+      "size": [
+        200,
+        80
+      ]
+    },
+    {
+      "id": "evidence",
+      "type": "database",
+      "label": "근거 타임라인",
+      "sublabel": "출처 · 수정 이력 · 보수적 병합",
+      "pos": [
+        1080,
+        320
+      ],
+      "size": [
+        200,
+        80
+      ],
+      "tag": "텍스트만 RAM 보관"
+    },
+    {
+      "id": "llm",
+      "type": "external",
+      "label": "선택한 요약 API",
+      "sublabel": "OpenRouter · 청크별 구조화",
+      "pos": [
+        1080,
+        650
+      ],
+      "size": [
+        200,
+        80
+      ],
+      "tag": "이미지 · 오디오 전송 없음"
+    },
+    {
+      "id": "notes",
+      "type": "frontend",
+      "label": "사이드패널",
+      "sublabel": "요약 · 개념 · 질문 · 근거 시각",
+      "pos": [
+        815,
+        650
+      ],
+      "size": [
+        200,
+        80
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "로컬 인식 — 세션 종료 시 강의 데이터 해제",
+      "wraps": [
+        "session",
+        "visual-gate",
+        "ocr",
+        "vad",
+        "asr",
+        "evidence"
+      ],
+      "pad": 28
+    }
+  ],
+  "connections": [
+    {
+      "id": "capture",
+      "from": "lecture",
+      "to": "session",
+      "label": "명시적 시작"
+    },
+    {
+      "id": "start",
+      "from": "control",
+      "to": "session",
+      "variant": "dashed"
+    },
+    {
+      "id": "watch",
+      "from": "session",
+      "to": "visual-gate"
+    },
+    {
+      "id": "recognize",
+      "from": "visual-gate",
+      "to": "ocr",
+      "label": "선택한 영역"
+    },
+    {
+      "id": "pcm",
+      "from": "session",
+      "to": "vad"
+    },
+    {
+      "id": "speech",
+      "from": "vad",
+      "to": "asr",
+      "label": "발화 + 겹침"
+    },
+    {
+      "id": "ocr-text",
+      "from": "ocr",
+      "to": "evidence"
+    },
+    {
+      "id": "asr-text",
+      "from": "asr",
+      "to": "evidence"
+    },
+    {
+      "id": "summarize",
+      "from": "evidence",
+      "to": "llm",
+      "label": "동의한 텍스트만",
+      "variant": "dashed",
+      "labelDy": 130
+    },
+    {
+      "id": "render",
+      "from": "llm",
+      "to": "notes",
+      "label": "근거 포함 요약",
+      "labelDy": -34
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "화면은 선택적으로",
+      "items": [
+        "가벼운 감시는 자주, OCR은 변화 시",
+        "이미지 큐는 바이트와 개수로 제한"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "정보 손실은 드러나게",
+      "items": [
+        "ASR 겹침은 시간 구간으로 제거",
+        "정정·부정·수식은 그대로 보존"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "지원 범위를 명확하게",
+      "items": [
+        "구독 연결은 공식 허용 범위 확인",
+        "로컬 보조 앱은 품질 검증 후 선택"
+      ]
+    }
+  ]
+}

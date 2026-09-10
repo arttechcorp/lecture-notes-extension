@@ -1,0 +1,394 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Summrizei 강의 노트 확장 프로그램 구조",
+    "output": "summrizei-architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/arttechcorp/lecture-notes-extension",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "670445a912e50ef70ada628b7776a0d35e269714"
+    },
+    "views": [
+      {
+        "id": "capture-path",
+        "label": "캡처 경로",
+        "focus": [
+          "lecture",
+          "content",
+          "panel"
+        ],
+        "note": "강의 탭에 주입한 스크립트가 프레임과 오디오를 사이드패널로 보내는 주 경로."
+      },
+      {
+        "id": "on-device",
+        "label": "온디바이스 인식",
+        "focus": [
+          "panel",
+          "ocr",
+          "whisper",
+          "cleanup"
+        ],
+        "note": "화면 글자와 음성을 기기 안에서 텍스트로 바꾸고 정리하는 구간."
+      },
+      {
+        "id": "data-boundary",
+        "label": "데이터 경계",
+        "focus": [
+          "panel",
+          "storage",
+          "options",
+          "remote",
+          "hf"
+        ],
+        "note": "저장되는 것과 네트워크로 나가는 것만 따로 본다."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "sw",
+      "type": "backend",
+      "label": "background.js",
+      "sublabel": "서비스 워커",
+      "tag": "유휴 시 종료 · 상태 없음",
+      "pos": [
+        1080,
+        80
+      ],
+      "size": [
+        190,
+        64
+      ],
+      "sources": [
+        {
+          "path": "background.js"
+        }
+      ]
+    },
+    {
+      "id": "storage",
+      "type": "database",
+      "label": "chrome.storage",
+      "sublabel": "설정 전용",
+      "tag": "강의 데이터 저장 금지",
+      "pos": [
+        725,
+        80
+      ],
+      "size": [
+        190,
+        64
+      ],
+      "sources": [
+        {
+          "path": "lib/settings.js"
+        }
+      ]
+    },
+    {
+      "id": "options",
+      "type": "frontend",
+      "label": "옵션 페이지",
+      "sublabel": "options.js",
+      "pos": [
+        400,
+        80
+      ],
+      "size": [
+        180,
+        64
+      ],
+      "sources": [
+        {
+          "path": "options.js"
+        }
+      ]
+    },
+    {
+      "id": "lecture",
+      "type": "external",
+      "label": "강의 영상 탭",
+      "sublabel": "재생 중인 video 요소",
+      "pos": [
+        40,
+        244
+      ],
+      "size": [
+        170,
+        76
+      ]
+    },
+    {
+      "id": "content",
+      "type": "frontend",
+      "label": "content.js",
+      "sublabel": "주입되는 캡처 스크립트",
+      "tag": "선언적 주입 없음",
+      "pos": [
+        360,
+        244
+      ],
+      "size": [
+        180,
+        76
+      ],
+      "sources": [
+        {
+          "path": "content.js",
+          "label": "프레임·오디오 캡처"
+        }
+      ]
+    },
+    {
+      "id": "panel",
+      "type": "frontend",
+      "label": "사이드패널",
+      "sublabel": "sidepanel.js",
+      "tag": "모든 상태와 AI 호출을 소유",
+      "pos": [
+        720,
+        238
+      ],
+      "size": [
+        200,
+        88
+      ],
+      "sources": [
+        {
+          "path": "sidepanel.js",
+          "label": "오케스트레이터"
+        }
+      ]
+    },
+    {
+      "id": "remote",
+      "type": "external",
+      "label": "원격 요약 API",
+      "sublabel": "Anthropic · Gemini",
+      "tag": "사용자 API 키 · 선택 사항",
+      "pos": [
+        1080,
+        244
+      ],
+      "size": [
+        190,
+        76
+      ],
+      "sources": [
+        {
+          "path": "lib/ai.js",
+          "label": "callRemote"
+        }
+      ]
+    },
+    {
+      "id": "cleanup",
+      "type": "backend",
+      "label": "텍스트 정리",
+      "sublabel": "mergeLines · repeats",
+      "pos": [
+        494,
+        490
+      ],
+      "size": [
+        180,
+        76
+      ],
+      "sources": [
+        {
+          "path": "lib/mergeLines.js"
+        },
+        {
+          "path": "lib/repeats.js"
+        }
+      ]
+    },
+    {
+      "id": "ocr",
+      "type": "backend",
+      "label": "화면 글자 인식",
+      "sublabel": "Gemini Nano · Tesseract.js",
+      "pos": [
+        730,
+        490
+      ],
+      "size": [
+        180,
+        76
+      ],
+      "sources": [
+        {
+          "path": "lib/ai.js",
+          "label": "ocrLocal · ocrTesseract"
+        }
+      ]
+    },
+    {
+      "id": "whisper",
+      "type": "backend",
+      "label": "Whisper 워커",
+      "sublabel": "transformers.js · WASM",
+      "pos": [
+        966,
+        490
+      ],
+      "size": [
+        180,
+        76
+      ],
+      "sources": [
+        {
+          "path": "lib/whisper-worker.js"
+        },
+        {
+          "path": "lib/audio.js"
+        }
+      ]
+    },
+    {
+      "id": "hf",
+      "type": "external",
+      "label": "Hugging Face",
+      "sublabel": "Whisper 모델 가중치",
+      "pos": [
+        966,
+        610
+      ],
+      "size": [
+        180,
+        64
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "security-group",
+      "label": "무저장 경계 — 강의 데이터는 메모리에만",
+      "wraps": [
+        "content",
+        "panel"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "온디바이스 인식 — 기기 밖으로 나가지 않음",
+      "wraps": [
+        "cleanup",
+        "ocr",
+        "whisper"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "sw-opens-panel",
+      "from": "sw",
+      "to": "panel",
+      "label": "액션 클릭 시 패널 열기",
+      "variant": "dashed"
+    },
+    {
+      "id": "video-to-content",
+      "from": "lecture",
+      "to": "content",
+      "label": "프레임 · 오디오"
+    },
+    {
+      "id": "inject",
+      "from": "panel",
+      "to": "content",
+      "label": "executeScript 주입",
+      "variant": "dashed",
+      "labelDx": -66,
+      "labelDy": -34
+    },
+    {
+      "id": "port-stream",
+      "from": "content",
+      "to": "panel",
+      "label": "Port 메시지",
+      "variant": "emphasis",
+      "labelDx": 30,
+      "labelDy": 26
+    },
+    {
+      "id": "ocr-frames",
+      "from": "panel",
+      "to": "ocr",
+      "label": "프레임 → 텍스트",
+      "labelDy": 100
+    },
+    {
+      "id": "asr-whisper",
+      "from": "panel",
+      "to": "whisper",
+      "label": "5초 PCM 청크"
+    },
+    {
+      "id": "normalize",
+      "from": "panel",
+      "to": "cleanup",
+      "label": "중복·반복 제거"
+    },
+    {
+      "id": "model-weights",
+      "from": "whisper",
+      "to": "hf",
+      "label": "모델 가중치 최초 1회",
+      "variant": "dashed",
+      "labelDy": 38
+    },
+    {
+      "id": "settings-read",
+      "from": "panel",
+      "to": "storage",
+      "label": "설정 읽기"
+    },
+    {
+      "id": "settings-write",
+      "from": "options",
+      "to": "storage",
+      "label": "API 키 저장"
+    },
+    {
+      "id": "summarize-remote",
+      "from": "panel",
+      "to": "remote",
+      "label": "요약 요청",
+      "variant": "dashed",
+      "labelDx": 40
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "캡처",
+      "items": [
+        "executeScript로 content.js 주입",
+        "프레임·오디오는 Port 메시지로만 전달",
+        "패널을 닫으면 캡처가 즉시 중단"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "온디바이스 인식",
+      "items": [
+        "Gemini Nano 또는 Tesseract.js로 글자 인식",
+        "Whisper 워커가 5초 PCM 청크를 전사",
+        "mergeLines·repeats로 중복·반복 제거"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "데이터 경계",
+      "items": [
+        "강의 데이터는 storage에 저장 안 함",
+        "storage에는 설정과 API 키만",
+        "외부 전송은 모델 가중치와 요약 요청뿐"
+      ]
+    }
+  ]
+}
