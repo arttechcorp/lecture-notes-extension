@@ -141,8 +141,18 @@
       // createMediaElementSource는 엘리먼트당 딱 한 번만 된다. 재시작에 대비해 캐시한다.
       if (!video.__lnAudio) {
         const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: AUDIO_HZ });
-        const src = ctx.createMediaElementSource(video);
-        src.connect(ctx.destination); // 소리는 계속 스피커로 나가야 한다
+        let src;
+        try {
+          src = ctx.createMediaElementSource(video);
+          src.connect(ctx.destination); // 소리는 계속 스피커로 나가야 한다
+        } catch (err) {
+          if (typeof video.captureStream === "function" || typeof video.mozCaptureStream === "function") {
+            const stream = (video.captureStream || video.mozCaptureStream).call(video);
+            src = ctx.createMediaStreamSource(stream);
+          } else {
+            throw new Error("영상 오디오 노드가 이미 점유되어 있습니다. 강의 영상 페이지를 새로고침(F5) 후 다시 시도해 주세요.");
+          }
+        }
         video.__lnAudio = { ctx, src };
       }
       const { ctx, src } = video.__lnAudio;
