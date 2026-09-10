@@ -6,165 +6,776 @@
 <title>설정 — Summrizei</title>
 <style>
   :root {
-    --paper: #ffffff;
-    --ground: #f3f3f2;
-    --ink: #181818;
-    --ash: #666666;
-    --faint: #767676;
-    --rule: #e4e4e4;
-    --sunk: #f1f1f1;
+    --ground: #F7F7F4;
+    --paper: #FFFFFF;
+    --ink: #18181B;
+    --ash: #71717A;
+    --faint: #A1A1AA;
+    --rule: rgba(0, 0, 0, 0.08);
+    --rule-strong: rgba(0, 0, 0, 0.16);
+    --sunk: #EFEFED;
+    --sunk-hover: #E7E7E4;
+    --accent: #FF5600;
+    --accent-soft: rgba(255, 86, 0, 0.1);
+    --accent-border: rgba(255, 86, 0, 0.3);
+
     --r-lg: 14px;
     --r-md: 10px;
-    --lift-1: 0 1px 2px rgba(0,0,0,.06), 0 1px 6px rgba(0,0,0,.04);
-    --lift-2: 0 2px 5px rgba(0,0,0,.07), 0 10px 26px rgba(0,0,0,.09);
-    --inset: inset 0 1px 3px rgba(0,0,0,.07);
-    --btn-face: linear-gradient(180deg, #2a2a2a, #000000);
-    --btn-text: #ffffff;
+    --r-sm: 6px;
+    --r-full: 9999px;
+
+    --lift-card: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 14px rgba(0, 0, 0, 0.02);
+    --lift-btn: 0 2px 4px rgba(0, 0, 0, 0.08), 0 8px 20px rgba(0, 0, 0, 0.06);
+    --inset: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+
+    --btn-face: #18181B;
+    --btn-text: #FAFAFA;
+
+    --sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Pretendard", "astaSans", sans-serif;
+    --mono: "Geist Mono", Menlo, Monaco, Consolas, monospace;
   }
+
   @media (prefers-color-scheme: dark) {
     :root {
-      --paper: #121212;
-      --ground: #0a0a0a;
-      --ink: #ffffff;
-      --ash: #9d9d9d;
-      --faint: #a0a0a0;
-      --rule: #2a2a2a;
-      --sunk: #1a1a1a;
-      --lift-1: 0 1px 2px rgba(0,0,0,.6);
-      --lift-2: 0 2px 6px rgba(0,0,0,.6), 0 10px 26px rgba(0,0,0,.5);
-      --inset: inset 0 1px 3px rgba(0,0,0,.5);
-      --btn-face: linear-gradient(180deg, #ffffff, #d9d9d9);
-      --btn-text: #000000;
+      --ground: #09090B;
+      --paper: #121214;
+      --ink: #F4F4F5;
+      --ash: #A1A1AA;
+      --faint: #71717A;
+      --rule: rgba(255, 255, 255, 0.1);
+      --rule-strong: rgba(255, 255, 255, 0.2);
+      --sunk: #1F1F23;
+      --sunk-hover: #28282E;
+      --accent: #FF5600;
+      --accent-soft: rgba(255, 86, 0, 0.16);
+      --accent-border: rgba(255, 86, 0, 0.35);
+
+      --lift-card: 0 1px 3px rgba(0, 0, 0, 0.6), 0 6px 20px rgba(0, 0, 0, 0.4);
+      --lift-btn: 0 2px 6px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.4);
+      --inset: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+
+      --btn-face: #FAFAFA;
+      --btn-text: #18181B;
     }
   }
+
   * { box-sizing: border-box; }
+  html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+
   body {
-    font: 14px/1.7 system-ui, sans-serif; max-width: 720px; margin: 0 auto;
-    padding: 48px 24px 80px; color: var(--ink); background: var(--ground);
+    margin: 0 auto;
+    padding: 56px 24px 88px;
+    max-width: 720px;
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--ink);
+    background-color: var(--ground);
+    word-break: keep-all;
   }
-  h1 { font-size: 30px; font-weight: 650; line-height: 1.35; letter-spacing: -.055em; margin: 20px 0 8px; }
-  h2 { font-size: 17px; font-weight: 650; letter-spacing: -.025em; margin: 0 0 6px; }
-  h2 + p { margin-top: 0; color: var(--ash); font-size: 13.5px; }
-  hr { border: none; border-top: 1px solid var(--rule); margin: 28px 0; }
-  a { color: var(--ink); text-underline-offset: 3px; }
 
-  input[type="text"], input[type="password"], select {
-    width: 100%; padding: 9px 10px; font: inherit; border-radius: var(--r-md);
-    border: 1px solid var(--rule); background: var(--sunk); color: var(--ink);
-    box-shadow: var(--inset);
-  }
-  select { min-width: 0; max-width: 100%; }
-  input:focus-visible, select:focus-visible, button:focus-visible {
-    outline: 2px solid var(--ink); outline-offset: 2px;
-  }
-  input[type="checkbox"] { width: auto; accent-color: var(--ink); }
-
-  button {
-    margin-top: 10px; padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer;
-    border-radius: 100px; border: 1px solid transparent;
-    background: var(--btn-face); color: var(--btn-text); box-shadow: var(--lift-2);
-    transition: transform 140ms ease, box-shadow 140ms ease;
-  }
-  button:hover { transform: translateY(-1px); }
-  @media (prefers-reduced-motion: reduce) { button:hover { transform: none } }
-
-  #saved { color: var(--ash); font-size: 13px; min-height: 22px; margin: 12px 0 0; }
-  .note { color: var(--ash); font-size: 12.5px; margin-top: 12px; }
-  .card {
-    background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r-lg); padding: 24px;
-    box-shadow: var(--lift-1);
-  }
   [hidden] { display: none !important; }
-  .brand { font-size: 22px; letter-spacing: -.055em; font-weight: 750; }
-  .lead { color: var(--ash); margin: 0 0 26px; }
-  .free-banner { background: var(--ink); color: var(--paper); padding: 22px 24px; border-radius: var(--r-lg); margin-bottom: 28px; box-shadow: var(--lift-2); }
-  .free-banner p { margin: 6px 0 0; font-size: 13px; opacity: .8; }
-  .section-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-  .badge { font-size: 10px; letter-spacing: .06em; padding: 4px 9px; background: var(--sunk); border: 1px solid var(--rule); border-radius: 100px; white-space: nowrap; }
-  .form-field { margin-top: 18px; }
-  .form-field > label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 7px; }
-  .checklist { display: grid; gap: 10px; margin-top: 16px; font-size: 12px; color: var(--ash); }
-  .checklist label { display: flex; gap: 8px; align-items: flex-start; }
-  .checklist input { margin: 5px 0 0; }
-  .save-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 12px; }
-  .save-row a { font-size: 12px; }
-  .setting-note { padding-top: 16px; border-top: 1px solid var(--rule); }
-  button:disabled { opacity: .5; cursor: wait; transform: none; }
-  footer { margin-top: 30px; color: var(--ash); font-size: 12px; }
-  @media (max-width: 480px) { body { padding: 28px 16px 50px; } .card { padding: 20px 18px; } .save-row { flex-wrap: wrap; } }
+
+  /* Page Header */
+  .page-header { margin-bottom: 24px; }
+  .brand-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .brand-title { font-size: 18px; font-weight: 700; letter-spacing: -0.03em; color: var(--ink); }
+  .badge-tech {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    padding: 2px 8px;
+    border-radius: var(--r-full);
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    color: var(--ash);
+  }
+  h1 {
+    font-size: 32px;
+    font-weight: 650;
+    line-height: 1.25;
+    letter-spacing: -0.035em;
+    margin: 0 0 8px;
+    color: var(--ink);
+  }
+  .lead { font-size: 14.5px; line-height: 1.65; color: var(--ash); margin: 0; }
+
+  /* Hero Banner (.free-banner) */
+  .free-banner {
+    background: #000000;
+    color: #F4F4F5;
+    padding: 24px 28px;
+    border-radius: var(--r-lg);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    margin-bottom: 20px;
+    box-shadow: 0 8px 24px -6px rgba(0, 0, 0, 0.25);
+    position: relative;
+    overflow: hidden;
+  }
+  .free-banner::after {
+    content: "";
+    position: absolute;
+    top: -40px;
+    right: -40px;
+    width: 180px;
+    height: 180px;
+    background: radial-gradient(circle, rgba(255, 86, 0, 0.18) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .free-banner-badge-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .badge-orange {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255, 86, 0, 0.15);
+    border: 1px solid rgba(255, 86, 0, 0.35);
+    color: #FF661A;
+    padding: 3px 9px;
+    border-radius: var(--r-full);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .badge-orange-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #FF5600;
+    box-shadow: 0 0 6px #FF5600;
+  }
+  .badge-mono-pill {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    padding: 3px 8px;
+    border-radius: var(--r-full);
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.7);
+  }
+  .free-banner-title {
+    display: block;
+    font-size: 17px;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    color: #FFFFFF;
+    margin-bottom: 6px;
+  }
+  .free-banner-desc {
+    font-size: 13.5px;
+    line-height: 1.65;
+    color: rgba(255, 255, 255, 0.75);
+    margin: 0 0 16px;
+  }
+  .free-banner-features {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .feature-tag {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 4px 10px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    color: #F4F4F5;
+  }
+
+  /* Section Cards */
+  .card {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-lg);
+    padding: 24px 28px;
+    margin-bottom: 20px;
+    box-shadow: var(--lift-card);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+  .section-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 18px;
+  }
+  h2 {
+    font-size: 17px;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    margin: 0;
+    color: var(--ink);
+  }
+  .badge {
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    padding: 4px 10px;
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-full);
+    color: var(--ash);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* Toggle Card */
+  .toggle-card {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 14px 16px;
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-md);
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+  }
+  .toggle-card:hover {
+    background-color: var(--sunk-hover);
+  }
+  .toggle-text {
+    flex: 1;
+  }
+  .toggle-title {
+    display: block;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--ink);
+    line-height: 1.4;
+  }
+  .toggle-note {
+    display: block;
+    font-size: 12.5px;
+    color: var(--ash);
+    line-height: 1.6;
+    margin: 4px 0 0;
+  }
+
+  /* Switch Slider UI */
+  .switch-box {
+    position: relative;
+    width: 42px;
+    height: 24px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .switch-input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    cursor: pointer;
+    z-index: 2;
+  }
+  .switch-slider {
+    position: absolute;
+    inset: 0;
+    background-color: var(--rule-strong);
+    border-radius: var(--r-full);
+    transition: background-color 0.2s ease;
+    pointer-events: none;
+  }
+  .switch-slider::before {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
+    background-color: #FFFFFF;
+    border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .switch-input:checked + .switch-slider {
+    background-color: var(--ink);
+  }
+  .switch-input:focus-visible + .switch-slider {
+    outline: 2px solid var(--ink);
+    outline-offset: 2px;
+  }
+  .switch-input:checked + .switch-slider::before {
+    transform: translateX(18px);
+  }
+  @media (prefers-color-scheme: dark) {
+    .switch-slider {
+      background-color: rgba(255, 255, 255, 0.2);
+    }
+    .switch-slider::before {
+      background-color: #FFFFFF;
+    }
+    .switch-input:checked + .switch-slider {
+      background-color: #FAFAFA;
+    }
+    .switch-input:checked + .switch-slider::before {
+      background-color: #18181B;
+    }
+  }
+
+  /* Form Fields */
+  .form-field {
+    margin-top: 18px;
+  }
+  .field-label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+    margin-bottom: 7px;
+  }
+  .select-wrap {
+    position: relative;
+    width: 100%;
+  }
+  input[type="text"], input[type="password"], select {
+    width: 100%;
+    padding: 10px 14px;
+    font-family: var(--sans);
+    font-size: 13.5px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--rule);
+    background: var(--sunk);
+    color: var(--ink);
+    box-shadow: var(--inset);
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+  }
+  select {
+    appearance: none;
+    -webkit-appearance: none;
+    padding-right: 38px;
+    background-image: url('data:image/svg+xml;charset=utf-8,%3Csvg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="%2371717A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpolyline points="6 9 12 15 18 9"%3E%3C/polyline%3E%3C/svg%3E');
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    cursor: pointer;
+  }
+  @media (prefers-color-scheme: dark) {
+    select {
+      background-image: url('data:image/svg+xml;charset=utf-8,%3Csvg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="%23A1A1AA" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpolyline points="6 9 12 15 18 9"%3E%3C/polyline%3E%3C/svg%3E');
+    }
+  }
+  input:focus-visible, select:focus-visible, button:focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 2px;
+  }
+  .mono-input {
+    font-family: var(--mono) !important;
+    font-size: 13px !important;
+    letter-spacing: 0.03em;
+  }
+  .note {
+    color: var(--ash);
+    font-size: 12.5px;
+    line-height: 1.6;
+    margin: 7px 0 0;
+  }
+
+  /* API Accordion Details */
+  details { width: 100%; }
+  summary {
+    list-style: none;
+    cursor: pointer;
+    user-select: none;
+  }
+  summary::-webkit-details-marker { display: none; }
+  .api-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .api-summary:focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 4px;
+    border-radius: var(--r-sm);
+  }
+  .api-summary-main {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .chevron {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ash);
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  details[open] .chevron {
+    transform: rotate(180deg);
+  }
+  .api-content {
+    padding-top: 20px;
+    margin-top: 18px;
+    border-top: 1px solid var(--rule);
+    animation: detailsFadeIn 0.2s ease;
+  }
+  @keyframes detailsFadeIn {
+    from { opacity: 0; transform: translateY(-3px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 7px;
+  }
+  .label-row .field-label {
+    margin-bottom: 0;
+  }
+  .key-link {
+    font-size: 12px;
+    font-weight: 550;
+    color: var(--ink);
+    text-decoration: none;
+    opacity: 0.85;
+    transition: opacity 0.15s, text-decoration 0.15s;
+  }
+  .key-link:hover {
+    opacity: 1;
+    text-decoration: underline;
+  }
+  .checklist {
+    display: grid;
+    gap: 10px;
+    margin-top: 16px;
+  }
+  .check-label {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 13px;
+    color: var(--ash);
+    cursor: pointer;
+    user-select: none;
+  }
+  .check-input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--ink);
+    cursor: pointer;
+    border-radius: 4px;
+    margin: 0;
+    flex-shrink: 0;
+  }
+  .save-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 20px;
+  }
+  .setting-note {
+    padding-top: 16px;
+    margin-top: 18px;
+    border-top: 1px solid var(--rule);
+  }
+
+  /* Primary Button */
+  button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 11px 22px;
+    font-family: var(--sans);
+    font-size: 13.5px;
+    font-weight: 550;
+    cursor: pointer;
+    border-radius: 14px;
+    border: 1px solid transparent;
+    background: var(--btn-face);
+    color: var(--btn-text);
+    box-shadow: var(--lift-btn);
+    transition: transform 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
+    user-select: none;
+  }
+  button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+  }
+  button:active {
+    transform: translateY(0);
+  }
+  button:disabled {
+    opacity: 0.5;
+    cursor: wait;
+    transform: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    button:hover { transform: none; }
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+    button:hover { transform: none !important; }
+  }
+
+  .key-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 550;
+    transition: opacity 120ms ease;
+  }
+  .key-link:hover {
+    opacity: 0.8;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .key-link svg {
+    flex-shrink: 0;
+  }
+
+  /* Floating Save Toast (#saved) */
+  .save-toast {
+    position: fixed;
+    bottom: 32px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 20px;
+    background: var(--ink);
+    color: var(--ground);
+    font-size: 13px;
+    font-weight: 550;
+    border-radius: var(--r-full);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2), 0 2px 8px rgba(0, 0, 0, 0.1);
+    z-index: 1000;
+    pointer-events: none;
+    white-space: nowrap;
+    animation: toastPop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  @keyframes toastPop {
+    from {
+      opacity: 0;
+      transform: translate(-50%, 10px);
+    }
+    to {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+  }
+  @media (prefers-color-scheme: dark) {
+    .save-toast {
+      background: #FAFAFA;
+      color: #18181B;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+    }
+  }
+
+  /* Page Footer */
+  .page-footer {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-top: 36px;
+    padding: 16px 20px;
+    border-radius: var(--r-md);
+    background: var(--rule-subtle, rgba(0, 0, 0, 0.02));
+    border: 1px solid var(--rule);
+    color: var(--ash);
+    font-size: 12.5px;
+    line-height: 1.6;
+  }
+  .footer-shield {
+    margin-top: 2px;
+    flex-shrink: 0;
+    color: var(--faint);
+  }
+  .page-footer p {
+    margin: 0;
+  }
+
+  @media (max-width: 480px) {
+    body {
+      padding: 36px 16px 64px;
+    }
+    h1 {
+      font-size: 26px;
+    }
+    .card {
+      padding: 20px 18px;
+    }
+    .free-banner {
+      padding: 20px 18px;
+    }
+  }
 </style>
 </head>
 <body>
-  <header><div class="brand">Summrizei</div><h1>나에게 맞는 기록 방식.</h1><p class="lead">무료 타임라인부터 온디바이스 AI 요약까지, 필요한 기능만 설정하세요.</p></header>
-  <div class="free-banner"><strong>100% 무료 · 온디바이스 AI 구동</strong><p>화면 글자와 음성을 기기 안에서 Gemini Nano/Tesseract와 Whisper로 인식하고 요약 노트를 만듭니다. 외부 API 키 없이 무료로 이용할 수 있습니다.</p></div>
+  <header class="page-header">
+    <div class="brand-row">
+      <span class="brand-title">Summrizei</span>
+      <span class="badge-tech">SETTINGS</span>
+    </div>
+    <h1>나에게 맞는 기록 방식.</h1>
+    <p class="lead">무료 타임라인부터 온디바이스 AI 요약까지, 필요한 기능만 설정하세요.</p>
+  </header>
+
+  <div class="free-banner">
+    <div class="free-banner-badge-row">
+      <span class="badge-orange">
+        <span class="badge-orange-dot"></span>
+        100% 온디바이스 AI 구동
+      </span>
+      <span class="badge-mono-pill">ZERO CLOUD API</span>
+    </div>
+    <strong class="free-banner-title">완전 무료 · 기기 안에서 직접 구동되는 AI</strong>
+    <p class="free-banner-desc">화면 글자와 음성을 기기 안에서 Gemini Nano/Tesseract와 Whisper로 인식하고 요약 노트를 만듭니다. 외부 API 키 없이 무료로 이용할 수 있습니다.</p>
+    <div class="free-banner-features">
+      <span class="feature-tag">Gemini Nano (Chrome AI)</span>
+      <span class="feature-tag">Tesseract OCR</span>
+      <span class="feature-tag">Whisper Speech-to-Text</span>
+    </div>
+  </div>
 
   <section class="card" aria-labelledby="ocrHeading">
-    <div class="section-top"><h2 id="ocrHeading">화면 글자 읽기 (OCR)</h2><span class="badge">자동 저장</span></div>
-    <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer;">
-      <input type="checkbox" id="ocrEnabledCb" style="width: auto; margin-top: 4px;">
-      <div>
-        <strong style="display: block; font-size:13px;">화면 글자 읽기 (OCR) 사용</strong>
-        <span class="note" style="display: block; margin-top: 4px;">끄면 화면 캡처를 건너뛰고 말소리(Whisper)만으로 노트를 만듭니다. CPU와 메모리가 절약되고 화면 자막 오독 노이즈가 사라집니다.</span>
+    <div class="section-top">
+      <h2 id="ocrHeading">화면 글자 읽기 (OCR)</h2>
+      <span class="badge">자동 저장</span>
+    </div>
+
+    <label class="toggle-card">
+      <div class="toggle-text">
+        <strong class="toggle-title">화면 글자 읽기 (OCR) 사용</strong>
+        <span class="toggle-note">끄면 화면 캡처를 건너뛰고 말소리(Whisper)만으로 노트를 만듭니다. CPU와 메모리가 절약되고 화면 자막 오독 노이즈가 사라집니다.</span>
+      </div>
+      <div class="switch-box">
+        <input type="checkbox" id="ocrEnabledCb" class="switch-input">
+        <span class="switch-slider" aria-hidden="true"></span>
       </div>
     </label>
 
-    <div style="margin-top: 16px;">
-      <label for="ocrEngineSelect" style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px;">OCR 엔진 선택</label>
-      <select id="ocrEngineSelect" style="min-width: 100%;">
-        <option value="nano">Gemini Nano (Chrome 내장 · 고품질 온디바이스 AI)</option>
-        <option value="tesseract">Tesseract.js (경량 로컬 · 모든 PC 호환)</option>
-      </select>
-      <p class="note" style="margin-top: 6px;">Gemini Nano는 Chrome 128+ 내장 AI를 사용합니다. 미지원 환경에서는 Tesseract로 자동 대체됩니다.</p>
+    <div class="form-field">
+      <label for="ocrEngineSelect" class="field-label">OCR 엔진 선택</label>
+      <div class="select-wrap">
+        <select id="ocrEngineSelect">
+          <option value="nano">Gemini Nano (Chrome 내장 · 고품질 온디바이스 AI)</option>
+          <option value="tesseract">Tesseract.js (경량 로컬 · 모든 PC 호환)</option>
+        </select>
+      </div>
+      <p class="note">Gemini Nano는 Chrome 128+ 내장 AI를 사용합니다. 미지원 환경에서는 Tesseract로 자동 대체됩니다.</p>
     </div>
   </section>
-
-  <hr />
 
   <section class="card" aria-labelledby="voiceHeading">
-    <div class="section-top"><h2 id="voiceHeading">말소리 받아쓰기</h2><span class="badge">자동 저장</span></div>
-    <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer;">
-      <input type="checkbox" id="whisperCb" style="width: auto; margin-top: 4px;">
-      <div>
-        <strong style="display: block; font-size:13px;">Whisper 사용</strong>
-        <span class="note" style="display: block; margin-top: 4px;">강의 음성을 기기 안에서 텍스트로 옮깁니다. 처음 사용할 때 모델 다운로드가 필요합니다.</span>
+    <div class="section-top">
+      <h2 id="voiceHeading">말소리 받아쓰기</h2>
+      <span class="badge">자동 저장</span>
+    </div>
+
+    <label class="toggle-card">
+      <div class="toggle-text">
+        <strong class="toggle-title">Whisper 사용</strong>
+        <span class="toggle-note">강의 음성을 기기 안에서 텍스트로 옮깁니다. 처음 사용할 때 모델 다운로드가 필요합니다.</span>
+      </div>
+      <div class="switch-box">
+        <input type="checkbox" id="whisperCb" class="switch-input">
+        <span class="switch-slider" aria-hidden="true"></span>
       </div>
     </label>
 
-    <div style="margin-top: 14px;">
-      <label for="whisperModel" style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px;">인식 모델 크기</label>
-      <select id="whisperModel" style="min-width: 100%;">
-        <option value="tiny">Tiny · 빠른 시작 (권장)</option>
-        <option value="base">Base · 더 큰 모델, 처리 시간 증가</option>
-      </select>
+    <div class="form-field">
+      <label for="whisperModel" class="field-label">인식 모델 크기</label>
+      <div class="select-wrap">
+        <select id="whisperModel">
+          <option value="tiny">Tiny · 빠른 시작 (권장)</option>
+          <option value="base">Base · 더 큰 모델, 처리 시간 증가</option>
+        </select>
+      </div>
+      <p class="note" id="voiceSaved" role="status" aria-live="polite">변경 사항은 다음 캡처부터 적용됩니다.</p>
     </div>
-    <p class="note" id="voiceSaved" role="status" aria-live="polite">변경 사항은 다음 캡처부터 적용됩니다.</p>
   </section>
-
-  <hr />
 
   <section class="card" aria-labelledby="apiHeading">
     <details>
-      <summary style="cursor: pointer; font-weight: 600; font-size: 15px; color: var(--ink);">
-        외부 API 키 연결 (선택 사항)
+      <summary class="api-summary">
+        <div class="api-summary-main">
+          <h2 id="apiHeading">외부 API 키 연결 (선택 사항)</h2>
+          <span class="badge">클라우드 AI</span>
+        </div>
+        <span class="chevron" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </span>
       </summary>
-      <p class="note" style="margin-top: 10px;">온디바이스 Nano 외에 별도 클라우드 API(Google AI Studio, Anthropic)로 요약하고 싶을 때만 입력하세요. 비워두면 기기 안에서 무료로 처리됩니다.</p>
-      <div class="form-field"><label for="provider">AI 제공자</label><select id="provider">
-          <option value="gemini">Gemini (Google AI Studio)</option>
-          <option value="anthropic">Claude (Anthropic)</option>
-        </select></div>
-      <div class="form-field"><label for="apiKey">API 키</label><input id="apiKey" type="password" placeholder="선택한 제공자의 API 키를 입력하세요" autocomplete="off" spellcheck="false" aria-describedby="apiHelp" /></div>
-      <div class="checklist">
-        <label><input type="checkbox" id="revealCb"><span>키 보이기</span></label>
-        <label><input type="checkbox" id="syncCb"><span>Chrome 계정에 키 동기화 · 다른 컴퓨터에서도 사용</span></label>
+
+      <div class="api-content">
+        <p class="note" style="margin-top: 0; margin-bottom: 16px;">온디바이스 Nano 외에 별도 클라우드 API(Google AI Studio, Anthropic)로 요약하고 싶을 때만 입력하세요. 비워두면 기기 안에서 무료로 처리됩니다.</p>
+        
+        <div class="form-field">
+          <label for="provider" class="field-label">AI 제공자</label>
+          <div class="select-wrap">
+            <select id="provider">
+              <option value="gemini">Gemini (Google AI Studio)</option>
+              <option value="anthropic">Claude (Anthropic)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-field">
+          <div class="label-row">
+            <label for="apiKey" class="field-label">API 키</label>
+            <a id="keyLink" href="#" target="_blank" rel="noreferrer" class="key-link">API 키 발급받기 ↗</a>
+            <a id="keyLink" href="#" target="_blank" rel="noreferrer" class="key-link">
+              <span>API 키 발급받기</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            </a>
+          </div>
+          <input id="apiKey" type="password" placeholder="선택한 제공자의 API 키를 입력하세요" autocomplete="off" spellcheck="false" aria-describedby="apiHelp" class="mono-input" />
+        </div>
+
+        <div class="checklist">
+          <label class="check-label">
+            <input type="checkbox" id="revealCb" class="check-input">
+            <span>키 보이기</span>
+          </label>
+          <label class="check-label">
+            <input type="checkbox" id="syncCb" class="check-input">
+            <span>Chrome 계정에 키 동기화 · 다른 컴퓨터에서도 사용</span>
+          </label>
+        </div>
+
+        <div class="save-row">
+          <button id="saveBtn" type="button">API 연결 설정 저장</button>
+        </div>
+
+        <p class="note setting-note" id="apiHelp">키를 비워 저장하면 연결을 해제하고 100% 로컬 모델로 복귀합니다.</p>
       </div>
-      <div class="save-row"><button id="saveBtn" type="button">API 연결 설정 저장</button><a id="keyLink" href="#" target="_blank" rel="noreferrer">API 키 발급받기 ↗</a></div>
-      <p class="note setting-note" id="apiHelp">키를 비워 저장하면 연결을 해제하고 100% 로컬 모델로 복귀합니다.</p>
-      <p id="saved" role="status" aria-live="polite" hidden>저장됨</p>
     </details>
   </section>
 
-  <footer>캡처한 내용과 노트는 자동으로 보관하지 않습니다. 필요한 노트는 패널을 닫기 전에 직접 저장해 주세요.</footer>
-  
+  <footer class="page-footer">
+    <div class="footer-shield" aria-hidden="true">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+    </div>
+    <p>캡처한 내용과 노트는 자동으로 보관하지 않습니다. 필요한 노트는 패널을 닫기 전에 직접 저장해 주세요.</p>
+  </footer>
+
+  <div id="saved" role="status" aria-live="polite" hidden class="save-toast">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
+    <span>설정이 저장되었습니다</span>
+  </div>
+
   <script src="lib/settings.js"></script>
   <script src="options.js"></script>
 </body>

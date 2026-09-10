@@ -4,203 +4,789 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Summrizei</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hedvig+Letters+Serif:opsz@12..24&family=Geist+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  /* 흑백. 색이 없으므로 계층은 명도와 그림자로만 만든다.
-     상태(정상/주의/꺼짐)도 색이 아니라 채움과 굵기로 구분한다. */
+  /* Alt / Summrizei Design System (Swiss Modernism & Calm Ambient Interface)
+     Canvas: Warm Linen Paper (#F7F7F4), Dark: Engine Container (#09090B)
+     Surfaces: 1px Crisp Rules (#E4E4E7 / rgba(0,0,0,0.08)), Dark (#27272A)
+     Brand Accent: Safety Orange (#FF5600), Subtle (rgba(255,86,0,0.08))
+     Typography: Sans (IBM Plex Sans KR), Editorial Serif (Hedvig Letters Serif), Tech Mono (Geist Mono) */
   :root {
     --paper: #ffffff;
-    --ground: #f3f3f2;
-    --ink: #181818;
-    --ash: #666666;
-    --faint: #767676;
-    --rule: #e4e4e4;
-    --sunk: #f1f1f1;
-    --r-lg: 14px;
+    --paper-card: #ffffff;
+    --ground: #F7F7F4;
+    --ink: #18181B;
+    --ash: #71717A;
+    --faint: #A1A1AA;
+    --rule: rgba(0, 0, 0, 0.08);
+    --rule-solid: #E4E4E7;
+    --rule-subtle: rgba(0, 0, 0, 0.05);
+    --sunk: #F1F1EE;
+    --sunk-input: #ECECE9;
+
+    /* Brand Accent */
+    --brand: #FF5600;
+    --brand-subtle: rgba(255, 86, 0, 0.08);
+    --brand-glow: rgba(255, 86, 0, 0.35);
+
+    /* Radii */
+    --r-sm: 4px;
     --r-md: 10px;
-    --lift-1: 0 1px 2px rgba(0,0,0,.06), 0 1px 6px rgba(0,0,0,.04);
-    --lift-2: 0 2px 5px rgba(0,0,0,.07), 0 10px 26px rgba(0,0,0,.09);
-    --inset: inset 0 1px 3px rgba(0,0,0,.07);
-    --btn-face: linear-gradient(180deg, #2a2a2a, #000000);
-    --btn-text: #ffffff;
-    --btn-edge: inset 0 1px 0 rgba(255,255,255,.18);
+    --r-lg: 14px;
+    --r-xl: 18px;
+    --r-full: 9999px;
+
+    /* Elevation & Shadows */
+    --lift-1: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+    --lift-2: 0 20px 40px -15px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.04);
+    --inset: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+
+    /* Primary CTA Button (Dark Carbon) */
+    --btn-face: #18181B;
+    --btn-face-hover: #27272A;
+    --btn-text: #FAFAFA;
+    --btn-edge: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+
+    /* Typography */
+    --font-sans: "IBM Plex Sans KR", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Pretendard", "astaSans", sans-serif;
+    --font-serif: "Hedvig Letters Serif", Georgia, serif;
+    --font-mono: "Geist Mono", Menlo, Monaco, Consolas, monospace;
   }
+
   @media (prefers-color-scheme: dark) {
     :root {
-      --paper: #121212;
-      --ground: #0a0a0a;
-      --ink: #ffffff;
-      --ash: #9d9d9d;
-      --faint: #a0a0a0;
-      --rule: #2a2a2a;
-      --sunk: #1a1a1a;
-      --lift-1: 0 1px 2px rgba(0,0,0,.6);
-      --lift-2: 0 2px 6px rgba(0,0,0,.6), 0 10px 26px rgba(0,0,0,.5);
-      --inset: inset 0 1px 3px rgba(0,0,0,.5);
-      --btn-face: linear-gradient(180deg, #ffffff, #d9d9d9);
-      --btn-text: #000000;
-      --btn-edge: inset 0 1px 0 rgba(255,255,255,.9);
+      --paper: #18181B;
+      --paper-card: #18181B;
+      --ground: #09090B;
+      --ink: #F4F4F5;
+      --ash: rgba(255, 255, 255, 0.6);
+      --faint: #71717A;
+      --rule: rgba(255, 255, 255, 0.1);
+      --rule-solid: #27272A;
+      --rule-subtle: rgba(255, 255, 255, 0.05);
+      --sunk: #121214;
+      --sunk-input: #202022;
+
+      /* Brand Accent in Dark */
+      --brand: #FF5600;
+      --brand-subtle: rgba(255, 86, 0, 0.15);
+      --brand-glow: rgba(255, 86, 0, 0.5);
+
+      /* Dark Elevations */
+      --lift-1: 0 1px 3px rgba(0, 0, 0, 0.5);
+      --lift-2: 0 20px 40px -15px rgba(0, 0, 0, 0.8), 0 2px 10px rgba(0, 0, 0, 0.6);
+      --inset: inset 0 1px 3px rgba(0, 0, 0, 0.4);
+
+      /* Primary Button (Inverted Carbon) */
+      --btn-face: #F4F4F5;
+      --btn-face-hover: #FFFFFF;
+      --btn-text: #18181B;
+      --btn-edge: inset 0 1px 0 rgba(255, 255, 255, 0.6);
     }
   }
 
+  /* Critical invariant: lib/panel.test.js enforces [hidden]{display:none!important} */
   [hidden] { display: none !important; }
+
   * { box-sizing: border-box; }
+
   body {
-    font: 13.5px/1.65 system-ui, sans-serif; margin: 0; padding: 20px 18px;
-    color: var(--ink); background: var(--ground);
-    display: flex; flex-direction: column; gap: 20px;
+    font-family: var(--font-sans);
+    font-size: 13.5px;
+    line-height: 1.6;
+    margin: 0;
+    padding: 18px 16px;
+    color: var(--ink);
+    background: var(--ground);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
-  h1 { font-size: 20px; margin: 0; font-weight: 750; letter-spacing: -.055em; }
-  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  #stageReady, #stageLive, #stageDone { display: flex; flex-direction: column; gap: 18px; }
-  .brand-caption { margin: 2px 0 0; color: var(--ash); font-size: 11px; letter-spacing: .035em; }
-  .stage-steps { display: flex; align-items: center; gap: 8px; padding: 12px 0; border-block: 1px solid var(--rule); }
-  .stage-steps span { flex: 1; font-size: 11px; color: var(--ash); }
-  .stage-steps span.active { color: var(--ink); font-weight: 700; }
-  .stage-steps i { width: 16px; height: 1px; background: var(--rule); }
-  .intro h2 { font-size: 22px; line-height: 1.4; letter-spacing: -.05em; margin: 0 0 7px; font-weight: 650; }
-  .eyebrow { font-size: 10px; font-weight: 650; letter-spacing: .12em; color: var(--ash); margin: 0 0 8px; }
-  .result-title { font-size: 15px; font-weight: 650; margin: -5px 0 0; overflow-wrap: anywhere; }
-  .result-help { border-left: 2px solid var(--rule); padding-left: 11px; }
-  .optional-api { padding: 12px 14px; border: 1px solid var(--rule); border-radius: var(--r-md); background: var(--paper); }
-  .optional-api p { margin: 10px 0; }
-  .optional-api summary { color: var(--ink); font-weight: 600; }
 
-  button {
-    font: inherit; padding: 8px 12px; border: 1px solid var(--rule); border-radius: var(--r-md);
-    background: var(--paper); color: var(--ink); cursor: pointer; box-shadow: var(--lift-1);
-    transition: transform 140ms ease, box-shadow 140ms ease;
+  /* ── Topbar & Brand ─────────────────────────────────────────── */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
   }
-  button:hover:not(:disabled) { transform: translateY(-1px); box-shadow: var(--lift-2); }
-  button:disabled { opacity: .4; cursor: not-allowed; box-shadow: none; }
-  button.primary, button.danger {
-    font-weight: 600; width: 100%; padding: 12px; font-size: 14px; border-radius: 100px;
+  h1 {
+    font-size: 19px;
+    margin: 0;
+    font-weight: 700;
+    letter-spacing: -0.035em;
+    color: var(--ink);
+    display: flex;
+    align-items: baseline;
   }
-  button.primary {
-    background: var(--btn-face); color: var(--btn-text); border-color: transparent;
-    box-shadow: var(--lift-2), var(--btn-edge);
+  .brand-dot {
+    color: var(--brand);
+    font-weight: 800;
+    margin-left: 1px;
   }
-  /* 중지는 되돌릴 수 없는 행동이라 굵은 테두리로 구분한다. 색을 쓰지 않는다. */
-  button.danger { background: var(--paper); color: var(--ink); border: 1.5px solid var(--ink); box-shadow: var(--lift-1); }
-  button.link {
-    border: 0; background: none; color: var(--ash); font-weight: 500; padding: 0;
-    font-size: 12.5px; box-shadow: none; text-decoration: underline; text-underline-offset: 3px;
+  .brand-caption {
+    margin: 3px 0 0;
+    color: var(--ash);
+    font-family: var(--font-serif);
+    font-size: 11.5px;
+    letter-spacing: -0.01em;
   }
-  button.link:hover { color: var(--ink); transform: none; box-shadow: none; }
-  button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-  .btnrow { display: flex; gap: 9px; }
-  .btnrow button { flex: 1; font-size: 12.5px; padding: 9px 6px; }
 
-  select, textarea, input[type="text"] {
-    font: inherit; width: 100%; padding: 8px 9px; border-radius: var(--r-md);
-    border: 1px solid var(--rule); background: var(--sunk); color: var(--ink); box-shadow: var(--inset);
-  }
-  select:focus-visible, textarea:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
-  label { font-size: 12px; color: var(--ash); display: block; margin-bottom: 4px; }
-  .field + .field { margin-top: 18px; }
-
-  .readycard {
-    background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r-lg); padding: 17px 15px;
-    display: flex; flex-direction: column; gap: 14px; box-shadow: var(--lift-1);
-  }
-  .checkrow { display: flex; align-items: center; gap: 9px; font-size: 12.5px; }
-  /* 상태는 색이 아니라 채움으로 읽힌다: 채운 원=정상, 속 빈 원=주의, 옅은 원=꺼짐 */
-  .checkrow .mark {
-    width: 15px; height: 15px; flex-shrink: 0; border-radius: 50%;
-    display: inline-flex; align-items: center; justify-content: center;
-    font-size: 9px; font-weight: 700; line-height: 1;
-    background: var(--ink); color: var(--paper);
-  }
-  .checkrow .mark.warn { background: transparent; color: var(--ink); border: 1.5px solid var(--ink); }
-  .checkrow .mark.off { background: var(--rule); color: var(--faint); }
-  .checkrow .what { flex: 1; }
-  .checkrow .val { color: var(--ash); font-size: 11px; text-align: right; max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .detail { font-size: 12px; color: var(--ash); margin: 0; }
-
-  .settingbar {
-    display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r-md); padding: 12px 13px; font-size: 12.5px;
+  /* ── Swiss Connected Stage Steps ───────────────────────────── */
+  .stage-steps {
+    display: flex;
+    align-items: stretch;
+    border: 1px solid var(--rule);
+    border-radius: var(--r-md);
+    background: var(--paper);
+    overflow: hidden;
     box-shadow: var(--lift-1);
   }
-  .settingbar .summary { color: var(--ash); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #settingsDrawer { background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r-lg); padding: 18px 15px; box-shadow: var(--lift-2); }
+  .stage-steps span {
+    flex: 1;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+    color: var(--faint);
+    padding: 7px 4px;
+    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    transition: color 140ms ease, background-color 140ms ease;
+  }
+  .stage-steps span.active {
+    color: var(--ink);
+    font-weight: 600;
+    background: var(--sunk);
+  }
+  .stage-steps span.active::before {
+    content: "";
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--brand);
+  }
+  .stage-steps i {
+    width: 1px;
+    background: var(--rule);
+    align-self: stretch;
+  }
 
-  .statusline { display: flex; align-items: center; gap: 8px; }
-  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border-radius: 100px; font-size: 11.5px; font-weight: 600; }
-  .pill.live { background: var(--ink); color: var(--paper); }
-  .pill.ok { background: var(--paper); color: var(--ink); box-shadow: var(--lift-1); }
-  .pulse { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: blink 1.4s ease-in-out infinite; }
-  @keyframes blink { 0%,100% { opacity: 1 } 50% { opacity: .2 } }
+  /* ── Stage Containers & Intros ─────────────────────────────── */
+  #stageReady, #stageLive, #stageDone {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .intro h2 {
+    font-size: 20px;
+    line-height: 1.35;
+    letter-spacing: -0.03em;
+    margin: 0 0 6px;
+    font-weight: 650;
+    color: var(--ink);
+  }
+  .eyebrow {
+    font-family: var(--font-sans);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--brand);
+    margin: 0 0 6px;
+  }
+  .detail {
+    font-size: 12px;
+    color: var(--ash);
+    line-height: 1.55;
+    margin: 0;
+  }
+
+  /* ── Buttons ───────────────────────────────────────────────── */
+  button {
+    font: inherit;
+    font-size: 13px;
+    padding: 8px 12px;
+    border: 1px solid var(--rule);
+    border-radius: var(--r-md);
+    background: var(--paper);
+    color: var(--ink);
+    cursor: pointer;
+    box-shadow: var(--lift-1);
+    transition: transform 140ms ease, box-shadow 140ms ease, background-color 140ms ease, border-color 140ms ease;
+  }
+  button:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: var(--lift-2);
+  }
+  button:disabled {
+    opacity: 0.38;
+    cursor: not-allowed;
+    box-shadow: none;
+    transform: none;
+  }
+  button.primary {
+    font-weight: 600;
+    width: 100%;
+    padding: 12px 16px;
+    font-size: 14px;
+    border-radius: var(--r-lg);
+    background: var(--btn-face);
+    color: var(--btn-text);
+    border-color: transparent;
+    box-shadow: var(--lift-1), var(--btn-edge);
+  }
+  button.primary:hover:not(:disabled) {
+    background: var(--btn-face-hover);
+    box-shadow: var(--lift-2), var(--btn-edge);
+  }
+  button.danger {
+    font-weight: 600;
+    width: 100%;
+    padding: 12px 16px;
+    font-size: 13.5px;
+    border-radius: var(--r-lg);
+    background: var(--paper);
+    color: var(--ink);
+    border: 1.5px solid var(--ink);
+    box-shadow: var(--lift-1);
+  }
+  button.danger:hover:not(:disabled) {
+    background: var(--sunk);
+    box-shadow: var(--lift-2);
+  }
+  button.link {
+    border: 0;
+    background: none;
+    color: var(--ash);
+    font-weight: 500;
+    padding: 2px 4px;
+    font-size: 12px;
+    box-shadow: none;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  button.link:hover:not(:disabled) {
+    color: var(--ink);
+    transform: none;
+    box-shadow: none;
+  }
+  button:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+  }
+  #refreshTabsBtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 10px;
+    min-width: 36px;
+    min-height: 36px;
+    border-radius: var(--r-md);
+    flex-shrink: 0;
+  }
+  #refreshTabsBtn svg {
+    transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  #refreshTabsBtn:hover:not(:disabled) svg {
+    transform: rotate(180deg);
+  }
+  .btnrow {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .btnrow button {
+    width: 100%;
+    font-size: 12.5px;
+    font-weight: 500;
+    padding: 10px 6px;
+    text-align: center;
+  }
+
+  /* ── Form Controls ─────────────────────────────────────────── */
+  select, textarea, input[type="text"] {
+    font: inherit;
+    font-size: 12.5px;
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--rule);
+    background: var(--sunk);
+    color: var(--ink);
+    box-shadow: var(--inset);
+    transition: border-color 140ms ease, box-shadow 140ms ease;
+  }
+  select:focus-visible, textarea:focus-visible, input[type="text"]:focus-visible {
+    outline: none;
+    border-color: var(--ink);
+    box-shadow: 0 0 0 2px rgba(24, 24, 27, 0.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    select:focus-visible, textarea:focus-visible, input[type="text"]:focus-visible {
+      box-shadow: 0 0 0 2px rgba(244, 244, 245, 0.15);
+    }
+  }
+  label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ash);
+    display: block;
+    margin-bottom: 5px;
+  }
+  .field + .field {
+    margin-top: 14px;
+  }
+  .checkline {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  .checkline input {
+    margin-top: 3px;
+    accent-color: var(--brand);
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+  }
+
+  /* ── Stage Ready Components ────────────────────────────────── */
+  .readycard {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-lg);
+    box-shadow: var(--lift-1);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .checkrow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12.5px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--rule-subtle);
+  }
+  .checkrow:last-child {
+    border-bottom: none;
+  }
+  .checkrow .mark {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+    background: var(--ink);
+    color: var(--paper);
+    transition: all 140ms ease;
+  }
+  .checkrow .mark.warn {
+    background: var(--brand-subtle);
+    color: var(--brand);
+    border: 1.5px solid var(--brand);
+  }
+  .checkrow .mark.off {
+    background: var(--sunk);
+    color: var(--faint);
+    border: 1px solid var(--rule);
+  }
+  .checkrow .what {
+    flex: 1;
+    font-weight: 500;
+    color: var(--ink);
+  }
+  .checkrow .val {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ash);
+    text-align: right;
+    max-width: 48%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .settingbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-md);
+    padding: 10px 13px;
+    font-size: 12px;
+    box-shadow: var(--lift-1);
+  }
+  .settingbar .summary {
+    color: var(--ash);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #settingsDrawer {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-xl);
+    padding: 18px 16px;
+    box-shadow: var(--lift-2);
+  }
+
+  /* ── Stage Live Components ─────────────────────────────────── */
+  .statusline {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 11px;
+    border-radius: var(--r-full);
+    font-size: 11.5px;
+    font-weight: 600;
+  }
+  .pill.live {
+    background: var(--brand-subtle);
+    color: var(--brand);
+    border: 1px solid rgba(255, 86, 0, 0.2);
+  }
+  .pill.ok {
+    background: var(--paper);
+    color: var(--ink);
+    border: 1px solid var(--rule);
+    box-shadow: var(--lift-1);
+  }
+  .pulse {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--brand);
+    box-shadow: 0 0 8px var(--brand-glow);
+    animation: blink 1.4s ease-in-out infinite;
+  }
+  @keyframes blink {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.35; transform: scale(0.85); }
+  }
   @media (prefers-reduced-motion: reduce) {
-    .pulse { animation: none }
-    button:hover:not(:disabled) { transform: none }
+    .pulse { animation: none; }
+    button:hover:not(:disabled) { transform: none; }
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+    .pulse { animation: none !important; }
+    button:hover:not(:disabled) { transform: none !important; }
   }
-  .sub { color: var(--ash); font-size: 12.5px; }
+  .sub {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ash);
+  }
 
-  .counters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-  .counter { background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r-md); padding: 15px 12px; box-shadow: var(--lift-1); }
-  .counter b { display: block; font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.15; }
-  .counter span { font-size: 11px; color: var(--ash); }
+  /* Swiss connected counter grid */
+  .counters {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-md);
+    overflow: hidden;
+    background: var(--rule);
+    gap: 1px;
+    box-shadow: var(--lift-1);
+  }
+  .counter {
+    background: var(--paper);
+    padding: 13px 8px;
+    text-align: center;
+  }
+  .counter b {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 20px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.15;
+    color: var(--ink);
+  }
+  .counter span {
+    font-size: 11px;
+    color: var(--ash);
+    font-weight: 500;
+    margin-top: 3px;
+    display: block;
+  }
 
+  /* Feed card */
   .feed {
-    background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r-lg); padding: 16px 14px;
-    display: flex; flex-direction: column; gap: 13px; box-shadow: var(--lift-1);
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-lg);
+    padding: 15px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: var(--lift-1);
   }
-  .feed .head { font-size: 11.5px; color: var(--faint); display: flex; justify-content: space-between; }
-  #feedLines { display: flex; flex-direction: column; gap: 11px; font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
-  #feedLines div { display: flex; gap: 8px; color: var(--ash); }
-  #feedLines div:last-child { color: var(--ink); }
-  #feedLines .t { font-family: ui-monospace, monospace; font-size: 11px; flex-shrink: 0; color: var(--faint); }
+  .feed .head {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--faint);
+    display: flex;
+    justify-content: space-between;
+    letter-spacing: 0.03em;
+    border-bottom: 1px solid var(--rule-subtle);
+    padding-bottom: 8px;
+  }
+  #feedLines {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    font-size: 12.5px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+  #feedLines div {
+    display: flex;
+    gap: 8px;
+    color: var(--ash);
+    align-items: baseline;
+  }
+  #feedLines div:last-child {
+    color: var(--ink);
+    font-weight: 500;
+  }
+  #feedLines .t {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+    color: var(--faint);
+  }
 
-  /* 경고도 색 없이. 반전으로 눈에 띄게 한다. */
+  /* ── Alerts ────────────────────────────────────────────────── */
   .alert {
-    border-radius: var(--r-md); padding: 11px 12px; font-size: 12.5px;
-    display: flex; flex-direction: column; gap: 5px;
-    background: var(--ink); color: var(--paper); box-shadow: var(--lift-2);
+    border-radius: var(--r-md);
+    padding: 11px 13px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--brand);
+    color: var(--ink);
+    box-shadow: var(--lift-1);
   }
   .alert b { font-weight: 600; }
 
-  #result { width: 100%; height: 360px; min-height: 220px; padding: 19px 16px; background: var(--paper); font: 13px/1.85 system-ui, sans-serif; resize: vertical; box-shadow: var(--lift-1); }
-
-  details { font-size: 12px; }
-  details summary { cursor: pointer; color: var(--ash); }
-  details pre {
-    font: 11px/1.45 ui-monospace, monospace; white-space: pre-wrap; max-height: 200px;
-    overflow-y: auto; background: var(--sunk); padding: 9px; border-radius: var(--r-md);
-    margin: 7px 0 0; box-shadow: var(--inset); color: var(--ash);
+  /* ── Stage Done Components ─────────────────────────────────── */
+  .result-title {
+    font-size: 16px;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    margin: 0;
+    color: var(--ink);
+  }
+  .result-help {
+    border-left: 2px solid var(--brand);
+    padding-left: 10px;
+    font-size: 11.5px;
   }
 
-  footer { border-top: 1px solid var(--rule); padding-top: 16px; display: flex; flex-direction: column; gap: 8px; }
+  #result {
+    width: 100%;
+    height: 360px;
+    min-height: 220px;
+    padding: 16px;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-lg);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.8;
+    color: var(--ink);
+    resize: vertical;
+    box-shadow: var(--inset);
+    box-sizing: border-box;
+  }
+
+  .optional-api {
+    padding: 12px 14px;
+    border: 1px solid var(--rule);
+    border-radius: var(--r-md);
+    background: var(--paper);
+    box-shadow: var(--lift-1);
+  }
+  .optional-api p { margin: 8px 0 10px; }
+  .optional-api summary { color: var(--ink); font-weight: 600; cursor: pointer; }
+
+  /* ── Disclosures & Details ─────────────────────────────────── */
+  details { font-size: 12px; }
+  details summary { cursor: pointer; color: var(--ash); font-weight: 500; }
+  details pre {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    max-height: 200px;
+    overflow-y: auto;
+    background: var(--sunk);
+    padding: 10px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--rule);
+    margin: 7px 0 0;
+    box-shadow: var(--inset);
+    color: var(--ash);
+  }
+
+  /* ── Footer ────────────────────────────────────────────────── */
+  footer {
+    border-top: 1px solid var(--rule);
+    padding-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 6px;
+  }
   footer p { margin: 0; }
   a { color: var(--ink); text-underline-offset: 3px; }
   #status:empty { display: none; }
-  #cropRow { flex-direction: column; align-items: flex-start; gap: 5px; }
-  #planLine { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
-  #planName { font-weight: 600; }
-  #planUse { color: var(--ash); font-variant-numeric: tabular-nums; }
-  .legal { font-size: 11.5px; color: var(--faint); line-height: 1.45; }
-
-  #cropWrap { position: relative; display: none; margin-top: 9px; user-select: none; }
-  #cropWrap img { width: 100%; display: block; border-radius: var(--r-md); }
-  #cropBox { position: absolute; border: 2px solid var(--ink); background: rgba(0,0,0,.14); display: none; }
-  @media (prefers-color-scheme: dark) { #cropBox { background: rgba(255,255,255,.16); } }
-
-  #onboard {
-    display: flex; flex-direction: column; gap: 13px;
-    background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r-lg); padding: 20px 16px; box-shadow: var(--lift-2);
+  #status {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--ash);
+    font-variant-numeric: tabular-nums;
   }
-  .step { display: grid; grid-template-columns: 18px 1fr; gap: 10px; align-items: start; }
-  .step .n { font-size: 11px; font-family: ui-monospace, monospace; color: var(--faint); padding-top: 3px; }
+  #cropRow { flex-direction: column; align-items: flex-start; gap: 6px; }
+  #planLine {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12px;
+  }
+  #planName { font-weight: 600; color: var(--ink); }
+  #planUse {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ash);
+    font-variant-numeric: tabular-nums;
+  }
+  #tokenUsage {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--faint);
+    font-variant-numeric: tabular-nums;
+    white-space: pre-wrap;
+  }
+  .legal { font-size: 11.5px; color: var(--faint); line-height: 1.5; }
+
+  /* ── Crop Overlay ──────────────────────────────────────────── */
+  #cropWrap {
+    position: relative;
+    display: none;
+    margin-top: 10px;
+    user-select: none;
+    border-radius: var(--r-md);
+    overflow: hidden;
+    border: 1px solid var(--rule);
+  }
+  #cropWrap img { width: 100%; display: block; }
+  #cropBox {
+    position: absolute;
+    border: 2px solid var(--brand);
+    background: var(--brand-subtle);
+    display: none;
+  }
+
+  /* ── Onboarding ────────────────────────────────────────────── */
+  #onboard {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-xl);
+    padding: 20px 18px;
+    box-shadow: var(--lift-2);
+  }
+  .step {
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    gap: 12px;
+    align-items: start;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--rule-subtle);
+  }
+  .step:last-of-type {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+  .step .n {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--brand);
+    background: var(--brand-subtle);
+    width: 20px;
+    height: 20px;
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
   .step .c { display: flex; flex-direction: column; gap: 6px; }
-  .step b { font-size: 13px; font-weight: 600; }
-  .step .why { font-size: 12px; color: var(--ash); }
-  .checkline { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; }
-  .checkline input { margin-top: 3px; accent-color: var(--ink); }
+  .step b { font-size: 13px; font-weight: 600; color: var(--ink); }
+  .step .why { font-size: 12px; color: var(--ash); line-height: 1.5; }
+
+  /* ── Subtle Scrollbar ──────────────────────────────────────── */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--rule-solid);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--faint);
+  }
 </style>
 </head>
 <body>
 
 <div class="topbar">
-  <div><h1>Summrizei</h1><p class="brand-caption">강의의 흐름을, 나의 노트로.</p></div>
+  <div><h1>Summrizei<span class="brand-dot">.</span></h1><p class="brand-caption">강의의 흐름을, 나의 노트로.</p></div>
   <button class="link" id="settingsLink" type="button">설정</button>
 </div>
 <nav class="stage-steps" aria-label="노트 만들기 단계"><span id="stepReady" class="active">01 준비</span><i aria-hidden="true"></i><span id="stepLive">02 캡처</span><i aria-hidden="true"></i><span id="stepDone">03 노트</span></nav>
@@ -277,6 +863,7 @@
     <div style="display:flex; gap:6px;">
       <select id="tabSelect"></select>
       <button id="refreshTabsBtn" title="탭 목록 새로고침" aria-label="탭 목록 새로고침" type="button">↻</button>
+      <button id="refreshTabsBtn" title="탭 목록 새로고침" aria-label="탭 목록 새로고침" type="button"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.19"/></svg></button>
     </div>
   </div>
 
