@@ -6,7 +6,7 @@ Rules for Codex, Claude Code, and Antigravity.
 
 - Target: Chrome Extension (Manifest V3), Vanilla JavaScript (ES2022+).
 - Update this file first if form factor changes to Electron, desktop, or web app.
-- No build steps or bundlers. Do not install npm packages. Use native browser APIs.
+- No build steps or bundlers.
 - Code style references: Inspect `lib/ai.js` and `lib/mergeLines.js`.
 
 ## 2. Invariants (Legal & Architecture)
@@ -26,8 +26,13 @@ Rules for Codex, Claude Code, and Antigravity.
   - `qnwlghks` (Jihwan) -> `b`
   - Fallback: ask user if neither matches.
 - Examples: `w/codex/landing-page`, `b/claude/auth-fix`
-- Scope: Touch only the files needed for the task. Use Conventional Commits (`feat:`, `fix:`).
+- Use Conventional Commits (`feat:`, `fix:`).
 
-## 4. Verification
+## 4. Agent Rules & Skills
+
+- Ponytail: Follow lazy senior dev mode (`.agents/rules/ponytail.md`, `.agents/skills/ponytail`). Prefer YAGNI, standard platform features, and minimal diffs.
+- UI/UX Pro Max: Follow UI/UX design intelligence (`.agents/skills/ui-ux-pro-max`).
+
+## 5. Verification
 
 - Run tests before finishing: `node --test lib/*.test.js`
