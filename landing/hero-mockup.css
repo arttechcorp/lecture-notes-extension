@@ -1,0 +1,477 @@
+/* 히어로 브라우저 창 목업.
+   왼쪽은 강의 플랫폼(LetsLearn) 화면, 오른쪽은 실제 sidepanel.html 의 '캡처 중' 단계를 재현한다.
+   제품 UI가 바뀌면 .panel 계열을 함께 고쳐야 한다 — 저장소 루트 memory.md 참고. */
+
+.mock-preview-note {
+  margin: 0;
+  padding: 10px 20px;
+  background: #181818;
+  color: #f2f2f0;
+  font-size: 11px;
+  letter-spacing: .02em;
+}
+.mock-preview-note code { font-family: ui-monospace, monospace; }
+
+/* 히어로를 2단에서 세로 스택으로 바꾼다. 카피가 위, 목업이 풀폭으로 아래. */
+.hero-stacked {
+  display: block;
+  padding-block: 76px 84px;
+}
+.hero-stacked .hero-copy { max-width: 46ch; }
+.hero-stacked .lead { max-width: 52ch; }
+
+.mock {
+  margin: 52px 0 0;
+  container-type: inline-size;
+}
+.mock-caption {
+  margin-top: 16px;
+  font-size: 11px;
+  color: var(--muted, #666);
+}
+
+/* ── 브라우저 창 ─────────────────────────────────────────── */
+.mock-window {
+  border: 1px solid #d7d7d3;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #ececea;
+  box-shadow: 0 2px 6px #00000010, 0 26px 70px #00000024;
+}
+.mock-titlebar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 15px;
+  background: #e9e9e7;
+}
+.mock-lights { display: inline-flex; gap: 7px; }
+.mock-lights i { width: 11px; height: 11px; border-radius: 50%; background: #ff5f57; }
+.mock-lights i:nth-child(2) { background: #febc2e; }
+.mock-lights i:nth-child(3) { background: #28c840; }
+.mock-title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: clamp(10px, .95cqw, 13px);
+  font-weight: 600;
+  color: #4a4a48;
+  letter-spacing: -.01em;
+}
+.mock-urlbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 15px 11px;
+  background: #e9e9e7;
+  border-bottom: 1px solid #d5d5d1;
+}
+.mock-url-icon {
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  background: #d3d3cf;
+  flex-shrink: 0;
+}
+.mock-url {
+  font-size: clamp(9px, .9cqw, 12px);
+  color: #6b6b68;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mock-url b { color: #262624; font-weight: 500; }
+
+/* 강의 화면 60% / 사이드패널 40% */
+.mock-body {
+  display: grid;
+  grid-template-columns: 60% 40%;
+  background: #000;
+}
+
+/* ── 강의 플랫폼 화면 ─────────────────────────────────────── */
+.lecture { display: flex; flex-direction: column; background: #101010; min-width: 0; }
+
+.lec-topbar {
+  display: flex;
+  align-items: center;
+  gap: clamp(8px, 1.1cqw, 16px);
+  padding: clamp(8px, .9cqw, 13px) clamp(10px, 1.2cqw, 18px);
+  background: #1c3a8f;
+  color: #fff;
+  font-size: clamp(9px, .88cqw, 12px);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.lec-course { overflow: hidden; text-overflow: ellipsis; }
+.lec-div { width: 1px; height: 12px; background: #ffffff40; flex-shrink: 0; }
+.lec-time { font-variant-numeric: tabular-nums; }
+.lec-chapter { font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
+.lec-topbar-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 10px; }
+.lec-help {
+  width: clamp(14px, 1.5cqw, 21px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #ffd400;
+  color: #1c3a8f;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-style: normal;
+  font-weight: 700;
+  font-size: clamp(8px, .85cqw, 12px);
+}
+.lec-close { font-style: normal; font-size: clamp(12px, 1.3cqw, 18px); font-weight: 400; color: #ffffffcc; }
+
+/* 슬라이드 + 강사 */
+/* 패널 쪽이 더 길어질 수 있으므로 영상 영역이 남는 높이를 채운다.
+   슬라이드는 실제 영상처럼 16:9 를 유지하고 남는 세로 공간은 배경이 받는다. */
+.lec-stage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: clamp(8px, 1cqw, 15px);
+  background: linear-gradient(170deg, #8b7458, #6d5a44 55%, #55452f);
+  min-height: 0;
+}
+.lec-slide {
+  position: relative;
+  flex: 1 1 78%;
+  min-width: 0;
+  aspect-ratio: 16 / 9;
+  background: #fff;
+  padding: clamp(9px, 1.2cqw, 18px) clamp(10px, 1.4cqw, 20px);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(4px, .55cqw, 9px);
+}
+.slide-title {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(11px, 1.55cqw, 23px);
+  font-weight: 500;
+  color: #1d1d1d;
+  letter-spacing: -.01em;
+  margin: 0;
+}
+.slide-cycles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: clamp(4px, .5cqw, 8px);
+  padding-inline: 8%;
+  text-align: center;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(8.5px, .82cqw, 12px);
+  font-weight: 700;
+  color: #1d1d1d;
+  line-height: 1.25;
+}
+.slide-arcs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: clamp(4px, .5cqw, 8px);
+  padding-inline: 8%;
+  height: clamp(14px, 2.1cqw, 32px);
+}
+.slide-arcs i {
+  border: clamp(2px, .28cqw, 4px) solid #5b8fcb;
+  border-bottom: 0;
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+}
+.slide-nodes {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: clamp(2px, .3cqw, 5px);
+}
+.slide-nodes span {
+  background: #4a7fbf;
+  color: #fff;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: clamp(6px, .9cqw, 14px) 2px;
+  font-size: clamp(8.5px, .78cqw, 11px);
+  font-weight: 500;
+  line-height: 1.3;
+}
+.slide-bars {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(3px, .4cqw, 6px);
+  margin-top: auto;
+}
+.slide-bars span {
+  clip-path: polygon(0 22%, 88% 22%, 88% 0, 100% 50%, 88% 100%, 88% 78%, 0 78%);
+  padding: clamp(5px, .75cqw, 12px) 0;
+  text-align: center;
+  color: #fff;
+  font-size: clamp(8.5px, .78cqw, 11px);
+  font-weight: 600;
+}
+.bar-npv { background: #92c353; }
+.bar-irr { background: #e8a33d; }
+.slide-page {
+  position: absolute;
+  right: clamp(8px, 1cqw, 14px);
+  bottom: clamp(5px, .7cqw, 10px);
+  font-size: clamp(6px, .7cqw, 10px);
+  color: #b3b3b3;
+}
+
+.lec-presenter {
+  flex: 0 0 20%;
+  align-self: stretch;
+  position: relative;
+  overflow: hidden;
+}
+/* 실제 인물 사진 대신 머리와 어깨만 있는 추상 실루엣을 둔다. */
+.presenter-figure { position: absolute; inset: 0; }
+.presenter-figure:before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 30%;
+  transform: translateX(-50%);
+  width: 27%;
+  aspect-ratio: .88;
+  border-radius: 50%;
+  background: #3c372f;
+}
+/* 어깨가 머리 아래를 덮어 하나의 인물로 읽히게 한다. */
+.presenter-figure:after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  width: 74%;
+  height: 34%;
+  border-radius: 50% 50% 0 0 / 88% 88% 0 0;
+  background: #2c2c34;
+}
+
+/* 하단 재생 컨트롤 */
+.lec-controls {
+  display: flex;
+  align-items: center;
+  gap: clamp(7px, 1cqw, 15px);
+  padding: clamp(7px, .9cqw, 14px) clamp(9px, 1.2cqw, 18px);
+  background: #1c1c1e;
+}
+.lec-icon { flex-shrink: 0; background: #d8d8d8; }
+.lec-play {
+  width: clamp(7px, .8cqw, 11px);
+  aspect-ratio: 1;
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+.lec-volume {
+  width: clamp(9px, 1cqw, 14px);
+  aspect-ratio: 1;
+  clip-path: polygon(0 33%, 33% 33%, 62% 8%, 62% 92%, 33% 67%, 0 67%);
+}
+.lec-progress {
+  position: relative;
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: #4a4a4c;
+}
+.lec-buffer { position: absolute; inset: 0 62% 0 0; border-radius: 2px; background: #e9e9e9; }
+.lec-knob {
+  position: absolute;
+  left: 22%;
+  top: 50%;
+  width: clamp(6px, .62cqw, 9px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #fff;
+  transform: translate(-50%, -50%);
+}
+.lec-remain {
+  color: #d8d8d8;
+  font-size: clamp(8.5px, .8cqw, 11px);
+  font-variant-numeric: tabular-nums;
+}
+.lec-list {
+  width: clamp(9px, 1cqw, 14px);
+  height: clamp(7px, .78cqw, 11px);
+  background: none;
+  border-top: 1.5px solid #d8d8d8;
+  border-bottom: 1.5px solid #d8d8d8;
+  position: relative;
+}
+.lec-list:after { content: ''; position: absolute; left: 0; right: 0; top: 50%; border-top: 1.5px solid #d8d8d8; }
+.lec-rate { color: #d8d8d8; font-size: clamp(8.5px, .8cqw, 11px); font-weight: 600; }
+.lec-full {
+  width: clamp(9px, 1cqw, 13px);
+  aspect-ratio: 1;
+  background: none;
+  border: 1.5px solid #d8d8d8;
+  clip-path: polygon(0 0, 38% 0, 38% 100%, 0 100%, 0 62%, 100% 62%, 100% 100%, 62% 100%, 62% 0, 100% 0, 100% 38%, 0 38%);
+}
+
+/* ── 사이드패널 (실제 제품 UI 재현) ──────────────────────── */
+.panel {
+  /* sidepanel.html 의 토큰을 그대로 옮겨 온다. */
+  --p-paper: #fff;
+  --p-ground: #f3f3f2;
+  --p-ink: #181818;
+  --p-ash: #666;
+  --p-rule: #e4e4e4;
+  --p-lift: 0 1px 2px #0000000f, 0 1px 6px #0000000a;
+
+  background: var(--p-ground);
+  color: var(--p-ink);
+  font-family: system-ui, sans-serif;
+  padding: clamp(10px, 1.4cqw, 20px) clamp(9px, 1.25cqw, 18px);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(8px, 1.1cqw, 16px);
+  min-width: 0;
+}
+.panel-topbar { display: flex; align-items: center; gap: clamp(5px, .7cqw, 10px); }
+.panel-brand {
+  font-size: clamp(11px, 1.35cqw, 20px);
+  font-weight: 750;
+  letter-spacing: -.055em;
+  margin-right: auto;
+}
+.panel-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: clamp(2px, .3cqw, 5px) clamp(6px, .82cqw, 12px);
+  border-radius: 100px;
+  background: var(--p-ink);
+  color: var(--p-paper);
+  font-size: clamp(9px, .8cqw, 11.5px);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.panel-pulse {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: panel-blink 1.4s ease-in-out infinite;
+}
+@keyframes panel-blink { 0%, 100% { opacity: 1 } 50% { opacity: .2 } }
+.panel-elapsed { font-size: clamp(9px, .82cqw, 11.5px); color: var(--p-ash); font-variant-numeric: tabular-nums; }
+.panel-detail {
+  margin: 0;
+  font-size: clamp(9.5px, .84cqw, 12px);
+  line-height: 1.65;
+  color: var(--p-ash);
+}
+
+.panel-counters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(5px, .7cqw, 11px); }
+.panel-counter {
+  background: var(--p-paper);
+  border: 1px solid var(--p-rule);
+  border-radius: 10px;
+  padding: clamp(7px, 1cqw, 15px) clamp(5px, .7cqw, 11px);
+  box-shadow: var(--p-lift);
+}
+.panel-counter b {
+  display: block;
+  font-size: clamp(11px, 1.3cqw, 19px);
+  font-weight: 600;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.panel-counter span { font-size: clamp(9px, .76cqw, 11px); color: var(--p-ash); }
+
+.panel-feed {
+  background: var(--p-paper);
+  border: 1px solid var(--p-rule);
+  border-radius: 14px;
+  padding: clamp(9px, 1.15cqw, 16px) clamp(8px, 1cqw, 14px);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(6px, .85cqw, 13px);
+  box-shadow: var(--p-lift);
+}
+.panel-feed-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: clamp(9px, .78cqw, 11.5px);
+  color: #767676;
+}
+.panel-feed-lines { display: flex; flex-direction: column; gap: clamp(6px, .78cqw, 11px); }
+.feed-line { display: flex; gap: clamp(5px, .6cqw, 8px); color: var(--p-ash); }
+.feed-line time {
+  font-family: ui-monospace, monospace;
+  font-size: clamp(9px, .74cqw, 11px);
+  flex-shrink: 0;
+}
+.feed-line p {
+  margin: 0;
+  font-size: clamp(9.5px, .8cqw, 12px);
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.panel-stop {
+  width: 100%;
+  padding: clamp(7px, 1cqw, 13px);
+  border: 1.5px solid var(--p-ink);
+  border-radius: 100px;
+  background: var(--p-paper);
+  color: var(--p-ink);
+  font: inherit;
+  font-size: clamp(10px, .92cqw, 14px);
+  font-weight: 600;
+  box-shadow: var(--p-lift);
+  cursor: default;
+}
+.panel-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: clamp(6px, .8cqw, 12px);
+  border-top: 1px solid var(--p-rule);
+  font-size: clamp(9px, .74cqw, 11px);
+  color: var(--p-ash);
+}
+
+/* ── 반응형 ─────────────────────────────────────────────── */
+@media (max-width: 1100px) {
+  .mock { margin-top: 40px; }
+  .hero-stacked { padding-block: 58px 64px; }
+}
+
+/* 가로 분할을 유지하면 컨테이너가 좁아지는 만큼 cqw 글자가 전부 하한에 붙어 읽히지 않는다.
+   창 프레임은 두고 세로로 쌓아 각 영역이 폭을 다 쓰게 한다. */
+@media (max-width: 900px) {
+  .mock { margin-top: 32px; container-type: normal; }
+  .mock-body { grid-template-columns: 1fr; }
+  .mock-title, .mock-url { font-size: 11px; }
+  .lec-topbar { font-size: 9px; gap: 8px; padding: 8px 10px; }
+  .lec-chapter { display: none; }
+  .lec-help { width: 15px; font-size: 9px; }
+  .lec-close { font-size: 14px; }
+  .lec-stage { padding: 9px; }
+  .slide-title { font-size: 13px; }
+  .slide-cycles { font-size: 8px; }
+  .slide-arcs { height: 17px; }
+  .slide-nodes span { font-size: 7.5px; padding: 8px 2px; }
+  .slide-bars span { font-size: 8px; padding: 6px 0; }
+  .lec-controls { gap: 9px; padding: 8px 10px; }
+  .lec-remain, .lec-rate { font-size: 9px; }
+  .panel { padding: 15px 13px; gap: 12px; }
+  .panel-brand { font-size: 16px; }
+  .panel-pill, .panel-elapsed { font-size: 10px; }
+  .panel-detail { font-size: 11px; }
+  .panel-counter b { font-size: 17px; }
+  .panel-counter span, .panel-feed-head, .feed-line time, .panel-foot { font-size: 10px; }
+  .feed-line p { font-size: 11px; }
+  .panel-stop { font-size: 13px; padding: 11px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-pulse { animation: none; }
+}

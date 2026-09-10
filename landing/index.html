@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,500;6..96,600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="landing.css">
+<link rel="stylesheet" href="hero-mockup.css">
 </head>
 <body>
 <a class="skip" href="#main">본문으로 이동</a>
@@ -16,7 +17,7 @@
   <nav aria-label="주 메뉴"><a href="#preview">노트 미리보기</a><a href="#plans">플랜</a><button class="small-button" data-install>무료로 시작 <span aria-hidden="true">↗</span></button></nav>
 </header>
 <main id="main">
-<section class="hero wrap">
+<section class="hero hero-stacked wrap">
   <div class="hero-copy">
     <p class="eyebrow">LESS TRANSCRIBING. MORE UNDERSTANDING.</p>
     <h1>강의는 듣고,<br>복습은 노트로.</h1>
@@ -24,15 +25,83 @@
     <div class="hero-actions"><button class="button dark" data-install>Summrizei 무료로 시작 <span aria-hidden="true">↗</span></button><a class="text-link" href="#preview">먼저 결과 살펴보기 <span aria-hidden="true">↓</span></a></div>
     <p class="micro">Chrome 확장 프로그램 · Free는 API 키 없이 사용</p>
   </div>
-  <div class="hero-paper" aria-label="학습 노트 예시">
-    <div class="paper-top"><span class="mini-logo">S.</span><span>LECTURE NOTE / 01</span><span class="tag">요약 예시</span></div>
-    <p class="eyebrow">기업재무 · 투자안 평가</p>
-    <h2>수익률이 높은 투자안이<br>항상 좋은 선택일까?</h2>
-    <p class="paper-intro">NPV와 IRR이 다른 답을 내놓을 때</p>
-    <div class="insight"><span class="number">01</span><div><b>비율과 금액은 서로 다른 기준</b><p>IRR은 수익률을, NPV는 기업 가치의 증가분을 보여 줍니다.</p></div></div>
-    <div class="insight"><span class="number">02</span><div><b>둘 중 하나만 선택해야 한다면</b><p>투자 규모가 다른 대안에서는 NPV를 기준으로 비교합니다.</p></div></div>
-    <div class="paper-bottom"><span>강의 샘플 기반 · 편집된 발췌</span><button class="text-link" data-example="standard">전체 예시 <span aria-hidden="true">↗</span></button></div>
-  </div>
+  <!-- 강의 탭 옆에 사이드패널이 열린 실제 사용 화면. 전부 CSS로 그린 목업이며 실제 강의 캡처는 쓰지 않는다.
+       오른쪽 패널은 sidepanel.html 의 '캡처 중' 단계를 베낀 것이다 — 제품 UI가 바뀌면 memory.md 참고. -->
+  <figure class="mock" aria-labelledby="mockCaption">
+    <div class="mock-window" aria-hidden="true">
+      <div class="mock-titlebar">
+        <span class="mock-lights"><i></i><i></i><i></i></span>
+        <span class="mock-title">LetsLearn</span>
+      </div>
+      <div class="mock-urlbar">
+        <span class="mock-url-icon"></span>
+        <span class="mock-url"><b>letslearn.org</b>/mod/vod/viewer.php?id=4522284</span>
+      </div>
+
+      <div class="mock-body">
+        <div class="lecture">
+          <div class="lec-topbar">
+            <span class="lec-course">Engineering economic decisions</span>
+            <span class="lec-div"></span>
+            <span class="lec-time">09:00</span>
+            <span class="lec-div"></span>
+            <span class="lec-chapter">투자안 평가 구간</span>
+            <span class="lec-topbar-actions"><i class="lec-help">?</i><i class="lec-close">×</i></span>
+          </div>
+
+          <div class="lec-stage">
+            <div class="lec-slide">
+              <p class="slide-title">Investment Decision Flow</p>
+              <div class="slide-cycles"><span>추정<br>Cycle</span><span>할인<br>Cycle</span><span>비교<br>Cycle</span><span>선택<br>Cycle</span></div>
+              <div class="slide-arcs"><i></i><i></i><i></i><i></i></div>
+              <div class="slide-nodes"><span>현금흐름<br>추정</span><span>할인율<br>적용</span><span>현재가치<br>산출</span><span>기준별<br>비교</span><span>투자<br>결정</span></div>
+              <div class="slide-bars"><span class="bar-npv">NPV · 금액 기준</span><span class="bar-irr">IRR · 비율 기준</span></div>
+              <span class="slide-page">2</span>
+            </div>
+            <div class="lec-presenter"><span class="presenter-figure"></span></div>
+          </div>
+
+          <div class="lec-controls">
+            <span class="lec-icon lec-play"></span>
+            <span class="lec-icon lec-volume"></span>
+            <span class="lec-progress"><i class="lec-buffer"></i><i class="lec-knob"></i></span>
+            <span class="lec-remain">-10:13</span>
+            <span class="lec-icon lec-list"></span>
+            <span class="lec-rate">1x</span>
+            <span class="lec-icon lec-full"></span>
+          </div>
+        </div>
+
+        <aside class="panel">
+          <div class="panel-topbar">
+            <span class="panel-brand">Summrizei</span>
+            <span class="panel-pill"><i class="panel-pulse"></i>캡처 중</span>
+            <span class="panel-elapsed">12:07</span>
+          </div>
+          <p class="panel-detail">화면과 음성이 인식되면 아래에 쌓입니다. 원하는 구간까지 캡처한 뒤 노트를 열어보세요.</p>
+
+          <div class="panel-counters">
+            <div class="panel-counter"><b>24</b><span>슬라이드</span></div>
+            <div class="panel-counter"><b data-count="voice">186</b><span>음성 줄</span></div>
+            <div class="panel-counter"><b>2</b><span>처리 대기</span></div>
+          </div>
+
+          <div class="panel-feed">
+            <div class="panel-feed-head"><span>지금 인식 중</span><span>최근 3줄</span></div>
+            <div class="panel-feed-lines">
+              <div class="feed-line"><time>09:12</time><p>NPV는 금액의 증가분을, IRR은 수익률을 보여 줍니다.</p></div>
+              <div class="feed-line"><time>09:31</time><p>상호배타적 투자안에서는 두 기준의 순위가 달라질 수 있습니다.</p></div>
+              <div class="feed-line"><time>09:44</time><p>투자 규모가 다르면 NPV를 기준으로 비교합니다.</p></div>
+            </div>
+          </div>
+
+          <button class="panel-stop" type="button" tabindex="-1">캡처 마치고 노트 보기</button>
+          <div class="panel-foot"><span>무료 플랜</span><span>기기 안에서 처리</span></div>
+        </aside>
+      </div>
+    </div>
+    <figcaption id="mockCaption" class="mock-caption">강의 탭 옆에서 사이드패널이 화면과 말소리를 모으는 모습입니다. 실제 강의 화면이 아닌 예시입니다.</figcaption>
+  </figure>
 </section>
 <div class="value-strip wrap"><span><b>01</b> 화면의 핵심을 읽고</span><span><b>02</b> 말소리를 놓치지 않고</span><span><b>03</b> 복습할 내용만 한곳에</span></div>
 <section class="demo-section" id="preview">
@@ -71,5 +140,5 @@
 <dialog id="sampleDialog" aria-labelledby="sampleTitle"><div class="dialog-head"><div><p class="eyebrow" id="sampleLabel"></p><h2 id="sampleTitle">노트 예시</h2></div><form method="dialog"><button class="close-button" aria-label="예시 닫기">닫기 ×</button></form></div><p class="sample-origin" id="sampleOrigin"></p><article class="sample-body" id="sampleBody"></article></dialog>
 <dialog id="checkout" class="compact-dialog" aria-labelledby="checkoutTitle"><div class="dialog-head"><h2 id="checkoutTitle">플랜 선택</h2><form method="dialog"><button class="close-button">닫기 ×</button></form></div><p class="checkout-price" id="checkoutDescription"></p><p id="checkoutStatus" role="status"></p><a id="checkoutLink" class="button dark" hidden>결제 페이지로 이동 ↗</a><a class="policy-link" href="policies/refund.html">결제 및 환불 정책</a></dialog>
 <dialog id="installDialog" class="compact-dialog" aria-labelledby="installTitle"><div class="dialog-head"><h2 id="installTitle">Summrizei 시작하기</h2><form method="dialog"><button class="close-button">닫기 ×</button></form></div><p>Chrome 웹 스토어 등록을 준비하고 있습니다. 등록이 완료되면 이곳에서 설치할 수 있습니다.</p><p class="micro">이미 설치한 경우 Chrome 도구 모음의 Summrizei 아이콘을 눌러 패널을 여세요.</p></dialog>
-<script src="checkout-config.js"></script><script src="examples.js"></script><script src="landing.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.15.0/gsap.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.15.0/ScrollTrigger.min.js"></script><script src="gsap-animations.js"></script><script src="hero-mockup.js"></script><script src="checkout-config.js"></script><script src="examples.js"></script><script src="landing.js"></script>
 </body></html>
