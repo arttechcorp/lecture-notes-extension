@@ -87,11 +87,21 @@ const MAX_QUEUE_BATCHES = 4;
 const setStatus = (t) => (els.status.textContent = t);
 // 로그는 2시간짜리 강의면 수천 줄까지 자란다. 오래된 건 진단에 쓸모가 없다.
 const LOG_MAX_LINES = 500;
+
+// 어느 단계가 느린지는 줄 사이의 간격으로만 알 수 있다. 캡처 시작을 0으로 잡고
+// 경과 시각을 붙인다. 벽시계보다 이쪽이 읽기 쉽다 — 단계 간 소요가 바로 뺄셈이 된다.
+let logT0 = Date.now();
+const resetClock = () => (logT0 = Date.now());
+function stamp() {
+  const s = (Date.now() - logT0) / 1000;
+  return `[${String(Math.floor(s / 60)).padStart(2, "0")}:${(s % 60).toFixed(1).padStart(4, "0")}]`;
+}
 const log = (t) => {
-  const lines = (els.debugLog.textContent + t + "\n").split("\n");
+  const lines = (els.debugLog.textContent + `${stamp()} ${t}` + "\n").split("\n");
   els.debugLog.textContent = lines.slice(-LOG_MAX_LINES).join("\n");
   els.debugLog.scrollTop = els.debugLog.scrollHeight;
 };
+
 
 // 토큰 수는 원격 호출로 실제 과금이 일어났을 때만 의미가 있다. 로컬만 쓰는
 // 사용자에게 0이 두 줄 떠 있는 건 정보가 아니라 잡음이다.
@@ -373,6 +383,7 @@ async function drainQueue() {
   try {
     while (queue.length) {
       const { frames, times } = queue.shift();
+      const batchT0 = Date.now();
       setStatus(`OCR 처리 중 (${frames.length}장, 대기 ${queue.length}배치)`);
       let lines;
       if (engine === "remote") {
@@ -388,6 +399,10 @@ async function drainQueue() {
         await prepareTesseract();
         lines = await ocrTesseract(await createTesseractWorker(), frames, (i, n) => setStatus(`Tesseract OCR ${i}/${n}`));
       }
+      log(
+        `OCR(${engine}) ${frames.length}장 — ${((Date.now() - batchT0) / 1000).toFixed(1)}초 ` +
+          `(장당 ${((Date.now() - batchT0) / frames.length / 1000).toFixed(1)}초, 남은 배치 ${queue.length})`
+      );
       transcript = mergeLines(zipEntries(lines, times), transcript);
       renderRaw();
       renderTokens();
@@ -573,14 +588,19 @@ async function generateNotes() {
       const truncated = full.length > MAX_SCRIPT_CHARS;
       const prompt = buildNotesPrompt(truncated ? full.slice(0, MAX_SCRIPT_CHARS) : full, truncated);
       setStatus("Claude Sonnet으로 고품질 학습 노트(수식·그래프 포함) 작성 중...");
+      log(`원격 노트 요청 — 입력 ${prompt.length}자`);
+      const remoteT0 = Date.now();
       text = await notesRemote(prompt);
+      log(`원격 노트 응답 — ${((Date.now() - remoteT0) / 1000).toFixed(1)}초`);
       renderTokens();
     } else {
       const localReady = typeof localAvailability !== "undefined" && (await localAvailability({})) === "available";
       if (localReady) {
         setStatus("기기 안에서 Gemini Nano로 요약 노트를 작성하는 중...");
-        log("기기 내 Gemini Nano 요약 시작");
+        log(`기기 내 Gemini Nano 요약 시작 — 입력 ${full.length}자`);
+        const localT0 = Date.now();
         text = await notesLocal(full, setStatus);
+        log(`기기 내 요약 — ${((Date.now() - localT0) / 1000).toFixed(1)}초`);
       } else {
         showNote(buildTimeline(), "timeline");
         const notice = "무료 플랜(온디바이스) 모드입니다. 기기 내 요약 모델(Gemini Nano)이 없어 원문 타임라인으로 출력되었습니다. (하단 플랜 선택에서 Premium으로 전환하면 Claude Sonnet의 수식/그래프 요약을 이용할 수 있습니다.)";
@@ -634,11 +654,14 @@ function finishCapture() {
     return setStatus(els.panelAlert.textContent);
   }
   // 남은 OCR 배치를 다 처리한 뒤에 노트를 만든다.
+  log(`캡처 종료 — 남은 배치 ${queue.length}, 인식 ${transcript.length}줄`);
+  const waitT0 = Date.now();
   setStatus("캡처를 마쳤어요. 남은 인식 내용을 정리하고 있습니다...");
   finishTimer = setInterval(() => {
     if (draining || queue.length) return;
     clearInterval(finishTimer);
     finishTimer = null;
+    log(`남은 OCR 처리 대기 — ${((Date.now() - waitT0) / 1000).toFixed(1)}초`);
     if (!transcript.length) {
       setStage("ready");
       renderTabRow();
@@ -878,6 +901,8 @@ els.startBtn.addEventListener("click", async () => {
     }
     capturing = true;
     els.stopBtn.disabled = false;
+    resetClock();
+    log("캡처 시작");
     setStage("live");
     startElapsed();
     renderProgress();
