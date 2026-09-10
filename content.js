@@ -18,6 +18,7 @@
   let audioCtx = null;
   let audioProc = null;
   let ocrEngine = "local"; // 사이드패널이 START로 알려준다 — 엔진마다 원하는 입력 크기가 다르다
+  let ocrEnabled = true;
   let lastDiffSample = null;
   let port = null;
 
@@ -268,7 +269,7 @@
 
   function captureLoop(video, px, cfg) {
     if (!capturing) return;
-    if (!video.paused && !video.ended) {
+    if (ocrEnabled && px && !video.paused && !video.ended) {
       const sample = sampleForDiff(video, px, cfg);
       const capped = ocrEngine === "remote" && remoteFrames >= REMOTE_FRAME_CAP;
       if (!capped && diffScore(sample, lastDiffSample) > cfg.diffThreshold) {
@@ -287,14 +288,15 @@
     // 배속·탐색 때 벽시계는 영상 시각과 어긋난다(2배속이면 2배로 벌어진다).
     send({ type: "tick", t: video.currentTime });
     if (video.ended) {
-      flushBatch();
+      if (ocrEnabled) flushBatch();
       capturing = false;
       stopAudio();
       send({ type: "done", title: document.title });
       return;
     }
     // 배속 재생 시 화면이 머무는 실제 시간이 짧아지므로 간격도 비례해서 줄인다.
-    setTimeout(() => captureLoop(video, px, cfg), cfg.interval / (video.playbackRate || 1));
+    const interval = ocrEnabled ? cfg.interval : 1000;
+    setTimeout(() => captureLoop(video, px, cfg), interval / (video.playbackRate || 1));
   }
 
   function startCapture(mode, rect, wantAudio) {
@@ -304,15 +306,18 @@
     if (video.videoWidth === 0) {
       return report("error", "영상이 아직 로드되지 않았습니다. 재생한 뒤 다시 시도하세요.");
     }
-    const px = pixelRect(video, rect || cfg.rect);
-    const problem = preflight(video, px, cfg);
-    if (problem) return report("error", problem);
+    let px = null;
+    if (ocrEnabled) {
+      px = pixelRect(video, rect || cfg.rect);
+      const problem = preflight(video, px, cfg);
+      if (problem) return report("error", problem);
+    }
 
     capturing = true;
     remoteFrames = 0;
     batch = [];
     lastDiffSample = null;
-    debugLog("캡처 시작", { mode, ocrEngine, videoWidth: video.videoWidth, videoHeight: video.videoHeight, px });
+    debugLog("캡처 시작", { mode, ocrEngine, ocrEnabled, videoWidth: video.videoWidth, videoHeight: video.videoHeight, px });
     report("capture", "캡처 시작");
     if (wantAudio) startAudio(video);
     captureLoop(video, px, cfg);
@@ -337,6 +342,7 @@
     p.onMessage.addListener((msg) => {
       if (msg.type === "START") {
         ocrEngine = msg.ocr || "local";
+        ocrEnabled = msg.ocrEnabled !== false && msg.ocr !== "none";
         startCapture(msg.mode, msg.rect, msg.audio);
       }
       if (msg.type === "STOP" && capturing) {

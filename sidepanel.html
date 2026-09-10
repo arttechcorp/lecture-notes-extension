@@ -281,6 +281,14 @@
   </div>
 
   <div class="field">
+    <label class="checkline" style="cursor: pointer;">
+      <input type="checkbox" id="ocrEnabledToggle" />
+      <span style="font-weight: 600; color: var(--ink);">화면 글자 읽기 (OCR)</span>
+    </label>
+    <p class="detail" style="margin: 4px 0 0;">끄면 화면 캡처 없이 음성(Whisper)만으로 깨끗하게 노트를 만듭니다.</p>
+  </div>
+
+  <div class="field" id="cropField">
     <label for="modeSelect">캡처 영역</label>
     <select id="modeSelect">
       <option value="region">영역 지정 (권장 — 슬라이드만)</option>

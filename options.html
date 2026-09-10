@@ -106,9 +106,15 @@
   <hr />
 
   <section class="card" aria-labelledby="ocrHeading">
-    <div class="section-top"><h2 id="ocrHeading">화면 글자 읽기</h2><span class="badge">로컬 · 무료</span></div>
-    <strong style="font-size:13px;">Tesseract</strong>
-    <p class="note">기본 화면 인식은 이 기기 안에서 처리됩니다. 슬라이드 영역만 선택하고 글자가 선명하게 보이도록 재생하면 인식에 도움이 됩니다.</p>
+    <div class="section-top"><h2 id="ocrHeading">화면 글자 읽기</h2><span class="badge">자동 저장</span></div>
+    <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer;">
+      <input type="checkbox" id="ocrEnabledCb" style="width: auto; margin-top: 4px;">
+      <div>
+        <strong style="display: block; font-size:13px;">화면 글자 읽기 (OCR) 사용</strong>
+        <span class="note" style="display: block; margin-top: 4px;">끄면 화면 캡처를 건너뛰고 말소리(Whisper)만으로 노트를 만듭니다. CPU와 메모리가 절약되고 화면 자막 오독 노이즈가 사라집니다.</span>
+      </div>
+    </label>
+    <p class="note" style="margin-top: 10px;">기본 화면 인식은 Tesseract로 기기 안에서 처리됩니다.</p>
   </section>
 
   <hr  />

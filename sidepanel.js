@@ -20,7 +20,7 @@ const els = {
   // 설정 서랍
   drawer: $("settingsDrawer"), settingsToggle: $("settingsToggle"), settingsClose: $("settingsClose"),
   settingsSummary: $("settingsSummary"), formatSummary: $("formatSummary"), formatToggle: $("formatToggle"),
-  settingsLink: $("settingsLink"),
+  settingsLink: $("settingsLink"), ocrEnabledToggle: $("ocrEnabledToggle"), cropField: $("cropField"),
   // 진행
   elapsed: $("elapsed"), cntSlides: $("cntSlides"), cntVoice: $("cntVoice"), cntQueue: $("cntQueue"),
   feedLines: $("feedLines"), panelAlert: $("panelAlert"),
@@ -160,9 +160,19 @@ async function detectEngine() {
   els.langSelect.value = settings.whisperLang;
   els.outputFormat.value = settings.outputFormat || "summary";
   els.customPrompt.style.display = els.outputFormat.value === "custom" ? "block" : "none";
+  if (els.ocrEnabledToggle) {
+    els.ocrEnabledToggle.checked = settings.ocrEnabled !== false;
+  }
+  if (els.cropField) {
+    els.cropField.hidden = settings.ocrEnabled === false;
+  }
 
   let detail = "";
-  if (settings.allowRemoteOcr && settings.apiKey) {
+  if (settings.ocrEnabled === false) {
+    engine = "none";
+    setRow(els.markEngine, "off", els.banner, "꺼짐");
+    detail = "화면 캡처가 꺼져 있습니다. 음성(Whisper) 전용으로 깨끗하게 노트를 만듭니다.";
+  } else if (settings.allowRemoteOcr && settings.apiKey) {
     engine = "remote";
     setRow(els.markEngine, "ok", els.banner, "원격");
     detail = "화면 글자를 원격 API로 처리합니다. 캡처 이미지가 외부로 전송됩니다.";
@@ -194,8 +204,11 @@ const LANG_LABEL = { auto: "언어 자동", korean: "한국어", english: "영�
 const FORMAT_LABEL = { timeline: "원문 타임라인 · 무료", summary: "핵심 요약본", custom: "직접 입력" };
 
 function renderSettingsSummary() {
+  const ocrPart = (settings && settings.ocrEnabled === false)
+    ? "화면 꺼짐(음성 전용)"
+    : (MODE_LABEL[els.modeSelect.value] || els.modeSelect.value);
   const parts = [
-    MODE_LABEL[els.modeSelect.value] || els.modeSelect.value,
+    ocrPart,
     LANG_LABEL[els.langSelect.value] || els.langSelect.value,
     FORMAT_LABEL[els.outputFormat.value] || els.outputFormat.value,
   ];
@@ -415,8 +428,11 @@ async function notesRemote(prompt) {
 // 무료 노트는 원문을 시간순으로만 정리한다. 원문을 축약하거나 API로 보내지 않는다.
 function buildTimeline() {
   const entries = [...transcript].sort((a, b) => a.time - b.time);
+  const subtitle = (settings && settings.ocrEnabled === false)
+    ? "원문 타임라인 · 음성 인식 결과\n"
+    : "원문 타임라인 · 화면 및 음성 인식 결과\n";
   return `# ${title || "강의 노트"}\n\n` +
-    `원문 타임라인 · 화면 및 음성 인식 결과\n` +
+    subtitle +
     `인식 오류가 포함될 수 있습니다. 강의와 대조하며 검토해 주세요.\n\n` +
     entries.map((entry) => `## ${formatTime(entry.time)} · ${entry.text.startsWith("[음성]") ? "음성" : "화면"}\n\n${entry.text.replace(/^\[음성\]\s*/, "")}\n`).join("\n");
 }
@@ -435,7 +451,10 @@ function showNote(text, kind = "summary") {
     ? "Free · 인식된 원문을 시간순으로 담았어요. 직접 수정할 수 있습니다. 패널을 닫기 전 복사하거나 저장하세요."
     : "자동 생성된 초안입니다. 강의와 대조해 검토하고 수정하세요. 패널을 닫기 전 복사하거나 저장하세요.";
   const voice = transcript.filter((entry) => entry.text.startsWith("[음성]")).length;
-  els.doneSummary.textContent = `화면 ${transcript.length - voice}개 · 음성 ${voice}줄`;
+  const slides = transcript.length - voice;
+  els.doneSummary.textContent = (settings && settings.ocrEnabled === false)
+    ? `음성 ${voice}줄 (화면 캡처 꺼짐)`
+    : `화면 ${slides}개 · 음성 ${voice}줄`;
   els.resumeBtn.hidden = false;
   els.timelineBtn.hidden = kind === "timeline" && !resultViews.summary;
   els.timelineBtn.textContent = kind === "timeline" ? "요약 노트로 돌아가기" : "원문 타임라인 보기";
@@ -502,7 +521,10 @@ function finishCapture() {
   if (!transcript.length && !queue.length && !draining) {
     log("캡처 종료 — 인식된 텍스트 0줄");
     stopElapsed();
-    els.panelAlert.textContent = "화면에서 텍스트를 얻지 못했습니다. 슬라이드가 없는 영상이거나 캡처 영역이 빗나갔을 수 있습니다.";
+    const alertMsg = (settings && settings.ocrEnabled === false)
+      ? "음성에서 텍스트를 얻지 못했습니다. 영상에 음성이 나오는지, 음소거되어 있지 않은지 확인하세요."
+      : "화면에서 텍스트를 얻지 못했습니다. 슬라이드가 없는 영상이거나 캡처 영역이 빗나갔을 수 있습니다.";
+    els.panelAlert.textContent = alertMsg;
     els.panelAlert.hidden = false;
     setStage("ready");
     renderTabRow();
@@ -606,6 +628,14 @@ els.modeSelect.addEventListener("change", () => {
 });
 els.modeSelect.dispatchEvent(new Event("change"));
 
+if (els.ocrEnabledToggle) {
+  els.ocrEnabledToggle.addEventListener("change", async () => {
+    const ocrEnabled = els.ocrEnabledToggle.checked;
+    await saveSettings({ ocrEnabled });
+    await detectEngine();
+  });
+}
+
 els.previewBtn.addEventListener("click", async () => {
   try {
     (await connectToTab()).postMessage({ type: "PREVIEW" });
@@ -631,10 +661,15 @@ audioCapturer.onTranscript = (item) => {
 // --- 캡처 시작/중지 ----------------------------------------------------------------
 els.startBtn.addEventListener("click", async () => {
   if (preparing || capturing || busy || draining || queue.length || finishTimer) return;
-  if (engine === "none") {
+  settings = await loadSettings();
+  const ocrActive = settings.ocrEnabled !== false;
+  if (!ocrActive && !settings.whisperEnabled) {
+    return fail("화면 글자 읽기와 말소리 받아쓰기가 모두 꺼져 있습니다. 설정에서 최소 하나를 켜주세요.");
+  }
+  if (ocrActive && engine === "none") {
     return fail("사용 가능한 OCR 엔진이 없습니다. 설정에서 온디바이스 모델 상태를 확인하세요.");
   }
-  if (els.modeSelect.value === "region" && !cropRect) {
+  if (ocrActive && els.modeSelect.value === "region" && !cropRect) {
     openDrawer();
     els.previewBtn.focus();
     return setStatus("‘현재 화면 불러오기’에서 영역을 지정해 주세요. 전체 화면을 캡처하려면 위 선택을 변경하세요.");
@@ -650,33 +685,43 @@ els.startBtn.addEventListener("click", async () => {
     // 사이트 권한은 사용자 클릭 직후 확보한다. 모델 다운로드 뒤에는 클릭 권한이 만료된다.
     const capturePort = await connectToTab();
     settings = await loadSettings();
-    engine = settings.allowRemoteOcr && settings.apiKey ? "remote" : "tesseract";
-    await prepareTesseract();
+    const ocrWanted = settings.ocrEnabled !== false;
+    engine = ocrWanted ? (settings.allowRemoteOcr && settings.apiKey ? "remote" : "tesseract") : "none";
+    if (ocrWanted) {
+      await prepareTesseract();
+    }
     let audioEnabled = settings.whisperEnabled;
     if (audioEnabled) {
-    const modelName = settings.whisperModel === "base" ? "Base" : "Tiny";
-    setStatus(`음성 인식(Whisper ${modelName}) 모델 준비 중...`);
-    try {
-      audioCapturer.language = els.langSelect.value;
-      audioCapturer.model = settings.whisperModel || "tiny";
-      await audioCapturer.initModel((prog) => {
-        if (prog.status === 'progress') {
-          setStatus(`음성 모델(${modelName}) 다운로드 중... ${Math.round(prog.progress)}%`);
+      const modelName = settings.whisperModel === "base" ? "Base" : "Tiny";
+      setStatus(`음성 인식(Whisper ${modelName}) 모델 준비 중...`);
+      try {
+        audioCapturer.language = els.langSelect.value;
+        audioCapturer.model = settings.whisperModel || "tiny";
+        await audioCapturer.initModel((prog) => {
+          if (prog.status === 'progress') {
+            setStatus(`음성 모델(${modelName}) 다운로드 중... ${Math.round(prog.progress)}%`);
+          }
+        }, audioCapturer.model);
+      } catch(e) {
+        audioEnabled = false;
+        const errText = `음성 인식(Whisper) 초기화 실패: ${e.message || e}`;
+        log(errText);
+        if (!ocrWanted) {
+          throw new Error(`${errText} — 화면 글자 읽기도 꺼져 있어 캡처를 진행할 수 없습니다.`);
         }
-      }, audioCapturer.model);
-    } catch(e) {
-      audioEnabled = false;
-      const errText = `음성 인식(Whisper) 초기화 실패: ${e.message || e}`;
-      log(errText);
-      els.panelAlert.textContent = `${errText} — 음성 없이 화면 글자(OCR)만 진행됩니다.`;
-      els.panelAlert.hidden = false;
+        els.panelAlert.textContent = `${errText} — 음성 없이 화면 글자(OCR)만 진행됩니다.`;
+        els.panelAlert.hidden = false;
+      }
     }
+
+    if (!ocrWanted && !audioEnabled) {
+      throw new Error("화면 글자 읽기와 말소리 받아쓰기가 모두 꺼져 있거나 준비되지 않았습니다.");
     }
 
     if (port !== capturePort) throw new Error("영상 탭 연결이 끊겼어요. 탭을 확인한 뒤 다시 시작해 주세요.");
     capturePort.postMessage({
       type: "START", mode: els.modeSelect.value, rect: cropRect,
-      audio: audioEnabled, ocr: engine,
+      audio: audioEnabled, ocr: engine, ocrEnabled: ocrWanted,
     });
 
   // 새 캡처가 실제로 시작된 시점에만 이전 세션을 지운다.
@@ -696,8 +741,10 @@ els.startBtn.addEventListener("click", async () => {
   els.startBtn.disabled = true;
   renderTokens();
   setStatus("스크립트 주입 중...");
-    if (!audioEnabled) {
+    if (!audioEnabled && ocrWanted) {
       log("음성 인식이 꺼져 있습니다 (설정에서 켤 수 있습니다). 화면 OCR만 동작합니다.");
+    } else if (audioEnabled && !ocrWanted) {
+      log("화면 글자 읽기(OCR)가 꺼져 있습니다. 음성 인식(Whisper) 전용으로 동작합니다.");
     }
     capturing = true;
     els.stopBtn.disabled = false;

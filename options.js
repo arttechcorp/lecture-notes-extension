@@ -6,6 +6,7 @@ const providerEl = document.getElementById("provider");
 const keyLink = document.getElementById("keyLink");
 const whisperCb = document.getElementById("whisperCb");
 const whisperModelEl = document.getElementById("whisperModel");
+const ocrEnabledCb = document.getElementById("ocrEnabledCb");
 
 const PROVIDER_URLS = {
   gemini: "https://aistudio.google.com/apikey",
@@ -19,7 +20,7 @@ function updateLink() {
 providerEl.addEventListener("change", updateLink);
 
 async function populateSettings() {
-  const { apiKey, provider, whisperEnabled, whisperModel, syncKey } = await loadSettings();
+  const { apiKey, provider, whisperEnabled, whisperModel, syncKey, ocrEnabled } = await loadSettings();
   
   whisperModelEl.value = whisperModel || "tiny";
   
@@ -28,6 +29,9 @@ async function populateSettings() {
   }
   
   whisperCb.checked = !!whisperEnabled;
+  if (ocrEnabledCb) {
+    ocrEnabledCb.checked = ocrEnabled !== false;
+  }
   updateLink();
 
   apiKeyEl.value = apiKey || "";
@@ -52,13 +56,22 @@ whisperModelEl.addEventListener("change", async () => {
   setTimeout(() => (savedEl.hidden = true), 1500);
 });
 
+if (ocrEnabledCb) {
+  ocrEnabledCb.addEventListener("change", async () => {
+    await chrome.storage.local.set({ ocrEnabled: ocrEnabledCb.checked });
+    savedEl.hidden = false;
+    setTimeout(() => (savedEl.hidden = true), 1500);
+  });
+}
+
 document.getElementById("saveBtn").addEventListener("click", async () => {
   const key = apiKeyEl.value.trim();
   const provider = providerEl.value;
   const whisperEnabled = whisperCb.checked;
   const whisperModel = whisperModelEl.value;
+  const ocrEnabled = ocrEnabledCb ? ocrEnabledCb.checked : true;
   
-  await chrome.storage.local.set({ provider, whisperEnabled, whisperModel });
+  await chrome.storage.local.set({ provider, whisperEnabled, whisperModel, ocrEnabled });
   
   await saveApiKey(key, syncCb.checked);
   savedEl.hidden = false;
