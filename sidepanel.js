@@ -331,6 +331,7 @@ function onPortMessage(msg) {
   if (msg.type === "preview") showPreview(msg.dataUrl);
   if (msg.type === "frames") {
     queue.push({ frames: msg.frames, times: msg.times });
+    log(`배치 도착 — 프레임 ${msg.frames.length}장 (대기 ${queue.length}배치)`);
     // 프레임은 JPEG data URL이라 장당 100~200KB다. OCR이 캡처보다 느리면 큐가
     // 끝없이 자란다 — 2시간 강의면 수백 MB까지 가고 결국 패널이 죽는다.
     // 오래된 배치를 버려서 메모리를 확정적으로 묶는다. 슬라이드는 몇 초 사이에
@@ -357,10 +358,11 @@ async function prepareLocalSession() {
   if (localSession) return;
   setStatus("온디바이스 Gemini Nano 모델 준비 중...");
   log("Gemini Nano 세션 생성 시도");
+  const prepT0 = Date.now();
   localSession = await createLocalSession((p) => {
     setStatus(`Gemini Nano 모델 다운로드 중 ${Math.round(p * 100)}%`);
   });
-  log("Gemini Nano 준비 완료");
+  log(`Gemini Nano 준비 완료 — ${((Date.now() - prepT0) / 1000).toFixed(1)}초`);
 }
 
 async function prepareTesseract() {
@@ -384,6 +386,7 @@ async function drainQueue() {
     while (queue.length) {
       const { frames, times } = queue.shift();
       const batchT0 = Date.now();
+      log(`OCR 시작 — ${engine} 엔진으로 ${frames.length}장`);
       setStatus(`OCR 처리 중 (${frames.length}장, 대기 ${queue.length}배치)`);
       let lines;
       if (engine === "remote") {
@@ -901,8 +904,7 @@ els.startBtn.addEventListener("click", async () => {
     }
     capturing = true;
     els.stopBtn.disabled = false;
-    resetClock();
-    log("캡처 시작");
+    resetClock(); // 로그 시계를 0으로. "캡처 시작" 줄은 content.js 가 상세와 함께 남긴다.
     setStage("live");
     startElapsed();
     renderProgress();

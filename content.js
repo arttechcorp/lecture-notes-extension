@@ -267,16 +267,27 @@
     send({ type: "frames", frames, times });
   }
 
+  let tickCount = 0;
   function captureLoop(video, px, cfg) {
     if (!capturing) return;
     if (ocrEnabled && px && !video.paused && !video.ended) {
       const sample = sampleForDiff(video, px, cfg);
+      const score = diffScore(sample, lastDiffSample);
+      // 프레임이 왜 안 모이는지는 변화량으로만 알 수 있다. 매 틱을 찍으면 시끄러우니
+      // 30초에 한 번만 — 루프가 살아 있는지와 기준을 넘는지를 동시에 보여준다.
+      if (++tickCount % 6 === 0) {
+        debugLog(
+          `캡처 감시 — 변화량 ${score === Infinity ? "첫프레임" : score.toFixed(1)} ` +
+            `(기준 ${cfg.diffThreshold}), 모은 프레임 ${batch.length}/${cfg.batchSize}장`
+        );
+      }
       const capped = ocrEngine === "remote" && remoteFrames >= REMOTE_FRAME_CAP;
       if (!capped && diffScore(sample, lastDiffSample) > cfg.diffThreshold) {
         lastDiffSample = sample;
         batch.push({ frame: captureFrame(video, px, cfg), time: video.currentTime });
         if (ocrEngine === "remote") remoteFrames++;
         report("capture", `프레임 ${batch.length}장 대기 중`);
+        debugLog(`프레임 포착 ${batch.length}/${cfg.batchSize}장 (변화량 ${score.toFixed(1)})`);
         if (batch.length >= cfg.batchSize) flushBatch();
         if (ocrEngine === "remote" && remoteFrames === REMOTE_FRAME_CAP) {
           flushBatch();
