@@ -159,7 +159,12 @@
   }
   .alert b { font-weight: 600; }
 
-  #result { width: 100%; height: 360px; min-height: 220px; padding: 19px 16px; background: var(--paper); font: 13px/1.85 system-ui, sans-serif; resize: vertical; box-shadow: var(--lift-1); }
+  #result { width: 100%; height: 380px; min-height: 220px; padding: 16px; background: var(--paper); font: 13px/1.85 system-ui, sans-serif; resize: vertical; box-shadow: var(--lift-1); }
+
+  .note-view-tabs { display: flex; gap: 6px; background: var(--sunk); padding: 3px; border-radius: var(--r-md); border: 1px solid var(--rule); margin-bottom: 2px; }
+  .tab-pill { flex: 1; border: none; background: transparent; padding: 7px 10px; font-size: 12px; font-weight: 500; cursor: pointer; border-radius: 6px; color: var(--ash); transition: all 120ms; }
+  .tab-pill.active { background: var(--paper); color: var(--ink); font-weight: 600; box-shadow: var(--lift-1); }
+  .preview-frame { width: 100%; height: 420px; min-height: 250px; border: 1px solid var(--rule); border-radius: var(--r-md); background: var(--paper); box-shadow: var(--lift-1); display: block; }
 
   details { font-size: 12px; }
   details summary { cursor: pointer; color: var(--ash); }
@@ -174,7 +179,12 @@
   a { color: var(--ink); text-underline-offset: 3px; }
   #status:empty { display: none; }
   #cropRow { flex-direction: column; align-items: flex-start; gap: 5px; }
-  #planLine { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+  
+  .plan-card { display: flex; flex-direction: column; gap: 8px; background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r-md); padding: 10px 12px; box-shadow: var(--lift-1); }
+  .plan-selector-row { display: flex; align-items: center; gap: 8px; }
+  .plan-badge { font-size: 10px; font-weight: 700; letter-spacing: .06em; padding: 2px 6px; background: var(--sunk); border: 1px solid var(--rule); border-radius: 4px; color: var(--ash); }
+  .plan-dropdown { flex: 1; padding: 5px 8px; font-size: 12px; font-weight: 600; border-radius: 6px; border: 1px solid var(--rule); background: var(--sunk); color: var(--ink); cursor: pointer; }
+  .plan-status-row { display: flex; align-items: center; justify-content: space-between; font-size: 11.5px; }
   #planName { font-weight: 600; }
   #planUse { color: var(--ash); font-variant-numeric: tabular-nums; }
   .legal { font-size: 11.5px; color: var(--faint); line-height: 1.45; }
@@ -365,8 +375,13 @@
   <div class="alert warn" id="doneAlert" hidden></div>
   <h2 class="result-title" id="resultTitle">나의 강의 노트</h2>
 
-  <textarea id="result" aria-label="강의 노트 내용" placeholder="노트가 여기 표시됩니다. 인식된 내용을 직접 검토해 주세요." readonly></textarea>
-  <p class="detail result-help" id="resultHint">내용을 직접 고친 뒤 복사하거나 저장할 수 있어요. 패널을 닫으면 노트가 사라집니다.</p>
+  <div class="note-view-tabs" role="tablist">
+    <button id="viewRenderedBtn" type="button" class="tab-pill active">📖 서식 보기 (수식·그래프)</button>
+    <button id="viewRawBtn" type="button" class="tab-pill">✏️ 마크다운 편집</button>
+  </div>
+  <iframe id="renderFrame" src="sandbox.html" class="preview-frame" title="노트 서식 미리보기"></iframe>
+  <textarea id="result" aria-label="강의 노트 내용" placeholder="노트가 여기 표시됩니다. 인식된 내용을 직접 검토해 주세요." hidden></textarea>
+  <p class="detail result-help" id="resultHint">서식 보기에서는 수식과 다이어그램이 렌더링되며, 마크다운 편집 탭에서 원문을 직접 수정할 수 있습니다.</p>
 
   <div class="settingbar">
     <span class="summary" id="formatSummary">형태: 핵심 요약본</span>
@@ -397,9 +412,18 @@
 </details>
 
 <footer>
-  <div id="planLine">
-    <span id="planName">무료 플랜</span>
-    <span id="planUse">기기 안에서 처리</span>
+  <div id="planLine" class="plan-card">
+    <div class="plan-selector-row">
+      <span class="plan-badge">PLAN</span>
+      <select id="planSelect" class="plan-dropdown" aria-label="요약 플랜 선택">
+        <option value="premium">✨ Premium (Claude Sonnet · 고급 요약/수식/그래프)</option>
+        <option value="free">🌱 Free (무료 · 온디바이스 타임라인)</option>
+      </select>
+    </div>
+    <div class="plan-status-row">
+      <span id="planName">✨ Premium (Claude Sonnet 5)</span>
+      <span id="planUse">수식·그래프·고품질 요약</span>
+    </div>
   </div>
   <div id="tokenUsage" class="legal" style="font-family: ui-monospace, monospace; white-space: pre-wrap;"></div>
   <p class="legal">

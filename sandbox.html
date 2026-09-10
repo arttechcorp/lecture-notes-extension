@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>노트 서식 미리보기</title>
+  <link rel="stylesheet" href="lib/vendor/katex/katex.min.css">
+  <style>
+    :root {
+      --bg: #ffffff;
+      --text: #1a1a1e;
+      --sub: #5f6368;
+      --border: #e2e8f0;
+      --code-bg: #f8fafc;
+      --accent: #2563eb;
+      --table-stripe: #f8fafc;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #181818;
+        --text: #e2e8f0;
+        --sub: #94a3b8;
+        --border: #2e3846;
+        --code-bg: #1f2937;
+        --accent: #60a5fa;
+        --table-stripe: #1e2430;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans KR', sans-serif;
+      font-size: 13.5px;
+      line-height: 1.68;
+      word-break: break-word;
+    }
+    body {
+      padding: 12px 14px 28px;
+    }
+    h1, h2, h3, h4 {
+      color: var(--text);
+      margin-top: 1.25em;
+      margin-bottom: 0.45em;
+      font-weight: 700;
+      line-height: 1.35;
+    }
+    h1 { font-size: 1.38em; border-bottom: 2px solid var(--border); padding-bottom: 6px; }
+    h2 { font-size: 1.18em; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+    h3 { font-size: 1.05em; }
+    h4 { font-size: 0.98em; }
+    p { margin: 0.6em 0; }
+    ul, ol { padding-left: 22px; margin: 0.6em 0; }
+    li { margin: 0.3em 0; }
+    hr { border: 0; border-top: 1px solid var(--border); margin: 18px 0; }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 14px 0;
+      font-size: 12.5px;
+      overflow-x: auto;
+      display: block;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 7px 11px;
+      text-align: left;
+    }
+    th {
+      background: var(--code-bg);
+      font-weight: 600;
+    }
+    tr:nth-child(even) td {
+      background: var(--table-stripe);
+    }
+    blockquote {
+      margin: 10px 0;
+      padding: 6px 14px;
+      border-left: 3.5px solid var(--accent);
+      background: var(--code-bg);
+      color: var(--sub);
+      border-radius: 0 4px 4px 0;
+    }
+    code {
+      background: var(--code-bg);
+      padding: 2px 5px;
+      border-radius: 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      border: 1px solid var(--border);
+    }
+    pre {
+      background: var(--code-bg);
+      padding: 10px 12px;
+      border-radius: 6px;
+      overflow-x: auto;
+      border: 1px solid var(--border);
+    }
+    pre code {
+      border: none;
+      padding: 0;
+      background: none;
+    }
+    .katex-display {
+      margin: 14px 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding: 6px 0;
+    }
+    .mermaid-box {
+      margin: 16px 0;
+      padding: 14px 10px;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow-x: auto;
+      text-align: center;
+    }
+    .mermaid-box svg {
+      max-width: 100%;
+      height: auto;
+      margin: 0 auto;
+    }
+    .empty-notice {
+      color: var(--sub);
+      text-align: center;
+      padding: 40px 12px;
+      font-size: 13px;
+    }
+  </style>
+  <script src="lib/vendor/marked.min.js"></script>
+  <script src="lib/vendor/katex/katex.min.js"></script>
+  <script src="lib/vendor/katex/auto-render.min.js"></script>
+  <script src="lib/vendor/mermaid/mermaid.min.js"></script>
+</head>
+<body>
+  <div id="content"><div class="empty-notice">노트가 완성되면 서식·수식·다이어그램이 여기에 렌더링됩니다.</div></div>
+  <script>
+    if (typeof mermaid !== 'undefined') {
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default',
+        securityLevel: 'loose',
+        fontFamily: 'inherit'
+      });
+    }
+
+    let renderSeq = 0;
+
+    async function renderMarkdown(markdown) {
+      const target = document.getElementById('content');
+      if (!markdown || !markdown.trim()) {
+        target.innerHTML = '<div class="empty-notice">노트 내용이 없습니다.</div>';
+        notifyParentHeight();
+        return;
+      }
+
+      const curSeq = ++renderSeq;
+
+      // 1. Mermaid code block 추출 및 컨테이너 플레이스홀더 변환
+      const mermaidBlocks = [];
+      const codeFence = String.fromCharCode(96, 96, 96);
+      const mermaidRegex = new RegExp(codeFence + 'mermaid\\s*([\\s\\S]*?)' + codeFence, 'gi');
+      let sanitized = markdown.replace(mermaidRegex, (_, code) => {
+        const idx = mermaidBlocks.length;
+        mermaidBlocks.push(code.trim());
+        return '<div class="mermaid-box" id="mermaid-wrap-' + idx + '"></div>';
+      });
+
+      // 2. Display Math ($$ ... $$) 플레이스홀더 변환
+      const displayMath = [];
+      const displayMathRegex = new RegExp('\\$\\$\\s*([\\s\\S]*?)\\s*\\$\\$', 'g');
+      sanitized = sanitized.replace(displayMathRegex, (_, math) => {
+        const idx = displayMath.length;
+        displayMath.push(math.trim());
+        return '@@MATH_DISPLAY_' + idx + '@@';
+      });
+
+      // 3. Inline Math ($ ... $) 플레이스홀더 변환
+      const inlineMath = [];
+      const inlineMathRegex = new RegExp('\\$([^$\\n]+)\\$', 'g');
+      sanitized = sanitized.replace(inlineMathRegex, (_, math) => {
+        const idx = inlineMath.length;
+        inlineMath.push(math.trim());
+        return '@@MATH_INLINE_' + idx + '@@';
+      });
+
+      // 4. Marked 마크다운 파싱
+      let html = marked.parse(sanitized);
+
+      // 5. Math 수식 원복
+      html = html.replace(/@@MATH_DISPLAY_(\d+)@@/g, (_, idx) => '$$' + (displayMath[idx] || '') + '$$');
+      html = html.replace(/@@MATH_INLINE_(\d+)@@/g, (_, idx) => '$' + (inlineMath[idx] || '') + '$');
+
+      target.innerHTML = html;
+
+      // 6. KaTeX 수식 렌더링
+      if (typeof renderMathInElement !== 'undefined') {
+        renderMathInElement(target, {
+          delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '$', right: '$', display: false },
+          ],
+          throwOnError: false,
+        });
+      }
+
+      // 7. Mermaid 다이어그램 렌더링
+      if (typeof mermaid !== 'undefined' && mermaidBlocks.length > 0) {
+        for (let i = 0; i < mermaidBlocks.length; i++) {
+          if (curSeq !== renderSeq) return;
+          const el = document.getElementById('mermaid-wrap-' + i);
+          if (el) {
+            try {
+              const svgId = 'mermaid-svg-' + curSeq + '-' + i;
+              const { svg } = await mermaid.render(svgId, mermaidBlocks[i]);
+              el.innerHTML = svg;
+            } catch (err) {
+              console.warn('Mermaid diagram render error:', err);
+              el.innerHTML = '<pre style="color:#ef4444; font-size:11px; text-align:left;">그래프 렌더링 실패:\n' + mermaidBlocks[i] + '</pre>';
+            }
+          }
+        }
+      }
+
+      notifyParentHeight();
+    }
+
+    function notifyParentHeight() {
+      const height = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, 250);
+      window.parent.postMessage({ type: 'RENDER_HEIGHT', height }, '*');
+    }
+
+    window.addEventListener('message', (event) => {
+      if (event.data && event.data.type === 'RENDER') {
+        renderMarkdown(event.data.markdown || '');
+      }
+    });
+
+    window.addEventListener('resize', notifyParentHeight);
+    window.parent.postMessage({ type: 'RENDERER_READY' }, '*');
+  </script>
+</body>
+</html>

@@ -27,8 +27,9 @@ const els = {
   // 완료
   doneSummary: $("doneSummary"), donePill: $("donePill"), againBtn: $("againBtn"), summarySettingsBtn: $("summarySettingsBtn"),
   resultTitle: $("resultTitle"), resultHint: $("resultHint"), timelineBtn: $("timelineBtn"), resumeBtn: $("resumeBtn"),
+  renderFrame: $("renderFrame"), viewRenderedBtn: $("viewRenderedBtn"), viewRawBtn: $("viewRawBtn"),
   // 하단
-  planName: $("planName"), planUse: $("planUse"),
+  planLine: $("planLine"), planSelect: $("planSelect"), planName: $("planName"), planUse: $("planUse"),
 };
 
 // --- 단계 전환 -------------------------------------------------------------------
@@ -238,12 +239,15 @@ function renderSettingsSummary() {
 }
 
 function renderPlan() {
-  if (settings.apiKey) {
-    els.planName.textContent = "내 API 키 · " + (PROVIDER_LABEL[settings.provider] || settings.provider);
-    els.planUse.textContent = "원격 요약";
+  const plan = settings.plan || "premium";
+  if (els.planSelect) els.planSelect.value = plan;
+
+  if (plan === "premium") {
+    els.planName.textContent = "✨ Premium (Claude Sonnet 5)";
+    els.planUse.textContent = "수식·그래프·고품질 요약";
   } else {
-    els.planName.textContent = "Free · 무료";
-    els.planUse.textContent = "키 없이 원문 타임라인";
+    els.planName.textContent = "🌱 Free (무료 플랜)";
+    els.planUse.textContent = "온디바이스 Nano 또는 원문 타임라인";
   }
 }
 
@@ -401,7 +405,7 @@ async function drainQueue() {
 const MAX_SCRIPT_CHARS = 30000;
 
 const NOTES_SYSTEM =
-  "너는 영상 화면에서 인식한 텍스트로 학습 노트를 만드는 보조자다. " +
+  "너는 대학 강의와 학술 영상을 완벽하게 분석하여 최고 수준의 학습 노트를 만드는 전문가다. " +
   "주어진 텍스트에 실제로 있는 내용만 사용하고 없는 내용을 지어내지 않는다. " +
   "출력은 마크다운 본문만. 인사말·설명·메타 코멘트를 덧붙이지 않는다.";
 
@@ -411,7 +415,14 @@ function buildNotesPrompt(script, truncated) {
   
   let instruction = "";
   if (format === "summary") {
-    instruction = "이 스크립트를 바탕으로 강의 내용을 잘 구조화된 핵심 요약본으로 작성해라.";
+    instruction =
+      "이 스크립트를 바탕으로 강의 내용을 잘 구조화된 한국어 핵심 학습 노트로 작성해라.\n" +
+      "다음 작성 지침을 반드시 준수해라:\n" +
+      "1. 구조화: 대제목(#), 중제목(##), 소제목(###), 글머리 기호를 활용해 계층적으로 정리할 것.\n" +
+      "2. 비교 및 정리: 대안 비교, 주요 항목, 수치 데이터는 마크다운 표(| 구분 | 내용 |)를 적극 활용할 것.\n" +
+      "3. 수식(Math): 수학 공식, 통계 공식, 계산식(NPV, IRR 등)이 나오는 경우 반드시 표준 LaTeX 수식 표기($인라인$ 또는 $$블록$$)를 사용할 것. (예: $$NPV = \\sum_{t=1}^{n} \\frac{CF_t}{(1+r)^t} - CF_0$$)\n" +
+      "4. 다이어그램(Mermaid): 단계별 흐름, 프로세스, 인과관계, 대안 비교나 의사결정 트리가 있는 경우 반드시 ```mermaid 코드 블록(flowchart TD 또는 flowchart LR 등)으로 시각화할 것.\n" +
+      "5. 핵심 원칙: 시험에 자주 출제되거나 실무에서 주의해야 할 핵심 원칙과 함정을 별도 섹션으로 강조할 것.";
   } else if (format === "custom") {
     instruction = `다음 조건을 반드시 지켜서 작성해라:\n조건: ${custom || '내용 요약'}`;
   }
@@ -447,13 +458,19 @@ async function notesLocal(full, onProgress) {
 
 // 원격 호출 한 번. 프롬프트를 만드는 쪽에서 무엇을 담을지 이미 정해져 있다.
 async function notesRemote(prompt) {
+  const provider = settings.provider || "openrouter";
+  const defaultModel =
+    typeof PROVIDER_DEFAULT_MODEL !== "undefined" && PROVIDER_DEFAULT_MODEL[provider]
+      ? PROVIDER_DEFAULT_MODEL[provider]
+      : "anthropic/claude-sonnet-5";
+  const model = settings.summaryModel || defaultModel;
   const body = buildSummaryBody(
-    settings.provider,
-    settings.summaryModel,
-    "너는 훌륭한 학습 보조 AI다. 사용자의 지시를 철저히 따른다.",
+    provider,
+    model,
+    NOTES_SYSTEM,
     prompt
   );
-  const res = await callRemote(settings.provider, settings.summaryModel, settings.apiKey, body);
+  const res = await callRemote(provider, model, settings.apiKey, body);
   tokens.notes.input += res.input;
   tokens.notes.output += res.output;
   return res.text;
@@ -471,19 +488,46 @@ function buildTimeline() {
     entries.map((entry) => `## ${formatTime(entry.time)} · ${entry.text.startsWith("[음성]") ? "음성" : "화면"}\n\n${entry.text.replace(/^\[음성\]\s*/, "")}\n`).join("\n");
 }
 
+let currentViewMode = "rendered";
+
+function setViewMode(mode) {
+  currentViewMode = mode;
+  const isRendered = mode === "rendered";
+  if (els.viewRenderedBtn && els.viewRenderedBtn.classList) {
+    els.viewRenderedBtn.classList.toggle("active", isRendered);
+  }
+  if (els.viewRawBtn && els.viewRawBtn.classList) {
+    els.viewRawBtn.classList.toggle("active", !isRendered);
+  }
+  if (els.renderFrame) els.renderFrame.hidden = !isRendered;
+  if (els.result) els.result.hidden = isRendered;
+  if (isRendered) updateRenderedView();
+}
+
+function updateRenderedView() {
+  if (els.renderFrame && els.renderFrame.contentWindow) {
+    els.renderFrame.contentWindow.postMessage({
+      type: "RENDER",
+      markdown: els.result.value || "",
+    }, "*");
+  }
+}
+
 function showNote(text, kind = "summary") {
   if (els.result.value) resultViews[resultViews.kind] = els.result.value;
   resultViews[kind] = text;
   resultViews.kind = kind;
   els.result.value = text;
   els.result.readOnly = false;
+  updateRenderedView();
+  setViewMode("rendered");
   els.copyBtn.disabled = false;
   els.downloadBtn.disabled = false;
   els.donePill.textContent = kind === "timeline" ? "원문 타임라인" : "노트 완성";
   els.resultTitle.textContent = title || "나의 강의 노트";
   els.resultHint.textContent = kind === "timeline"
     ? "Free · 인식된 원문을 시간순으로 담았어요. 직접 수정할 수 있습니다. 패널을 닫기 전 복사하거나 저장하세요."
-    : "자동 생성된 초안입니다. 강의와 대조해 검토하고 수정하세요. 패널을 닫기 전 복사하거나 저장하세요.";
+    : "자동 생성된 초안입니다. 서식 보기에서 수식/그래프를 확인하고 마크다운 편집 탭에서 수정하세요.";
   const voice = transcript.filter((entry) => entry.text.startsWith("[음성]")).length;
   const slides = transcript.length - voice;
   els.doneSummary.textContent = (settings && settings.ocrEnabled === false)
@@ -521,29 +565,32 @@ async function generateNotes() {
     }
 
     const full = transcript.map((e) => `[${formatTime(e.time)}] ${e.text}`).join("\n");
-    const localReady = typeof localAvailability !== "undefined" && (await localAvailability({})) === "available";
+    const plan = settings.plan || "premium";
 
     let text = "";
-    if (localReady) {
-      setStatus("기기 안에서 Gemini Nano로 요약 노트를 작성하는 중...");
-      log("기기 내 Gemini Nano 요약 시작");
-      text = await notesLocal(full, setStatus);
-    } else if (settings.apiKey) {
+    if (plan === "premium") {
       if (!settings.apiKey) throw new Error("API 키가 없습니다.");
       const truncated = full.length > MAX_SCRIPT_CHARS;
       const prompt = buildNotesPrompt(truncated ? full.slice(0, MAX_SCRIPT_CHARS) : full, truncated);
-      setStatus("원격 API로 요약 노트를 작성하는 중...");
+      setStatus("Claude Sonnet으로 고품질 학습 노트(수식·그래프 포함) 작성 중...");
       text = await notesRemote(prompt);
       renderTokens();
     } else {
-      showNote(buildTimeline(), "timeline");
-      const notice = "기기 내 요약 모델(Gemini Nano)을 사용할 수 없고 등록된 API 키가 없어 원문 타임라인으로 출력되었습니다.";
-      setStatus(notice);
-      if (els.doneAlert) {
-        els.doneAlert.textContent = notice + " (Chrome 128+ 내장 AI를 켜거나 필요 시 API 키를 연결하세요)";
-        els.doneAlert.hidden = false;
+      const localReady = typeof localAvailability !== "undefined" && (await localAvailability({})) === "available";
+      if (localReady) {
+        setStatus("기기 안에서 Gemini Nano로 요약 노트를 작성하는 중...");
+        log("기기 내 Gemini Nano 요약 시작");
+        text = await notesLocal(full, setStatus);
+      } else {
+        showNote(buildTimeline(), "timeline");
+        const notice = "무료 플랜(온디바이스) 모드입니다. 기기 내 요약 모델(Gemini Nano)이 없어 원문 타임라인으로 출력되었습니다. (하단 플랜 선택에서 Premium으로 전환하면 Claude Sonnet의 수식/그래프 요약을 이용할 수 있습니다.)";
+        setStatus(notice);
+        if (els.doneAlert) {
+          els.doneAlert.textContent = notice;
+          els.doneAlert.hidden = false;
+        }
+        return;
       }
-      return;
     }
 
     if (!text.trim()) throw new Error("AI가 빈 결과를 반환했습니다. 원문 타임라인을 확인하거나 다시 만들어 주세요.");
@@ -955,6 +1002,35 @@ $("optionsLink").addEventListener("click", (e) => {
 
 window.addEventListener("focus", () => {
   if (!capturing && !busy && !preparing && !draining) detectEngine().catch((error) => setStatus(`설정을 읽지 못했어요: ${error.message || error}`));
+});
+
+if (els.viewRenderedBtn) els.viewRenderedBtn.addEventListener("click", () => setViewMode("rendered"));
+if (els.viewRawBtn) els.viewRawBtn.addEventListener("click", () => setViewMode("raw"));
+
+if (els.result) {
+  els.result.addEventListener("input", () => {
+    updateRenderedView();
+  });
+}
+
+if (els.planSelect) {
+  els.planSelect.addEventListener("change", async () => {
+    settings.plan = els.planSelect.value;
+    await saveSettings({ plan: settings.plan });
+    renderPlan();
+    log(`플랜 전환: ${settings.plan}`);
+  });
+}
+
+window.addEventListener("message", (e) => {
+  if (!e.data) return;
+  if (e.data.type === "RENDER_HEIGHT" && typeof e.data.height === "number") {
+    if (els.renderFrame) {
+      els.renderFrame.style.height = Math.max(e.data.height + 24, 250) + "px";
+    }
+  } else if (e.data.type === "RENDERER_READY") {
+    updateRenderedView();
+  }
 });
 
 loadTabs();
