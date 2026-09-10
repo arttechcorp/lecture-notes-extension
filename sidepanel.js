@@ -25,7 +25,8 @@ const els = {
   elapsed: $("elapsed"), cntSlides: $("cntSlides"), cntVoice: $("cntVoice"), cntQueue: $("cntQueue"),
   feedLines: $("feedLines"), panelAlert: $("panelAlert"),
   // 완료
-  doneSummary: $("doneSummary"), againBtn: $("againBtn"),
+  doneSummary: $("doneSummary"), donePill: $("donePill"), againBtn: $("againBtn"), summarySettingsBtn: $("summarySettingsBtn"),
+  resultTitle: $("resultTitle"), resultHint: $("resultHint"), timelineBtn: $("timelineBtn"), resumeBtn: $("resumeBtn"),
   // 하단
   planName: $("planName"), planUse: $("planUse"),
 };
@@ -44,6 +45,9 @@ function setStage(name) {
   els.stageReady.hidden = name !== "ready";
   els.stageLive.hidden = name !== "live";
   els.stageDone.hidden = name !== "done";
+  $("stepReady").className = name === "ready" || name === "onboard" ? "active" : "";
+  $("stepLive").className = name === "live" ? "active" : "";
+  $("stepDone").className = name === "done" ? "active" : "";
   if (name !== "ready") els.drawer.hidden = true;
 }
 
@@ -59,6 +63,8 @@ let title = "";
 let port = null;
 let capturing = false;
 let busy = false; // 노트 생성 중 중복 실행 방지
+let preparing = false; // 모델 준비 중 시작 버튼 중복 실행 방지
+let finishTimer = null;
 let queue = []; // OCR 대기 중인 프레임 배치
 let draining = false;
 let localSession = null;
@@ -70,6 +76,7 @@ let lastVideoTime = 0; // content.js가 알려주는 영상 재생 위치(초)
 // 에러가 뜬 뒤에는 상태줄을 잠근다. content.js가 5초마다 보내는 진행 메시지가
 // 같은 자리에 덮어써서, 에러가 5초만 보이고 흔적 없이 사라지던 문제를 막는다.
 let statusSticky = false;
+let resultViews = { kind: "timeline", timeline: "", summary: "" };
 
 const tokens = { ocr: { input: 0, output: 0 }, notes: { input: 0, output: 0 } };
 
@@ -152,6 +159,7 @@ async function detectEngine() {
   settings = await loadSettings();
   els.langSelect.value = settings.whisperLang;
   els.outputFormat.value = settings.outputFormat || "summary";
+  els.customPrompt.style.display = els.outputFormat.value === "custom" ? "block" : "none";
 
   let detail = "";
   if (settings.allowRemoteOcr && settings.apiKey) {
@@ -160,8 +168,8 @@ async function detectEngine() {
     detail = "화면 글자를 원격 API로 처리합니다. 캡처 이미지가 외부로 전송됩니다.";
   } else {
     engine = "tesseract";
-    setRow(els.markEngine, "ok", els.banner, "준비됨 (Tesseract)");
-    detail = "기기 안에서 100% 로컬로 화면 글자를 읽습니다. (사양 무관, 외부 유출 없음)";
+    setRow(els.markEngine, "ok", els.banner, "로컬 · 무료");
+    detail = "슬라이드 글자가 선명하고 크게 보일수록 더 정확하게 읽을 수 있어요.";
   }
 
   els.engineDetail.textContent = detail;
@@ -183,7 +191,7 @@ async function detectEngine() {
 // 설정은 한 줄로 접어둔다. 대부분 기본값으로 쓰고, 바꿀 때만 편다.
 const MODE_LABEL = { region: "슬라이드 영역만", slide: "전체 화면", caption: "하단 자막 띠" };
 const LANG_LABEL = { auto: "언어 자동", korean: "한국어", english: "영어" };
-const FORMAT_LABEL = { summary: "핵심 요약본", custom: "직접 입력" };
+const FORMAT_LABEL = { timeline: "원문 타임라인 · 무료", summary: "핵심 요약본", custom: "직접 입력" };
 
 function renderSettingsSummary() {
   const parts = [
@@ -200,8 +208,8 @@ function renderPlan() {
     els.planName.textContent = "내 API 키 · " + (PROVIDER_LABEL[settings.provider] || settings.provider);
     els.planUse.textContent = "원격 요약";
   } else {
-    els.planName.textContent = "무료 플랜";
-    els.planUse.textContent = "API 키 등록 필요";
+    els.planName.textContent = "Free · 무료";
+    els.planUse.textContent = "키 없이 원문 타임라인";
   }
 }
 
@@ -209,6 +217,8 @@ function renderTabRow() {
   const opt = els.tabSelect.selectedOptions[0];
   const ok = !!opt;
   setRow(els.markTab, ok ? "ok" : "warn", els.tabState, ok ? opt.textContent.split(" — ")[1] || opt.textContent : "없음");
+  els.tabState.title = opt ? opt.textContent : "";
+  if (!capturing && !busy && !preparing) els.startBtn.disabled = !ok;
 }
 
 // --- 탭 선택 (사이트 하드코딩 없음) ------------------------------------------------
@@ -222,8 +232,9 @@ const originOf = (url) => {
 
 async function loadTabs() {
   const { lastOrigin } = await chrome.storage.local.get("lastOrigin");
+  const selectedId = els.tabSelect.value;
   const tabs = (await chrome.tabs.query({})).filter((t) => /^https?:/.test(t.url || ""));
-  tabs.sort((a, b) => (originOf(b.url) === lastOrigin) - (originOf(a.url) === lastOrigin));
+  tabs.sort((a, b) => Number(b.active) - Number(a.active) || (originOf(b.url) === lastOrigin) - (originOf(a.url) === lastOrigin));
   els.tabSelect.innerHTML = "";
   for (const t of tabs) {
     const opt = document.createElement("option");
@@ -231,6 +242,7 @@ async function loadTabs() {
     opt.textContent = `${new URL(t.url).hostname} — ${(t.title || "").slice(0, 60)}`;
     els.tabSelect.appendChild(opt);
   }
+  if (tabs.some((tab) => String(tab.id) === selectedId)) els.tabSelect.value = selectedId;
   if (!tabs.length) setStatus("열린 http(s) 탭이 없습니다. 영상을 먼저 여세요.");
   renderTabRow();
 }
@@ -250,9 +262,12 @@ async function connectToTab() {
   await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ["content.js"] });
 
   if (port) port.disconnect();
-  port = chrome.tabs.connect(tabId, { name: "capture" });
-  port.onMessage.addListener(onPortMessage);
-  port.onDisconnect.addListener(() => (port = null));
+  const connectedPort = chrome.tabs.connect(tabId, { name: "capture" });
+  port = connectedPort;
+  connectedPort.onMessage.addListener(onPortMessage);
+  connectedPort.onDisconnect.addListener(() => {
+    if (port === connectedPort) port = null;
+  });
   return port;
 }
 
@@ -397,56 +412,113 @@ async function notesRemote(prompt) {
   return res.text;
 }
 
+// 무료 노트는 원문을 시간순으로만 정리한다. 원문을 축약하거나 API로 보내지 않는다.
+function buildTimeline() {
+  const entries = [...transcript].sort((a, b) => a.time - b.time);
+  return `# ${title || "강의 노트"}\n\n` +
+    `원문 타임라인 · 화면 및 음성 인식 결과\n` +
+    `인식 오류가 포함될 수 있습니다. 강의와 대조하며 검토해 주세요.\n\n` +
+    entries.map((entry) => `## ${formatTime(entry.time)} · ${entry.text.startsWith("[음성]") ? "음성" : "화면"}\n\n${entry.text.replace(/^\[음성\]\s*/, "")}\n`).join("\n");
+}
+
+function showNote(text, kind = "summary") {
+  if (els.result.value) resultViews[resultViews.kind] = els.result.value;
+  resultViews[kind] = text;
+  resultViews.kind = kind;
+  els.result.value = text;
+  els.result.readOnly = false;
+  els.copyBtn.disabled = false;
+  els.downloadBtn.disabled = false;
+  els.donePill.textContent = kind === "timeline" ? "원문 타임라인" : "노트 완성";
+  els.resultTitle.textContent = title || "나의 강의 노트";
+  els.resultHint.textContent = kind === "timeline"
+    ? "Free · 인식된 원문을 시간순으로 담았어요. 직접 수정할 수 있습니다. 패널을 닫기 전 복사하거나 저장하세요."
+    : "자동 생성된 초안입니다. 강의와 대조해 검토하고 수정하세요. 패널을 닫기 전 복사하거나 저장하세요.";
+  const voice = transcript.filter((entry) => entry.text.startsWith("[음성]")).length;
+  els.doneSummary.textContent = `화면 ${transcript.length - voice}개 · 음성 ${voice}줄`;
+  els.resumeBtn.hidden = false;
+  els.timelineBtn.hidden = kind === "timeline" && !resultViews.summary;
+  els.timelineBtn.textContent = kind === "timeline" ? "요약 노트로 돌아가기" : "원문 타임라인 보기";
+  setStage("done");
+}
+
 async function generateNotes() {
+  if (busy || capturing || draining || queue.length) return;
   if (!transcript.length) return fail("인식된 텍스트가 없습니다. 먼저 캡처를 실행하세요.");
   busy = true;
+  statusSticky = false;
+  els.panelAlert.hidden = true;
+  setStage("done");
+  els.donePill.textContent = "노트 생성 중";
+  els.againBtn.disabled = true;
   els.notesBtn.disabled = true;
+  els.timelineBtn.disabled = true;
+  els.formatToggle.disabled = true;
+  els.outputFormat.disabled = true;
+  els.customPrompt.disabled = true;
   setStatus(`텍스트 ${transcript.length}줄로 결과물 생성 중...`);
   try {
+    settings = await loadSettings();
+    renderPlan();
+    if (!settings.apiKey || els.outputFormat.value === "timeline") {
+      showNote(buildTimeline(), "timeline");
+      setStatus(els.outputFormat.value === "timeline"
+        ? "원문 타임라인이 준비됐어요. API를 사용하지 않았습니다."
+        : "API 키 없이 원문 타임라인을 만들었어요. AI 요약은 아래에서 선택해 연결할 수 있습니다.");
+      return;
+    }
+
     const full = transcript.map((e) => `[${formatTime(e.time)}] ${e.text}`).join("\n");
     const truncated = full.length > MAX_SCRIPT_CHARS;
     const prompt = buildNotesPrompt(truncated ? full.slice(0, MAX_SCRIPT_CHARS) : full, truncated);
 
-    settings = await loadSettings();
-    if (!settings.apiKey) {
-      return fail("노트를 생성하려면 설정에서 API 키(Claude 또는 Gemini)를 등록해야 합니다. 하단 '설정 열기'에서 키를 입력하세요.");
-    }
-
     setStatus("노트를 만드는 중...");
     const text = await notesRemote(prompt);
 
-    els.result.value = text;
-    els.result.readOnly = false;
-    els.copyBtn.disabled = false;
-    els.downloadBtn.disabled = false;
-    const voice = transcript.filter((e) => e.text.startsWith("[음성]")).length;
-    els.doneSummary.textContent = `슬라이드 ${transcript.length - voice}장 · 음성 ${voice}줄`;
-    setStage("done");
+    if (!text.trim()) throw new Error("AI가 빈 결과를 반환했습니다. 원문 타임라인을 확인하거나 다시 만들어 주세요.");
+    showNote(text);
     setStatus("완료. 자동 생성된 결과물입니다. 직접 내용을 검토하세요. 패널을 닫으면 사라집니다.");
     renderTokens();
   } catch (e) {
+    if (!els.result.value) showNote(buildTimeline(), "timeline");
     return fail(String(e.message || e));
   } finally {
     busy = false;
+    els.againBtn.disabled = false;
     els.notesBtn.disabled = !transcript.length;
+    els.timelineBtn.disabled = !transcript.length;
+    els.formatToggle.disabled = false;
+    els.outputFormat.disabled = false;
+    els.customPrompt.disabled = false;
     els.startBtn.disabled = false;
   }
 }
 
 function finishCapture() {
+  clearInterval(finishTimer);
+  stopElapsed();
   els.stopBtn.disabled = true;
-  els.startBtn.disabled = false;
+  els.startBtn.disabled = true;
   if (!transcript.length && !queue.length && !draining) {
     log("캡처 종료 — 인식된 텍스트 0줄");
     stopElapsed();
     els.panelAlert.textContent = "화면에서 텍스트를 얻지 못했습니다. 슬라이드가 없는 영상이거나 캡처 영역이 빗나갔을 수 있습니다.";
     els.panelAlert.hidden = false;
-    return setStatus("");
+    setStage("ready");
+    renderTabRow();
+    return setStatus(els.panelAlert.textContent);
   }
   // 남은 OCR 배치를 다 처리한 뒤에 노트를 만든다.
-  const wait = setInterval(() => {
+  setStatus("캡처를 마쳤어요. 남은 인식 내용을 정리하고 있습니다...");
+  finishTimer = setInterval(() => {
     if (draining || queue.length) return;
-    clearInterval(wait);
+    clearInterval(finishTimer);
+    finishTimer = null;
+    if (!transcript.length) {
+      setStage("ready");
+      renderTabRow();
+      return setStatus("텍스트를 인식하지 못했어요. 캡처 영역과 영상 재생 상태를 확인한 뒤 다시 시작하세요.");
+    }
     generateNotes();
   }, 500);
 }
@@ -454,6 +526,8 @@ function finishCapture() {
 function fail(message) {
   busy = false;
   capturing = false;
+  clearInterval(finishTimer);
+  finishTimer = null;
   // 상태줄은 진행 메시지에 덮인다. 로그에 남겨야 사후에 원인을 볼 수 있다.
   log(`오류: ${message}`);
   statusSticky = true;
@@ -472,6 +546,10 @@ function fail(message) {
   els.startBtn.disabled = false;
   els.stopBtn.disabled = true;
   els.notesBtn.disabled = !transcript.length;
+  if (stage === "live" || stage === "done") {
+    setStage(transcript.length ? "done" : "ready");
+    els.donePill.textContent = els.result.value ? "노트 보존됨 · 오류 확인" : "노트 생성 대기";
+  }
 }
 
 // --- 영역 지정 --------------------------------------------------------------------
@@ -552,25 +630,30 @@ audioCapturer.onTranscript = (item) => {
 
 // --- 캡처 시작/중지 ----------------------------------------------------------------
 els.startBtn.addEventListener("click", async () => {
+  if (preparing || capturing || busy || draining || queue.length || finishTimer) return;
   if (engine === "none") {
     return fail("사용 가능한 OCR 엔진이 없습니다. 설정에서 온디바이스 모델 상태를 확인하세요.");
   }
   if (els.modeSelect.value === "region" && !cropRect) {
-    return fail("영역을 먼저 지정하거나 캡처 영역을 '전체 화면'으로 바꾸세요.");
+    openDrawer();
+    els.previewBtn.focus();
+    return setStatus("‘현재 화면 불러오기’에서 영역을 지정해 주세요. 전체 화면을 캡처하려면 위 선택을 변경하세요.");
   }
-  
-  // 제스처가 만료되기 전에 먼저 한다. 아래 Whisper 다운로드는 수 분이 걸릴 수 있어
-  // 그 뒤로 미루면 제스처가 죽는다.
+  preparing = true;
+  els.startBtn.disabled = true;
+  els.startBtn.textContent = "캡처 준비 중...";
+  els.settingsToggle.disabled = true;
+  els.resumeBtn.disabled = true;
   statusSticky = false;
   els.panelAlert.hidden = true;
   try {
+    // 사이트 권한은 사용자 클릭 직후 확보한다. 모델 다운로드 뒤에는 클릭 권한이 만료된다.
+    const capturePort = await connectToTab();
+    settings = await loadSettings();
+    engine = settings.allowRemoteOcr && settings.apiKey ? "remote" : "tesseract";
     await prepareTesseract();
-  } catch (e) {
-    return fail(`Tesseract OCR을 준비하지 못했습니다: ${e.message || e}`);
-  }
-
-  settings = await loadSettings();
-  if (settings.whisperEnabled) {
+    let audioEnabled = settings.whisperEnabled;
+    if (audioEnabled) {
     const modelName = settings.whisperModel === "base" ? "Base" : "Tiny";
     setStatus(`음성 인식(Whisper ${modelName}) 모델 준비 중...`);
     try {
@@ -582,18 +665,28 @@ els.startBtn.addEventListener("click", async () => {
         }
       }, audioCapturer.model);
     } catch(e) {
+      audioEnabled = false;
       const errText = `음성 인식(Whisper) 초기화 실패: ${e.message || e}`;
       log(errText);
       els.panelAlert.textContent = `${errText} — 음성 없이 화면 글자(OCR)만 진행됩니다.`;
       els.panelAlert.hidden = false;
     }
-  }
+    }
 
+    if (port !== capturePort) throw new Error("영상 탭 연결이 끊겼어요. 탭을 확인한 뒤 다시 시작해 주세요.");
+    capturePort.postMessage({
+      type: "START", mode: els.modeSelect.value, rect: cropRect,
+      audio: audioEnabled, ocr: engine,
+    });
+
+  // 새 캡처가 실제로 시작된 시점에만 이전 세션을 지운다.
   transcript = [];
   queue = [];
   tokens.ocr = { input: 0, output: 0 };
   tokens.notes = { input: 0, output: 0 };
   els.result.value = "";
+  resultViews = { kind: "timeline", timeline: "", summary: "" };
+  els.resumeBtn.hidden = true;
   els.result.readOnly = true;
   els.rawScript.textContent = "";
   els.debugLog.textContent = "";
@@ -603,17 +696,7 @@ els.startBtn.addEventListener("click", async () => {
   els.startBtn.disabled = true;
   renderTokens();
   setStatus("스크립트 주입 중...");
-  try {
-    // 오디오도 같은 포트로 온다 — content script가 <video>에서 직접 딴다.
-    (await connectToTab()).postMessage({
-      type: "START",
-      mode: els.modeSelect.value,
-      rect: cropRect,
-      audio: settings.whisperEnabled,
-      ocr: engine, // 엔진마다 원하는 프레임 크기가 다르다
-
-    });
-    if (!settings.whisperEnabled) {
+    if (!audioEnabled) {
       log("음성 인식이 꺼져 있습니다 (설정에서 켤 수 있습니다). 화면 OCR만 동작합니다.");
     }
     capturing = true;
@@ -623,6 +706,12 @@ els.startBtn.addEventListener("click", async () => {
     renderProgress();
   } catch (e) {
     return fail(String(e.message || e));
+  } finally {
+    preparing = false;
+    els.startBtn.textContent = "캡처 시작";
+    els.settingsToggle.disabled = false;
+    els.resumeBtn.disabled = false;
+    if (!capturing) renderTabRow();
   }
   // content.js는 응답하지 않는다(영상 없는 프레임까지 응답하면 어느 쪽이 이길지 모름).
   // 진행 메시지가 오는지로 성공을 판단한다.
@@ -634,15 +723,26 @@ els.startBtn.addEventListener("click", async () => {
 });
 
 els.stopBtn.addEventListener("click", () => {
-  capturing = false;
   stopElapsed();
   audioCapturer.stopCapture();
-  if (port) port.disconnect();
-  port = null;
-  finishCapture();
+  els.stopBtn.disabled = true;
+  if (port) {
+    // 마지막 프레임 배치와 done을 받은 뒤 요약한다. 즉시 disconnect하면
+    // content script의 아직 전송하지 않은 화면이 통째로 버려진다.
+    port.postMessage({ type: "STOP" });
+  } else {
+    capturing = false;
+    finishCapture();
+  }
 });
 
 els.notesBtn.addEventListener("click", generateNotes);
+els.timelineBtn.addEventListener("click", () => {
+  if (busy || capturing || draining || !transcript.length) return;
+  const kind = resultViews.kind === "timeline" && resultViews.summary ? "summary" : "timeline";
+  showNote(resultViews[kind] || buildTimeline(), kind);
+  setStatus(kind === "timeline" ? "인식된 원문입니다. AI를 다시 호출하지 않았습니다." : "이전에 만든 요약 노트로 돌아왔어요.");
+});
 
 // 캡처·생성 도중 패널을 닫으면 전부 사라진다는 걸 미리 알린다.
 window.addEventListener("beforeunload", (e) => {
@@ -654,9 +754,15 @@ window.addEventListener("beforeunload", (e) => {
 
 // --- 결과 내보내기 (사용자가 직접 저장하는 것만 허용) --------------------------------
 els.copyBtn.addEventListener("click", async () => {
-  await navigator.clipboard.writeText(els.result.value);
-  els.copyBtn.textContent = "복사됨";
-  setTimeout(() => (els.copyBtn.textContent = "복사"), 1500);
+  try {
+    await navigator.clipboard.writeText(els.result.value);
+    els.copyBtn.textContent = "복사됨 ✓";
+    setTimeout(() => (els.copyBtn.textContent = "복사"), 1500);
+  } catch {
+    setStatus("자동 복사를 완료하지 못했어요. 노트 내용을 선택해 직접 복사해 주세요.");
+    els.result.focus();
+    els.result.select();
+  }
 });
 
 els.downloadBtn.addEventListener("click", () => {
@@ -677,13 +783,19 @@ els.settingsToggle.addEventListener("click", openDrawer);
 els.formatToggle.addEventListener("click", openDrawer);
 els.settingsClose.addEventListener("click", () => { els.drawer.hidden = true; renderSettingsSummary(); });
 els.settingsLink.addEventListener("click", () => chrome.runtime.openOptionsPage());
+els.summarySettingsBtn.addEventListener("click", () => chrome.runtime.openOptionsPage());
 
 // 완료 화면에서 다시 준비 화면으로.
 els.againBtn.addEventListener("click", () => {
-  els.result.value = "";
-  setStatus("");
+  if (busy || preparing) return;
+  setStatus("새 캡처를 시작하면 현재 노트가 교체됩니다. 필요한 내용은 먼저 복사하거나 저장하세요.");
   setStage("ready");
   loadTabs();
+});
+els.resumeBtn.addEventListener("click", () => {
+  if (preparing || capturing) return;
+  setStage("done");
+  setStatus("");
 });
 
 // --- 온보딩 (패널 안에서 끝낸다) ------------------------------------------------------
@@ -692,7 +804,7 @@ async function runOnboarding() {
   setStage("onboard");
   els.obWhisper.checked = settings.whisperEnabled;
 
-  els.obEngineWhy.textContent = "Tesseract.js (온디바이스, 무료) — 사양 제약 없이 기기 안에서 글자를 읽습니다.";
+  els.obEngineWhy.textContent = "Tesseract가 기기 안에서 화면 글자를 읽습니다. 정확도는 화면 선명도와 글자 크기에 따라 달라집니다.";
   els.obEngineBtn.hidden = true;
 
   els.obConsent.addEventListener("change", () => (els.obDone.disabled = !els.obConsent.checked));
@@ -709,6 +821,10 @@ async function runOnboarding() {
 $("optionsLink").addEventListener("click", (e) => {
   e.preventDefault();
   chrome.runtime.openOptionsPage();
+});
+
+window.addEventListener("focus", () => {
+  if (!capturing && !busy && !preparing && !draining) detectEngine().catch((error) => setStatus(`설정을 읽지 못했어요: ${error.message || error}`));
 });
 
 loadTabs();

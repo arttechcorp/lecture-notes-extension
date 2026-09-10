@@ -320,7 +320,12 @@
         ocrEngine = msg.ocr || "local";
         startCapture(msg.mode, msg.rect, msg.audio);
       }
-      if (msg.type === "STOP") { capturing = false; stopAudio(); }
+      if (msg.type === "STOP" && capturing) {
+        capturing = false;
+        flushBatch();
+        stopAudio();
+        send({ type: "done", title: document.title });
+      }
       if (msg.type === "PREVIEW") sendPreview();
     });
     // 사이드패널이 닫히면 포트가 끊긴다 → 캡처를 즉시 멈춘다.

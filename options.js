@@ -18,8 +18,8 @@ function updateLink() {
 
 providerEl.addEventListener("change", updateLink);
 
-async function loadSettings() {
-  let { apiKey, provider, whisperEnabled, whisperModel } = await chrome.storage.local.get(["apiKey", "provider", "whisperEnabled", "whisperModel"]);
+async function populateSettings() {
+  const { apiKey, provider, whisperEnabled, whisperModel, syncKey } = await loadSettings();
   
   whisperModelEl.value = whisperModel || "tiny";
   
@@ -30,19 +30,11 @@ async function loadSettings() {
   whisperCb.checked = !!whisperEnabled;
   updateLink();
 
-  if (apiKey) {
-    apiKeyEl.value = apiKey;
-    syncCb.checked = false;
-    return;
-  }
-  const syncData = await chrome.storage.sync.get("apiKey");
-  if (syncData.apiKey) {
-    apiKeyEl.value = syncData.apiKey;
-    syncCb.checked = true;
-  }
+  apiKeyEl.value = apiKey || "";
+  syncCb.checked = !!syncKey;
 }
 
-loadSettings();
+populateSettings();
 
 revealCb.addEventListener("change", () => {
   apiKeyEl.type = revealCb.checked ? "text" : "password";
@@ -68,13 +60,7 @@ document.getElementById("saveBtn").addEventListener("click", async () => {
   
   await chrome.storage.local.set({ provider, whisperEnabled, whisperModel });
   
-  if (syncCb.checked) {
-    await chrome.storage.sync.set({ apiKey: key });
-    await chrome.storage.local.remove("apiKey");
-  } else {
-    await chrome.storage.local.set({ apiKey: key });
-    await chrome.storage.sync.remove("apiKey");
-  }
+  await saveApiKey(key, syncCb.checked);
   savedEl.hidden = false;
   setTimeout(() => (savedEl.hidden = true), 1500);
 });

@@ -21,27 +21,31 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const KEY = process.env.OPENROUTER_API_KEY;
+const KEY = process.env.OPENROUTER_API_KEY || process.argv.find((a) => a.startsWith("--key="))?.slice(6);
 const API = "https://openrouter.ai/api/v1";
 const KRW = Number(process.env.USD_KRW || 1450);
 
 // 후보. 카탈로그에서 이 조각들을 모두 포함하는 첫 모델을 고른다.
-// 바꾸고 싶으면 여기만 손대면 된다.
+// 우선순위:
+//   - Qwen-VL OCR: OCR 단계 최우선 특화 모델 (가장 저렴, 고성능)
+//   - Claude Haiku 4.5: 중간 등급 노트 후보 (미국 서버, 빠른 속도)
+//   - DeepSeek V4 Flash: 저가 노트 후보 (피크 요금 및 레이턴시 감안)
+//   - Claude Sonnet 5: 최상위 티어 유지
 const CANDIDATES = {
   notes: [
-    ["gemini", "flash-lite"],
-    ["claude", "haiku-4.5"],
-    ["claude", "sonnet-5"],
-    ["deepseek", "v4-flash"],
-    ["qwen3.7-flash"],
-    ["gemma-3-27b"],
+    ["claude", "sonnet-5"],        // 최상위 플래그십
+    ["claude", "haiku-4.5"],       // 중간 등급 노트 (미국 서버)
+    ["deepseek", "v4-flash"],      // 초저가 고속 노트 (피크 요금 고려)
+    ["qwen3.7-flash"],             // 초저가 비교군
+    ["gemini-2.5-flash-lite"],     // 구글 저가 모델
+    ["gemma-3-27b"],               // 오픈 모델 비교군
   ],
   ocr: [
-    ["gemini", "flash-lite"],
-    ["claude", "haiku-4.5"],
-    ["claude", "sonnet-5"],
-    ["qwen3-vl-32b"],
-    ["deepseek", "vision"],
+    ["qwen3-vl-32b"],              // Qwen-VL OCR (특화 모델, $0.10/1M)
+    ["gemini-2.5-flash-lite"],     // Gemini Vision ($0.10/1M)
+    ["deepseek", "vision"],        // DeepSeek Vision ($0.22/1M)
+    ["claude", "haiku-4.5"],       // Haiku Vision ($1.00/1M)
+    ["claude", "sonnet-5"],        // Sonnet Vision ($2.00/1M)
   ],
 };
 
@@ -117,8 +121,9 @@ const costKrw = (model, usage) =>
     (usage.completion_tokens || 0) * Number(model.pricing.completion)) * KRW;
 
 async function main() {
-  const [mode, arg] = process.argv.slice(2);
-  if (!mode) die("사용법: node tools/compare-models.mjs list|notes|ocr [파일]");
+  const rawArgs = process.argv.slice(2).filter((a) => !a.startsWith("--key="));
+  const [mode, arg] = rawArgs;
+  if (!mode) die("사용법: node tools/compare-models.mjs list|notes|ocr [파일] [--key=sk-or-v1-...]");
 
   const models = await catalog();
 
@@ -184,18 +189,18 @@ async function main() {
     "",
     `입력: \`${arg}\` · 환율 ${KRW}원/달러 · ${new Date().toLocaleString("ko-KR")}`,
     "",
-    "| 모델 | 입력 tok | 출력 tok | 시간 | 원가 | 강의 30편 |",
-    "|---|---:|---:|---:|---:|---:|",
+    "| 모델 | 입력 tok | 출력 tok | 소요 시간 | 1편 원가 | 30편(월) | 60편(월) |",
+    "|---|---:|---:|---:|---:|---:|---:|",
   ];
   for (const r of results) {
-    if (r.error) { lines.push(`| ${r.model.id} | — | — | — | 실패 | ${r.error} |`); continue; }
+    if (r.error) { lines.push(`| ${r.model.id} | — | — | — | 실패 | ${r.error} | — |`); continue; }
     const c = costKrw(r.model, r.usage);
     lines.push(
       `| ${r.model.id} | ${r.usage.prompt_tokens ?? "?"} | ${r.usage.completion_tokens ?? "?"} | ` +
-        `${(r.ms / 1000).toFixed(1)}초 | ${c.toFixed(1)}원 | ${Math.round(c * 30).toLocaleString()}원 |`
+        `${(r.ms / 1000).toFixed(1)}초 | ${c.toFixed(1)}원 | ${Math.round(c * 30).toLocaleString()}원 | ${Math.round(c * 60).toLocaleString()}원 |`
     );
   }
-  lines.push("", "> 강의 1편 = 이 입력 1회 기준이다. 실제로는 OCR이 프레임 수만큼 반복되므로 그쪽은 따로 곱해야 한다.", "");
+  lines.push("", "> 1편 원가 = 이 입력 1회 기준. 실제로는 OCR이 슬라이드 수(약 20~40장)만큼 반복되므로 OCR은 별도 곱산이 필요합니다.", "");
   for (const r of results) {
     lines.push(`## ${r.model.id}`, "");
     lines.push(r.error ? `실패: ${r.error}` : r.text.trim(), "");
