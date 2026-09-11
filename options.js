@@ -8,6 +8,7 @@ const whisperCb = document.getElementById("whisperCb");
 const whisperModelEl = document.getElementById("whisperModel");
 const ocrEnabledCb = document.getElementById("ocrEnabledCb");
 const ocrEngineSelect = document.getElementById("ocrEngineSelect");
+const themeSelect = document.getElementById("themeSelect");
 
 const PROVIDER_URLS = {
   gemini: "https://aistudio.google.com/apikey",
@@ -25,7 +26,11 @@ if (providerEl) {
 }
 
 async function populateSettings() {
-  const { apiKey, provider, whisperEnabled, whisperModel, syncKey, ocrEnabled, ocrEngine } = await loadSettings();
+  const { apiKey, provider, whisperEnabled, whisperModel, syncKey, ocrEnabled, ocrEngine, theme } = await loadSettings();
+
+  if (themeSelect) {
+    themeSelect.value = theme || "system";
+  }
   
   if (whisperModelEl) {
     whisperModelEl.value = whisperModel || "tiny";
@@ -85,6 +90,17 @@ if (whisperModelEl) {
 if (ocrEnabledCb) {
   ocrEnabledCb.addEventListener("change", async () => {
     await chrome.storage.local.set({ ocrEnabled: ocrEnabledCb.checked });
+    if (savedEl) {
+      savedEl.hidden = false;
+      setTimeout(() => (savedEl.hidden = true), 1500);
+    }
+  });
+}
+
+if (themeSelect) {
+  // 적용은 lib/theme.js가 storage.onChanged로 받아서 한다. 여기서는 값만 쓴다.
+  themeSelect.addEventListener("change", async () => {
+    await chrome.storage.local.set({ theme: themeSelect.value });
     if (savedEl) {
       savedEl.hidden = false;
       setTimeout(() => (savedEl.hidden = true), 1500);

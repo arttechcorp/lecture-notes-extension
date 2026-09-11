@@ -4,6 +4,10 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>설정 — Summrizei</title>
+<script src="lib/theme.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hedvig+Letters+Serif:opsz@12..24&family=Geist+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
     --ground: #F7F7F4;
@@ -16,47 +20,49 @@
     --sunk: #EFEFED;
     --sunk-hover: #E7E7E4;
     --accent: #FF5600;
-    --accent-soft: rgba(255, 86, 0, 0.1);
-    --accent-border: rgba(255, 86, 0, 0.3);
+    --accent-on-dark: #FF661A;
+    --accent-soft: rgba(255, 86, 0, 0.15);
+    --accent-border: rgba(255, 86, 0, 0.35);
 
     --r-lg: 14px;
     --r-md: 10px;
     --r-sm: 6px;
     --r-full: 9999px;
 
-    --lift-card: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 14px rgba(0, 0, 0, 0.02);
-    --lift-btn: 0 2px 4px rgba(0, 0, 0, 0.08), 0 8px 20px rgba(0, 0, 0, 0.06);
+    --lift-card: none;                                   /* resting surfaces: 1px rule only */
+    --lift-btn: none;
+    --lift-overlay: 0 20px 40px -15px rgba(0, 0, 0, 0.05);   /* overlays only (shadow-glass) */
     --inset: inset 0 1px 2px rgba(0, 0, 0, 0.04);
 
     --btn-face: #18181B;
     --btn-text: #FAFAFA;
 
-    --sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Pretendard", "astaSans", sans-serif;
+    --sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Pretendard", "IBM Plex Sans KR", sans-serif;
+    --serif: "Hedvig Letters Serif", Georgia, serif;
     --mono: "Geist Mono", Menlo, Monaco, Consolas, monospace;
+
+    color-scheme: light;
   }
 
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --ground: #09090B;
-      --paper: #121214;
-      --ink: #F4F4F5;
-      --ash: #A1A1AA;
-      --faint: #71717A;
-      --rule: rgba(255, 255, 255, 0.1);
-      --rule-strong: rgba(255, 255, 255, 0.2);
-      --sunk: #1F1F23;
-      --sunk-hover: #28282E;
-      --accent: #FF5600;
-      --accent-soft: rgba(255, 86, 0, 0.16);
-      --accent-border: rgba(255, 86, 0, 0.35);
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground: #09090B;
+    --paper: #121214;
+    --ink: #F4F4F5;
+    --ash: #A1A1AA;
+    --faint: #71717A;
+    --rule: rgba(255, 255, 255, 0.1);
+    --rule-strong: rgba(255, 255, 255, 0.2);
+    --sunk: #1F1F23;
+    --sunk-hover: #28282E;
 
-      --lift-card: 0 1px 3px rgba(0, 0, 0, 0.6), 0 6px 20px rgba(0, 0, 0, 0.4);
-      --lift-btn: 0 2px 6px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.4);
-      --inset: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+    --lift-card: none;
+    --lift-btn: none;
+    --lift-overlay: 0 20px 40px -15px rgba(0, 0, 0, 0.8);
+    --inset: inset 0 1px 2px rgba(0, 0, 0, 0.3);
 
-      --btn-face: #FAFAFA;
-      --btn-text: #18181B;
-    }
+    --btn-face: #FAFAFA;
+    --btn-text: #18181B;
   }
 
   * { box-sizing: border-box; }
@@ -79,7 +85,9 @@
   /* Page Header */
   .page-header { margin-bottom: 24px; }
   .brand-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-  .brand-title { font-size: 18px; font-weight: 700; letter-spacing: -0.03em; color: var(--ink); }
+  /* Wordmark — must stay identical to landing .brand (landing/landing.css) */
+  .brand-title { font: 500 22px/1 var(--serif); letter-spacing: -0.025em; color: var(--ink); }
+  .brand-title span:not(.brand-dot) { font-style: italic; }
   .badge-tech {
     font-family: var(--mono);
     font-size: 10px;
@@ -93,13 +101,18 @@
   }
   h1 {
     font-size: 32px;
-    font-weight: 650;
+    font-weight: 600;
     line-height: 1.25;
     letter-spacing: -0.035em;
     margin: 0 0 8px;
     color: var(--ink);
   }
   .lead { font-size: 14.5px; line-height: 1.65; color: var(--ash); margin: 0; }
+
+  /* Numbers, metrics, timestamps: always mono + tabular-nums (design.md 7) */
+  .badge-tech, .badge-mono-pill, .feature-tag, .mono-input {
+    font-variant-numeric: tabular-nums;
+  }
 
   /* Hero Banner (.free-banner) */
   .free-banner {
@@ -109,7 +122,6 @@
     border-radius: var(--r-lg);
     border: 1px solid rgba(255, 255, 255, 0.12);
     margin-bottom: 20px;
-    box-shadow: 0 8px 24px -6px rgba(0, 0, 0, 0.25);
     position: relative;
     overflow: hidden;
   }
@@ -134,9 +146,9 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background: rgba(255, 86, 0, 0.15);
-    border: 1px solid rgba(255, 86, 0, 0.35);
-    color: #FF661A;
+    background: var(--accent-soft);
+    border: 1px solid var(--accent-border);
+    color: var(--accent-on-dark);
     padding: 3px 9px;
     border-radius: var(--r-full);
     font-size: 11px;
@@ -147,8 +159,8 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: #FF5600;
-    box-shadow: 0 0 6px #FF5600;
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent);
   }
   .badge-mono-pill {
     font-family: var(--mono);
@@ -164,7 +176,7 @@
   .free-banner-title {
     display: block;
     font-size: 17px;
-    font-weight: 650;
+    font-weight: 600;
     letter-spacing: -0.02em;
     color: #FFFFFF;
     margin-bottom: 6px;
@@ -210,7 +222,7 @@
   }
   h2 {
     font-size: 17px;
-    font-weight: 650;
+    font-weight: 600;
     letter-spacing: -0.02em;
     margin: 0;
     color: var(--ink);
@@ -312,19 +324,17 @@
   .switch-input:checked + .switch-slider::before {
     transform: translateX(18px);
   }
-  @media (prefers-color-scheme: dark) {
-    .switch-slider {
-      background-color: rgba(255, 255, 255, 0.2);
-    }
-    .switch-slider::before {
-      background-color: #FFFFFF;
-    }
-    .switch-input:checked + .switch-slider {
-      background-color: #FAFAFA;
-    }
-    .switch-input:checked + .switch-slider::before {
-      background-color: #18181B;
-    }
+  [data-theme="dark"] .switch-slider {
+    background-color: rgba(255, 255, 255, 0.2);
+  }
+  [data-theme="dark"] .switch-slider::before {
+    background-color: #FFFFFF;
+  }
+  [data-theme="dark"] .switch-input:checked + .switch-slider {
+    background-color: #FAFAFA;
+  }
+  [data-theme="dark"] .switch-input:checked + .switch-slider::before {
+    background-color: #18181B;
   }
 
   /* Form Fields */
@@ -363,10 +373,8 @@
     background-position: right 14px center;
     cursor: pointer;
   }
-  @media (prefers-color-scheme: dark) {
-    select {
-      background-image: url('data:image/svg+xml;charset=utf-8,%3Csvg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="%23A1A1AA" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpolyline points="6 9 12 15 18 9"%3E%3C/polyline%3E%3C/svg%3E');
-    }
+  [data-theme="dark"] select {
+    background-image: url('data:image/svg+xml;charset=utf-8,%3Csvg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="%23A1A1AA" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpolyline points="6 9 12 15 18 9"%3E%3C/polyline%3E%3C/svg%3E');
   }
   input:focus-visible, select:focus-visible, button:focus-visible {
     outline: 2px solid var(--ink);
@@ -438,17 +446,22 @@
     margin-bottom: 0;
   }
   .key-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     font-size: 12px;
-    font-weight: 550;
+    font-weight: 500;
     color: var(--ink);
     text-decoration: none;
     opacity: 0.85;
-    transition: opacity 0.15s, text-decoration 0.15s;
+    transition: opacity 0.15s ease;
   }
   .key-link:hover {
     opacity: 1;
     text-decoration: underline;
+    text-underline-offset: 3px;
   }
+  .key-link svg { flex-shrink: 0; }
   .checklist {
     display: grid;
     gap: 10px;
@@ -492,9 +505,9 @@
     padding: 11px 22px;
     font-family: var(--sans);
     font-size: 13.5px;
-    font-weight: 550;
+    font-weight: 600;
     cursor: pointer;
-    border-radius: 14px;
+    border-radius: var(--r-lg);
     border: 1px solid transparent;
     background: var(--btn-face);
     color: var(--btn-text);
@@ -503,8 +516,7 @@
     user-select: none;
   }
   button:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+    opacity: 0.88;
   }
   button:active {
     transform: translateY(0);
@@ -524,25 +536,6 @@
     button:hover { transform: none !important; }
   }
 
-  .key-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 12px;
-    color: var(--accent);
-    text-decoration: none;
-    font-weight: 550;
-    transition: opacity 120ms ease;
-  }
-  .key-link:hover {
-    opacity: 0.8;
-    text-decoration: underline;
-    text-underline-offset: 3px;
-  }
-  .key-link svg {
-    flex-shrink: 0;
-  }
-
   /* Floating Save Toast (#saved) */
   .save-toast {
     position: fixed;
@@ -556,9 +549,9 @@
     background: var(--ink);
     color: var(--ground);
     font-size: 13px;
-    font-weight: 550;
+    font-weight: 600;
     border-radius: var(--r-full);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2), 0 2px 8px rgba(0, 0, 0, 0.1);
+    box-shadow: var(--lift-overlay);
     z-index: 1000;
     pointer-events: none;
     white-space: nowrap;
@@ -574,12 +567,10 @@
       transform: translate(-50%, 0);
     }
   }
-  @media (prefers-color-scheme: dark) {
-    .save-toast {
-      background: #FAFAFA;
-      color: #18181B;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
-    }
+  [data-theme="dark"] .save-toast {
+    background: #FAFAFA;
+    color: #18181B;
+    box-shadow: var(--lift-overlay);
   }
 
   /* Page Footer */
@@ -624,7 +615,7 @@
 <body>
   <header class="page-header">
     <div class="brand-row">
-      <span class="brand-title">Summrizei</span>
+      <span class="brand-title">Summr<span>i</span>zei<span class="brand-dot">.</span></span>
       <span class="badge-tech">SETTINGS</span>
     </div>
     <h1>나에게 맞는 기록 방식.</h1>
@@ -647,6 +638,25 @@
       <span class="feature-tag">Whisper Speech-to-Text</span>
     </div>
   </div>
+
+  <section class="card" aria-labelledby="themeHeading">
+    <div class="section-top">
+      <h2 id="themeHeading">화면 테마</h2>
+      <span class="badge">자동 저장</span>
+    </div>
+
+    <div class="form-field" style="margin-top:0">
+      <label for="themeSelect" class="field-label">사이드패널과 설정 화면의 밝기</label>
+      <div class="select-wrap">
+        <select id="themeSelect">
+          <option value="system">시스템 설정 따름</option>
+          <option value="light">라이트</option>
+          <option value="dark">다크</option>
+        </select>
+      </div>
+      <p class="note">바꾸는 즉시 열려 있는 사이드패널에도 적용됩니다.</p>
+    </div>
+  </section>
 
   <section class="card" aria-labelledby="ocrHeading">
     <div class="section-top">
