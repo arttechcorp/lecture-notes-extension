@@ -1053,7 +1053,9 @@ window.addEventListener("message", (e) => {
   if (!e.data) return;
   if (e.data.type === "RENDER_HEIGHT" && typeof e.data.height === "number") {
     if (els.renderFrame) {
-      els.renderFrame.style.height = Math.max(e.data.height + 24, 250) + "px";
+      // 요약문 실제 높이에 딱 맞춰 높이 설정 (최소 140px)
+      const fitHeight = Math.max(e.data.height, 140);
+      els.renderFrame.style.height = fitHeight + "px";
     }
   } else if (e.data.type === "RENDERER_READY") {
     updateRenderedView();

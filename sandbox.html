@@ -37,7 +37,24 @@
       word-break: break-word;
     }
     body {
-      padding: 12px 14px 28px;
+      padding: 12px 14px 20px;
+    }
+    #content {
+      display: flow-root;
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--sub);
     }
     h1, h2, h3, h4 {
       color: var(--text);
@@ -225,11 +242,23 @@
       }
 
       notifyParentHeight();
+      requestAnimationFrame(() => notifyParentHeight());
     }
 
+    let lastSentHeight = 0;
+    let lastWidth = window.innerWidth;
+
     function notifyParentHeight() {
-      const height = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, 250);
-      window.parent.postMessage({ type: 'RENDER_HEIGHT', height }, '*');
+      const target = document.getElementById('content');
+      if (!target) return;
+      const rect = target.getBoundingClientRect();
+      const actualHeight = Math.ceil(rect.height + 32);
+      const height = Math.max(actualHeight, 140);
+
+      if (Math.abs(height - lastSentHeight) >= 2) {
+        lastSentHeight = height;
+        window.parent.postMessage({ type: 'RENDER_HEIGHT', height }, '*');
+      }
     }
 
     window.addEventListener('message', (event) => {
@@ -238,7 +267,12 @@
       }
     });
 
-    window.addEventListener('resize', notifyParentHeight);
+    window.addEventListener('resize', () => {
+      if (window.innerWidth !== lastWidth) {
+        lastWidth = window.innerWidth;
+        notifyParentHeight();
+      }
+    });
     window.parent.postMessage({ type: 'RENDERER_READY' }, '*');
   </script>
 </body>
