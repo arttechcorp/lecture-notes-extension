@@ -10,6 +10,7 @@
     if (!panel?.querySelector('#startBtn') || frame.dataset.mounted) return;
     frame.dataset.mounted = 'true';
     const $ = (id) => panel.getElementById(id);
+    const noteViewer = NoteViewer.create(panel);
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
     const pauseButton = mock.querySelector('.lec-play-toggle');
     const announcement = mock.querySelector('.demo-announcement');
@@ -21,26 +22,32 @@
       '서로 다른 규모의 투자안은 수익률만으로 비교하면 안 됩니다.',
       '상호배타적인 대안은 NPV와 판단 근거를 함께 확인하세요.',
     ];
-    const note = `## 투자안 평가: NPV와 IRR
+    const note = `## 핵심 요약
 
-**핵심 개념**
-NPV는 투자로 창출하는 가치를 현재 시점의 금액으로 나타냅니다. IRR은 NPV를 0으로 만드는 할인율입니다.
+> 같은 금액이라도 **언제 받는지**에 따라 가치가 달라집니다. 이 예시에서는 현금을 일찍 회수하는 B안이 가장 유리합니다.
 
-### 1. 같은 투자금, 다른 현금흐름
-세 투자안은 모두 1,000달러로 시작하지만 현금이 들어오는 시점이 다릅니다. 같은 금액이라도 일찍 받는 현금의 현재가치가 더 큽니다.
+### NPV와 IRR, 무엇이 다를까?
+- **NPV · 순현재가치**: 투자로 창출하는 가치를 현재 시점의 금액으로 나타냅니다.
+- **IRR · 내부수익률**: NPV를 0으로 만드는 할인율입니다.
 
-### 2. 할인율 20%에서 비교
-• A안: NPV 약 35달러 / IRR 약 22%
-• B안: NPV 약 117달러 / IRR 약 27%
-• C안: NPV 약 −46달러 / IRR 약 18%
+### 할인율 20%에서 비교
+초기 투자금은 모두 **1,000달러**입니다.
 
-이 예시에서는 현금을 일찍 회수하는 B안이 두 기준 모두 가장 높습니다.
+| 투자안 | NPV | IRR |
+| --- | ---: | ---: |
+| A | 약 $35 | 약 22% |
+| **B** | **약 $117** | **약 27%** |
+| C | 약 −$46 | 약 18% |
 
-### 3. 기억할 판단 기준
-투자 규모가 다른 상호배타적 대안은 수익률의 크기만으로 고르지 않습니다. NPV가 보여주는 가치 증가와 현금흐름의 시점을 함께 비교합니다.
+### 기억할 판단 기준
+1. 금액뿐 아니라 **현금이 들어오는 시점**을 함께 비교합니다.
+2. 규모가 다른 상호배타적 대안은 수익률만으로 고르지 않습니다.
+3. NPV가 보여주는 **가치 증가**와 판단 근거를 확인합니다.
 
-**복습 질문**
-총유입액이 같더라도 B안과 C안의 NPV가 다른 이유는 무엇일까요?`;
+---
+
+### 복습 질문
+- [ ] 총유입액이 같아도 B안과 C안의 NPV가 다른 이유를 설명할 수 있나요?`;
 
     let stage = 'ready';
     let elapsed = 0;
@@ -129,10 +136,8 @@ NPV는 투자로 창출하는 가치를 현재 시점의 금액으로 나타냅�
 
     function completeNote() {
       clearInterval(noteTimer);
-      $('result').value = note;
-      $('result').readOnly = false;
-      $('result').removeAttribute('aria-busy');
-      $('result').scrollTop = 0;
+      noteViewer.show(note);
+      $('copyBtn').disabled = false;
       $('donePill').textContent = '노트 완성';
       announcement.textContent = '예시 노트가 완성되었습니다. 내용을 읽거나 새로 캡처하기로 다시 체험할 수 있습니다.';
     }
@@ -154,9 +159,8 @@ NPV는 투자로 창출하는 가치를 현재 시점의 금액으로 나타냅�
       $('cntQueue').textContent = '0';
       $('doneSummary').textContent = `화면 ${slides}개 · 음성 ${voice}줄`;
       $('donePill').textContent = '노트 생성 중';
-      $('result').value = '';
-      $('result').readOnly = true;
-      $('result').setAttribute('aria-busy', 'true');
+      noteViewer.show('', { generating: true });
+      $('copyBtn').disabled = true;
       $('resultTitle').focus({ preventScroll: true });
       mock.querySelector('#lectureCaption').textContent = '강의에서 모은 내용이 학습 노트로 정리됩니다.';
       announcement.textContent = '예시 강의를 핵심 요약본으로 정리하고 있습니다.';
@@ -164,8 +168,7 @@ NPV는 투자로 창출하는 가치를 현재 시점의 금액으로 나타냅�
       let cursor = 0;
       noteTimer = setInterval(() => {
         cursor += 6;
-        $('result').value = note.slice(0, cursor);
-        $('result').scrollTop = $('result').scrollHeight;
+        noteViewer.show(note.slice(0, cursor), { generating: true });
         if (cursor >= note.length) completeNote();
       }, 24);
     });
@@ -184,9 +187,8 @@ NPV는 투자로 창출하는 가치를 현재 시점의 금액으로 나타냅�
       empty.className = 'empty';
       empty.textContent = '아직 인식된 내용이 없습니다.';
       $('feedLines').replaceChildren(empty);
-      $('result').value = '';
-      $('result').readOnly = true;
-      $('result').removeAttribute('aria-busy');
+      noteViewer.show('');
+      $('copyBtn').disabled = true;
       $('startGuide').hidden = false;
       $('stopGuide').hidden = true;
       mock.classList.remove('is-scanning');
@@ -201,6 +203,18 @@ NPV는 투자로 창출하는 가치를 현재 시점의 금액으로 나타냅�
     });
 
     pauseButton.addEventListener('click', () => { userPaused = !userPaused; updatePlayback(); });
+    $('copyBtn').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText($('result').value);
+        $('copyBtn').textContent = '복사됨 ✓';
+        setTimeout(() => { $('copyBtn').textContent = '복사'; }, 1500);
+      } catch {
+        noteViewer.edit(true);
+        $('result').focus({ preventScroll: true });
+        $('result').select();
+        announcement.textContent = '노트를 선택했습니다. 직접 복사해 주세요.';
+      }
+    });
     for (const button of panel.querySelectorAll('[data-dismiss]')) {
       button.addEventListener('click', () => {
         $(button.dataset.dismiss).hidden = true;
@@ -215,7 +229,7 @@ NPV는 투자로 창출하는 가치를 현재 시점의 금액으로 나타냅�
     document.addEventListener('visibilitychange', updatePlayback);
     new IntersectionObserver(([entry]) => { inView = entry.isIntersecting; updatePlayback(); }).observe(mock);
     reducedMotion.addEventListener('change', () => {
-      if (reducedMotion.matches && stage === 'done' && $('result').hasAttribute('aria-busy')) completeNote();
+      if (reducedMotion.matches && stage === 'done' && $('notePreview').getAttribute('aria-busy') === 'true') completeNote();
     });
     window.addEventListener('pagehide', () => { clearInterval(captureTimer); clearInterval(noteTimer); });
     resize();

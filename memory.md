@@ -2,41 +2,15 @@
 
 코드만 봐서는 드러나지 않는 결합을 기억하기 위한 메모.
 
-## 랜딩 히어로 목업 ↔ 제품 사이드패널
+## 제품 패널과 랜딩 체험
 
-`sidepanel.html`의 `#stageLive`(캡처 중) 단계를 랜딩 히어로의 브라우저 목업 오른쪽 40% 패널이 **손으로 베껴 재현**한다. 참조가 아니라 복사본이라, 제품 UI를 고쳐도 목업은 자동으로 따라오지 않는다.
-
-- 원본: `sidepanel.html` — `:root` 토큰, `.pill.live` / `.pulse`, `.counters` / `.counter`, `.feed`, `button.danger`, `<footer>`
-- 사본: `landing/hero-mockup.css`의 `.panel*` 규칙과 `landing/hero-mockup.html`의 `<aside class="panel">` 마크업. 연출은 `landing/hero-mockup.js`.
-
-### 제품 디자인을 바꿀 때 확인할 것
-
-목업 쪽은 토큰 이름에 `--p-` 접두어를 붙여 복사해 뒀다 (`hero-mockup.css` `.panel`).
-
-| 바꾼 것 | 목업에서 같이 고칠 곳 |
-| --- | --- |
-| `--paper #fff` / `--ground #f3f3f2` / `--ink #181818` / `--ash #666` / `--rule #e4e4e4` | `.panel`의 `--p-paper/--p-ground/--p-ink/--p-ash/--p-rule` (값이 하드코딩돼 있음) |
-| `--faint #767676` | `.panel-feed-head`의 `color: #767676` |
-| `--lift-1` | `.panel`의 `--p-lift` |
-| `--r-md 10px` | `.panel-counter`의 `border-radius: 10px` |
-| `--r-lg 14px` | `.panel-feed`의 `border-radius: 14px` |
-| pill 반경 100px (`.pill`, `button.primary/.danger`) | `.panel-pill`, `.panel-stop`의 `border-radius: 100px` |
-| `.pill.live` (ink 배경 + `.pulse` 1.4s 깜빡임) | `.panel-pill` + `.panel-pulse` / `@keyframes panel-blink` |
-| 카운터 3개 구성·라벨: 슬라이드 / 음성 줄 / 처리 대기 (`#cntSlides`·`#cntVoice`·`#cntQueue`, 3열 그리드) | `.panel-counters`의 `.panel-counter` 3개. 개수·순서·라벨 문구 전부 일치시킬 것 |
-| `.feed` 헤더 문구 "지금 인식 중" / "최근 3줄" | `.panel-feed-head`의 두 `<span>` |
-| 피드 줄 구조 (`#feedLines div`, 마지막 줄만 `--ink`) | `.feed-line`(`<time>` + `<p>`). 목업은 3줄 고정이고 `hero-mockup.js`가 줄을 쌓는다 |
-| `button.danger` 문구 "캡처 마치고 노트 보기" + 스타일(paper 배경, `1.5px solid var(--ink)`, 굵기 600) | `.panel-stop` (문구는 `hero-mockup.html`) |
-| 푸터 `#planName` "무료 플랜" / `#planUse` "기기 안에서 처리" + 상단 1px rule 구분선 | `.panel-foot` 두 `<span>` |
-| 상태줄 경과 시간 `#elapsed` | `.panel-elapsed` (목업은 `12:07` 고정) |
-
-주의: `sidepanel.html`은 `prefers-color-scheme: dark`에서 토큰을 뒤집지만, 목업 `.panel`은 **라이트 값만 하드코딩**돼 있다. 제품의 다크 팔레트를 바꿔도 목업은 영향받지 않는다 — 의도된 것이며, 랜딩에 다크를 넣게 되면 이 표의 첫 줄부터 다시 판단할 것.
-
-목업에 없는 것(경고 배너 `#panelAlert`, `.stage-steps` 등)은 일부러 뺐다. 굳이 채워 넣지 말 것.
+- `sidepanel.html`과 `landing/demo-panel.html`은 `landing/product-panel.css`를 공유한다. 이 CSS의 제품 패널 규칙은 두 화면에 함께 영향을 준다.
+- 제품은 `landing/vendor/markdown-it.min.js`와 `landing/note-viewer.js`를 직접 로드한다. 랜딩의 부모 문서(`landing/index.html`, `hero-mockup.html`)도 두 파일을 로드하고, 같은 출처의 `demo-panel.html` iframe 문서에 `NoteViewer`를 연결해 조작한다.
+- 데모 iframe은 `sandbox="allow-same-origin"`이라 내부 스크립트는 실행되지 않는다. 부모의 `hero-mockup.js`가 `contentDocument`를 통해 준비된 체험을 제어한다.
+- `#result` textarea가 메모리 내 canonical Markdown을 보존하고, `#notePreview`가 안전하게 렌더링된 HTML을 표시한다. 읽기·편집·복사·다운로드와 요약/타임라인 전환은 이 Markdown을 기준으로 동작한다.
+- `hero-mockup.js`는 실제 캡처나 녹음 없이 직접 작성한 샘플과 스트리밍 연출을 제공한다. `landing/index.html`의 메인 figure와 `hero-mockup.html`의 standalone figure는 동작·마크업 parity를 유지한다.
+- 갱신된 랜딩 자산의 `src`에는 버전 쿼리를 붙인다. `landing/hero-mockup.css`는 브라우저와 강의 화면 레이아웃을 맡고, 제품 패널 스타일은 `product-panel.css`가 맡는다.
 
 ## 왼쪽 강의 화면
 
-가상의 플랫폼 **LetsLearn**(`letslearn.org`)이다. 실제 강의 캡처·실제 대학교명·실제 LMS 브랜드는 절대 넣지 않는다 — 저작권과 비대체성 원칙(AGENTS.md §2)의 연장이다. 슬라이드 내용도 전부 창작이다.
-
-## 애셋
-
-목업은 전부 CSS로 그렸다. 이미지·아이콘 파일이 하나도 없으므로, 목업이 깨졌다면 원인은 항상 CSS다.
+왼쪽 슬라이드는 사용자 제공 금융 슬라이드 레퍼런스를 바탕으로 재구성한 작성 HTML이다. 실제 녹화·강의 캡처는 추가하지 않는다.

@@ -178,7 +178,17 @@
   <div class="alert warn" id="doneAlert" hidden></div>
   <h2 class="result-title" id="resultTitle">나의 강의 노트</h2>
 
-  <textarea id="result" aria-label="강의 노트 내용" placeholder="노트가 여기 표시됩니다. 인식된 내용을 직접 검토해 주세요." readonly></textarea>
+  <div class="note-toolbar">
+    <div class="note-modes" role="group" aria-label="노트 보기 방식">
+      <button id="noteReadBtn" type="button" aria-pressed="true" aria-controls="notePreview">읽기</button>
+      <button id="noteEditBtn" type="button" aria-pressed="false" aria-controls="result">편집</button>
+    </div>
+    <button class="note-copy" id="copyBtn" type="button" disabled>복사</button>
+  </div>
+  <div class="note-surface" id="noteSurface">
+    <article class="note-document" id="notePreview" aria-label="강의 노트" tabindex="0"></article>
+    <textarea id="result" aria-label="강의 노트 Markdown 편집" placeholder="노트 내용을 작성하세요." readonly hidden></textarea>
+  </div>
   <p class="detail result-help" id="resultHint">내용을 직접 고친 뒤 복사하거나 저장할 수 있어요. 패널을 닫으면 노트가 사라집니다.</p>
 
   <div class="settingbar">
@@ -189,7 +199,6 @@
   <details class="optional-api"><summary>AI 요약 연결하기 · 선택</summary><p class="detail">Claude 또는 Gemini API 키를 저장한 뒤 이 패널에서 ‘다시 만들기’를 누르세요. 캡처한 원문은 그대로 유지됩니다.</p><button id="summarySettingsBtn" type="button">API 키 설정</button></details>
 
   <div class="btnrow">
-    <button id="copyBtn" type="button" disabled>복사</button>
     <button id="downloadBtn" type="button" disabled>.md 저장</button>
     <button id="notesBtn" type="button" disabled title="재캡처 없이 선택한 형태로 다시 만듭니다">다시 만들기</button>
   </div>
@@ -227,6 +236,8 @@
   <script src="lib/settings.js"></script>
   <script src="lib/audio.js"></script>
   <script src="lib/ai.js"></script>
+  <script src="landing/vendor/markdown-it.min.js"></script>
+  <script src="landing/note-viewer.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

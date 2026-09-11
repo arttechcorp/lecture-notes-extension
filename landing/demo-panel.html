@@ -6,10 +6,12 @@
 <title>Summrizei 제품 체험</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Hedvig+Letters+Serif:opsz@12..24&family=Geist+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="product-panel.css">
+<link rel="stylesheet" href="product-panel.css?v=20260911-3">
 <style>
   /* 제품 UI는 product-panel.css를 그대로 사용한다. 아래는 체험 안내에만 적용한다. */
   html { overflow: hidden; }
+  /* iframe의 높이를 본문에 맞추므로, 뷰어 높이가 다시 iframe 높이에 의존하지 않게 한다. */
+  #stageDone .note-surface { max-height: 480px; }
   .demo-action { position: relative; margin-top: 24px; }
   .demo-guide { position: absolute; z-index: 1; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; width: max-content; max-width: 100%; padding: 8px 10px 8px 13px; background: var(--ink); color: var(--paper); border-radius: 9px; font-size: 11px; box-shadow: var(--lift-2); }
   .demo-guide::after { content: ''; position: absolute; left: calc(50% - 5px); top: 100%; border: 5px solid transparent; border-top-color: var(--ink); }
@@ -24,7 +26,6 @@
     20% { transform: translate(-50%, -4px); }
   }
   @media (prefers-reduced-motion: reduce) { #startGuide { animation: none; } }
-  #result { resize: none; }
   dialog { width: calc(100% - 32px); max-width: 380px; padding: 22px; border: 1px solid var(--rule); border-radius: var(--r-lg); background: var(--ground); color: var(--ink); box-sizing: border-box; }
   dialog::backdrop { background: #18181b40; }
   dialog h2 { font-size: 18px; margin: 0 0 12px; }
@@ -71,8 +72,18 @@
 <div id="stageDone" hidden>
   <div class="statusline"><span class="pill ok" id="donePill">노트 생성 중</span><span class="sub" id="doneSummary"></span></div>
   <h2 class="result-title" id="resultTitle" tabindex="-1">NPV and IRR explained</h2>
-  <textarea id="result" aria-label="강의 노트 내용" readonly></textarea>
-  <p class="detail result-help">자동 생성된 초안입니다. 강의와 대조해 검토하고 수정하세요. 패널을 닫기 전 복사하거나 저장하세요.</p>
+  <div class="note-toolbar">
+    <div class="note-modes" role="group" aria-label="노트 보기 방식">
+      <button id="noteReadBtn" type="button" aria-pressed="true" aria-controls="notePreview">읽기</button>
+      <button id="noteEditBtn" type="button" aria-pressed="false" aria-controls="result">편집</button>
+    </div>
+    <button class="note-copy" id="copyBtn" type="button" disabled>복사</button>
+  </div>
+  <div class="note-surface" id="noteSurface">
+    <article class="note-document" id="notePreview" aria-label="강의 노트" tabindex="0"></article>
+    <textarea id="result" aria-label="강의 노트 Markdown 편집" readonly hidden></textarea>
+  </div>
+  <p class="detail result-help">AI가 작성한 초안입니다. 강의와 대조해 검토하세요. 패널을 닫기 전 복사하거나 저장하세요.</p>
   <div class="settingbar"><span class="summary">형태: 핵심 요약본</span><button class="link" id="formatToggle" type="button">변경</button></div>
   <button id="againBtn" type="button">새로 캡처하기</button>
 </div>
