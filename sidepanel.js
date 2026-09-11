@@ -20,7 +20,7 @@ const els = {
   // 설정 서랍
   drawer: $("settingsDrawer"), settingsToggle: $("settingsToggle"), settingsClose: $("settingsClose"),
   settingsSummary: $("settingsSummary"), formatSummary: $("formatSummary"), formatToggle: $("formatToggle"),
-  settingsLink: $("settingsLink"), ocrEnabledToggle: $("ocrEnabledToggle"), ocrEngineSelect: $("ocrEngineSelect"), ocrEngineField: $("ocrEngineField"), cropField: $("cropField"), doneAlert: $("doneAlert"),
+  settingsLink: $("settingsLink"), popoutBtn: $("popoutBtn"), ocrEnabledToggle: $("ocrEnabledToggle"), ocrEngineSelect: $("ocrEngineSelect"), ocrEngineField: $("ocrEngineField"), cropField: $("cropField"), doneAlert: $("doneAlert"),
   // 진행
   elapsed: $("elapsed"), cntSlides: $("cntSlides"), cntVoice: $("cntVoice"), cntQueue: $("cntQueue"),
   feedLines: $("feedLines"), panelAlert: $("panelAlert"),
@@ -29,6 +29,7 @@ const els = {
   resultTitle: $("resultTitle"), resultHint: $("resultHint"), resumeBtn: $("resumeBtn"),
   renderFrame: $("renderFrame"), viewRenderedBtn: $("viewRenderedBtn"), viewRawBtn: $("viewRawBtn"),
   pdfBtn: $("pdfBtn"), notionBtn: $("notionBtn"), exportRow: $("exportRow"),
+  notionModal: $("notionModal"), notionModalClose: $("notionModalClose"),
   // 하단
   planLine: $("planLine"), planSelect: $("planSelect"), planName: $("planName"), planUse: $("planUse"),
 };
@@ -154,13 +155,19 @@ function startElapsed() {
   const t0 = Date.now();
   const tick = () => {
     const s = Math.floor((Date.now() - t0) / 1000);
-    els.elapsed.textContent = `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+    const timeStr = `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+    els.elapsed.textContent = timeStr;
+    document.title = `[${timeStr} 캡처 중] Summrizei`;
   };
   tick();
   clearInterval(elapsedTimer);
   elapsedTimer = setInterval(tick, 1000);
 }
-function stopElapsed() { clearInterval(elapsedTimer); elapsedTimer = null; }
+function stopElapsed() {
+  clearInterval(elapsedTimer);
+  elapsedTimer = null;
+  document.title = "Summrizei — 강의 노트";
+}
 
 // --- 엔진 판정 -------------------------------------------------------------------
 // 준비 상태는 개발자의 말이 아니라 사용자의 말로 적는다.
@@ -1048,6 +1055,34 @@ window.addEventListener("focus", () => {
   if (!capturing && !busy && !preparing && !draining) detectEngine().catch((error) => setStatus(`설정을 읽지 못했어요: ${error.message || error}`));
 });
 
+if (els.popoutBtn) {
+  const isPopup = typeof window !== "undefined" && window.location && typeof window.location.search === "string" && window.location.search.includes("mode=popup");
+  if (isPopup) {
+    els.popoutBtn.hidden = true;
+  } else {
+    els.popoutBtn.addEventListener("click", async () => {
+      if (capturing || busy) {
+        if (!confirm("현재 캡처 중인 세션은 새 창으로 이전되지 않습니다. 독립 창으로 분리하시겠습니까?")) {
+          return;
+        }
+      }
+      const width = 420;
+      const height = 720;
+      const left = Math.max(0, (window.screen.availWidth || 1920) - width - 40);
+      const top = 80;
+      await chrome.windows.create({
+        url: chrome.runtime.getURL("sidepanel.html?mode=popup"),
+        type: "popup",
+        width,
+        height,
+        left,
+        top,
+      });
+      window.close();
+    });
+  }
+}
+
 if (els.viewRenderedBtn) els.viewRenderedBtn.addEventListener("click", () => setViewMode("rendered"));
 if (els.viewRawBtn) els.viewRawBtn.addEventListener("click", () => setViewMode("raw"));
 
@@ -1068,12 +1103,20 @@ if (els.planSelect) {
 
 if (els.pdfBtn) {
   els.pdfBtn.addEventListener("click", () => {
-    if (!els.result || !els.result.value) return;
+    if (!els.result || !els.result.value) {
+      setStatus("출력할 노트 내용이 없습니다. 먼저 강의 노트를 생성해주세요.");
+      return;
+    }
+    // 인쇄 전 서식 보기 모드로 전환하여 렌더링 프레임 활성화
+    setViewMode("rendered");
+    setStatus("PDF 인쇄 대화상자를 준비하는 중입니다...");
     if (els.renderFrame && els.renderFrame.contentWindow) {
       els.renderFrame.contentWindow.postMessage({
         type: "PRINT",
         markdown: els.result.value,
       }, "*");
+    } else {
+      window.print();
     }
   });
 }
@@ -1081,7 +1124,10 @@ if (els.pdfBtn) {
 if (els.notionBtn) {
   els.notionBtn.addEventListener("click", async () => {
     const text = els.result ? els.result.value : "";
-    if (!text) return;
+    if (!text) {
+      setStatus("복사할 노트 내용이 없습니다. 먼저 강의 노트를 생성해주세요.");
+      return;
+    }
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(text);
@@ -1094,12 +1140,39 @@ if (els.notionBtn) {
       }
       const prevText = els.notionBtn.textContent;
       els.notionBtn.textContent = "복사 완료! ✓";
-      setStatus("노션(Notion)용 마크다운이 복사되었습니다. 노션 페이지에서 Ctrl+V 로 붙여넣으세요.");
+      const noticeMsg = "복사 완료! 이제 노션에 복사하셔서 사용하시면 됩니다!";
+      setStatus(noticeMsg);
+
+      if (els.notionModal && typeof els.notionModal.showModal === "function") {
+        try {
+          els.notionModal.showModal();
+        } catch {
+          alert(noticeMsg);
+        }
+      } else {
+        alert(noticeMsg);
+      }
+
       setTimeout(() => {
         els.notionBtn.textContent = prevText;
-      }, 2000);
+      }, 3000);
     } catch (err) {
       setStatus(`복사 실패: ${err.message || err}`);
+    }
+  });
+}
+
+if (els.notionModalClose && els.notionModal) {
+  els.notionModalClose.addEventListener("click", () => {
+    els.notionModal.close();
+  });
+}
+
+if (els.notionModal) {
+  els.notionModal.addEventListener("click", (e) => {
+    // 배경 클릭 시 닫기
+    if (e.target === els.notionModal) {
+      els.notionModal.close();
     }
   });
 }
@@ -1114,6 +1187,10 @@ window.addEventListener("message", (e) => {
     }
   } else if (e.data.type === "RENDERER_READY") {
     updateRenderedView();
+  } else if (e.data.type === "PRINT_COMPLETE") {
+    setStatus("PDF 인쇄가 완료되었거나 대화상자가 닫혔습니다.");
+  } else if (e.data.type === "PRINT_ERROR") {
+    setStatus(`PDF 인쇄 오류: ${e.data.error || "알 수 없는 오류"}`);
   }
 });
 

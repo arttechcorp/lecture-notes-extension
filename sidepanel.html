@@ -242,13 +242,79 @@ if (typeof chrome === "undefined" || !chrome.storage) {
   .step .why { font-size: 12px; color: var(--ash); }
   .checkline { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; }
   .checkline input { margin-top: 3px; accent-color: var(--ink); }
+
+  /* 노션 복사 안내 모달 */
+  dialog.notion-modal {
+    border: 1px solid var(--rule);
+    border-radius: var(--r-lg);
+    background: var(--paper);
+    color: var(--ink);
+    padding: 22px 18px;
+    max-width: 320px;
+    width: 90%;
+    box-shadow: var(--lift-2);
+    position: fixed;
+    inset: 0;
+    margin: auto;
+  }
+  dialog.notion-modal::backdrop {
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(2px);
+  }
+  .notion-modal-body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 10px;
+  }
+  .notion-modal-icon {
+    font-size: 30px;
+    line-height: 1;
+  }
+  .notion-modal-title {
+    margin: 0;
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--ink);
+    line-height: 1.5;
+    word-break: keep-all;
+  }
+  .notion-modal-tip {
+    margin: 4px 0 6px;
+    font-size: 11.5px;
+    color: var(--ash);
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-md);
+    padding: 8px 10px;
+    line-height: 1.5;
+    word-break: keep-all;
+  }
+  .notion-modal-tip kbd {
+    display: inline-block;
+    padding: 1px 4px;
+    font-family: ui-monospace, monospace;
+    font-size: 10.5px;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    box-shadow: 0 1px 0 rgba(0,0,0,0.1);
+  }
+  #notionModalClose {
+    width: 100%;
+    margin-top: 4px;
+  }
 </style>
 </head>
 <body>
 
 <div class="topbar">
   <div><h1>Summrizei</h1><p class="brand-caption">강의의 흐름을, 나의 노트로.</p></div>
-  <button class="link" id="settingsLink" type="button">설정</button>
+  <div style="display: flex; gap: 8px; align-items: center;">
+    <button class="link" id="popoutBtn" type="button" title="독립 팝업 창으로 분리해서 띄웁니다 (최소화 가능)">🗗 창 분리</button>
+    <button class="link" id="settingsLink" type="button">설정</button>
+  </div>
 </div>
 <nav class="stage-steps" aria-label="노트 만들기 단계"><span id="stepReady" class="active">01 준비</span><i aria-hidden="true"></i><span id="stepLive">02 캡처</span><i aria-hidden="true"></i><span id="stepDone">03 노트</span></nav>
 
@@ -415,7 +481,7 @@ if (typeof chrome === "undefined" || !chrome.storage) {
     <button id="viewRenderedBtn" type="button" class="tab-pill active">📖 서식 보기 (수식·그래프)</button>
     <button id="viewRawBtn" type="button" class="tab-pill">✏️ 마크다운 편집</button>
   </div>
-  <iframe id="renderFrame" src="sandbox.html" class="preview-frame" title="노트 서식 미리보기"></iframe>
+  <iframe id="renderFrame" src="sandbox.html" class="preview-frame" title="노트 서식 미리보기" sandbox="allow-scripts allow-forms allow-popups allow-modals"></iframe>
   <textarea id="result" aria-label="강의 노트 내용" placeholder="노트가 여기 표시됩니다. 인식된 내용을 직접 검토해 주세요." hidden></textarea>
   <p class="detail result-help" id="resultHint">서식 보기에서는 수식과 다이어그램이 렌더링되며, 마크다운 편집 탭에서 원문을 직접 수정할 수 있습니다.</p>
   <div class="export-row" id="exportRow">
@@ -447,6 +513,15 @@ if (typeof chrome === "undefined" || !chrome.storage) {
   <summary>디버그 로그</summary>
   <pre id="debugLog"></pre>
 </details>
+
+<dialog id="notionModal" class="notion-modal" aria-labelledby="notionModalTitle">
+  <div class="notion-modal-body">
+    <div class="notion-modal-icon" aria-hidden="true">📋</div>
+    <h3 class="notion-modal-title" id="notionModalTitle">복사 완료! 이제 노션에 복사하셔서 사용하시면 됩니다!</h3>
+    <p class="notion-modal-tip">💡 노션(Notion) 빈 페이지에서 <kbd>Ctrl</kbd> + <kbd>V</kbd> (Mac은 <kbd>Cmd</kbd> + <kbd>V</kbd>)를 누르면 제목·개념·표·수식이 노션 블록으로 깔끔하게 들어갑니다.</p>
+    <button type="button" id="notionModalClose" class="primary">확인</button>
+  </div>
+</dialog>
 
 <footer>
   <div id="planLine" class="plan-card">
