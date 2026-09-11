@@ -248,7 +248,10 @@ if (typeof chrome === "undefined" || !chrome.storage) {
 
 <div class="topbar">
   <div><h1>Summrizei</h1><p class="brand-caption">강의의 흐름을, 나의 노트로.</p></div>
-  <button class="link" id="settingsLink" type="button">설정</button>
+  <div style="display: flex; gap: 8px; align-items: center;">
+    <button class="link" id="popoutBtn" type="button" title="독립 팝업 창으로 분리해서 띄웁니다 (최소화 가능)">🗗 창 분리</button>
+    <button class="link" id="settingsLink" type="button">설정</button>
+  </div>
 </div>
 <nav class="stage-steps" aria-label="노트 만들기 단계"><span id="stepReady" class="active">01 준비</span><i aria-hidden="true"></i><span id="stepLive">02 캡처</span><i aria-hidden="true"></i><span id="stepDone">03 노트</span></nav>
 

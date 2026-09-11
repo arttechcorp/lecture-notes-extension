@@ -20,7 +20,7 @@ const els = {
   // 설정 서랍
   drawer: $("settingsDrawer"), settingsToggle: $("settingsToggle"), settingsClose: $("settingsClose"),
   settingsSummary: $("settingsSummary"), formatSummary: $("formatSummary"), formatToggle: $("formatToggle"),
-  settingsLink: $("settingsLink"), ocrEnabledToggle: $("ocrEnabledToggle"), ocrEngineSelect: $("ocrEngineSelect"), ocrEngineField: $("ocrEngineField"), cropField: $("cropField"), doneAlert: $("doneAlert"),
+  settingsLink: $("settingsLink"), popoutBtn: $("popoutBtn"), ocrEnabledToggle: $("ocrEnabledToggle"), ocrEngineSelect: $("ocrEngineSelect"), ocrEngineField: $("ocrEngineField"), cropField: $("cropField"), doneAlert: $("doneAlert"),
   // 진행
   elapsed: $("elapsed"), cntSlides: $("cntSlides"), cntVoice: $("cntVoice"), cntQueue: $("cntQueue"),
   feedLines: $("feedLines"), panelAlert: $("panelAlert"),
@@ -154,13 +154,19 @@ function startElapsed() {
   const t0 = Date.now();
   const tick = () => {
     const s = Math.floor((Date.now() - t0) / 1000);
-    els.elapsed.textContent = `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+    const timeStr = `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+    els.elapsed.textContent = timeStr;
+    document.title = `[${timeStr} 캡처 중] Summrizei`;
   };
   tick();
   clearInterval(elapsedTimer);
   elapsedTimer = setInterval(tick, 1000);
 }
-function stopElapsed() { clearInterval(elapsedTimer); elapsedTimer = null; }
+function stopElapsed() {
+  clearInterval(elapsedTimer);
+  elapsedTimer = null;
+  document.title = "Summrizei — 강의 노트";
+}
 
 // --- 엔진 판정 -------------------------------------------------------------------
 // 준비 상태는 개발자의 말이 아니라 사용자의 말로 적는다.
@@ -1047,6 +1053,34 @@ $("optionsLink").addEventListener("click", (e) => {
 window.addEventListener("focus", () => {
   if (!capturing && !busy && !preparing && !draining) detectEngine().catch((error) => setStatus(`설정을 읽지 못했어요: ${error.message || error}`));
 });
+
+if (els.popoutBtn) {
+  const isPopup = typeof window !== "undefined" && window.location && typeof window.location.search === "string" && window.location.search.includes("mode=popup");
+  if (isPopup) {
+    els.popoutBtn.hidden = true;
+  } else {
+    els.popoutBtn.addEventListener("click", async () => {
+      if (capturing || busy) {
+        if (!confirm("현재 캡처 중인 세션은 새 창으로 이전되지 않습니다. 독립 창으로 분리하시겠습니까?")) {
+          return;
+        }
+      }
+      const width = 420;
+      const height = 720;
+      const left = Math.max(0, (window.screen.availWidth || 1920) - width - 40);
+      const top = 80;
+      await chrome.windows.create({
+        url: chrome.runtime.getURL("sidepanel.html?mode=popup"),
+        type: "popup",
+        width,
+        height,
+        left,
+        top,
+      });
+      window.close();
+    });
+  }
+}
 
 if (els.viewRenderedBtn) els.viewRenderedBtn.addEventListener("click", () => setViewMode("rendered"));
 if (els.viewRawBtn) els.viewRawBtn.addEventListener("click", () => setViewMode("raw"));
