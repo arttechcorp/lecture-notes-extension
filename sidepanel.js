@@ -5,7 +5,7 @@
 const $ = (id) => document.getElementById(id);
 const els = {
   tabSelect: $("tabSelect"), modeSelect: $("modeSelect"), langSelect: $("langSelect"), startBtn: $("startBtn"), stopBtn: $("stopBtn"),
-  copyBtn: $("copyBtn"), downloadBtn: $("downloadBtn"), notesBtn: $("notesBtn"), previewBtn: $("previewBtn"),
+  notesBtn: $("notesBtn"), previewBtn: $("previewBtn"),
   status: $("status"), result: $("result"), rawScript: $("rawScript"), tokenUsage: $("tokenUsage"),
   debugLog: $("debugLog"), banner: $("engineBanner"), cropRow: $("cropRow"), cropWrap: $("cropWrap"),
   cropImg: $("cropImg"), cropBox: $("cropBox"), cropHint: $("cropHint"),
@@ -26,8 +26,9 @@ const els = {
   feedLines: $("feedLines"), panelAlert: $("panelAlert"),
   // 완료
   doneSummary: $("doneSummary"), donePill: $("donePill"), againBtn: $("againBtn"), summarySettingsBtn: $("summarySettingsBtn"),
-  resultTitle: $("resultTitle"), resultHint: $("resultHint"), timelineBtn: $("timelineBtn"), resumeBtn: $("resumeBtn"),
-  renderFrame: $("renderFrame"), viewRenderedBtn: $("noteReadBtn"), viewRawBtn: $("noteEditBtn"),
+  resultTitle: $("resultTitle"), resultHint: $("resultHint"), resumeBtn: $("resumeBtn"),
+  renderFrame: $("renderFrame"), viewRenderedBtn: $("viewRenderedBtn"), viewRawBtn: $("viewRawBtn"),
+  pdfBtn: $("pdfBtn"), notionBtn: $("notionBtn"), exportRow: $("exportRow"),
   // 하단
   planLine: $("planLine"), planSelect: $("planSelect"), planName: $("planName"), planUse: $("planUse"),
 };
@@ -77,21 +78,33 @@ let lastVideoTime = 0; // content.js가 알려주는 영상 재생 위치(초)
 // 에러가 뜬 뒤에는 상태줄을 잠근다. content.js가 5초마다 보내는 진행 메시지가
 // 같은 자리에 덮어써서, 에러가 5초만 보이고 흔적 없이 사라지던 문제를 막는다.
 let statusSticky = false;
-let resultViews = { kind: "timeline", timeline: "", summary: "" };
 
 const tokens = { ocr: { input: 0, output: 0 }, notes: { input: 0, output: 0 } };
 
 // OCR 대기 배치 상한. slide 모드 기준 배치당 8장이니 최대 32장(약 5MB)까지만 쥔다.
 const MAX_QUEUE_BATCHES = 4;
+// 캡처 종료 후 음성 인식을 기다리는 상한. 20초 청크 기준 3분이면 밀린 것을
+// 웬만큼 따라잡는다. 넘으면 남은 건수를 알리고 진행한다.
+const FINISH_WAIT_MS = 3 * 60 * 1000;
 
 const setStatus = (t) => (els.status.textContent = t);
 // 로그는 2시간짜리 강의면 수천 줄까지 자란다. 오래된 건 진단에 쓸모가 없다.
 const LOG_MAX_LINES = 500;
+
+// 어느 단계가 느린지는 줄 사이의 간격으로만 알 수 있다. 캡처 시작을 0으로 잡고
+// 경과 시각을 붙인다. 벽시계보다 이쪽이 읽기 쉽다 — 단계 간 소요가 바로 뺄셈이 된다.
+let logT0 = Date.now();
+const resetClock = () => (logT0 = Date.now());
+function stamp() {
+  const s = (Date.now() - logT0) / 1000;
+  return `[${String(Math.floor(s / 60)).padStart(2, "0")}:${(s % 60).toFixed(1).padStart(4, "0")}]`;
+}
 const log = (t) => {
-  const lines = (els.debugLog.textContent + t + "\n").split("\n");
+  const lines = (els.debugLog.textContent + `${stamp()} ${t}` + "\n").split("\n");
   els.debugLog.textContent = lines.slice(-LOG_MAX_LINES).join("\n");
   els.debugLog.scrollTop = els.debugLog.scrollHeight;
 };
+
 
 // 토큰 수는 원격 호출로 실제 과금이 일어났을 때만 의미가 있다. 로컬만 쓰는
 // 사용자에게 0이 두 줄 떠 있는 건 정보가 아니라 잡음이다.
@@ -114,7 +127,9 @@ function renderProgress() {
   const voice = transcript.filter((e) => e.text.startsWith("[음성]"));
   els.cntSlides.textContent = transcript.length - voice.length;
   els.cntVoice.textContent = voice.length;
-  els.cntQueue.textContent = queue.length;
+  // "처리 대기"가 OCR 배치만 세고 있었다. 정작 밀리는 쪽은 음성이다.
+  const pendingVoice = audioCapturer ? audioCapturer.pending : 0;
+  els.cntQueue.textContent = queue.length + pendingVoice;
 
   const last = transcript.slice(-3);
   if (!last.length) {
@@ -159,6 +174,13 @@ function setRow(mark, cls, valEl, text) {
 async function detectEngine() {
   settings = await loadSettings();
   els.langSelect.value = settings.whisperLang;
+  // timeline 은 더 이상 출력 형태가 아니다(결과 화면의 버튼으로 옮겼다).
+  // 예전에 그 값을 저장한 사용자가 계속 막히지 않도록 풀어준다.
+  if (settings.outputFormat === "timeline") {
+    settings.outputFormat = "summary";
+    saveSettings({ outputFormat: "summary" });
+    log("저장된 출력 형태 'timeline' 을 '핵심 요약본' 으로 되돌렸습니다.");
+  }
   els.outputFormat.value = settings.outputFormat || "summary";
   els.customPrompt.style.display = els.outputFormat.value === "custom" ? "block" : "none";
   if (els.ocrEnabledToggle) {
@@ -185,11 +207,11 @@ async function detectEngine() {
     detail = "화면 글자를 원격 API로 처리합니다. 캡처 이미지가 외부로 전송됩니다.";
   } else if (settings.ocrEngine === "nano") {
     const status = typeof localAvailability !== "undefined" ? await localAvailability() : "unavailable";
-    if (status === "available") {
+    if (status === "available" || status === "readily") {
       engine = "nano";
       setRow(els.markEngine, "ok", els.banner, "Gemini Nano · 온디바이스");
-      detail = "";
-    } else if (status === "downloadable" || status === "downloading") {
+      detail = "Chrome 내장 Gemini Nano가 기기 안에서 화면 글자를 읽습니다.";
+    } else if (status === "downloadable" || status === "downloading" || status === "after-download") {
       engine = "nano";
       setRow(els.markEngine, "warn", els.banner, "다운로드 필요");
       detail = "Chrome 내장 Gemini Nano 모델 다운로드가 필요합니다.";
@@ -223,7 +245,7 @@ async function detectEngine() {
 // 설정은 한 줄로 접어둔다. 대부분 기본값으로 쓰고, 바꿀 때만 편다.
 const MODE_LABEL = { region: "슬라이드 영역만", slide: "전체 화면", caption: "하단 자막 띠" };
 const LANG_LABEL = { auto: "언어 자동", korean: "한국어", english: "영어" };
-const FORMAT_LABEL = { timeline: "원문 타임라인 · 무료", summary: "핵심 요약본", custom: "직접 입력" };
+const FORMAT_LABEL = { summary: "핵심 요약본", custom: "직접 입력" };
 
 function renderSettingsSummary() {
   const ocrPart = (settings && settings.ocrEnabled === false)
@@ -247,15 +269,21 @@ function renderPlan() {
     els.planUse.textContent = "수식·그래프·고품질 요약";
   } else {
     els.planName.textContent = "🌱 Free (무료 플랜)";
-    els.planUse.textContent = "온디바이스 Nano 또는 원문 타임라인";
+    els.planUse.textContent = "온디바이스 Gemini Nano 요약";
+  }
+
+  // 개발용 키 파일이 쓰이는 중이면 알린다. 폴더를 압축해 배포하면 키가 함께
+  // 나가므로, 잊고 지나치지 않게 계속 보이는 자리에 둔다.
+  if (settings.devKeyInUse) {
+    els.planUse.textContent += " · 키 파일 사용 중(배포 전 삭제)";
   }
 }
 
 function renderTabRow() {
   const opt = els.tabSelect.selectedOptions[0];
-  const ok = !!opt && !!opt.value;
-  setRow(els.markTab, ok ? "ok" : "warn");
-  els.tabSelect.title = opt ? opt.textContent : "";
+  const ok = !!opt;
+  setRow(els.markTab, ok ? "ok" : "warn", els.tabState, ok ? opt.textContent.split(" — ")[1] || opt.textContent : "없음");
+  els.tabState.title = opt ? opt.textContent : "";
   if (!capturing && !busy && !preparing) els.startBtn.disabled = !ok;
 }
 
@@ -274,21 +302,14 @@ async function loadTabs() {
   const tabs = (await chrome.tabs.query({})).filter((t) => /^https?:/.test(t.url || ""));
   tabs.sort((a, b) => Number(b.active) - Number(a.active) || (originOf(b.url) === lastOrigin) - (originOf(a.url) === lastOrigin));
   els.tabSelect.innerHTML = "";
-  if (!tabs.length) {
+  for (const t of tabs) {
     const opt = document.createElement("option");
-    opt.value = "";
-    opt.textContent = "열린 탭 없음";
+    opt.value = String(t.id);
+    opt.textContent = `${new URL(t.url).hostname} — ${(t.title || "").slice(0, 60)}`;
     els.tabSelect.appendChild(opt);
-    setStatus("열린 http(s) 탭이 없습니다. 영상을 먼저 여세요.");
-  } else {
-    for (const t of tabs) {
-      const opt = document.createElement("option");
-      opt.value = String(t.id);
-      opt.textContent = t.title ? `${t.title.slice(0, 50)} (${new URL(t.url).hostname})` : new URL(t.url).hostname;
-      els.tabSelect.appendChild(opt);
-    }
-    if (tabs.some((tab) => String(tab.id) === selectedId)) els.tabSelect.value = selectedId;
   }
+  if (tabs.some((tab) => String(tab.id) === selectedId)) els.tabSelect.value = selectedId;
+  if (!tabs.length) setStatus("열린 http(s) 탭이 없습니다. 영상을 먼저 여세요.");
   renderTabRow();
 }
 
@@ -328,6 +349,7 @@ function onPortMessage(msg) {
   if (msg.type === "preview") showPreview(msg.dataUrl);
   if (msg.type === "frames") {
     queue.push({ frames: msg.frames, times: msg.times });
+    log(`배치 도착 — 프레임 ${msg.frames.length}장 (대기 ${queue.length}배치)`);
     // 프레임은 JPEG data URL이라 장당 100~200KB다. OCR이 캡처보다 느리면 큐가
     // 끝없이 자란다 — 2시간 강의면 수백 MB까지 가고 결국 패널이 죽는다.
     // 오래된 배치를 버려서 메모리를 확정적으로 묶는다. 슬라이드는 몇 초 사이에
@@ -354,17 +376,18 @@ async function prepareLocalSession() {
   if (localSession) return;
   setStatus("온디바이스 Gemini Nano 모델 준비 중...");
   log("Gemini Nano 세션 생성 시도");
+  const prepT0 = Date.now();
   localSession = await createLocalSession((p) => {
     setStatus(`Gemini Nano 모델 다운로드 중 ${Math.round(p * 100)}%`);
   });
-  log("Gemini Nano 준비 완료");
+  log(`Gemini Nano 준비 완료 — ${((Date.now() - prepT0) / 1000).toFixed(1)}초`);
 }
 
 async function prepareTesseract() {
   if (engine !== "tesseract" || tessReady) return;
   setStatus("Tesseract OCR 준비 중... 처음이면 언어 데이터를 읽는 데 잠시 걸립니다.");
   log("Tesseract 워커 생성 시도");
-  await createTesseractWorker((m) => {
+  await createTesseractPool((m) => {
     if (m && m.status) setStatus(`Tesseract ${m.status}${m.progress ? ` ${Math.round(m.progress * 100)}%` : ""}`);
   });
   tessReady = true;
@@ -372,7 +395,14 @@ async function prepareTesseract() {
 }
 
 // --- OCR 큐 ----------------------------------------------------------------------
-const ocrModelFor = (p) => (p === "gemini" ? "gemini-flash-latest" : "claude-haiku-4-5-20251001");
+// 모델 이름은 제공자마다 형식이 다르다. OpenRouter 는 "제공사/모델" 슬러그를 쓰고,
+// Anthropic 직통은 날짜 접미사 없는 이름을 쓴다. 하나로 뭉뚱그리면 404 가 난다.
+const OCR_MODEL = {
+  gemini: "gemini-flash-latest",
+  anthropic: "claude-haiku-4-5",
+  openrouter: "anthropic/claude-haiku-4.5",
+};
+const ocrModelFor = (p) => OCR_MODEL[p] || OCR_MODEL.openrouter;
 
 async function drainQueue() {
   if (draining) return;
@@ -380,11 +410,15 @@ async function drainQueue() {
   try {
     while (queue.length) {
       const { frames, times } = queue.shift();
+      const batchT0 = Date.now();
+      log(`OCR 시작 — ${engine} 엔진으로 ${frames.length}장`);
       setStatus(`OCR 처리 중 (${frames.length}장, 대기 ${queue.length}배치)`);
       let lines;
       if (engine === "remote") {
-        const model = ocrModelFor(settings.provider);
-        const res = await callRemote(settings.provider, model, settings.apiKey, buildOcrBody(settings.provider, model, frames));
+        const configured = settings.provider || "openrouter";
+        const ocrProvider = providerForKey(settings.apiKey, configured);
+        const model = ocrModelFor(ocrProvider);
+        const res = await callRemote(ocrProvider, model, settings.apiKey, buildOcrBody(ocrProvider, model, frames));
         tokens.ocr.input += res.input;
         tokens.ocr.output += res.output;
         lines = parseOcrJson(res.text);
@@ -393,15 +427,18 @@ async function drainQueue() {
         lines = await ocrLocal(localSession, frames, (i, n) => setStatus(`Gemini Nano OCR ${i}/${n}`));
       } else {
         await prepareTesseract();
-        lines = await ocrTesseract(await createTesseractWorker(), frames, (i, n) => setStatus(`Tesseract OCR ${i}/${n}`));
+        lines = await ocrTesseract(await createTesseractPool(), frames, (i, n) => setStatus(`Tesseract OCR ${i}/${n}`));
       }
+      log(
+        `OCR(${engine}) ${frames.length}장 — ${((Date.now() - batchT0) / 1000).toFixed(1)}초 ` +
+          `(장당 ${((Date.now() - batchT0) / frames.length / 1000).toFixed(1)}초, 남은 배치 ${queue.length})`
+      );
       transcript = mergeLines(zipEntries(lines, times), transcript);
       renderRaw();
       renderTokens();
       if (transcript.length && !busy) els.notesBtn.disabled = false;
     }
   } catch (e) {
-    localSession = null;
     fail(String(e.message || e));
   } finally {
     draining = false;
@@ -439,7 +476,9 @@ function buildNotesPrompt(script, truncated) {
     `영상 제목: ${title}\n\n` +
     `아래는 영상 화면과 음성 인식을 통해 얻은 텍스트다. 각 줄 앞의 [mm:ss]는 영상 내 위치다.\n` +
     `${instruction}\n\n[캡처 스크립트]\n${script}\n\n` +
-    `화면 인식(OCR)과 음성 인식 결과라 오탈자나 조각난 문장이 섞여 있다. 명백한 오독은 문맥으로 보정해라.` +
+    `화면 인식(OCR)과 음성 인식 결과라 오탈자나 조각난 문장이 섞여 있다. 명백한 오독은 문맥으로 보정해라.\n` +
+    `"[그림]" 으로 시작하는 부분은 화면에 있던 그래프·표·다이어그램을 옮긴 설명이다. ` +
+    `그 내용을 노트의 표나 Mermaid 다이어그램으로 되살려라. 원문에 없는 수치를 지어내지는 마라.` +
     (truncated ? `\n\n(스크립트가 길어 앞부분 ${MAX_SCRIPT_CHARS}자만 전달됐다. 글 끝에 "이후 구간은 분량 제한으로 포함되지 않았습니다"라고 적어라.)` : "")
   );
 }
@@ -447,7 +486,11 @@ function buildNotesPrompt(script, truncated) {
 // 온디바이스 모델은 컨텍스트가 작아 스크립트를 통째로 못 받는다("The input is too large").
 // 잘라 버리는 대신 구간별로 요약한 뒤 그 요약들을 다시 요약한다. 세션은 매번 새로 뜬다.
 async function notesLocal(full, onProgress) {
-  const s = await createLocalSession(undefined, {}); // 텍스트만 — 이미지 능력 불필요
+  if (onProgress) onProgress("Gemini Nano 세션 준비 중...");
+  const s = await createLocalSession(
+    (loaded) => onProgress && onProgress(`Gemini Nano 모델 다운로드/준비 중... (${Math.round((loaded || 0) / 1024 / 1024)}MB)`),
+    {}
+  );
   try {
     return await summarizeLocal(
       s,
@@ -460,18 +503,17 @@ async function notesLocal(full, onProgress) {
       onProgress
     );
   } finally {
-    if (s.destroy) s.destroy();
+    if (s && s.destroy) s.destroy();
   }
 }
 
 // 원격 호출 한 번. 프롬프트를 만드는 쪽에서 무엇을 담을지 이미 정해져 있다.
 async function notesRemote(prompt) {
-  const provider = settings.provider || "openrouter";
-  const defaultModel =
-    typeof PROVIDER_DEFAULT_MODEL !== "undefined" && PROVIDER_DEFAULT_MODEL[provider]
-      ? PROVIDER_DEFAULT_MODEL[provider]
-      : "anthropic/claude-sonnet-5";
-  const model = settings.summaryModel || defaultModel;
+  // body 를 만들기 전에 제공자를 확정한다. 형식·엔드포인트·응답 파서가 모두
+  // 같은 값을 봐야 한다 — 이게 어긋나면 400 으로 떨어지고 타임라인으로 밀린다.
+  const configured = settings.provider || "openrouter";
+  const provider = providerForKey(settings.apiKey, configured);
+  const model = modelForProvider(provider, configured, settings.summaryModel) || "anthropic/claude-sonnet-5";
   const body = buildSummaryBody(
     provider,
     model,
@@ -484,33 +526,24 @@ async function notesRemote(prompt) {
   return res.text;
 }
 
-// 무료 노트는 원문을 시간순으로만 정리한다. 원문을 축약하거나 API로 보내지 않는다.
-function buildTimeline() {
-  const entries = [...transcript].sort((a, b) => a.time - b.time);
-  const subtitle = (settings && settings.ocrEnabled === false)
-    ? "원문 타임라인 · 음성 인식 결과\n"
-    : "원문 타임라인 · 화면 및 음성 인식 결과\n";
-  return `# ${title || "강의 노트"}\n\n` +
-    subtitle +
-    `인식 오류가 포함될 수 있습니다. 강의와 대조하며 검토해 주세요.\n\n` +
-    entries.map((entry) => `## ${formatTime(entry.time)} · ${entry.text.startsWith("[음성]") ? "음성" : "화면"}\n\n${entry.text.replace(/^\[음성\]\s*/, "")}\n`).join("\n");
-}
+// buildTimeline 은 제거됐다. 인식 원문을 시간순으로 늘어놓는 출력이었는데,
+// AGENTS.md §2 의 "강의 원문을 그대로 재현하지 않는다" 불변식과 정면으로
+// 어긋난다. 요약이 실패하면 원문을 대신 보여주는 대신 사유와 재시도를 준다.
 
 let currentViewMode = "rendered";
 
 function setViewMode(mode) {
   currentViewMode = mode;
   const isRendered = mode === "rendered";
-  if (els.viewRenderedBtn && els.viewRenderedBtn.setAttribute) els.viewRenderedBtn.setAttribute("aria-pressed", String(isRendered));
-  if (els.viewRawBtn && els.viewRawBtn.setAttribute) els.viewRawBtn.setAttribute("aria-pressed", String(!isRendered));
+  if (els.viewRenderedBtn && els.viewRenderedBtn.classList) {
+    els.viewRenderedBtn.classList.toggle("active", isRendered);
+  }
+  if (els.viewRawBtn && els.viewRawBtn.classList) {
+    els.viewRawBtn.classList.toggle("active", !isRendered);
+  }
   if (els.renderFrame) els.renderFrame.hidden = !isRendered;
   if (els.result) els.result.hidden = isRendered;
   if (isRendered) updateRenderedView();
-}
-
-function setNoteBusy(value) {
-  if (els.viewRawBtn) els.viewRawBtn.disabled = value;
-  if (value) setViewMode("rendered");
 }
 
 function updateRenderedView() {
@@ -522,28 +555,23 @@ function updateRenderedView() {
   }
 }
 
-function showNote(text, kind = "summary") {
-  if (els.result.value) resultViews[resultViews.kind] = els.result.value;
-  resultViews[kind] = text;
-  resultViews.kind = kind;
+function showNote(text) {
   els.result.value = text;
   els.result.readOnly = false;
+  if (els.pdfBtn) els.pdfBtn.disabled = !text;
+  if (els.notionBtn) els.notionBtn.disabled = !text;
+  updateRenderedView();
   setViewMode("rendered");
-  els.copyBtn.disabled = false;
-  els.downloadBtn.disabled = false;
-  els.donePill.textContent = kind === "timeline" ? "원문 타임라인" : "노트 완성";
+  els.donePill.textContent = "노트 완성";
   els.resultTitle.textContent = title || "나의 강의 노트";
-  els.resultHint.textContent = kind === "timeline"
-    ? "Free · 인식된 원문을 시간순으로 담았어요. 편집 탭에서 수정할 수 있습니다. 패널을 닫기 전 복사하거나 저장하세요."
-    : "자동 생성된 초안입니다. 읽기 탭에서 수식/그래프를 확인하고 편집 탭에서 고치세요.";
+  els.resultHint.textContent =
+    "자동 생성된 초안입니다. 서식 보기에서 수식/그래프를 확인하고 마크다운 편집 탭에서 수정하세요.";
   const voice = transcript.filter((entry) => entry.text.startsWith("[음성]")).length;
   const slides = transcript.length - voice;
   els.doneSummary.textContent = (settings && settings.ocrEnabled === false)
     ? `음성 ${voice}줄 (화면 캡처 꺼짐)`
     : `화면 ${slides}개 · 음성 ${voice}줄`;
   els.resumeBtn.hidden = false;
-  els.timelineBtn.hidden = kind === "timeline" && !resultViews.summary;
-  els.timelineBtn.textContent = kind === "timeline" ? "요약 노트로 돌아가기" : "원문 타임라인 보기";
   setStage("done");
 }
 
@@ -556,23 +584,21 @@ async function generateNotes() {
   if (els.doneAlert) els.doneAlert.hidden = true;
   setStage("done");
   els.donePill.textContent = "노트 생성 중";
-  setNoteBusy(true);
   els.againBtn.disabled = true;
   els.notesBtn.disabled = true;
-  els.timelineBtn.disabled = true;
   els.formatToggle.disabled = true;
   els.outputFormat.disabled = true;
   els.customPrompt.disabled = true;
+  if (els.pdfBtn) els.pdfBtn.disabled = true;
+  if (els.notionBtn) els.notionBtn.disabled = true;
   setStatus(`텍스트 ${transcript.length}줄로 결과물 생성 중...`);
   try {
     settings = await loadSettings();
     renderPlan();
-    if (els.outputFormat.value === "timeline") {
-      showNote(buildTimeline(), "timeline");
-      setStatus("원문 타임라인이 준비됐어요.");
-      return;
-    }
-
+    log(
+      `노트 생성 — 플랜 ${settings.plan || "premium"}, 형태 ${els.outputFormat.value}, ` +
+        `제공자 ${settings.provider || "openrouter"}, 키 ${settings.apiKey ? "있음" : "없음"}`
+    );
     const full = transcript.map((e) => `[${formatTime(e.time)}] ${e.text}`).join("\n");
     const plan = settings.plan || "premium";
 
@@ -582,32 +608,39 @@ async function generateNotes() {
       const truncated = full.length > MAX_SCRIPT_CHARS;
       const prompt = buildNotesPrompt(truncated ? full.slice(0, MAX_SCRIPT_CHARS) : full, truncated);
       setStatus("Claude Sonnet으로 고품질 학습 노트(수식·그래프 포함) 작성 중...");
+      log(`원격 노트 요청 — 입력 ${prompt.length}자`);
+      const remoteT0 = Date.now();
       text = await notesRemote(prompt);
+      log(`원격 노트 응답 — ${((Date.now() - remoteT0) / 1000).toFixed(1)}초`);
       renderTokens();
     } else {
-      const localReady = typeof localAvailability !== "undefined" && (await localAvailability({})) === "available";
+      const avail = typeof localAvailability !== "undefined" ? await localAvailability({}) : "unavailable";
+      const localReady = avail === "available" || avail === "readily" || avail === "after-download" || avail === "downloadable";
       if (localReady) {
         setStatus("기기 안에서 Gemini Nano로 요약 노트를 작성하는 중...");
-        log("기기 내 Gemini Nano 요약 시작");
-        text = await notesLocal(full, setStatus);
+        log(`기기 내 Gemini Nano 요약 시작 (상태: ${avail}) — 입력 ${full.length}자`);
+        const localT0 = Date.now();
+        text = await notesLocal(full, (progressMsg) => {
+          setStatus(progressMsg);
+        });
+        log(`기기 내 요약 완료 — ${((Date.now() - localT0) / 1000).toFixed(1)}초`);
       } else {
-        showNote(buildTimeline(), "timeline");
-        const notice = "무료 플랜(온디바이스) 모드입니다. 기기 내 요약 모델(Gemini Nano)이 없어 원문 타임라인으로 출력되었습니다. (하단 플랜 선택에서 Premium으로 전환하면 Claude Sonnet의 수식/그래프 요약을 이용할 수 있습니다.)";
-        setStatus(notice);
-        if (els.doneAlert) {
-          els.doneAlert.textContent = notice;
-          els.doneAlert.hidden = false;
-        }
-        return;
+        // 원문을 대신 보여주지 않는다(AGENTS.md §2). 무엇이 없어서 못 만들었는지와
+        // 무엇을 하면 되는지를 알린다.
+        throw new Error(
+          `기기 내 요약 모델(Chrome 내장 Gemini Nano)을 쓸 수 없습니다 (상태: ${avail}). ` +
+            `chrome://flags 에서 #prompt-api-for-gemini-nano 및 #optimization-guide-on-device-model 활성화 상태를 확인하거나, ` +
+            `하단 플랜에서 Premium 으로 바꾸고 API 키를 넣으면 요약할 수 있습니다.`
+        );
       }
     }
 
-    if (!text.trim()) throw new Error("AI가 빈 결과를 반환했습니다. 원문 타임라인을 확인하거나 다시 만들어 주세요.");
+    if (!text.trim()) throw new Error("AI가 빈 결과를 반환했습니다. 다시 만들어 주세요.");
     showNote(text);
     setStatus("완료. 자동 생성된 결과물입니다. 직접 내용을 검토하세요. 패널을 닫으면 사라집니다.");
   } catch (e) {
-    if (!els.result.value) showNote(buildTimeline(), "timeline");
-    const errMsg = `요약 중 오류가 발생하여 원문 타임라인으로 보존되었습니다: ${e.message || e}`;
+    // 인식된 원문은 화면에 내놓지 않는다. 사유만 밝히고 "다시 만들기"를 남긴다.
+    const errMsg = `요약하지 못했습니다: ${e.message || e}`;
     if (els.doneAlert) {
       els.doneAlert.textContent = errMsg;
       els.doneAlert.hidden = false;
@@ -615,14 +648,14 @@ async function generateNotes() {
     return fail(errMsg);
   } finally {
     busy = false;
-    setNoteBusy(false);
     els.againBtn.disabled = false;
     els.notesBtn.disabled = !transcript.length;
-    els.timelineBtn.disabled = !transcript.length;
     els.formatToggle.disabled = false;
     els.outputFormat.disabled = false;
     els.customPrompt.disabled = false;
     els.startBtn.disabled = false;
+    if (els.pdfBtn) els.pdfBtn.disabled = !els.result.value;
+    if (els.notionBtn) els.notionBtn.disabled = !els.result.value;
   }
 }
 
@@ -643,20 +676,36 @@ function finishCapture() {
     renderTabRow();
     return setStatus(els.panelAlert.textContent);
   }
-  // 남은 OCR 배치를 다 처리한 뒤에 노트를 만든다.
+  // 남은 OCR 배치와 음성 인식을 모두 끝낸 뒤에 노트를 만든다. 예전에는 OCR 만
+  // 기다려서, 밀려 있던 음성이 노트에 한 줄도 들어가지 못했다.
+  log(
+    `캡처 종료 — 남은 배치 ${queue.length}, 음성 대기 ${audioCapturer.pending}건, 인식 ${transcript.length}줄`
+  );
+  const waitT0 = Date.now();
   setStatus("캡처를 마쳤어요. 남은 인식 내용을 정리하고 있습니다...");
-  const finishStart = Date.now();
-  const MAX_FINISH_WAIT_MS = 25000;
   finishTimer = setInterval(() => {
-    const timedOut = Date.now() - finishStart > MAX_FINISH_WAIT_MS;
-    if (timedOut && (draining || queue.length)) {
-      log("남은 OCR 처리가 지연되어 현재까지 인식된 텍스트로 노트를 생성합니다.");
-      draining = false;
-      queue = [];
+    const voiceLeft = audioCapturer.pending;
+    const waited = Date.now() - waitT0;
+    // 무한정 기다리지는 않는다. 상한에 닿으면 남은 건수를 밝히고 진행한다 —
+    // 조용히 버리는 것이 지금까지의 문제였다.
+    if ((draining || queue.length || voiceLeft) && waited < FINISH_WAIT_MS) {
+      if (voiceLeft) {
+        setStatus(`음성 인식을 마무리하는 중입니다... 남은 ${voiceLeft}건 (${Math.round(waited / 1000)}초)`);
+        renderProgress();
+      }
+      return;
     }
-    if (draining || queue.length) return;
     clearInterval(finishTimer);
     finishTimer = null;
+    log(`남은 처리 대기 — ${(waited / 1000).toFixed(1)}초 (음성 ${voiceLeft}건 남음)`);
+    if (voiceLeft) {
+      // 여기서부터는 노트에 못 들어간다. 워커가 헛돌며 CPU 를 쓰지 않도록 버린다.
+      audioCapturer.abandonPending();
+      els.panelAlert.textContent =
+        `음성 ${voiceLeft}건이 아직 인식되지 않아 노트에 빠졌습니다. ` +
+        `설정에서 더 가벼운 모델을 쓰거나 1배속으로 재생하면 줄어듭니다.`;
+      els.panelAlert.hidden = false;
+    }
     if (!transcript.length) {
       setStage("ready");
       renderTabRow();
@@ -784,7 +833,9 @@ let audioCapturer = new AudioCapturer();
 audioCapturer.getVideoTime = () => lastVideoTime;
 audioCapturer.onLog = (m) => log(m);
 audioCapturer.onTranscript = (item) => {
-  if (!capturing) return;
+  // 캡처가 끝났다고 버리지 않는다. 인식은 재생보다 느려서 상당수가 종료 뒤에
+  // 도착하는데, 예전에는 여기서 조용히 사라졌다 — 40분 강의의 노트가 앞 1/3 로
+  // 만들어지고 사용자는 그 사실을 알 방법이 없었다. 정렬이 있어 순서는 맞는다.
   transcript.push({ time: item.time, text: `[음성] ${item.text}` });
   // time은 OCR 경로와 같은 "초" 숫자다. 문자열 비교로 정렬하면 OCR 항목에서 터진다.
   transcript.sort((a, b) => a.time - b.time);
@@ -797,7 +848,7 @@ els.startBtn.addEventListener("click", async () => {
   settings = await loadSettings();
   const ocrActive = settings.ocrEnabled !== false;
   if (!ocrActive && !settings.whisperEnabled) {
-    return fail("화면 글자 읽기와 음성 받아쓰기가 모두 꺼져 있습니다. 설정에서 최소 하나를 켜주세요.");
+    return fail("화면 글자 읽기와 말소리 받아쓰기가 모두 꺼져 있습니다. 설정에서 최소 하나를 켜주세요.");
   }
   if (ocrActive && engine === "none") {
     return fail("사용 가능한 OCR 엔진이 없습니다. 설정에서 온디바이스 모델 상태를 확인하세요.");
@@ -824,7 +875,7 @@ els.startBtn.addEventListener("click", async () => {
         engine = "remote";
       } else if (settings.ocrEngine === "nano") {
         const nanoStat = typeof localAvailability !== "undefined" ? await localAvailability() : "unavailable";
-        if (nanoStat === "available") {
+        if (nanoStat === "available" || nanoStat === "readily") {
           engine = "nano";
           await prepareLocalSession();
         } else {
@@ -863,7 +914,7 @@ els.startBtn.addEventListener("click", async () => {
     }
 
     if (!ocrWanted && !audioEnabled) {
-      throw new Error("화면 글자 읽기와 음성 받아쓰기가 모두 꺼져 있거나 준비되지 않았습니다.");
+      throw new Error("화면 글자 읽기와 말소리 받아쓰기가 모두 꺼져 있거나 준비되지 않았습니다.");
     }
 
     if (port !== capturePort) throw new Error("영상 탭 연결이 끊겼어요. 탭을 확인한 뒤 다시 시작해 주세요.");
@@ -878,14 +929,12 @@ els.startBtn.addEventListener("click", async () => {
   tokens.ocr = { input: 0, output: 0 };
   tokens.notes = { input: 0, output: 0 };
   els.result.value = "";
-  updateRenderedView();
-  resultViews = { kind: "timeline", timeline: "", summary: "" };
+  if (els.pdfBtn) els.pdfBtn.disabled = true;
+  if (els.notionBtn) els.notionBtn.disabled = true;
   els.resumeBtn.hidden = true;
   els.result.readOnly = true;
   els.rawScript.textContent = "";
   els.debugLog.textContent = "";
-  els.copyBtn.disabled = true;
-  els.downloadBtn.disabled = true;
   els.notesBtn.disabled = true;
   els.startBtn.disabled = true;
   renderTokens();
@@ -897,6 +946,7 @@ els.startBtn.addEventListener("click", async () => {
     }
     capturing = true;
     els.stopBtn.disabled = false;
+    resetClock(); // 로그 시계를 0으로. "캡처 시작" 줄은 content.js 가 상세와 함께 남긴다.
     setStage("live");
     startElapsed();
     renderProgress();
@@ -920,7 +970,8 @@ els.startBtn.addEventListener("click", async () => {
 
 els.stopBtn.addEventListener("click", () => {
   stopElapsed();
-  audioCapturer.stopCapture();
+  // 여기서 음성 워커를 멈추지 않는다. 인식은 재생보다 느려서 상당수가 아직
+  // 처리 중이고, finishCapture 가 그걸 기다렸다가 노트에 넣는다.
   els.stopBtn.disabled = true;
   if (port) {
     // 마지막 프레임 배치와 done을 받은 뒤 요약한다. 즉시 disconnect하면
@@ -933,12 +984,6 @@ els.stopBtn.addEventListener("click", () => {
 });
 
 els.notesBtn.addEventListener("click", generateNotes);
-els.timelineBtn.addEventListener("click", () => {
-  if (busy || capturing || draining || !transcript.length) return;
-  const kind = resultViews.kind === "timeline" && resultViews.summary ? "summary" : "timeline";
-  showNote(resultViews[kind] || buildTimeline(), kind);
-  setStatus(kind === "timeline" ? "인식된 원문입니다. AI를 다시 호출하지 않았습니다." : "이전에 만든 요약 노트로 돌아왔어요.");
-});
 
 // 캡처·생성 도중 패널을 닫으면 전부 사라진다는 걸 미리 알린다.
 window.addEventListener("beforeunload", (e) => {
@@ -948,29 +993,8 @@ window.addEventListener("beforeunload", (e) => {
   }
 });
 
-// --- 결과 내보내기 (사용자가 직접 저장하는 것만 허용) --------------------------------
-els.copyBtn.addEventListener("click", async () => {
-  try {
-    await navigator.clipboard.writeText(els.result.value);
-    els.copyBtn.textContent = "복사됨 ✓";
-    setTimeout(() => (els.copyBtn.textContent = "복사"), 1500);
-  } catch {
-    setStatus("자동 복사를 완료하지 못했어요. 노트 내용을 선택해 직접 복사해 주세요.");
-    setViewMode("raw");
-    els.result.focus();
-    els.result.select();
-  }
-});
-
-els.downloadBtn.addEventListener("click", () => {
-  const name = (title || "notes").replace(/[\\/:*?"<>|]/g, "_").slice(0, 80);
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([els.result.value], { type: "text/markdown" }));
-  a.download = `${name}.md`;
-  a.click();
-  URL.revokeObjectURL(a.href);
-});
-
+// 요약 노트 출력·복사: 생성된 요약 노트를 사용자가 PDF 인쇄하거나 노션(Notion)에 붙여넣을 수 있게 지원한다.
+// 단, 강의 원문 녹취록(transcript) 복사나 파일 다운로드/타임라인 생성은 배제하여 비대체성 원칙을 지킨다.
 els.tabSelect.addEventListener("change", renderTabRow);
 $("refreshTabsBtn").addEventListener("click", loadTabs);
 
@@ -1042,11 +1066,51 @@ if (els.planSelect) {
   });
 }
 
+if (els.pdfBtn) {
+  els.pdfBtn.addEventListener("click", () => {
+    if (!els.result || !els.result.value) return;
+    if (els.renderFrame && els.renderFrame.contentWindow) {
+      els.renderFrame.contentWindow.postMessage({
+        type: "PRINT",
+        markdown: els.result.value,
+      }, "*");
+    }
+  });
+}
+
+if (els.notionBtn) {
+  els.notionBtn.addEventListener("click", async () => {
+    const text = els.result ? els.result.value : "";
+    if (!text) return;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const prevHidden = els.result.hidden;
+        els.result.hidden = false;
+        els.result.select();
+        document.execCommand("copy");
+        els.result.hidden = prevHidden;
+      }
+      const prevText = els.notionBtn.textContent;
+      els.notionBtn.textContent = "복사 완료! ✓";
+      setStatus("노션(Notion)용 마크다운이 복사되었습니다. 노션 페이지에서 Ctrl+V 로 붙여넣으세요.");
+      setTimeout(() => {
+        els.notionBtn.textContent = prevText;
+      }, 2000);
+    } catch (err) {
+      setStatus(`복사 실패: ${err.message || err}`);
+    }
+  });
+}
+
 window.addEventListener("message", (e) => {
   if (!e.data) return;
   if (e.data.type === "RENDER_HEIGHT" && typeof e.data.height === "number") {
     if (els.renderFrame) {
-      els.renderFrame.style.height = Math.max(e.data.height + 24, 250) + "px";
+      // 요약문 실제 높이에 딱 맞춰 높이 설정 (최소 140px)
+      const fitHeight = Math.max(e.data.height, 140);
+      els.renderFrame.style.height = fitHeight + "px";
     }
   } else if (e.data.type === "RENDERER_READY") {
     updateRenderedView();
@@ -1054,9 +1118,6 @@ window.addEventListener("message", (e) => {
 });
 
 loadTabs();
-window.addEventListener("focus", () => {
-  if (!capturing && !busy && !preparing) loadTabs();
-});
 (async () => {
   settings = await loadSettings();
   if (!settings.consentAccepted) await runOnboarding();

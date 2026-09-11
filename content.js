@@ -7,16 +7,27 @@
   window.__lectureNotesLoaded = true;
 
   // ponytail: 영상마다 다른 튜닝값. 프레임을 너무 많이/적게 잡으면 여기를 조정.
+  // diffThreshold 는 "뚜렷하게 바뀐 픽셀의 비율(%)"이다. 3%면 축소본 1296픽셀 중
+  // 39픽셀 — 슬라이드에서 글자 한두 줄이 바뀌는 정도다. 잡음은 0%에 가깝다.
   const MODES = {
-    slide: { interval: 5000, diffThreshold: 20, batchSize: 8, maxWidth: 1024, sample: [48, 27] },
-    caption: { interval: 2000, diffThreshold: 12, batchSize: 15, maxWidth: 0, rect: { x: 0, y: 0.8, w: 1, h: 0.2 }, sample: [48, 12] },
-    region: { interval: 5000, diffThreshold: 20, batchSize: 8, maxWidth: 1024, sample: [48, 27] },
+    slide: { interval: 5000, diffThreshold: 3, batchSize: 8, maxWidth: 1024, sample: [48, 27] },
+    caption: { interval: 2000, diffThreshold: 5, batchSize: 15, maxWidth: 0, rect: { x: 0, y: 0.8, w: 1, h: 0.2 }, sample: [48, 12] },
+    region: { interval: 5000, diffThreshold: 3, batchSize: 8, maxWidth: 1024, sample: [48, 27] },
   };
+
+  // 배치가 8장을 채울 때까지 기다리면, 슬라이드가 드문 강의에서는 캡처를 멈출
+  // 때까지 인식이 한 건도 시작되지 않는다. 그 기다림이 통째로 "노트 생성 시간"으로
+  // 체감된다. 첫 프레임이 담긴 뒤 이만큼 지나면 덜 찼어도 보낸다.
+  const BATCH_MAX_WAIT = 30000;
 
   let capturing = false;
   let batch = [];
+  let batchStartedAt = 0; // 이 배치의 첫 프레임이 담긴 시각. 시간 초과 전송 판단용
   let audioCtx = null;
   let audioProc = null;
+  // 정지할 때 덜 찬 버퍼를 내보내기 위한 고리. startAudio 가 채우고 stopAudio 가 쓴다.
+  // 없으면 마지막 최대 20초가 통째로 사라진다.
+  let flushAudio = null;
   let ocrEngine = "local"; // 사이드패널이 START로 알려준다 — 엔진마다 원하는 입력 크기가 다르다
   let ocrEnabled = true;
   let lastDiffSample = null;
@@ -64,8 +75,24 @@
     return gray;
   }
 
+  // 한 픽셀이 이만큼 넘게 움직여야 "바뀌었다"고 센다. 압축 잡음은 대개 ±5 안쪽이다.
+  const PIXEL_DELTA = 24;
+
+  // 묻고 싶은 것은 "평균이 얼마나 움직였나"가 아니라 "얼마나 많은 픽셀이 뚜렷하게
+  // 바뀌었나"다. 평균 절대차는 안 바뀐 배경이 값을 희석한다 — 슬라이드는 배경과
+  // 틀이 그대로고 글자만 바뀌므로 이 희석이 심하다. 실측에서 명백한 슬라이드
+  // 전환이 평균차 17.1로 나와 기준을 못 넘었는데, 같은 변화를 비율로 재면 10%다.
+  // 압축 잡음은 픽셀당 변화가 작아 이 지표에서 0%에 가깝게 떨어진다.
   function diffScore(a, b) {
     if (!a || !b) return Infinity;
+    let changed = 0;
+    for (let i = 0; i < a.length; i++) if (Math.abs(a[i] - b[i]) > PIXEL_DELTA) changed++;
+    return (changed / a.length) * 100; // 바뀐 픽셀 비율(%)
+  }
+
+  // 진단용. 예전 지표를 나란히 찍어 기준을 실측으로 맞출 수 있게 남긴다.
+  function meanAbsDiff(a, b) {
+    if (!a || !b) return 0;
     let sum = 0;
     for (let i = 0; i < a.length; i++) sum += Math.abs(a[i] - b[i]);
     return sum / a.length;
@@ -111,7 +138,12 @@
   // 대신 여기, 이미 영상에 접근하고 있는 컨텍스트에서 <video>의 오디오를 직접 딴다.
   // 추가 권한이 하나도 필요 없고, 창이 몇 개든 어떤 탭이든 똑같이 동작한다.
   const AUDIO_HZ = 16000;
-  const CHUNK = AUDIO_HZ * 5; // Whisper에 넘길 5초 단위
+  // Whisper 는 입력이 짧아도 항상 30초 창으로 추론한다. 5초를 넣으면 25초를
+  // 무음으로 패딩한 채 계산하므로 6분의 1만 쓸모 있는 일이 된다. 그 빈 구간이
+  // 반복 루프(환각)도 유도한다. 20초로 올리면 추론 횟수가 1/4 로 줄고 패딩이
+  // 10초로 짧아진다. 대가는 인식 결과가 20초 단위로 늦게 뜨는 것뿐이다.
+  const CHUNK_SECONDS = 20;
+  const CHUNK = AUDIO_HZ * CHUNK_SECONDS;
 
   // 무음 청크는 Whisper에 넣지 않는다. 넣으면 빈 결과가 아니라 환각이 나온다
   // ("감사합니다", "시청해주셔서 감사합니다" 같은 정형구) — 학습 데이터의 자막 상투구다.
@@ -121,7 +153,6 @@
   // 순간 최대값이 함께 낮을 때만 무음으로 판정한다.
   const SILENCE_PEAK = 0.02;
 
-  // 배속 재생 보정.
   // 확장 포트 메시지는 structured clone이 아니라 JSON이다. Float32Array를 그대로 넣으면
   // {"0":0.01,...} 로 부풀어 터진다. int16 PCM + base64가 가장 싼 전송 형식.
   function encodePcm(buf, len) {
@@ -170,42 +201,52 @@
       let silentCount = 0;
       let corsWarned = false;
 
+      // 한 청크를 내보낸다. 꽉 찬 경우와 정지 시 덜 찬 경우가 같은 길을 타야
+      // 무음 판정·타임스탬프가 어긋나지 않는다.
+      const emit = (len) => {
+        if (len <= 0) return;
+        let sum = 0;
+        let peak = 0;
+        for (let k = 0; k < len; k++) {
+          sum += buf[k] * buf[k];
+          const abs = buf[k] < 0 ? -buf[k] : buf[k];
+          if (abs > peak) peak = abs;
+        }
+        const rms = Math.sqrt(sum / len);
+
+        // CORS 무음 감지: 영상이 재생 중이고 볼륨이 켜져 있는데 3연속 완벽한 무음(0)이면 CORS 보안 차단일 가능성이 높음
+        if (rms < 0.00001 && !video.paused && video.volume > 0 && !video.muted) {
+          silentCount++;
+          if (silentCount >= 3 && !corsWarned) {
+            corsWarned = true;
+            debugLog("이 영상은 CORS 보안 정책으로 인해 페이지 내 직접 오디오 추출이 무음(0)으로 차단되고 있습니다.");
+          }
+        } else if (rms >= SILENCE_RMS) {
+          silentCount = 0;
+        }
+
+        // base64 인코딩 전에 거른다 — 버릴 청크에 그 비용을 쓸 이유가 없다.
+        if (rms < SILENCE_RMS && peak < SILENCE_PEAK) {
+          send({ type: "silence", t: chunkStart, rms, peak });
+        } else {
+          send({ type: "audio", pcm: encodePcm(buf, len), t: chunkStart, rms, rate: video.playbackRate || 1 });
+        }
+        chunkStart = video.currentTime;
+        off = 0;
+      };
+
+      // 정지 시 덜 찬 버퍼도 내보낸다. 아주 짧은 꼬리는 인식 가치가 없어 버린다.
+      flushAudio = () => {
+        if (off >= AUDIO_HZ) emit(off);
+        off = 0;
+      };
+
       proc.onaudioprocess = (e) => {
         if (!capturing) return;
         const input = e.inputBuffer.getChannelData(0);
         for (let i = 0; i < input.length; i++) {
           buf[off++] = input[i];
-          if (off >= CHUNK) {
-            let sum = 0;
-            let peak = 0;
-            for (let k = 0; k < CHUNK; k++) {
-              sum += buf[k] * buf[k];
-              const abs = buf[k] < 0 ? -buf[k] : buf[k];
-              if (abs > peak) peak = abs;
-            }
-            const rms = Math.sqrt(sum / CHUNK);
-
-            // CORS 무음 감지: 영상이 재생 중이고 볼륨이 켜져 있는데 3연속 완벽한 무음(0)이면 CORS 보안 차단일 가능성이 높음
-            if (rms < 0.00001 && !video.paused && video.volume > 0 && !video.muted) {
-              silentCount++;
-              if (silentCount >= 3 && !corsWarned) {
-                corsWarned = true;
-                debugLog("이 영상은 CORS 보안 정책으로 인해 페이지 내 직접 오디오 추출이 무음(0)으로 차단되고 있습니다.");
-              }
-            } else if (rms >= SILENCE_RMS) {
-              silentCount = 0;
-            }
-
-            // base64 인코딩 전에 거른다 — 버릴 청크에 그 비용을 쓸 이유가 없다.
-            if (rms < SILENCE_RMS && peak < SILENCE_PEAK) {
-              send({ type: "silence", t: chunkStart, rms, peak });
-            } else {
-              const rate = video.playbackRate || 1;
-              send({ type: "audio", pcm: encodePcm(buf, CHUNK), t: chunkStart, rms, rate });
-            }
-            chunkStart = video.currentTime;
-            off = 0;
-          }
+          if (off >= CHUNK) emit(CHUNK);
         }
       };
       src.connect(proc);
@@ -230,6 +271,11 @@
   }
 
   function stopAudio() {
+    // 워커로 보내기 전에 먼저 비운다. 프로세서를 끊은 뒤에는 버퍼에 손댈 수 없다.
+    if (flushAudio) {
+      flushAudio();
+      flushAudio = null;
+    }
     if (audioProc) {
       audioProc.onaudioprocess = null;
       audioProc.disconnect();
@@ -261,28 +307,46 @@
   // 프레임은 포트로 넘기는 즉시 참조를 끊는다 (GC 대상이 되게).
   function flushBatch() {
     if (batch.length === 0) return;
+    batchStartedAt = 0;
     const frames = batch.map((e) => e.frame);
     const times = batch.map((e) => e.time);
     batch = [];
     send({ type: "frames", frames, times });
   }
 
+  let tickCount = 0;
   function captureLoop(video, px, cfg) {
     if (!capturing) return;
     if (ocrEnabled && px && !video.paused && !video.ended) {
       const sample = sampleForDiff(video, px, cfg);
+      const score = diffScore(sample, lastDiffSample);
+      // 프레임이 왜 안 모이는지는 변화량으로만 알 수 있다. 매 틱을 찍으면 시끄러우니
+      // 30초에 한 번만 — 루프가 살아 있는지와 기준을 넘는지를 동시에 보여준다.
+      if (++tickCount % 6 === 0) {
+        debugLog(
+          `캡처 감시 — 변경 ${score === Infinity ? "첫프레임" : score.toFixed(1) + "%"} ` +
+            `(기준 ${cfg.diffThreshold}%, 평균차 ${meanAbsDiff(sample, lastDiffSample).toFixed(1)}), ` +
+            `모은 프레임 ${batch.length}/${cfg.batchSize}장`
+        );
+      }
       const capped = ocrEngine === "remote" && remoteFrames >= REMOTE_FRAME_CAP;
       if (!capped && diffScore(sample, lastDiffSample) > cfg.diffThreshold) {
         lastDiffSample = sample;
+        if (batch.length === 0) batchStartedAt = Date.now();
         batch.push({ frame: captureFrame(video, px, cfg), time: video.currentTime });
         if (ocrEngine === "remote") remoteFrames++;
         report("capture", `프레임 ${batch.length}장 대기 중`);
+        debugLog(`프레임 포착 ${batch.length}/${cfg.batchSize}장 (변경 ${score === Infinity ? "첫프레임" : score.toFixed(1) + "%"})`);
         if (batch.length >= cfg.batchSize) flushBatch();
         if (ocrEngine === "remote" && remoteFrames === REMOTE_FRAME_CAP) {
           flushBatch();
           debugLog(`원격 인식 프레임 상한 ${REMOTE_FRAME_CAP}장에 도달했습니다. 화면 캡처를 멈추고 음성 인식만 계속합니다.`);
         }
       }
+    }
+    if (batch.length && batchStartedAt && Date.now() - batchStartedAt >= BATCH_MAX_WAIT) {
+      debugLog(`배치 대기 ${BATCH_MAX_WAIT / 1000}초 초과 — ${batch.length}장으로 먼저 보냅니다`);
+      flushBatch();
     }
     // 음성 인식 쪽이 벽시계 대신 영상 시각으로 타임스탬프를 찍게 한다.
     // 배속·탐색 때 벽시계는 영상 시각과 어긋난다(2배속이면 2배로 벌어진다).
