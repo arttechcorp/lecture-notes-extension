@@ -699,6 +699,8 @@ function finishCapture() {
     finishTimer = null;
     log(`남은 처리 대기 — ${(waited / 1000).toFixed(1)}초 (음성 ${voiceLeft}건 남음)`);
     if (voiceLeft) {
+      // 여기서부터는 노트에 못 들어간다. 워커가 헛돌며 CPU 를 쓰지 않도록 버린다.
+      audioCapturer.abandonPending();
       els.panelAlert.textContent =
         `음성 ${voiceLeft}건이 아직 인식되지 않아 노트에 빠졌습니다. ` +
         `설정에서 더 가벼운 모델을 쓰거나 1배속으로 재생하면 줄어듭니다.`;
@@ -969,7 +971,8 @@ els.startBtn.addEventListener("click", async () => {
 
 els.stopBtn.addEventListener("click", () => {
   stopElapsed();
-  audioCapturer.stopCapture();
+  // 여기서 음성 워커를 멈추지 않는다. 인식은 재생보다 느려서 상당수가 아직
+  // 처리 중이고, finishCapture 가 그걸 기다렸다가 노트에 넣는다.
   els.stopBtn.disabled = true;
   if (port) {
     // 마지막 프레임 배치와 done을 받은 뒤 요약한다. 즉시 disconnect하면
