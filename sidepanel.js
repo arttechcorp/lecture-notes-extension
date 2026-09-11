@@ -28,6 +28,7 @@ const els = {
   doneSummary: $("doneSummary"), donePill: $("donePill"), againBtn: $("againBtn"), summarySettingsBtn: $("summarySettingsBtn"),
   resultTitle: $("resultTitle"), resultHint: $("resultHint"), resumeBtn: $("resumeBtn"),
   renderFrame: $("renderFrame"), viewRenderedBtn: $("viewRenderedBtn"), viewRawBtn: $("viewRawBtn"),
+  pdfBtn: $("pdfBtn"), notionBtn: $("notionBtn"), exportRow: $("exportRow"),
   // 하단
   planLine: $("planLine"), planSelect: $("planSelect"), planName: $("planName"), planUse: $("planUse"),
 };
@@ -553,6 +554,8 @@ function updateRenderedView() {
 function showNote(text) {
   els.result.value = text;
   els.result.readOnly = false;
+  if (els.pdfBtn) els.pdfBtn.disabled = !text;
+  if (els.notionBtn) els.notionBtn.disabled = !text;
   updateRenderedView();
   setViewMode("rendered");
   els.donePill.textContent = "노트 완성";
@@ -582,6 +585,8 @@ async function generateNotes() {
   els.formatToggle.disabled = true;
   els.outputFormat.disabled = true;
   els.customPrompt.disabled = true;
+  if (els.pdfBtn) els.pdfBtn.disabled = true;
+  if (els.notionBtn) els.notionBtn.disabled = true;
   setStatus(`텍스트 ${transcript.length}줄로 결과물 생성 중...`);
   try {
     settings = await loadSettings();
@@ -644,6 +649,8 @@ async function generateNotes() {
     els.outputFormat.disabled = false;
     els.customPrompt.disabled = false;
     els.startBtn.disabled = false;
+    if (els.pdfBtn) els.pdfBtn.disabled = !els.result.value;
+    if (els.notionBtn) els.notionBtn.disabled = !els.result.value;
   }
 }
 
@@ -917,6 +924,8 @@ els.startBtn.addEventListener("click", async () => {
   tokens.ocr = { input: 0, output: 0 };
   tokens.notes = { input: 0, output: 0 };
   els.result.value = "";
+  if (els.pdfBtn) els.pdfBtn.disabled = true;
+  if (els.notionBtn) els.notionBtn.disabled = true;
   els.resumeBtn.hidden = true;
   els.result.readOnly = true;
   els.rawScript.textContent = "";
@@ -979,8 +988,8 @@ window.addEventListener("beforeunload", (e) => {
   }
 });
 
-// 내보내기 컨트롤은 두지 않는다. AGENTS.md §2 의 출력 경계 — 평문 스크립트와
-// 노트의 다운로드·복사·내보내기 금지. 화면에서 읽는 것까지가 이 도구의 범위다.
+// 요약 노트 출력·복사: 생성된 요약 노트를 사용자가 PDF 인쇄하거나 노션(Notion)에 붙여넣을 수 있게 지원한다.
+// 단, 강의 원문 녹취록(transcript) 복사나 파일 다운로드/타임라인 생성은 배제하여 비대체성 원칙을 지킨다.
 els.tabSelect.addEventListener("change", renderTabRow);
 $("refreshTabsBtn").addEventListener("click", loadTabs);
 
@@ -1049,6 +1058,44 @@ if (els.planSelect) {
     await saveSettings({ plan: settings.plan });
     renderPlan();
     log(`플랜 전환: ${settings.plan}`);
+  });
+}
+
+if (els.pdfBtn) {
+  els.pdfBtn.addEventListener("click", () => {
+    if (!els.result || !els.result.value) return;
+    if (els.renderFrame && els.renderFrame.contentWindow) {
+      els.renderFrame.contentWindow.postMessage({
+        type: "PRINT",
+        markdown: els.result.value,
+      }, "*");
+    }
+  });
+}
+
+if (els.notionBtn) {
+  els.notionBtn.addEventListener("click", async () => {
+    const text = els.result ? els.result.value : "";
+    if (!text) return;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const prevHidden = els.result.hidden;
+        els.result.hidden = false;
+        els.result.select();
+        document.execCommand("copy");
+        els.result.hidden = prevHidden;
+      }
+      const prevText = els.notionBtn.textContent;
+      els.notionBtn.textContent = "복사 완료! ✓";
+      setStatus("노션(Notion)용 마크다운이 복사되었습니다. 노션 페이지에서 Ctrl+V 로 붙여넣으세요.");
+      setTimeout(() => {
+        els.notionBtn.textContent = prevText;
+      }, 2000);
+    } catch (err) {
+      setStatus(`복사 실패: ${err.message || err}`);
+    }
   });
 }
 

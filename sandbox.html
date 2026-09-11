@@ -145,6 +145,48 @@
       padding: 40px 12px;
       font-size: 13px;
     }
+    @media print {
+      @page {
+        margin: 12mm 15mm;
+        size: A4 portrait;
+      }
+      body {
+        padding: 0 !important;
+        margin: 0 !important;
+        background: #ffffff !important;
+        color: #111827 !important;
+        font-size: 11pt !important;
+        line-height: 1.6 !important;
+      }
+      h1, h2, h3, h4 {
+        color: #000000 !important;
+        page-break-after: avoid;
+      }
+      h1 { font-size: 18pt !important; border-bottom: 2px solid #000 !important; margin-top: 0 !important; }
+      h2 { font-size: 14pt !important; border-bottom: 1px solid #666 !important; }
+      h3 { font-size: 12pt !important; }
+      table, pre, blockquote, .mermaid-box {
+        page-break-inside: avoid !important;
+      }
+      table {
+        border-collapse: collapse !important;
+        width: 100% !important;
+        display: table !important;
+      }
+      th, td {
+        border: 1px solid #999 !important;
+        padding: 6px 10px !important;
+      }
+      th {
+        background-color: #f3f4f6 !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      .mermaid-box {
+        background: #ffffff !important;
+        border: 1px solid #ddd !important;
+      }
+    }
   </style>
   <script src="lib/vendor/marked.min.js"></script>
   <script src="lib/vendor/katex/katex.min.js"></script>
@@ -262,8 +304,18 @@
     }
 
     window.addEventListener('message', (event) => {
-      if (event.data && event.data.type === 'RENDER') {
-        renderMarkdown(event.data.markdown || '');
+      if (event.data) {
+        if (event.data.type === 'RENDER') {
+          renderMarkdown(event.data.markdown || '');
+        } else if (event.data.type === 'PRINT') {
+          if (typeof event.data.markdown === 'string') {
+            renderMarkdown(event.data.markdown).then(() => {
+              setTimeout(() => window.print(), 100);
+            });
+          } else {
+            window.print();
+          }
+        }
       }
     });
 
