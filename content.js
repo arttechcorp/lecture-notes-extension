@@ -7,14 +7,22 @@
   window.__lectureNotesLoaded = true;
 
   // ponytail: 영상마다 다른 튜닝값. 프레임을 너무 많이/적게 잡으면 여기를 조정.
+  // diffThreshold 는 "뚜렷하게 바뀐 픽셀의 비율(%)"이다. 3%면 축소본 1296픽셀 중
+  // 39픽셀 — 슬라이드에서 글자 한두 줄이 바뀌는 정도다. 잡음은 0%에 가깝다.
   const MODES = {
-    slide: { interval: 5000, diffThreshold: 20, batchSize: 8, maxWidth: 1024, sample: [48, 27] },
-    caption: { interval: 2000, diffThreshold: 12, batchSize: 15, maxWidth: 0, rect: { x: 0, y: 0.8, w: 1, h: 0.2 }, sample: [48, 12] },
-    region: { interval: 5000, diffThreshold: 20, batchSize: 8, maxWidth: 1024, sample: [48, 27] },
+    slide: { interval: 5000, diffThreshold: 3, batchSize: 8, maxWidth: 1024, sample: [48, 27] },
+    caption: { interval: 2000, diffThreshold: 5, batchSize: 15, maxWidth: 0, rect: { x: 0, y: 0.8, w: 1, h: 0.2 }, sample: [48, 12] },
+    region: { interval: 5000, diffThreshold: 3, batchSize: 8, maxWidth: 1024, sample: [48, 27] },
   };
+
+  // 배치가 8장을 채울 때까지 기다리면, 슬라이드가 드문 강의에서는 캡처를 멈출
+  // 때까지 인식이 한 건도 시작되지 않는다. 그 기다림이 통째로 "노트 생성 시간"으로
+  // 체감된다. 첫 프레임이 담긴 뒤 이만큼 지나면 덜 찼어도 보낸다.
+  const BATCH_MAX_WAIT = 30000;
 
   let capturing = false;
   let batch = [];
+  let batchStartedAt = 0; // 이 배치의 첫 프레임이 담긴 시각. 시간 초과 전송 판단용
   let audioCtx = null;
   let audioProc = null;
   let ocrEngine = "local"; // 사이드패널이 START로 알려준다 — 엔진마다 원하는 입력 크기가 다르다
@@ -64,8 +72,24 @@
     return gray;
   }
 
+  // 한 픽셀이 이만큼 넘게 움직여야 "바뀌었다"고 센다. 압축 잡음은 대개 ±5 안쪽이다.
+  const PIXEL_DELTA = 24;
+
+  // 묻고 싶은 것은 "평균이 얼마나 움직였나"가 아니라 "얼마나 많은 픽셀이 뚜렷하게
+  // 바뀌었나"다. 평균 절대차는 안 바뀐 배경이 값을 희석한다 — 슬라이드는 배경과
+  // 틀이 그대로고 글자만 바뀌므로 이 희석이 심하다. 실측에서 명백한 슬라이드
+  // 전환이 평균차 17.1로 나와 기준을 못 넘었는데, 같은 변화를 비율로 재면 10%다.
+  // 압축 잡음은 픽셀당 변화가 작아 이 지표에서 0%에 가깝게 떨어진다.
   function diffScore(a, b) {
     if (!a || !b) return Infinity;
+    let changed = 0;
+    for (let i = 0; i < a.length; i++) if (Math.abs(a[i] - b[i]) > PIXEL_DELTA) changed++;
+    return (changed / a.length) * 100; // 바뀐 픽셀 비율(%)
+  }
+
+  // 진단용. 예전 지표를 나란히 찍어 기준을 실측으로 맞출 수 있게 남긴다.
+  function meanAbsDiff(a, b) {
+    if (!a || !b) return 0;
     let sum = 0;
     for (let i = 0; i < a.length; i++) sum += Math.abs(a[i] - b[i]);
     return sum / a.length;
@@ -261,28 +285,46 @@
   // 프레임은 포트로 넘기는 즉시 참조를 끊는다 (GC 대상이 되게).
   function flushBatch() {
     if (batch.length === 0) return;
+    batchStartedAt = 0;
     const frames = batch.map((e) => e.frame);
     const times = batch.map((e) => e.time);
     batch = [];
     send({ type: "frames", frames, times });
   }
 
+  let tickCount = 0;
   function captureLoop(video, px, cfg) {
     if (!capturing) return;
     if (ocrEnabled && px && !video.paused && !video.ended) {
       const sample = sampleForDiff(video, px, cfg);
+      const score = diffScore(sample, lastDiffSample);
+      // 프레임이 왜 안 모이는지는 변화량으로만 알 수 있다. 매 틱을 찍으면 시끄러우니
+      // 30초에 한 번만 — 루프가 살아 있는지와 기준을 넘는지를 동시에 보여준다.
+      if (++tickCount % 6 === 0) {
+        debugLog(
+          `캡처 감시 — 변경 ${score === Infinity ? "첫프레임" : score.toFixed(1) + "%"} ` +
+            `(기준 ${cfg.diffThreshold}%, 평균차 ${meanAbsDiff(sample, lastDiffSample).toFixed(1)}), ` +
+            `모은 프레임 ${batch.length}/${cfg.batchSize}장`
+        );
+      }
       const capped = ocrEngine === "remote" && remoteFrames >= REMOTE_FRAME_CAP;
       if (!capped && diffScore(sample, lastDiffSample) > cfg.diffThreshold) {
         lastDiffSample = sample;
+        if (batch.length === 0) batchStartedAt = Date.now();
         batch.push({ frame: captureFrame(video, px, cfg), time: video.currentTime });
         if (ocrEngine === "remote") remoteFrames++;
         report("capture", `프레임 ${batch.length}장 대기 중`);
+        debugLog(`프레임 포착 ${batch.length}/${cfg.batchSize}장 (변경 ${score === Infinity ? "첫프레임" : score.toFixed(1) + "%"})`);
         if (batch.length >= cfg.batchSize) flushBatch();
         if (ocrEngine === "remote" && remoteFrames === REMOTE_FRAME_CAP) {
           flushBatch();
           debugLog(`원격 인식 프레임 상한 ${REMOTE_FRAME_CAP}장에 도달했습니다. 화면 캡처를 멈추고 음성 인식만 계속합니다.`);
         }
       }
+    }
+    if (batch.length && batchStartedAt && Date.now() - batchStartedAt >= BATCH_MAX_WAIT) {
+      debugLog(`배치 대기 ${BATCH_MAX_WAIT / 1000}초 초과 — ${batch.length}장으로 먼저 보냅니다`);
+      flushBatch();
     }
     // 음성 인식 쪽이 벽시계 대신 영상 시각으로 타임스탬프를 찍게 한다.
     // 배속·탐색 때 벽시계는 영상 시각과 어긋난다(2배속이면 2배로 벌어진다).

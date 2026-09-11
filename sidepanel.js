@@ -87,11 +87,21 @@ const MAX_QUEUE_BATCHES = 4;
 const setStatus = (t) => (els.status.textContent = t);
 // 로그는 2시간짜리 강의면 수천 줄까지 자란다. 오래된 건 진단에 쓸모가 없다.
 const LOG_MAX_LINES = 500;
+
+// 어느 단계가 느린지는 줄 사이의 간격으로만 알 수 있다. 캡처 시작을 0으로 잡고
+// 경과 시각을 붙인다. 벽시계보다 이쪽이 읽기 쉽다 — 단계 간 소요가 바로 뺄셈이 된다.
+let logT0 = Date.now();
+const resetClock = () => (logT0 = Date.now());
+function stamp() {
+  const s = (Date.now() - logT0) / 1000;
+  return `[${String(Math.floor(s / 60)).padStart(2, "0")}:${(s % 60).toFixed(1).padStart(4, "0")}]`;
+}
 const log = (t) => {
-  const lines = (els.debugLog.textContent + t + "\n").split("\n");
+  const lines = (els.debugLog.textContent + `${stamp()} ${t}` + "\n").split("\n");
   els.debugLog.textContent = lines.slice(-LOG_MAX_LINES).join("\n");
   els.debugLog.scrollTop = els.debugLog.scrollHeight;
 };
+
 
 // 토큰 수는 원격 호출로 실제 과금이 일어났을 때만 의미가 있다. 로컬만 쓰는
 // 사용자에게 0이 두 줄 떠 있는 건 정보가 아니라 잡음이다.
@@ -159,6 +169,13 @@ function setRow(mark, cls, valEl, text) {
 async function detectEngine() {
   settings = await loadSettings();
   els.langSelect.value = settings.whisperLang;
+  // timeline 은 더 이상 출력 형태가 아니다(결과 화면의 버튼으로 옮겼다).
+  // 예전에 그 값을 저장한 사용자가 계속 막히지 않도록 풀어준다.
+  if (settings.outputFormat === "timeline") {
+    settings.outputFormat = "summary";
+    saveSettings({ outputFormat: "summary" });
+    log("저장된 출력 형태 'timeline' 을 '핵심 요약본' 으로 되돌렸습니다.");
+  }
   els.outputFormat.value = settings.outputFormat || "summary";
   els.customPrompt.style.display = els.outputFormat.value === "custom" ? "block" : "none";
   if (els.ocrEnabledToggle) {
@@ -223,7 +240,7 @@ async function detectEngine() {
 // 설정은 한 줄로 접어둔다. 대부분 기본값으로 쓰고, 바꿀 때만 편다.
 const MODE_LABEL = { region: "슬라이드 영역만", slide: "전체 화면", caption: "하단 자막 띠" };
 const LANG_LABEL = { auto: "언어 자동", korean: "한국어", english: "영어" };
-const FORMAT_LABEL = { timeline: "원문 타임라인 · 무료", summary: "핵심 요약본", custom: "직접 입력" };
+const FORMAT_LABEL = { summary: "핵심 요약본", custom: "직접 입력" };
 
 function renderSettingsSummary() {
   const ocrPart = (settings && settings.ocrEnabled === false)
@@ -321,6 +338,7 @@ function onPortMessage(msg) {
   if (msg.type === "preview") showPreview(msg.dataUrl);
   if (msg.type === "frames") {
     queue.push({ frames: msg.frames, times: msg.times });
+    log(`배치 도착 — 프레임 ${msg.frames.length}장 (대기 ${queue.length}배치)`);
     // 프레임은 JPEG data URL이라 장당 100~200KB다. OCR이 캡처보다 느리면 큐가
     // 끝없이 자란다 — 2시간 강의면 수백 MB까지 가고 결국 패널이 죽는다.
     // 오래된 배치를 버려서 메모리를 확정적으로 묶는다. 슬라이드는 몇 초 사이에
@@ -347,17 +365,18 @@ async function prepareLocalSession() {
   if (localSession) return;
   setStatus("온디바이스 Gemini Nano 모델 준비 중...");
   log("Gemini Nano 세션 생성 시도");
+  const prepT0 = Date.now();
   localSession = await createLocalSession((p) => {
     setStatus(`Gemini Nano 모델 다운로드 중 ${Math.round(p * 100)}%`);
   });
-  log("Gemini Nano 준비 완료");
+  log(`Gemini Nano 준비 완료 — ${((Date.now() - prepT0) / 1000).toFixed(1)}초`);
 }
 
 async function prepareTesseract() {
   if (engine !== "tesseract" || tessReady) return;
   setStatus("Tesseract OCR 준비 중... 처음이면 언어 데이터를 읽는 데 잠시 걸립니다.");
   log("Tesseract 워커 생성 시도");
-  await createTesseractWorker((m) => {
+  await createTesseractPool((m) => {
     if (m && m.status) setStatus(`Tesseract ${m.status}${m.progress ? ` ${Math.round(m.progress * 100)}%` : ""}`);
   });
   tessReady = true;
@@ -365,7 +384,14 @@ async function prepareTesseract() {
 }
 
 // --- OCR 큐 ----------------------------------------------------------------------
-const ocrModelFor = (p) => (p === "gemini" ? "gemini-flash-latest" : "claude-haiku-4-5-20251001");
+// 모델 이름은 제공자마다 형식이 다르다. OpenRouter 는 "제공사/모델" 슬러그를 쓰고,
+// Anthropic 직통은 날짜 접미사 없는 이름을 쓴다. 하나로 뭉뚱그리면 404 가 난다.
+const OCR_MODEL = {
+  gemini: "gemini-flash-latest",
+  anthropic: "claude-haiku-4-5",
+  openrouter: "anthropic/claude-haiku-4.5",
+};
+const ocrModelFor = (p) => OCR_MODEL[p] || OCR_MODEL.openrouter;
 
 async function drainQueue() {
   if (draining) return;
@@ -373,11 +399,15 @@ async function drainQueue() {
   try {
     while (queue.length) {
       const { frames, times } = queue.shift();
+      const batchT0 = Date.now();
+      log(`OCR 시작 — ${engine} 엔진으로 ${frames.length}장`);
       setStatus(`OCR 처리 중 (${frames.length}장, 대기 ${queue.length}배치)`);
       let lines;
       if (engine === "remote") {
-        const model = ocrModelFor(settings.provider);
-        const res = await callRemote(settings.provider, model, settings.apiKey, buildOcrBody(settings.provider, model, frames));
+        const configured = settings.provider || "openrouter";
+        const ocrProvider = providerForKey(settings.apiKey, configured);
+        const model = ocrModelFor(ocrProvider);
+        const res = await callRemote(ocrProvider, model, settings.apiKey, buildOcrBody(ocrProvider, model, frames));
         tokens.ocr.input += res.input;
         tokens.ocr.output += res.output;
         lines = parseOcrJson(res.text);
@@ -386,8 +416,12 @@ async function drainQueue() {
         lines = await ocrLocal(localSession, frames, (i, n) => setStatus(`Gemini Nano OCR ${i}/${n}`));
       } else {
         await prepareTesseract();
-        lines = await ocrTesseract(await createTesseractWorker(), frames, (i, n) => setStatus(`Tesseract OCR ${i}/${n}`));
+        lines = await ocrTesseract(await createTesseractPool(), frames, (i, n) => setStatus(`Tesseract OCR ${i}/${n}`));
       }
+      log(
+        `OCR(${engine}) ${frames.length}장 — ${((Date.now() - batchT0) / 1000).toFixed(1)}초 ` +
+          `(장당 ${((Date.now() - batchT0) / frames.length / 1000).toFixed(1)}초, 남은 배치 ${queue.length})`
+      );
       transcript = mergeLines(zipEntries(lines, times), transcript);
       renderRaw();
       renderTokens();
@@ -431,7 +465,9 @@ function buildNotesPrompt(script, truncated) {
     `영상 제목: ${title}\n\n` +
     `아래는 영상 화면과 음성 인식을 통해 얻은 텍스트다. 각 줄 앞의 [mm:ss]는 영상 내 위치다.\n` +
     `${instruction}\n\n[캡처 스크립트]\n${script}\n\n` +
-    `화면 인식(OCR)과 음성 인식 결과라 오탈자나 조각난 문장이 섞여 있다. 명백한 오독은 문맥으로 보정해라.` +
+    `화면 인식(OCR)과 음성 인식 결과라 오탈자나 조각난 문장이 섞여 있다. 명백한 오독은 문맥으로 보정해라.\n` +
+    `"[그림]" 으로 시작하는 부분은 화면에 있던 그래프·표·다이어그램을 옮긴 설명이다. ` +
+    `그 내용을 노트의 표나 Mermaid 다이어그램으로 되살려라. 원문에 없는 수치를 지어내지는 마라.` +
     (truncated ? `\n\n(스크립트가 길어 앞부분 ${MAX_SCRIPT_CHARS}자만 전달됐다. 글 끝에 "이후 구간은 분량 제한으로 포함되지 않았습니다"라고 적어라.)` : "")
   );
 }
@@ -458,12 +494,11 @@ async function notesLocal(full, onProgress) {
 
 // 원격 호출 한 번. 프롬프트를 만드는 쪽에서 무엇을 담을지 이미 정해져 있다.
 async function notesRemote(prompt) {
-  const provider = settings.provider || "openrouter";
-  const defaultModel =
-    typeof PROVIDER_DEFAULT_MODEL !== "undefined" && PROVIDER_DEFAULT_MODEL[provider]
-      ? PROVIDER_DEFAULT_MODEL[provider]
-      : "anthropic/claude-sonnet-5";
-  const model = settings.summaryModel || defaultModel;
+  // body 를 만들기 전에 제공자를 확정한다. 형식·엔드포인트·응답 파서가 모두
+  // 같은 값을 봐야 한다 — 이게 어긋나면 400 으로 떨어지고 타임라인으로 밀린다.
+  const configured = settings.provider || "openrouter";
+  const provider = providerForKey(settings.apiKey, configured);
+  const model = modelForProvider(provider, configured, settings.summaryModel) || "anthropic/claude-sonnet-5";
   const body = buildSummaryBody(
     provider,
     model,
@@ -558,12 +593,10 @@ async function generateNotes() {
   try {
     settings = await loadSettings();
     renderPlan();
-    if (els.outputFormat.value === "timeline") {
-      showNote(buildTimeline(), "timeline");
-      setStatus("원문 타임라인이 준비됐어요.");
-      return;
-    }
-
+    log(
+      `노트 생성 — 플랜 ${settings.plan || "premium"}, 형태 ${els.outputFormat.value}, ` +
+        `제공자 ${settings.provider || "openrouter"}, 키 ${settings.apiKey ? "있음" : "없음"}`
+    );
     const full = transcript.map((e) => `[${formatTime(e.time)}] ${e.text}`).join("\n");
     const plan = settings.plan || "premium";
 
@@ -573,14 +606,19 @@ async function generateNotes() {
       const truncated = full.length > MAX_SCRIPT_CHARS;
       const prompt = buildNotesPrompt(truncated ? full.slice(0, MAX_SCRIPT_CHARS) : full, truncated);
       setStatus("Claude Sonnet으로 고품질 학습 노트(수식·그래프 포함) 작성 중...");
+      log(`원격 노트 요청 — 입력 ${prompt.length}자`);
+      const remoteT0 = Date.now();
       text = await notesRemote(prompt);
+      log(`원격 노트 응답 — ${((Date.now() - remoteT0) / 1000).toFixed(1)}초`);
       renderTokens();
     } else {
       const localReady = typeof localAvailability !== "undefined" && (await localAvailability({})) === "available";
       if (localReady) {
         setStatus("기기 안에서 Gemini Nano로 요약 노트를 작성하는 중...");
-        log("기기 내 Gemini Nano 요약 시작");
+        log(`기기 내 Gemini Nano 요약 시작 — 입력 ${full.length}자`);
+        const localT0 = Date.now();
         text = await notesLocal(full, setStatus);
+        log(`기기 내 요약 — ${((Date.now() - localT0) / 1000).toFixed(1)}초`);
       } else {
         showNote(buildTimeline(), "timeline");
         const notice = "무료 플랜(온디바이스) 모드입니다. 기기 내 요약 모델(Gemini Nano)이 없어 원문 타임라인으로 출력되었습니다. (하단 플랜 선택에서 Premium으로 전환하면 Claude Sonnet의 수식/그래프 요약을 이용할 수 있습니다.)";
@@ -634,11 +672,14 @@ function finishCapture() {
     return setStatus(els.panelAlert.textContent);
   }
   // 남은 OCR 배치를 다 처리한 뒤에 노트를 만든다.
+  log(`캡처 종료 — 남은 배치 ${queue.length}, 인식 ${transcript.length}줄`);
+  const waitT0 = Date.now();
   setStatus("캡처를 마쳤어요. 남은 인식 내용을 정리하고 있습니다...");
   finishTimer = setInterval(() => {
     if (draining || queue.length) return;
     clearInterval(finishTimer);
     finishTimer = null;
+    log(`남은 OCR 처리 대기 — ${((Date.now() - waitT0) / 1000).toFixed(1)}초`);
     if (!transcript.length) {
       setStage("ready");
       renderTabRow();
@@ -878,6 +919,7 @@ els.startBtn.addEventListener("click", async () => {
     }
     capturing = true;
     els.stopBtn.disabled = false;
+    resetClock(); // 로그 시계를 0으로. "캡처 시작" 줄은 content.js 가 상세와 함께 남긴다.
     setStage("live");
     startElapsed();
     renderProgress();
