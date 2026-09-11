@@ -5,7 +5,7 @@
 const $ = (id) => document.getElementById(id);
 const els = {
   tabSelect: $("tabSelect"), modeSelect: $("modeSelect"), langSelect: $("langSelect"), startBtn: $("startBtn"), stopBtn: $("stopBtn"),
-  copyBtn: $("copyBtn"), downloadBtn: $("downloadBtn"), notesBtn: $("notesBtn"), previewBtn: $("previewBtn"),
+  notesBtn: $("notesBtn"), previewBtn: $("previewBtn"),
   status: $("status"), result: $("result"), rawScript: $("rawScript"), tokenUsage: $("tokenUsage"),
   debugLog: $("debugLog"), banner: $("engineBanner"), cropRow: $("cropRow"), cropWrap: $("cropWrap"),
   cropImg: $("cropImg"), cropBox: $("cropBox"), cropHint: $("cropHint"),
@@ -26,7 +26,7 @@ const els = {
   feedLines: $("feedLines"), panelAlert: $("panelAlert"),
   // 완료
   doneSummary: $("doneSummary"), donePill: $("donePill"), againBtn: $("againBtn"), summarySettingsBtn: $("summarySettingsBtn"),
-  resultTitle: $("resultTitle"), resultHint: $("resultHint"), timelineBtn: $("timelineBtn"), resumeBtn: $("resumeBtn"),
+  resultTitle: $("resultTitle"), resultHint: $("resultHint"), resumeBtn: $("resumeBtn"),
   renderFrame: $("renderFrame"), viewRenderedBtn: $("viewRenderedBtn"), viewRawBtn: $("viewRawBtn"),
   // 하단
   planLine: $("planLine"), planSelect: $("planSelect"), planName: $("planName"), planUse: $("planUse"),
@@ -77,7 +77,6 @@ let lastVideoTime = 0; // content.js가 알려주는 영상 재생 위치(초)
 // 에러가 뜬 뒤에는 상태줄을 잠근다. content.js가 5초마다 보내는 진행 메시지가
 // 같은 자리에 덮어써서, 에러가 5초만 보이고 흔적 없이 사라지던 문제를 막는다.
 let statusSticky = false;
-let resultViews = { kind: "timeline", timeline: "", summary: "" };
 
 const tokens = { ocr: { input: 0, output: 0 }, notes: { input: 0, output: 0 } };
 
@@ -516,17 +515,9 @@ async function notesRemote(prompt) {
   return res.text;
 }
 
-// 무료 노트는 원문을 시간순으로만 정리한다. 원문을 축약하거나 API로 보내지 않는다.
-function buildTimeline() {
-  const entries = [...transcript].sort((a, b) => a.time - b.time);
-  const subtitle = (settings && settings.ocrEnabled === false)
-    ? "원문 타임라인 · 음성 인식 결과\n"
-    : "원문 타임라인 · 화면 및 음성 인식 결과\n";
-  return `# ${title || "강의 노트"}\n\n` +
-    subtitle +
-    `인식 오류가 포함될 수 있습니다. 강의와 대조하며 검토해 주세요.\n\n` +
-    entries.map((entry) => `## ${formatTime(entry.time)} · ${entry.text.startsWith("[음성]") ? "음성" : "화면"}\n\n${entry.text.replace(/^\[음성\]\s*/, "")}\n`).join("\n");
-}
+// buildTimeline 은 제거됐다. 인식 원문을 시간순으로 늘어놓는 출력이었는데,
+// AGENTS.md §2 의 "강의 원문을 그대로 재현하지 않는다" 불변식과 정면으로
+// 어긋난다. 요약이 실패하면 원문을 대신 보여주는 대신 사유와 재시도를 준다.
 
 let currentViewMode = "rendered";
 
@@ -553,29 +544,21 @@ function updateRenderedView() {
   }
 }
 
-function showNote(text, kind = "summary") {
-  if (els.result.value) resultViews[resultViews.kind] = els.result.value;
-  resultViews[kind] = text;
-  resultViews.kind = kind;
+function showNote(text) {
   els.result.value = text;
   els.result.readOnly = false;
   updateRenderedView();
   setViewMode("rendered");
-  els.copyBtn.disabled = false;
-  els.downloadBtn.disabled = false;
-  els.donePill.textContent = kind === "timeline" ? "원문 타임라인" : "노트 완성";
+  els.donePill.textContent = "노트 완성";
   els.resultTitle.textContent = title || "나의 강의 노트";
-  els.resultHint.textContent = kind === "timeline"
-    ? "Free · 인식된 원문을 시간순으로 담았어요. 직접 수정할 수 있습니다. 패널을 닫기 전 복사하거나 저장하세요."
-    : "자동 생성된 초안입니다. 서식 보기에서 수식/그래프를 확인하고 마크다운 편집 탭에서 수정하세요.";
+  els.resultHint.textContent =
+    "자동 생성된 초안입니다. 서식 보기에서 수식/그래프를 확인하고 마크다운 편집 탭에서 수정하세요.";
   const voice = transcript.filter((entry) => entry.text.startsWith("[음성]")).length;
   const slides = transcript.length - voice;
   els.doneSummary.textContent = (settings && settings.ocrEnabled === false)
     ? `음성 ${voice}줄 (화면 캡처 꺼짐)`
     : `화면 ${slides}개 · 음성 ${voice}줄`;
   els.resumeBtn.hidden = false;
-  els.timelineBtn.hidden = kind === "timeline" && !resultViews.summary;
-  els.timelineBtn.textContent = kind === "timeline" ? "요약 노트로 돌아가기" : "원문 타임라인 보기";
   setStage("done");
 }
 
@@ -590,7 +573,6 @@ async function generateNotes() {
   els.donePill.textContent = "노트 생성 중";
   els.againBtn.disabled = true;
   els.notesBtn.disabled = true;
-  els.timelineBtn.disabled = true;
   els.formatToggle.disabled = true;
   els.outputFormat.disabled = true;
   els.customPrompt.disabled = true;
@@ -625,23 +607,21 @@ async function generateNotes() {
         text = await notesLocal(full, setStatus);
         log(`기기 내 요약 — ${((Date.now() - localT0) / 1000).toFixed(1)}초`);
       } else {
-        showNote(buildTimeline(), "timeline");
-        const notice = "무료 플랜(온디바이스) 모드입니다. 기기 내 요약 모델(Gemini Nano)이 없어 원문 타임라인으로 출력되었습니다. (하단 플랜 선택에서 Premium으로 전환하면 Claude Sonnet의 수식/그래프 요약을 이용할 수 있습니다.)";
-        setStatus(notice);
-        if (els.doneAlert) {
-          els.doneAlert.textContent = notice;
-          els.doneAlert.hidden = false;
-        }
-        return;
+        // 원문을 대신 보여주지 않는다(AGENTS.md §2). 무엇이 없어서 못 만들었는지와
+        // 무엇을 하면 되는지를 알린다.
+        throw new Error(
+          "기기 내 요약 모델(Chrome 내장)을 쓸 수 없습니다. 설정에서 모델을 내려받거나, " +
+            "하단 플랜에서 Premium 으로 바꾸고 API 키를 넣으면 요약할 수 있습니다."
+        );
       }
     }
 
-    if (!text.trim()) throw new Error("AI가 빈 결과를 반환했습니다. 원문 타임라인을 확인하거나 다시 만들어 주세요.");
+    if (!text.trim()) throw new Error("AI가 빈 결과를 반환했습니다. 다시 만들어 주세요.");
     showNote(text);
     setStatus("완료. 자동 생성된 결과물입니다. 직접 내용을 검토하세요. 패널을 닫으면 사라집니다.");
   } catch (e) {
-    if (!els.result.value) showNote(buildTimeline(), "timeline");
-    const errMsg = `요약 중 오류가 발생하여 원문 타임라인으로 보존되었습니다: ${e.message || e}`;
+    // 인식된 원문은 화면에 내놓지 않는다. 사유만 밝히고 "다시 만들기"를 남긴다.
+    const errMsg = `요약하지 못했습니다: ${e.message || e}`;
     if (els.doneAlert) {
       els.doneAlert.textContent = errMsg;
       els.doneAlert.hidden = false;
@@ -651,7 +631,6 @@ async function generateNotes() {
     busy = false;
     els.againBtn.disabled = false;
     els.notesBtn.disabled = !transcript.length;
-    els.timelineBtn.disabled = !transcript.length;
     els.formatToggle.disabled = false;
     els.outputFormat.disabled = false;
     els.customPrompt.disabled = false;
@@ -929,13 +908,10 @@ els.startBtn.addEventListener("click", async () => {
   tokens.ocr = { input: 0, output: 0 };
   tokens.notes = { input: 0, output: 0 };
   els.result.value = "";
-  resultViews = { kind: "timeline", timeline: "", summary: "" };
   els.resumeBtn.hidden = true;
   els.result.readOnly = true;
   els.rawScript.textContent = "";
   els.debugLog.textContent = "";
-  els.copyBtn.disabled = true;
-  els.downloadBtn.disabled = true;
   els.notesBtn.disabled = true;
   els.startBtn.disabled = true;
   renderTokens();
@@ -985,12 +961,6 @@ els.stopBtn.addEventListener("click", () => {
 });
 
 els.notesBtn.addEventListener("click", generateNotes);
-els.timelineBtn.addEventListener("click", () => {
-  if (busy || capturing || draining || !transcript.length) return;
-  const kind = resultViews.kind === "timeline" && resultViews.summary ? "summary" : "timeline";
-  showNote(resultViews[kind] || buildTimeline(), kind);
-  setStatus(kind === "timeline" ? "인식된 원문입니다. AI를 다시 호출하지 않았습니다." : "이전에 만든 요약 노트로 돌아왔어요.");
-});
 
 // 캡처·생성 도중 패널을 닫으면 전부 사라진다는 걸 미리 알린다.
 window.addEventListener("beforeunload", (e) => {
@@ -1000,28 +970,8 @@ window.addEventListener("beforeunload", (e) => {
   }
 });
 
-// --- 결과 내보내기 (사용자가 직접 저장하는 것만 허용) --------------------------------
-els.copyBtn.addEventListener("click", async () => {
-  try {
-    await navigator.clipboard.writeText(els.result.value);
-    els.copyBtn.textContent = "복사됨 ✓";
-    setTimeout(() => (els.copyBtn.textContent = "복사"), 1500);
-  } catch {
-    setStatus("자동 복사를 완료하지 못했어요. 노트 내용을 선택해 직접 복사해 주세요.");
-    els.result.focus();
-    els.result.select();
-  }
-});
-
-els.downloadBtn.addEventListener("click", () => {
-  const name = (title || "notes").replace(/[\\/:*?"<>|]/g, "_").slice(0, 80);
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([els.result.value], { type: "text/markdown" }));
-  a.download = `${name}.md`;
-  a.click();
-  URL.revokeObjectURL(a.href);
-});
-
+// 내보내기 컨트롤은 두지 않는다. AGENTS.md §2 의 출력 경계 — 평문 스크립트와
+// 노트의 다운로드·복사·내보내기 금지. 화면에서 읽는 것까지가 이 도구의 범위다.
 els.tabSelect.addEventListener("change", renderTabRow);
 $("refreshTabsBtn").addEventListener("click", loadTabs);
 
