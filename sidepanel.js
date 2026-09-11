@@ -390,6 +390,7 @@ async function drainQueue() {
       if (transcript.length && !busy) els.notesBtn.disabled = false;
     }
   } catch (e) {
+    localSession = null;
     fail(String(e.message || e));
   } finally {
     draining = false;
@@ -588,7 +589,15 @@ function finishCapture() {
   }
   // 남은 OCR 배치를 다 처리한 뒤에 노트를 만든다.
   setStatus("캡처를 마쳤어요. 남은 인식 내용을 정리하고 있습니다...");
+  const finishStart = Date.now();
+  const MAX_FINISH_WAIT_MS = 25000;
   finishTimer = setInterval(() => {
+    const timedOut = Date.now() - finishStart > MAX_FINISH_WAIT_MS;
+    if (timedOut && (draining || queue.length)) {
+      log("남은 OCR 처리가 지연되어 현재까지 인식된 텍스트로 노트를 생성합니다.");
+      draining = false;
+      queue = [];
+    }
     if (draining || queue.length) return;
     clearInterval(finishTimer);
     finishTimer = null;
