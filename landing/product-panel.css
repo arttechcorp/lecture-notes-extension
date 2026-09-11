@@ -41,7 +41,7 @@
     --btn-edge: inset 0 1px 0 rgba(255, 255, 255, 0.15);
 
     /* Typography */
-    --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Pretendard", "IBM Plex Sans KR", sans-serif;
+    --font-sans: "IBM Plex Sans KR", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     --font-serif: "Hedvig Letters Serif", Georgia, serif;
     --font-mono: "Geist Mono", Menlo, Monaco, Consolas, monospace;
 

@@ -6,12 +6,13 @@
 <title>Summrizei 제품 체험</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Hedvig+Letters+Serif:opsz@12..24&family=Geist+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="product-panel.css?v=20260911-3">
+<link rel="stylesheet" href="product-panel.css?v=20260911-4">
 <style>
   /* 제품 UI는 product-panel.css를 그대로 사용한다. 아래는 체험 안내에만 적용한다. */
   html { overflow: hidden; }
   /* iframe의 높이를 본문에 맞추므로, 뷰어 높이가 다시 iframe 높이에 의존하지 않게 한다. */
   #stageDone .note-surface { max-height: 480px; }
+  @media (max-width: 900px) { #stageDone .note-surface { max-height: 300px; } }
   .demo-action { position: relative; margin-top: 24px; }
   .demo-guide { position: absolute; z-index: 1; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; width: max-content; max-width: 100%; padding: 8px 10px 8px 13px; background: var(--ink); color: var(--paper); border-radius: 9px; font-size: 11px; box-shadow: var(--lift-2); }
   .demo-guide::after { content: ''; position: absolute; left: calc(50% - 5px); top: 100%; border: 5px solid transparent; border-top-color: var(--ink); }
