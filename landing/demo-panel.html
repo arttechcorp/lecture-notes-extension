@@ -17,8 +17,13 @@
   .demo-guide button::before { content: ''; position: absolute; width: 44px; height: 44px; left: 50%; top: 50%; transform: translate(-50%, -50%); }
   .demo-guide button:hover { background: #ffffff20; }
   .demo-guide button:focus-visible { outline-color: #fff; }
-  .demo-note-actions { display: flex; gap: 8px; }
-  .demo-note-actions button { flex: 1; }
+  #startGuide { animation: guide-nudge 2.8s ease-in-out infinite; }
+  #startGuide:hover, #startGuide:focus-within { animation-play-state: paused; }
+  @keyframes guide-nudge {
+    0%, 45%, 100% { transform: translate(-50%, 0); }
+    20% { transform: translate(-50%, -4px); }
+  }
+  @media (prefers-reduced-motion: reduce) { #startGuide { animation: none; } }
   #result { resize: none; }
   dialog { width: calc(100% - 32px); max-width: 380px; padding: 22px; border: 1px solid var(--rule); border-radius: var(--r-lg); background: var(--ground); color: var(--ink); box-sizing: border-box; }
   dialog::backdrop { background: #18181b40; }

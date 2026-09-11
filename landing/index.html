@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Hedvig+Letters+Serif:opsz@12..24&family=Geist+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="landing.css">
-<link rel="stylesheet" href="hero-mockup.css">
+<link rel="stylesheet" href="hero-mockup.css?v=20260911-2">
 </head>
 <body>
 <a class="skip" href="#main">본문으로 이동</a>
@@ -78,7 +78,7 @@
             <span class="lec-rate" aria-hidden="true">1×</span>
           </div>
         </div>
-        <iframe class="demo-panel" src="demo-panel.html" title="Summrizei 준비, 캡처, 노트 만들기 체험" sandbox="allow-same-origin" loading="eager"></iframe>
+        <iframe class="demo-panel" src="demo-panel.html?v=20260911-2" title="Summrizei 준비, 캡처, 노트 만들기 체험" sandbox="allow-same-origin" loading="eager"></iframe>
       </div>
     </div>
     <figcaption id="mockCaption" class="mock-caption">버튼을 눌러 캡처부터 노트 완성까지 체험해보세요. 화면과 음성은 준비된 예시로 재생됩니다.</figcaption>
@@ -122,5 +122,7 @@
 <dialog id="sampleDialog" aria-labelledby="sampleTitle"><div class="dialog-head"><div><p class="eyebrow" id="sampleLabel"></p><h2 id="sampleTitle">노트 예시</h2></div><form method="dialog"><button class="close-button" aria-label="예시 닫기">닫기 ×</button></form></div><p class="sample-origin" id="sampleOrigin"></p><article class="sample-body" id="sampleBody"></article></dialog>
 <dialog id="checkout" class="compact-dialog" aria-labelledby="checkoutTitle"><div class="dialog-head"><h2 id="checkoutTitle">플랜 선택</h2><form method="dialog"><button class="close-button">닫기 ×</button></form></div><p class="checkout-price" id="checkoutDescription"></p><p id="checkoutStatus" role="status"></p><a id="checkoutLink" class="button dark" hidden>결제 페이지로 이동 ↗</a><a class="policy-link" href="policies/refund.html">결제 및 환불 정책</a></dialog>
 <dialog id="installDialog" class="compact-dialog" aria-labelledby="installTitle"><div class="dialog-head"><h2 id="installTitle">Summrizei 시작하기</h2><form method="dialog"><button class="close-button">닫기 ×</button></form></div><p>Chrome 웹 스토어 등록을 준비하고 있습니다. 등록이 완료되면 이곳에서 설치할 수 있습니다.</p><p class="micro">이미 설치한 경우 Chrome 도구 모음의 Summrizei 아이콘을 눌러 패널을 여세요.</p></dialog>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.15.0/gsap.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.15.0/ScrollTrigger.min.js"></script><script src="gsap-animations.js"></script><script src="hero-mockup.js"></script><script src="checkout-config.js"></script><script src="examples.js"></script><script src="landing.js"></script>
+<!-- 시연은 장식용 CDN의 다운로드를 기다리지 않고 바로 연결한다. -->
+<script src="hero-mockup.js?v=20260911-2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.15.0/gsap.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.15.0/ScrollTrigger.min.js"></script><script src="gsap-animations.js"></script><script src="checkout-config.js"></script><script src="examples.js"></script><script src="landing.js"></script>
 </body></html>

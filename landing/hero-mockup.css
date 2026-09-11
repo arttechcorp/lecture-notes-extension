@@ -8,15 +8,25 @@
 }
 .mock-preview-note a { margin-left: 8px; }
 
-.hero-stacked { display: block; padding-block: 76px 84px; }
-.hero-stacked .hero-copy { max-width: 46ch; }
-.hero-stacked .lead { max-width: 52ch; }
+.hero-stacked { display: block; padding-block: 42px 34px; }
+.hero-stacked .hero-copy {
+  display: grid;
+  grid-template-columns: minmax(240px, 1.15fr) minmax(260px, 1fr) minmax(190px, .65fr);
+  align-items: end;
+  gap: 14px 40px;
+  max-width: none;
+}
+.hero-stacked .eyebrow { grid-column: 1 / -1; }
+.hero-stacked h1 { grid-column: 1; margin: 0; }
+.hero-stacked .lead { grid-column: 2; max-width: none; }
+.hero-stacked .hero-actions { grid-column: 3; margin: 0; }
+.hero-stacked .micro { grid-column: 3; }
 .mock {
   --m-ink: #232321;
   --m-muted: #686863;
   --m-rule: #deded8;
   --m-orange: var(--accent, #ff5600);
-  margin: 52px 0 0;
+  margin: 24px 0 0;
   container-type: inline-size;
 }
 .mock-caption { margin-top: 18px; color: var(--m-muted); font-size: 12px; line-height: 1.7; }
@@ -113,21 +123,31 @@
 .demo-announcement { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 @media (max-width: 1100px) {
-  .hero-stacked { padding-block: 58px 64px; }
-  .mock { margin-top: 40px; }
+  .hero-stacked { padding-block: 34px 30px; }
+  .hero-stacked .hero-copy { column-gap: 24px; }
+  .mock { margin-top: 22px; }
   .mock-body { grid-template-columns: minmax(0, 1fr) 370px; }
   .lec-chapter { display: none; }
   .lec-topbar { gap: 10px; padding-inline: 14px; }
 }
 @media (max-width: 900px) {
-  .mock { margin-top: 32px; }
+  .hero-stacked .hero-copy {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: 28px;
+  }
+  .hero-stacked .hero-actions,
+  .hero-stacked .micro { grid-column: 2; }
+  .mock { margin-top: 26px; }
   .mock-body { grid-template-columns: 1fr; }
   .demo-panel { border-left: 0; border-top: 1px solid var(--m-rule); }
   .lec-stage { padding: 18px; }
   .lecture-caption { margin-top: 12px; min-height: 36px; }
 }
 @media (max-width: 760px) {
-  .hero-stacked { padding-inline: 16px; padding-block: 48px; }
+  .hero-stacked { padding-inline: 16px; padding-block: 42px; }
+  .hero-stacked .hero-copy { display: block; }
+  .hero-stacked h1 { margin: 25px 0; }
+  .hero-stacked .hero-actions { margin: 31px 0 20px; }
 }
 @media (max-width: 600px) {
   .mock-caption { font-size: 11px; }
