@@ -268,7 +268,13 @@ function renderPlan() {
     els.planUse.textContent = "수식·그래프·고품질 요약";
   } else {
     els.planName.textContent = "🌱 Free (무료 플랜)";
-    els.planUse.textContent = "온디바이스 Nano 또는 원문 타임라인";
+    els.planUse.textContent = "온디바이스 Nano";
+  }
+
+  // 개발용 키 파일이 쓰이는 중이면 알린다. 폴더를 압축해 배포하면 키가 함께
+  // 나가므로, 잊고 지나치지 않게 계속 보이는 자리에 둔다.
+  if (settings.devKeyInUse) {
+    els.planUse.textContent += " · 키 파일 사용 중(배포 전 삭제)";
   }
 }
 
