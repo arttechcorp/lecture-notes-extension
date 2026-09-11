@@ -4,203 +4,16 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Summrizei</title>
-<style>
-  /* 흑백. 색이 없으므로 계층은 명도와 그림자로만 만든다.
-     상태(정상/주의/꺼짐)도 색이 아니라 채움과 굵기로 구분한다. */
-  :root {
-    --paper: #ffffff;
-    --ground: #f3f3f2;
-    --ink: #181818;
-    --ash: #666666;
-    --faint: #767676;
-    --rule: #e4e4e4;
-    --sunk: #f1f1f1;
-    --r-lg: 14px;
-    --r-md: 10px;
-    --lift-1: 0 1px 2px rgba(0,0,0,.06), 0 1px 6px rgba(0,0,0,.04);
-    --lift-2: 0 2px 5px rgba(0,0,0,.07), 0 10px 26px rgba(0,0,0,.09);
-    --inset: inset 0 1px 3px rgba(0,0,0,.07);
-    --btn-face: linear-gradient(180deg, #2a2a2a, #000000);
-    --btn-text: #ffffff;
-    --btn-edge: inset 0 1px 0 rgba(255,255,255,.18);
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --paper: #121212;
-      --ground: #0a0a0a;
-      --ink: #ffffff;
-      --ash: #9d9d9d;
-      --faint: #a0a0a0;
-      --rule: #2a2a2a;
-      --sunk: #1a1a1a;
-      --lift-1: 0 1px 2px rgba(0,0,0,.6);
-      --lift-2: 0 2px 6px rgba(0,0,0,.6), 0 10px 26px rgba(0,0,0,.5);
-      --inset: inset 0 1px 3px rgba(0,0,0,.5);
-      --btn-face: linear-gradient(180deg, #ffffff, #d9d9d9);
-      --btn-text: #000000;
-      --btn-edge: inset 0 1px 0 rgba(255,255,255,.9);
-    }
-  }
-
-  [hidden] { display: none !important; }
-  * { box-sizing: border-box; }
-  body {
-    font: 13.5px/1.65 system-ui, sans-serif; margin: 0; padding: 20px 18px;
-    color: var(--ink); background: var(--ground);
-    display: flex; flex-direction: column; gap: 20px;
-  }
-  h1 { font-size: 20px; margin: 0; font-weight: 750; letter-spacing: -.055em; }
-  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  #stageReady, #stageLive, #stageDone { display: flex; flex-direction: column; gap: 18px; }
-  .brand-caption { margin: 2px 0 0; color: var(--ash); font-size: 11px; letter-spacing: .035em; }
-  .stage-steps { display: flex; align-items: center; gap: 8px; padding: 12px 0; border-block: 1px solid var(--rule); }
-  .stage-steps span { flex: 1; font-size: 11px; color: var(--ash); }
-  .stage-steps span.active { color: var(--ink); font-weight: 700; }
-  .stage-steps i { width: 16px; height: 1px; background: var(--rule); }
-  .intro h2 { font-size: 22px; line-height: 1.4; letter-spacing: -.05em; margin: 0 0 7px; font-weight: 650; }
-  .eyebrow { font-size: 10px; font-weight: 650; letter-spacing: .12em; color: var(--ash); margin: 0 0 8px; }
-  .result-title { font-size: 15px; font-weight: 650; margin: -5px 0 0; overflow-wrap: anywhere; }
-  .result-help { border-left: 2px solid var(--rule); padding-left: 11px; }
-  .optional-api { padding: 12px 14px; border: 1px solid var(--rule); border-radius: var(--r-md); background: var(--paper); }
-  .optional-api p { margin: 10px 0; }
-  .optional-api summary { color: var(--ink); font-weight: 600; }
-
-  button {
-    font: inherit; padding: 8px 12px; border: 1px solid var(--rule); border-radius: var(--r-md);
-    background: var(--paper); color: var(--ink); cursor: pointer; box-shadow: var(--lift-1);
-    transition: transform 140ms ease, box-shadow 140ms ease;
-  }
-  button:hover:not(:disabled) { transform: translateY(-1px); box-shadow: var(--lift-2); }
-  button:disabled { opacity: .4; cursor: not-allowed; box-shadow: none; }
-  button.primary, button.danger {
-    font-weight: 600; width: 100%; padding: 12px; font-size: 14px; border-radius: 100px;
-  }
-  button.primary {
-    background: var(--btn-face); color: var(--btn-text); border-color: transparent;
-    box-shadow: var(--lift-2), var(--btn-edge);
-  }
-  /* 중지는 되돌릴 수 없는 행동이라 굵은 테두리로 구분한다. 색을 쓰지 않는다. */
-  button.danger { background: var(--paper); color: var(--ink); border: 1.5px solid var(--ink); box-shadow: var(--lift-1); }
-  button.link {
-    border: 0; background: none; color: var(--ash); font-weight: 500; padding: 0;
-    font-size: 12.5px; box-shadow: none; text-decoration: underline; text-underline-offset: 3px;
-  }
-  button.link:hover { color: var(--ink); transform: none; box-shadow: none; }
-  button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-  .btnrow { display: flex; gap: 9px; }
-  .btnrow button { flex: 1; font-size: 12.5px; padding: 9px 6px; }
-
-  select, textarea, input[type="text"] {
-    font: inherit; width: 100%; padding: 8px 9px; border-radius: var(--r-md);
-    border: 1px solid var(--rule); background: var(--sunk); color: var(--ink); box-shadow: var(--inset);
-  }
-  select:focus-visible, textarea:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
-  label { font-size: 12px; color: var(--ash); display: block; margin-bottom: 4px; }
-  .field + .field { margin-top: 18px; }
-
-  .readycard {
-    background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r-lg); padding: 17px 15px;
-    display: flex; flex-direction: column; gap: 14px; box-shadow: var(--lift-1);
-  }
-  .checkrow { display: flex; align-items: center; gap: 9px; font-size: 12.5px; }
-  /* 상태는 색이 아니라 채움으로 읽힌다: 채운 원=정상, 속 빈 원=주의, 옅은 원=꺼짐 */
-  .checkrow .mark {
-    width: 15px; height: 15px; flex-shrink: 0; border-radius: 50%;
-    display: inline-flex; align-items: center; justify-content: center;
-    font-size: 9px; font-weight: 700; line-height: 1;
-    background: var(--ink); color: var(--paper);
-  }
-  .checkrow .mark.warn { background: transparent; color: var(--ink); border: 1.5px solid var(--ink); }
-  .checkrow .mark.off { background: var(--rule); color: var(--faint); }
-  .checkrow .what { flex: 1; }
-  .checkrow .val { color: var(--ash); font-size: 11px; text-align: right; max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .detail { font-size: 12px; color: var(--ash); margin: 0; }
-
-  .settingbar {
-    display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r-md); padding: 12px 13px; font-size: 12.5px;
-    box-shadow: var(--lift-1);
-  }
-  .settingbar .summary { color: var(--ash); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #settingsDrawer { background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r-lg); padding: 18px 15px; box-shadow: var(--lift-2); }
-
-  .statusline { display: flex; align-items: center; gap: 8px; }
-  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border-radius: 100px; font-size: 11.5px; font-weight: 600; }
-  .pill.live { background: var(--ink); color: var(--paper); }
-  .pill.ok { background: var(--paper); color: var(--ink); box-shadow: var(--lift-1); }
-  .pulse { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: blink 1.4s ease-in-out infinite; }
-  @keyframes blink { 0%,100% { opacity: 1 } 50% { opacity: .2 } }
-  @media (prefers-reduced-motion: reduce) {
-    .pulse { animation: none }
-    button:hover:not(:disabled) { transform: none }
-  }
-  .sub { color: var(--ash); font-size: 12.5px; }
-
-  .counters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-  .counter { background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r-md); padding: 15px 12px; box-shadow: var(--lift-1); }
-  .counter b { display: block; font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.15; }
-  .counter span { font-size: 11px; color: var(--ash); }
-
-  .feed {
-    background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r-lg); padding: 16px 14px;
-    display: flex; flex-direction: column; gap: 13px; box-shadow: var(--lift-1);
-  }
-  .feed .head { font-size: 11.5px; color: var(--faint); display: flex; justify-content: space-between; }
-  #feedLines { display: flex; flex-direction: column; gap: 11px; font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
-  #feedLines div { display: flex; gap: 8px; color: var(--ash); }
-  #feedLines div:last-child { color: var(--ink); }
-  #feedLines .t { font-family: ui-monospace, monospace; font-size: 11px; flex-shrink: 0; color: var(--faint); }
-
-  /* 경고도 색 없이. 반전으로 눈에 띄게 한다. */
-  .alert {
-    border-radius: var(--r-md); padding: 11px 12px; font-size: 12.5px;
-    display: flex; flex-direction: column; gap: 5px;
-    background: var(--ink); color: var(--paper); box-shadow: var(--lift-2);
-  }
-  .alert b { font-weight: 600; }
-
-  #result { width: 100%; height: 360px; min-height: 220px; padding: 19px 16px; background: var(--paper); font: 13px/1.85 system-ui, sans-serif; resize: vertical; box-shadow: var(--lift-1); }
-
-  details { font-size: 12px; }
-  details summary { cursor: pointer; color: var(--ash); }
-  details pre {
-    font: 11px/1.45 ui-monospace, monospace; white-space: pre-wrap; max-height: 200px;
-    overflow-y: auto; background: var(--sunk); padding: 9px; border-radius: var(--r-md);
-    margin: 7px 0 0; box-shadow: var(--inset); color: var(--ash);
-  }
-
-  footer { border-top: 1px solid var(--rule); padding-top: 16px; display: flex; flex-direction: column; gap: 8px; }
-  footer p { margin: 0; }
-  a { color: var(--ink); text-underline-offset: 3px; }
-  #status:empty { display: none; }
-  #cropRow { flex-direction: column; align-items: flex-start; gap: 5px; }
-  #planLine { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
-  #planName { font-weight: 600; }
-  #planUse { color: var(--ash); font-variant-numeric: tabular-nums; }
-  .legal { font-size: 11.5px; color: var(--faint); line-height: 1.45; }
-
-  #cropWrap { position: relative; display: none; margin-top: 9px; user-select: none; }
-  #cropWrap img { width: 100%; display: block; border-radius: var(--r-md); }
-  #cropBox { position: absolute; border: 2px solid var(--ink); background: rgba(0,0,0,.14); display: none; }
-  @media (prefers-color-scheme: dark) { #cropBox { background: rgba(255,255,255,.16); } }
-
-  #onboard {
-    display: flex; flex-direction: column; gap: 13px;
-    background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r-lg); padding: 20px 16px; box-shadow: var(--lift-2);
-  }
-  .step { display: grid; grid-template-columns: 18px 1fr; gap: 10px; align-items: start; }
-  .step .n { font-size: 11px; font-family: ui-monospace, monospace; color: var(--faint); padding-top: 3px; }
-  .step .c { display: flex; flex-direction: column; gap: 6px; }
-  .step b { font-size: 13px; font-weight: 600; }
-  .step .why { font-size: 12px; color: var(--ash); }
-  .checkline { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; }
-  .checkline input { margin-top: 3px; accent-color: var(--ink); }
-</style>
+<script src="lib/theme.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hedvig+Letters+Serif:opsz@12..24&family=Geist+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="landing/product-panel.css">
 </head>
 <body>
 
 <div class="topbar">
-  <div><h1>Summrizei</h1><p class="brand-caption">강의의 흐름을, 나의 노트로.</p></div>
+  <div><h1>Summr<span>i</span>zei<span class="brand-dot">.</span></h1><p class="brand-caption">강의의 흐름을, 나의 노트로.</p></div>
   <button class="link" id="settingsLink" type="button">설정</button>
 </div>
 <nav class="stage-steps" aria-label="노트 만들기 단계"><span id="stepReady" class="active">01 준비</span><i aria-hidden="true"></i><span id="stepLive">02 캡처</span><i aria-hidden="true"></i><span id="stepDone">03 노트</span></nav>
@@ -276,7 +89,7 @@
     <label for="tabSelect">영상이 열린 탭</label>
     <div style="display:flex; gap:6px;">
       <select id="tabSelect"></select>
-      <button id="refreshTabsBtn" title="탭 목록 새로고침" aria-label="탭 목록 새로고침" type="button">↻</button>
+      <button id="refreshTabsBtn" title="탭 목록 새로고침" aria-label="탭 목록 새로고침" type="button"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.19"/></svg></button>
     </div>
   </div>
 
@@ -365,7 +178,17 @@
   <div class="alert warn" id="doneAlert" hidden></div>
   <h2 class="result-title" id="resultTitle">나의 강의 노트</h2>
 
-  <textarea id="result" aria-label="강의 노트 내용" placeholder="노트가 여기 표시됩니다. 인식된 내용을 직접 검토해 주세요." readonly></textarea>
+  <div class="note-toolbar">
+    <div class="note-modes" role="group" aria-label="노트 보기 방식">
+      <button id="noteReadBtn" type="button" aria-pressed="true" aria-controls="notePreview">읽기</button>
+      <button id="noteEditBtn" type="button" aria-pressed="false" aria-controls="result">편집</button>
+    </div>
+    <button class="note-copy" id="copyBtn" type="button" disabled>복사</button>
+  </div>
+  <div class="note-surface" id="noteSurface">
+    <article class="note-document" id="notePreview" aria-label="강의 노트" tabindex="0"></article>
+    <textarea id="result" aria-label="강의 노트 Markdown 편집" placeholder="노트 내용을 작성하세요." readonly hidden></textarea>
+  </div>
   <p class="detail result-help" id="resultHint">내용을 직접 고친 뒤 복사하거나 저장할 수 있어요. 패널을 닫으면 노트가 사라집니다.</p>
 
   <div class="settingbar">
@@ -376,7 +199,6 @@
   <details class="optional-api"><summary>AI 요약 연결하기 · 선택</summary><p class="detail">Claude 또는 Gemini API 키를 저장한 뒤 이 패널에서 ‘다시 만들기’를 누르세요. 캡처한 원문은 그대로 유지됩니다.</p><button id="summarySettingsBtn" type="button">API 키 설정</button></details>
 
   <div class="btnrow">
-    <button id="copyBtn" type="button" disabled>복사</button>
     <button id="downloadBtn" type="button" disabled>.md 저장</button>
     <button id="notesBtn" type="button" disabled title="재캡처 없이 선택한 형태로 다시 만듭니다">다시 만들기</button>
   </div>
@@ -414,6 +236,8 @@
   <script src="lib/settings.js"></script>
   <script src="lib/audio.js"></script>
   <script src="lib/ai.js"></script>
+  <script src="landing/vendor/markdown-it.min.js"></script>
+  <script src="landing/note-viewer.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

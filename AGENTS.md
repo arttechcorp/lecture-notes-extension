@@ -8,6 +8,7 @@ Rules for Codex, Claude Code, and Antigravity.
 - Update this file first if form factor changes to Electron, desktop, or web app.
 - No build steps or bundlers.
 - Code style references: Inspect `lib/ai.js` and `lib/mergeLines.js`.
+- Read `memory.md` for cross-file couplings that the code does not reveal (e.g. the landing hero mockup mirrors `sidepanel.html`).
 
 ## 2. Invariants (Legal & Architecture)
 

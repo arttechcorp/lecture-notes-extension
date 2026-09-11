@@ -30,6 +30,7 @@ const els = {
   // 하단
   planName: $("planName"), planUse: $("planUse"),
 };
+const noteViewer = NoteViewer.create(document);
 
 // --- 단계 전환 -------------------------------------------------------------------
 // 한 화면에 주된 행동은 하나만 둔다. 준비·진행·결과를 동시에 보여주면
@@ -476,15 +477,14 @@ function showNote(text, kind = "summary") {
   if (els.result.value) resultViews[resultViews.kind] = els.result.value;
   resultViews[kind] = text;
   resultViews.kind = kind;
-  els.result.value = text;
-  els.result.readOnly = false;
   els.copyBtn.disabled = false;
   els.downloadBtn.disabled = false;
   els.donePill.textContent = kind === "timeline" ? "원문 타임라인" : "노트 완성";
   els.resultTitle.textContent = title || "나의 강의 노트";
+  noteViewer.show(text, { kind });
   els.resultHint.textContent = kind === "timeline"
-    ? "Free · 인식된 원문을 시간순으로 담았어요. 직접 수정할 수 있습니다. 패널을 닫기 전 복사하거나 저장하세요."
-    : "자동 생성된 초안입니다. 강의와 대조해 검토하고 수정하세요. 패널을 닫기 전 복사하거나 저장하세요.";
+    ? "인식된 원문입니다. 편집에서 수정할 수 있어요. 패널을 닫기 전 복사하거나 저장하세요."
+    : "AI가 작성한 초안입니다. 강의와 대조해 검토하세요. 패널을 닫기 전 복사하거나 저장하세요.";
   const voice = transcript.filter((entry) => entry.text.startsWith("[음성]")).length;
   const slides = transcript.length - voice;
   els.doneSummary.textContent = (settings && settings.ocrEnabled === false)
@@ -505,6 +505,7 @@ async function generateNotes() {
   if (els.doneAlert) els.doneAlert.hidden = true;
   setStage("done");
   els.donePill.textContent = "노트 생성 중";
+  noteViewer.setBusy(true);
   els.againBtn.disabled = true;
   els.notesBtn.disabled = true;
   els.timelineBtn.disabled = true;
@@ -560,6 +561,7 @@ async function generateNotes() {
     return fail(errMsg);
   } finally {
     busy = false;
+    noteViewer.setBusy(false);
     els.againBtn.disabled = false;
     els.notesBtn.disabled = !transcript.length;
     els.timelineBtn.disabled = !transcript.length;
@@ -822,6 +824,7 @@ els.startBtn.addEventListener("click", async () => {
   tokens.ocr = { input: 0, output: 0 };
   tokens.notes = { input: 0, output: 0 };
   els.result.value = "";
+  noteViewer.show("");
   resultViews = { kind: "timeline", timeline: "", summary: "" };
   els.resumeBtn.hidden = true;
   els.result.readOnly = true;
@@ -899,6 +902,7 @@ els.copyBtn.addEventListener("click", async () => {
     setTimeout(() => (els.copyBtn.textContent = "복사"), 1500);
   } catch {
     setStatus("자동 복사를 완료하지 못했어요. 노트 내용을 선택해 직접 복사해 주세요.");
+    noteViewer.edit(true);
     els.result.focus();
     els.result.select();
   }

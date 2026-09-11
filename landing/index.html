@@ -4,10 +4,11 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Summrizei — 강의가 끝나면, 복습이 시작되도록</title>
 <meta name="description" content="강의의 화면과 말소리를 시간순으로 모으고, 나에게 맞는 깊이의 학습 노트로 정리하세요.">
-<meta name="theme-color" content="#f7f7f5">
+<meta name="theme-color" content="#F7F7F4">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,500;6..96,600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Hedvig+Letters+Serif:opsz@12..24&family=Geist+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="landing.css">
+<link rel="stylesheet" href="hero-mockup.css?v=20260911-3">
 </head>
 <body>
 <a class="skip" href="#main">본문으로 이동</a>
@@ -16,7 +17,7 @@
   <nav aria-label="주 메뉴"><a href="#preview">노트 미리보기</a><a href="#plans">플랜</a><button class="small-button" data-install>무료로 시작 <span aria-hidden="true">↗</span></button></nav>
 </header>
 <main id="main">
-<section class="hero wrap">
+<section class="hero hero-stacked wrap">
   <div class="hero-copy">
     <p class="eyebrow">LESS TRANSCRIBING. MORE UNDERSTANDING.</p>
     <h1>강의는 듣고,<br>복습은 노트로.</h1>
@@ -24,15 +25,65 @@
     <div class="hero-actions"><button class="button dark" data-install>Summrizei 무료로 시작 <span aria-hidden="true">↗</span></button><a class="text-link" href="#preview">먼저 결과 살펴보기 <span aria-hidden="true">↓</span></a></div>
     <p class="micro">Chrome 확장 프로그램 · Free는 API 키 없이 사용</p>
   </div>
-  <div class="hero-paper" aria-label="학습 노트 예시">
-    <div class="paper-top"><span class="mini-logo">S.</span><span>LECTURE NOTE / 01</span><span class="tag">요약 예시</span></div>
-    <p class="eyebrow">기업재무 · 투자안 평가</p>
-    <h2>수익률이 높은 투자안이<br>항상 좋은 선택일까?</h2>
-    <p class="paper-intro">NPV와 IRR이 다른 답을 내놓을 때</p>
-    <div class="insight"><span class="number">01</span><div><b>비율과 금액은 서로 다른 기준</b><p>IRR은 수익률을, NPV는 기업 가치의 증가분을 보여 줍니다.</p></div></div>
-    <div class="insight"><span class="number">02</span><div><b>둘 중 하나만 선택해야 한다면</b><p>투자 규모가 다른 대안에서는 NPV를 기준으로 비교합니다.</p></div></div>
-    <div class="paper-bottom"><span>강의 샘플 기반 · 편집된 발췌</span><button class="text-link" data-example="standard">전체 예시 <span aria-hidden="true">↗</span></button></div>
-  </div>
+  <!-- 시연 전용 데이터. 제품과 같은 product-panel.css를 사용하며 실제 캡처·녹음은 실행하지 않는다. -->
+  <figure class="mock" id="heroDemo" aria-labelledby="mockCaption" data-state="ready">
+    <div class="mock-window">
+      <div class="mock-titlebar" aria-hidden="true">
+        <span class="mock-lights"><i></i><i></i><i></i></span>
+        <span class="mock-tab"><span class="mock-favicon">L</span>NPV and IRR explained<span class="mock-tab-close">×</span></span>
+        <span class="mock-new-tab">+</span>
+      </div>
+      <div class="mock-urlbar" aria-hidden="true">
+        <span class="mock-navigation">←<span>→</span>↻</span>
+        <span class="mock-url"><span class="mock-url-icon"></span><b>letslearn.org</b><span>/classroom/finance</span></span>
+        <span class="mock-extension">S<span class="mock-extension-dot"></span></span><span class="mock-sidebar-icon"></span>
+      </div>
+      <div class="mock-body">
+        <div class="lecture" aria-label="예시 강의 영상">
+          <div class="lec-topbar" aria-hidden="true"><span class="lec-platform">LetsLearn.</span><span class="lec-div"></span><span class="lec-course">NPV and IRR explained</span><span class="lec-chapter">기업재무 · 04</span></div>
+          <div class="lec-stage" aria-hidden="true">
+            <div class="lecture-screen">
+              <div class="lecture-slide" data-slide="0">
+                <h2>Comparing projects using NPV and IRR</h2>
+                <p class="lecture-subtitle">Net Present Value (NPV) and Internal Rate of Return (IRR)</p>
+                <table class="lecture-table"><thead><tr><th></th><th>Year 0</th><th>Year 1</th><th>Year 2</th><th>Year 3</th><th>Year 4</th></tr></thead><tbody><tr><th>Project A</th><td>($1000)</td><td>$400</td><td>$400</td><td>$400</td><td>$400</td></tr><tr><th>Project B</th><td>($1000)</td><td>$600</td><td>$500</td><td>$300</td><td>$200</td></tr><tr><th>Project C</th><td>($1000)</td><td>$200</td><td>$300</td><td>$500</td><td>$600</td></tr></tbody></table>
+                <div class="lecture-equations"><h3>NPV and IRR</h3><p>Project A NPV @ 20% WACC = <b>$35</b> / IRR 22%</p><p>Project B NPV @ 20% WACC = <b>$117</b> / IRR 27%</p><p>Project C NPV @ 20% WACC = <b>($46)</b> / IRR 18%</p></div>
+                <span class="lecture-page">12</span>
+              </div>
+              <div class="lecture-slide" data-slide="1" hidden>
+                <h2>Why the timing of cash flows matters</h2>
+                <p class="lecture-subtitle">Same initial investment. Different timing. Different value.</p>
+                <table class="lecture-table"><thead><tr><th></th><th>Year 1</th><th>Year 2</th><th>Year 3</th><th>Year 4</th></tr></thead><tbody><tr class="lecture-highlight"><th>Project B</th><td>$600</td><td>$500</td><td>$300</td><td>$200</td></tr><tr><th>Project C</th><td>$200</td><td>$300</td><td>$500</td><td>$600</td></tr></tbody></table>
+                <div class="lecture-equations"><h3>Present value at a 20% discount rate</h3><p>Earlier cash flows have a higher present value.</p><p>NPV (B) = <b>$117</b> &gt; NPV (C) = <b>−$46</b></p></div>
+                <span class="lecture-page">13</span>
+              </div>
+              <div class="lecture-slide" data-slide="2" hidden>
+                <h2>Choosing between investment projects</h2>
+                <p class="lecture-subtitle">Two measures. Two different questions.</p>
+                <div class="lecture-definitions"><p><b>NPV</b><span>How much value does the project create?</span></p><p><b>IRR</b><span>What rate of return does the project earn?</span></p></div>
+                <div class="lecture-equations"><h3>Key takeaway</h3><p>For mutually exclusive projects of different sizes,</p><p>compare the <b>value created</b>, not just the percentage return.</p></div>
+                <span class="lecture-page">14</span>
+              </div>
+              <div class="capture-frame"><span>화면 인식 중</span></div>
+              <span class="lecture-pointer"></span>
+            </div>
+            <div class="lecture-caption" id="lectureCaption">캡처 시작을 눌러 강의를 함께 들어보세요.</div>
+          </div>
+          <div class="lec-controls">
+            <button class="lec-play-toggle" type="button" aria-label="체험 일시정지" hidden><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 3v10M12 3v10"/></svg></button>
+            <span class="lec-idle-play" aria-hidden="true">▶</span>
+            <span class="lec-time" aria-hidden="true"><span id="lectureTime">12:07</span> / 22:20</span>
+            <span class="lec-progress" aria-hidden="true"><i class="lec-buffer"></i><i class="lec-knob"></i></span>
+            <span class="lec-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+            <span class="lec-rate" aria-hidden="true">1×</span>
+          </div>
+        </div>
+        <iframe class="demo-panel" src="demo-panel.html?v=20260911-3" title="Summrizei 준비, 캡처, 노트 만들기 체험" sandbox="allow-same-origin" loading="eager"></iframe>
+      </div>
+    </div>
+    <figcaption id="mockCaption" class="mock-caption">버튼을 눌러 캡처부터 노트 완성까지 체험해보세요. 화면과 음성은 준비된 예시로 재생됩니다.</figcaption>
+    <p class="demo-announcement" role="status" aria-live="polite"></p>
+  </figure>
 </section>
 <div class="value-strip wrap"><span><b>01</b> 화면의 핵심을 읽고</span><span><b>02</b> 말소리를 놓치지 않고</span><span><b>03</b> 복습할 내용만 한곳에</span></div>
 <section class="demo-section" id="preview">
@@ -71,5 +122,9 @@
 <dialog id="sampleDialog" aria-labelledby="sampleTitle"><div class="dialog-head"><div><p class="eyebrow" id="sampleLabel"></p><h2 id="sampleTitle">노트 예시</h2></div><form method="dialog"><button class="close-button" aria-label="예시 닫기">닫기 ×</button></form></div><p class="sample-origin" id="sampleOrigin"></p><article class="sample-body" id="sampleBody"></article></dialog>
 <dialog id="checkout" class="compact-dialog" aria-labelledby="checkoutTitle"><div class="dialog-head"><h2 id="checkoutTitle">플랜 선택</h2><form method="dialog"><button class="close-button">닫기 ×</button></form></div><p class="checkout-price" id="checkoutDescription"></p><p id="checkoutStatus" role="status"></p><a id="checkoutLink" class="button dark" hidden>결제 페이지로 이동 ↗</a><a class="policy-link" href="policies/refund.html">결제 및 환불 정책</a></dialog>
 <dialog id="installDialog" class="compact-dialog" aria-labelledby="installTitle"><div class="dialog-head"><h2 id="installTitle">Summrizei 시작하기</h2><form method="dialog"><button class="close-button">닫기 ×</button></form></div><p>Chrome 웹 스토어 등록을 준비하고 있습니다. 등록이 완료되면 이곳에서 설치할 수 있습니다.</p><p class="micro">이미 설치한 경우 Chrome 도구 모음의 Summrizei 아이콘을 눌러 패널을 여세요.</p></dialog>
-<script src="checkout-config.js"></script><script src="examples.js"></script><script src="landing.js"></script>
+<!-- 시연은 장식용 CDN의 다운로드를 기다리지 않고 바로 연결한다. -->
+<script src="vendor/markdown-it.min.js"></script>
+<script src="note-viewer.js?v=20260911-3"></script>
+<script src="hero-mockup.js?v=20260911-3"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.15.0/gsap.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.15.0/ScrollTrigger.min.js"></script><script src="gsap-animations.js"></script><script src="checkout-config.js"></script><script src="examples.js"></script><script src="landing.js"></script>
 </body></html>
