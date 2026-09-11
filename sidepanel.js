@@ -605,13 +605,16 @@ async function generateNotes() {
       log(`원격 노트 응답 — ${((Date.now() - remoteT0) / 1000).toFixed(1)}초`);
       renderTokens();
     } else {
-      const localReady = typeof localAvailability !== "undefined" && (await localAvailability({})) === "available";
+      const avail = typeof localAvailability !== "undefined" ? await localAvailability({}) : "unavailable";
+      const localReady = avail === "available" || avail === "readily";
       if (localReady) {
         setStatus("기기 안에서 Gemini Nano로 요약 노트를 작성하는 중...");
         log(`기기 내 Gemini Nano 요약 시작 — 입력 ${full.length}자`);
         const localT0 = Date.now();
-        text = await notesLocal(full, setStatus);
-        log(`기기 내 요약 — ${((Date.now() - localT0) / 1000).toFixed(1)}초`);
+        text = await notesLocal(full, (progressMsg) => {
+          setStatus(progressMsg);
+        });
+        log(`기기 내 요약 완료 — ${((Date.now() - localT0) / 1000).toFixed(1)}초`);
       } else {
         // 원문을 대신 보여주지 않는다(AGENTS.md §2). 무엇이 없어서 못 만들었는지와
         // 무엇을 하면 되는지를 알린다.
