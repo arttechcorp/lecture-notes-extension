@@ -308,15 +308,29 @@
         if (event.data.type === 'RENDER') {
           renderMarkdown(event.data.markdown || '');
         } else if (event.data.type === 'PRINT') {
+          const executePrint = () => {
+            try {
+              window.focus();
+              window.print();
+            } catch (err) {
+              console.error('Print execution error:', err);
+              window.parent.postMessage({ type: 'PRINT_ERROR', error: String(err && err.message ? err.message : err) }, '*');
+            }
+          };
           if (typeof event.data.markdown === 'string') {
             renderMarkdown(event.data.markdown).then(() => {
-              setTimeout(() => window.print(), 100);
+              // 수식(KaTeX) 및 다이어그램(Mermaid) 렌더링 안정화 후 인쇄창 호출
+              setTimeout(executePrint, 250);
             });
           } else {
-            window.print();
+            executePrint();
           }
         }
       }
+    });
+
+    window.addEventListener('afterprint', () => {
+      window.parent.postMessage({ type: 'PRINT_COMPLETE' }, '*');
     });
 
     window.addEventListener('resize', () => {
