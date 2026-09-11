@@ -2,6 +2,7 @@ node_modules/
 .DS_Store
 __pycache__/
 *.pyc
+.worktrees/
 
 # API 키는 절대 저장소에 들어가면 안 된다. 확장은 압축만 풀면 소스가 보이므로
 # 키가 커밋되는 순간 공개된 것과 같다 — 남의 사용량이 소유자에게 청구된다.

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ko" data-theme="light">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Summrizei 제품 체험</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hedvig+Letters+Serif:opsz@12..24&family=Geist+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="product-panel.css?v=20260911-4">
+<style>
+  /* 제품 UI는 product-panel.css를 그대로 사용한다. 아래는 체험 안내에만 적용한다. */
+  html { overflow: hidden; }
+  /* iframe의 높이를 본문에 맞추므로, 뷰어 높이가 다시 iframe 높이에 의존하지 않게 한다. */
+  #stageDone .note-surface { max-height: 480px; }
+  @media (max-width: 900px) { #stageDone .note-surface { max-height: 300px; } }
+  .demo-action { position: relative; margin-top: 24px; }
+  .demo-guide { position: absolute; z-index: 1; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; width: max-content; max-width: 100%; padding: 8px 10px 8px 13px; background: var(--ink); color: var(--paper); border-radius: 9px; font-size: 11px; box-shadow: var(--lift-2); }
+  .demo-guide::after { content: ''; position: absolute; left: calc(50% - 5px); top: 100%; border: 5px solid transparent; border-top-color: var(--ink); }
+  .demo-guide button { position: relative; padding: 0 3px; border: 0; color: inherit; background: none; box-shadow: none; font-size: 15px; line-height: 1; }
+  .demo-guide button::before { content: ''; position: absolute; width: 44px; height: 44px; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+  .demo-guide button:hover { background: #ffffff20; }
+  .demo-guide button:focus-visible { outline-color: #fff; }
+  #startGuide { animation: guide-nudge 2.8s ease-in-out infinite; }
+  #startGuide:hover, #startGuide:focus-within { animation-play-state: paused; }
+  @keyframes guide-nudge {
+    0%, 45%, 100% { transform: translate(-50%, 0); }
+    20% { transform: translate(-50%, -4px); }
+  }
+  @media (prefers-reduced-motion: reduce) { #startGuide { animation: none; } }
+  dialog { width: calc(100% - 32px); max-width: 380px; padding: 22px; border: 1px solid var(--rule); border-radius: var(--r-lg); background: var(--ground); color: var(--ink); box-sizing: border-box; }
+  dialog::backdrop { background: #18181b40; }
+  dialog h2 { font-size: 18px; margin: 0 0 12px; }
+  dialog p { margin-bottom: 18px; }
+  dialog button { width: 100%; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div><h1>Summr<span>i</span>zei<span class="brand-dot">.</span></h1><p class="brand-caption">강의의 흐름을, 나의 노트로.</p></div>
+  <button class="link" id="settingsLink" type="button">설정</button>
+</div>
+<nav class="stage-steps" aria-label="노트 만들기 단계"><span id="stepReady" class="active" aria-current="step">01 준비</span><i aria-hidden="true"></i><span id="stepLive">02 캡처</span><i aria-hidden="true"></i><span id="stepDone">03 노트</span></nav>
+
+<div id="stageReady">
+  <div class="intro"><p class="eyebrow">READY WHEN YOU ARE</p><h2>강의에 집중하세요.<br>기록은 여기서 시작됩니다.</h2><p class="detail">영상을 재생하고 캡처할 화면을 선택하세요.</p></div>
+  <div class="readycard">
+    <div class="checkrow"><span class="mark">✓</span><span class="what">화면 글자 읽기</span><span class="val">Gemini Nano · 온디바이스</span></div>
+    <div class="checkrow"><span class="mark">✓</span><span class="what">음성 받아쓰기</span><span class="val">켜짐 (Tiny)</span></div>
+    <div class="checkrow tab-row"><span class="mark">✓</span><span class="what">영상 탭</span><div class="tab-select-wrap"><select class="tab-select" aria-label="영상이 열린 탭" disabled><option>NPV and IRR explained</option></select></div></div>
+  </div>
+  <div class="settingbar"><span class="summary">슬라이드 영역만 · 언어 자동 · 핵심 요약본</span><button class="link" id="settingsToggle" type="button">변경</button></div>
+  <div class="demo-action">
+    <div class="demo-guide" id="startGuide"><span>이 버튼을 클릭해보세요!</span><button type="button" data-dismiss="startGuide" aria-label="시작 안내 닫기">×</button></div>
+    <button class="primary" id="startBtn" type="button" aria-describedby="startGuide">캡처 시작</button>
+  </div>
+</div>
+
+<div id="stageLive" hidden>
+  <div class="statusline"><span class="pill live"><span class="pulse"></span>캡처 중</span><span class="sub" id="elapsed">00:00</span></div>
+  <p class="detail">화면과 음성이 인식되면 아래에 쌓입니다. 원하는 구간까지 캡처한 뒤 노트를 열어보세요.</p>
+  <div class="counters">
+    <div class="counter"><b id="cntSlides">0</b><span>슬라이드</span></div>
+    <div class="counter"><b id="cntVoice">0</b><span>음성 줄</span></div>
+    <div class="counter"><b id="cntQueue">0</b><span>처리 대기</span></div>
+  </div>
+  <div class="feed"><div class="head"><span>지금 인식 중</span><span>최근 3줄</span></div><div id="feedLines"><div class="empty">아직 인식된 내용이 없습니다.</div></div></div>
+  <div class="demo-action">
+    <div class="demo-guide" id="stopGuide" hidden><span>이제 노트로 정리해볼까요?</span><button type="button" data-dismiss="stopGuide" aria-label="노트 안내 닫기">×</button></div>
+    <button class="danger" id="stopBtn" type="button">캡처 마치고 노트 보기</button>
+  </div>
+</div>
+
+<div id="stageDone" hidden>
+  <div class="statusline"><span class="pill ok" id="donePill">노트 생성 중</span><span class="sub" id="doneSummary"></span></div>
+  <h2 class="result-title" id="resultTitle" tabindex="-1">NPV and IRR explained</h2>
+  <div class="note-toolbar">
+    <div class="note-modes" role="group" aria-label="노트 보기 방식">
+      <button id="noteReadBtn" type="button" aria-pressed="true" aria-controls="notePreview">읽기</button>
+      <button id="noteEditBtn" type="button" aria-pressed="false" aria-controls="result">편집</button>
+    </div>
+    <button class="note-copy" id="copyBtn" type="button" disabled>복사</button>
+  </div>
+  <div class="note-surface" id="noteSurface">
+    <article class="note-document" id="notePreview" aria-label="강의 노트" tabindex="0"></article>
+    <textarea id="result" aria-label="강의 노트 Markdown 편집" readonly hidden></textarea>
+  </div>
+  <p class="detail result-help">AI가 작성한 초안입니다. 강의와 대조해 검토하세요. 패널을 닫기 전 복사하거나 저장하세요.</p>
+  <div class="settingbar"><span class="summary">형태: 핵심 요약본</span><button class="link" id="formatToggle" type="button">변경</button></div>
+  <button id="againBtn" type="button">새로 캡처하기</button>
+</div>
+<dialog id="demoSettings" aria-labelledby="demoSettingsTitle"><h2 id="demoSettingsTitle">체험 설정</h2><p class="detail">이 체험은 화면·음성 인식과 핵심 요약본이 미리 설정되어 있어요. 캡처 시작을 누르면 바로 확인할 수 있습니다.</p><button id="closeSettings" type="button">확인</button></dialog>
+</body>
+</html>

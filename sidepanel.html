@@ -1,6 +1,35 @@
 <!doctype html>
 <html lang="ko">
 <head>
+<script src="lib/theme.js"></script>
+<script>
+if (typeof chrome === "undefined" || !chrome.storage) {
+  window.localAvailability = async () => "available";
+  window.chrome = {
+    storage: {
+      local: {
+        get: async () => ({ consentAccepted: true, whisperEnabled: true, whisperModel: "tiny", ocrEnabled: true, ocrEngine: "nano" }),
+        set: async () => {},
+      },
+      sync: { get: async () => ({}), set: async () => {}, remove: async () => {} },
+    },
+    tabs: {
+      query: async () => [
+        { id: 1, active: true, title: "NPV and IRR explained", url: "https://youtube.com/watch?v=123" },
+        { id: 2, active: false, title: "Machine Learning Lecture 01", url: "https://coursera.org/learn/ml" },
+      ],
+      get: async (id) => ({ id, title: "NPV and IRR explained", url: "https://youtube.com/watch?v=123" }),
+      connect: () => ({ onMessage: { addListener: () => {} }, onDisconnect: { addListener: () => {} }, postMessage: () => {} }),
+    },
+    runtime: { openOptionsPage: () => window.open("options.html", "_blank") },
+    permissions: { request: async () => true },
+  };
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hedvig+Letters+Serif:opsz@12..24&family=Geist+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="landing/product-panel.css">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Summrizei</title>
