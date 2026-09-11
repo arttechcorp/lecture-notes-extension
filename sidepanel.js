@@ -169,6 +169,13 @@ function setRow(mark, cls, valEl, text) {
 async function detectEngine() {
   settings = await loadSettings();
   els.langSelect.value = settings.whisperLang;
+  // timeline 은 더 이상 출력 형태가 아니다(결과 화면의 버튼으로 옮겼다).
+  // 예전에 그 값을 저장한 사용자가 계속 막히지 않도록 풀어준다.
+  if (settings.outputFormat === "timeline") {
+    settings.outputFormat = "summary";
+    saveSettings({ outputFormat: "summary" });
+    log("저장된 출력 형태 'timeline' 을 '핵심 요약본' 으로 되돌렸습니다.");
+  }
   els.outputFormat.value = settings.outputFormat || "summary";
   els.customPrompt.style.display = els.outputFormat.value === "custom" ? "block" : "none";
   if (els.ocrEnabledToggle) {
@@ -233,7 +240,7 @@ async function detectEngine() {
 // 설정은 한 줄로 접어둔다. 대부분 기본값으로 쓰고, 바꿀 때만 편다.
 const MODE_LABEL = { region: "슬라이드 영역만", slide: "전체 화면", caption: "하단 자막 띠" };
 const LANG_LABEL = { auto: "언어 자동", korean: "한국어", english: "영어" };
-const FORMAT_LABEL = { timeline: "원문 타임라인 · 무료", summary: "핵심 요약본", custom: "직접 입력" };
+const FORMAT_LABEL = { summary: "핵심 요약본", custom: "직접 입력" };
 
 function renderSettingsSummary() {
   const ocrPart = (settings && settings.ocrEnabled === false)
@@ -576,12 +583,10 @@ async function generateNotes() {
   try {
     settings = await loadSettings();
     renderPlan();
-    if (els.outputFormat.value === "timeline") {
-      showNote(buildTimeline(), "timeline");
-      setStatus("원문 타임라인이 준비됐어요.");
-      return;
-    }
-
+    log(
+      `노트 생성 — 플랜 ${settings.plan || "premium"}, 형태 ${els.outputFormat.value}, ` +
+        `제공자 ${settings.provider || "openrouter"}, 키 ${settings.apiKey ? "있음" : "없음"}`
+    );
     const full = transcript.map((e) => `[${formatTime(e.time)}] ${e.text}`).join("\n");
     const plan = settings.plan || "premium";
 
