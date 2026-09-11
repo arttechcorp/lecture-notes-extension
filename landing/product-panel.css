@@ -673,6 +673,16 @@
     line-height: 1.85;
     overflow-wrap: anywhere;
   }
+  /* 읽기 탭은 sandbox.html iframe이 담당한다(수식·다이어그램 렌더링).
+     타이포그래피는 iframe 내부 문서가 갖고, 여기선 상자만 잡아준다. */
+  #stageDone iframe.note-document {
+    display: block;
+    width: 100%;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color-scheme: normal;
+  }
   #stageDone .note-document:focus-visible {
     outline: 2px solid var(--brand);
     outline-offset: 5px;

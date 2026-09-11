@@ -11,6 +11,7 @@ const ocrEngineSelect = document.getElementById("ocrEngineSelect");
 const themeSelect = document.getElementById("themeSelect");
 
 const PROVIDER_URLS = {
+  openrouter: "https://openrouter.ai/keys",
   gemini: "https://aistudio.google.com/apikey",
   anthropic: "https://console.anthropic.com/settings/keys"
 };
