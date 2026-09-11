@@ -65,7 +65,7 @@
     else link.removeAttribute('href');
     document.getElementById('checkoutStatus').textContent = url
       ? '결제 페이지에서 최종 금액과 구독 조건을 확인해 주세요.'
-      : '유료 구독을 준비하고 있습니다. 지금은 결제가 진행되지 않습니다. 출시 전까지 플랜별 예시를 살펴보세요.';
+      : '유료 플랜은 출시 준비 중입니다. 지금은 결제가 진행되지 않습니다.';
     checkout.showModal();
   }
   function showInstall() {
