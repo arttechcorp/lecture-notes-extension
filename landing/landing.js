@@ -1,18 +1,20 @@
 (() => {
+  // example은 examples.js의 기존 예시 키를 가리킨다. 예시 본문은 아직 그대로 쓴다.
   const plans = {
-    free: { name: 'Free', type: '원문 시각순 타임라인', description: '0원 · 기기에서 원문 수집' },
-    basic: { name: 'Basic', type: '핵심 요약', description: '월 4,900원' },
-    standard: { name: 'Standard', type: '학습 노트', description: '월 7,900원' },
-    premium: { name: 'Premium', type: '상세 노트', description: '월 13,900원' },
+    free: { name: 'Free', type: '원문 시각순 타임라인', example: 'free' },
+    essential: { name: 'Essential', type: '핵심 요약', example: 'basic' },
+    professional: { name: 'Professional', type: '상세 노트', example: 'premium' },
   };
   // 발췌는 examples.js의 전체 예시 앞부분에서 파생한다. 같은 내용을 손으로 두 번 쓰지 않는다.
   // #demoOutput은 h3를 제목, h4를 소제목으로 스타일링하므로 첫 제목만 h3로 내린다.
   function excerpt(id) {
-    const source = window.SUMMRIZEI_EXAMPLES?.[id]?.html;
+    const plan = plans[id];
+    if (!plan) return '';
+    const source = window.SUMMRIZEI_EXAMPLES?.[plan.example]?.html;
     if (!source) return '';
     const holder = document.createElement('div');
     holder.innerHTML = source;
-    const parts = [`<p class="eyebrow">${plans[id].type}</p>`];
+    const parts = [`<p class="eyebrow">${plan.type}</p>`];
     let headings = 0;
     for (const block of holder.children) {
       if (block.tagName === 'HR') continue;
@@ -25,6 +27,7 @@
     return parts.join('');
   }
 
+  const studentToggle = document.getElementById('studentToggle');
   const sample = document.getElementById('sampleDialog');
   const checkout = document.getElementById('checkout');
   const install = document.getElementById('installDialog');
@@ -34,8 +37,8 @@
   }
   function showExample(id) {
     const plan = plans[id];
-    const result = window.SUMMRIZEI_EXAMPLES?.[id];
-    if (!plan || !result) return;
+    const result = plan && window.SUMMRIZEI_EXAMPLES?.[plan.example];
+    if (!result) return;
     document.getElementById('sampleLabel').textContent = plan.name + ' / ' + plan.type;
     document.getElementById('sampleTitle').textContent = plan.name + ' 노트 예시';
     document.getElementById('sampleOrigin').textContent = id === 'free'
@@ -50,7 +53,11 @@
     const plan = plans[id];
     if (!plan || id === 'free') return;
     document.getElementById('checkoutTitle').textContent = plan.name + ' 플랜';
-    document.getElementById('checkoutDescription').textContent = plan.description;
+    // 카드에 지금 표시 중인 금액을 그대로 읽어 학생 요금 토글과 어긋나지 않게 한다.
+    const price = document.querySelector(`[data-card="${id}"] .price`);
+    const student = studentToggle?.getAttribute('aria-pressed') === 'true' && price.dataset.student;
+    document.getElementById('checkoutDescription').textContent =
+      price.textContent.replace(/\s+/g, ' ').trim() + (student ? ' · 학생 요금' : '');
     const link = document.getElementById('checkoutLink');
     const url = httpsUrl(window.SUMMRIZEI_CHECKOUT?.[id]);
     link.hidden = !url;
@@ -101,5 +108,17 @@
       if (next !== undefined) { event.preventDefault(); selectDemo(tabs[next].dataset.demo, true); }
     });
   });
-  selectDemo('standard');
+  studentToggle?.addEventListener('click', () => {
+    const on = studentToggle.getAttribute('aria-pressed') !== 'true';
+    studentToggle.setAttribute('aria-pressed', String(on));
+    studentToggle.textContent = on ? '일반 요금 보기' : '학생이신가요?';
+    for (const price of document.querySelectorAll('.price[data-student]')) {
+      price.firstChild.textContent = '$' + price.dataset[on ? 'student' : 'price'];
+    }
+    // 배지와 CTA 문구도 함께 바꿔 학생 요금이 적용된 상태를 카드에서 읽히게 한다.
+    for (const label of document.querySelectorAll('[data-student-label]')) {
+      label.textContent = on ? label.dataset.studentLabel : label.dataset.label;
+    }
+  });
+  selectDemo('professional');
 })();

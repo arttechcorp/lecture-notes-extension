@@ -20,7 +20,6 @@
 .hero-stacked h1 { grid-column: 1; margin: 0; }
 .hero-stacked .lead { grid-column: 2; max-width: none; }
 .hero-stacked .hero-actions { grid-column: 2; margin: 26px 0 0; }
-.hero-stacked .micro { grid-column: 2; }
 .mock {
   --m-ink: #232321;
   --m-muted: #686863;

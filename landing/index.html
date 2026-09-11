@@ -9,7 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Hedvig+Letters+Serif:opsz@12..24&family=Geist+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script>if(!matchMedia('(prefers-reduced-motion: reduce)').matches){var h=document.documentElement;h.classList.add('gsap-enter');setTimeout(function(){h.classList.remove('gsap-enter')},2000)}</script>
 <link rel="stylesheet" href="landing.css">
-<link rel="stylesheet" href="hero-mockup.css?v=20260911-4">
+<link rel="stylesheet" href="hero-mockup.css?v=20260911-7">
 </head>
 <body>
 <a class="skip" href="#main">본문으로 이동</a>
@@ -23,8 +23,7 @@
     <p class="eyebrow">LESS TRANSCRIBING. MORE UNDERSTANDING.</p>
     <h1>강의는 듣고,<br>복습은 노트로.</h1>
     <p class="lead">놓치기 쉬운 설명부터 중요한 슬라이드까지. 강의의 화면과 말소리를 모아, 다시 읽고 싶은 학습 노트로 만드세요.</p>
-    <div class="hero-actions"><button class="button dark" data-install>Summrizei 무료로 시작 <span aria-hidden="true">↗</span></button><a class="text-link" href="#preview">먼저 결과 살펴보기 <span aria-hidden="true">↓</span></a></div>
-    <p class="micro">Chrome 확장 프로그램 · Free는 API 키 없이 사용</p>
+    <div class="hero-actions"><button class="button dark" data-install>Summrizei 무료로 시작 <span aria-hidden="true">↗</span></button></div>
   </div>
   <!-- 시연 전용 데이터. 제품과 같은 product-panel.css를 사용하며 실제 캡처·녹음은 실행하지 않는다. -->
   <figure class="mock" id="heroDemo" aria-labelledby="mockCaption" data-state="ready">
@@ -79,7 +78,7 @@
             <span class="lec-rate" aria-hidden="true">1×</span>
           </div>
         </div>
-        <iframe class="demo-panel" src="demo-panel.html?v=20260911-4" title="Summrizei 준비, 캡처, 노트 만들기 체험" sandbox="allow-same-origin" loading="eager"></iframe>
+        <iframe class="demo-panel" src="demo-panel.html?v=20260911-7" title="Summrizei 준비, 캡처, 노트 만들기 체험" sandbox="allow-same-origin" loading="eager"></iframe>
       </div>
     </div>
     <figcaption id="mockCaption" class="mock-caption">버튼을 눌러 캡처부터 노트 완성까지 체험해보세요. 화면과 음성은 준비된 예시로 재생됩니다.</figcaption>
@@ -98,23 +97,23 @@
         <div class="transcript-line"><time>06:30</time><p>둘 중 하나만 골라야 한다면 무엇을 골라야 할까요? 당연히 기업의 부를 1억 8천만원이나 늘려주는 B를 골라야 합니다.</p></div>
         <div class="source-end"><span>원문 시각순 타임라인</span><span>Free</span></div>
       </div>
-      <div class="demo-note"><div class="note-tabs" role="tablist" aria-label="요약 예시 플랜"><button id="tab-basic" role="tab" aria-selected="false" aria-controls="demoOutput" tabindex="-1" data-demo="basic">Basic</button><button id="tab-standard" role="tab" aria-selected="true" aria-controls="demoOutput" data-demo="standard">Standard</button><button id="tab-premium" role="tab" aria-selected="false" aria-controls="demoOutput" tabindex="-1" data-demo="premium">Premium</button></div>
-        <div id="demoOutput" role="tabpanel" aria-labelledby="tab-standard" tabindex="0"></div>
-        <div class="note-bottom"><span id="demoModel"></span><button class="text-link" id="demoFull" data-example="standard">전체 예시 읽기 <span aria-hidden="true">↗</span></button></div>
+      <div class="demo-note"><div class="note-tabs" role="tablist" aria-label="요약 예시 플랜"><button id="tab-essential" role="tab" aria-selected="false" aria-controls="demoOutput" tabindex="-1" data-demo="essential">Essential</button><button id="tab-professional" role="tab" aria-selected="true" aria-controls="demoOutput" data-demo="professional">Professional</button></div>
+        <div id="demoOutput" role="tabpanel" aria-labelledby="tab-professional" tabindex="0"></div>
+        <div class="note-bottom"><span id="demoModel"></span><button class="text-link" id="demoFull" data-example="professional">전체 예시 읽기 <span aria-hidden="true">↗</span></button></div>
       </div>
     </div>
     <p class="demo-caption">제공된 7분 30초 강의 샘플의 비교 결과를 사용했습니다. 화면에는 발췌본을, 전체 예시에는 모델별 생성 결과를 표시합니다. 자동 생성 내용은 원문과 함께 검토해 주세요.</p>
   </div>
 </section>
 <section class="section wrap" id="plans">
-  <div class="section-head"><div><p class="eyebrow">CHOOSE YOUR DEPTH</p><h2>필기부터 깊이 있는 복습까지.</h2></div><p>강의를 어느 깊이까지 정리하고 싶은지에 맞춰<br>나에게 맞는 플랜을 선택하세요.</p></div>
+  <div class="section-head"><div><p class="eyebrow">CHOOSE YOUR DEPTH</p><h2>필기부터 깊이 있는 복습까지.</h2></div><p>강의를 어느 깊이까지 정리하고 싶은지에 맞춰 나에게 맞는 플랜을 선택하세요.</p></div>
+  <p class="student-row"><button class="student-toggle" id="studentToggle" type="button" aria-pressed="false">학생이신가요?</button></p>
   <div class="plan-grid">
-    <article class="plan" data-card="free"><div class="plan-heading"><h3>Free</h3><span class="tag">바로 시작</span></div><p class="plan-for">다시 볼 장면을 찾고 싶다면</p><p class="price">0<span>원</span></p><p class="plan-outcome">강의의 화면과 말소리를 시각순으로 모은 타임라인.</p><ul class="benefits"><li>시각이 표시된 인식 원문</li><li>로컬 화면·음성 인식</li><li>복사와 Markdown 저장</li><li>API 키 없이 시작</li></ul><div class="plan-actions"><button class="sample-button" data-example="free">타임라인 예시 보기 <span>↗</span></button><button class="button quiet" data-install>무료로 시작</button></div></article>
-    <article class="plan" data-card="basic"><div class="plan-heading"><h3>Basic</h3></div><p class="plan-for">많은 강의를 빠르게 훑고 싶다면</p><p class="price">4,900<span>원 / 월</span></p><p class="plan-outcome">핵심 개념과 결론을 간결하게 정리한 요약 노트.</p><ul class="benefits"><li>개념별로 묶은 핵심 요약</li><li>강의에서 다룬 공식과 기준</li><li>복사와 Markdown 저장</li></ul><div class="plan-actions"><button class="sample-button" data-example="basic">요약 예시 보기 <span>↗</span></button><button class="button quiet" data-plan="basic">Basic 선택</button></div></article>
-    <article class="plan recommended" data-card="standard"><div class="plan-heading"><h3>Standard</h3><span class="tag solid">추천</span></div><p class="plan-for">개념과 사례를 함께 복습한다면</p><p class="price">7,900<span>원 / 월</span></p><p class="plan-outcome">정의, 공식, 비교 사례를 구조화한 학습 노트.</p><ul class="benefits"><li>개념 → 기준 → 사례 순서</li><li>비슷한 개념을 비교하는 표</li><li>강의의 핵심 원칙 정리</li><li>복사와 Markdown 저장</li></ul><div class="plan-actions"><button class="sample-button" data-example="standard">학습 노트 예시 보기 <span>↗</span></button><button class="button dark" data-plan="standard">Standard 선택</button></div></article>
-    <article class="plan" data-card="premium"><div class="plan-heading"><h3>Premium</h3></div><p class="plan-for">중요한 강의를 깊이 이해한다면</p><p class="price">13,900<span>원 / 월</span></p><p class="plan-outcome">개념의 연결과 판단 근거를 차근차근 풀어낸 상세 노트.</p><ul class="benefits"><li>세부 주제까지 나눈 설명</li><li>비교 사례의 판단 근거</li><li>공식과 개념을 연결한 정리</li><li>복사와 Markdown 저장</li></ul><div class="plan-actions"><button class="sample-button" data-example="premium">상세 노트 예시 보기 <span>↗</span></button><button class="button quiet" data-plan="premium">Premium 선택</button></div></article>
+    <article class="plan" data-card="free"><div class="plan-heading"><h3>Free</h3><span class="tag">바로 시작</span></div><p class="plan-for">다시 볼 장면을 찾고 싶다면</p><p class="price">$0</p><div class="plan-actions"><button class="button quiet" data-install>무료로 시작</button><button class="sample-button" data-example="free">타임라인 예시 보기 <span>↗</span></button></div><p class="plan-outcome">강의의 화면과 말소리를 시각순으로 모은 타임라인.</p><p class="benefits-label">포함:</p><ul class="benefits"><li>시각이 표시된 인식 원문</li><li>로컬 화면·음성 인식</li><li>복사와 Markdown 저장</li><li>API 키 없이 시작</li></ul></article>
+    <article class="plan recommended" data-card="essential"><div class="plan-heading"><h3>Essential</h3><span class="tag solid" data-label="추천" data-student-label="EDU 학생가">추천</span></div><p class="plan-for">많은 강의를 빠르게 훑고 싶다면</p><p class="price" data-price="9" data-student="7">$9<span> / 월</span></p><div class="plan-actions"><button class="button dark" data-plan="essential" data-label="Essential 선택" data-student-label="학생 요금으로 선택">Essential 선택</button><button class="sample-button" data-example="essential">요약 예시 보기 <span>↗</span></button></div><p class="plan-outcome">핵심 개념과 결론을 간결하게 정리한 요약 노트.</p><p class="benefits-label">포함:</p><ul class="benefits"><li class="carry">Free의 모든 기능</li><li>개념별로 묶은 핵심 요약</li><li>강의에서 다룬 공식과 기준</li></ul></article>
+    <article class="plan" data-card="professional"><div class="plan-heading"><h3>Professional</h3></div><p class="plan-for">중요한 강의를 깊이 이해한다면</p><p class="price">$14<span> / 월</span></p><div class="plan-actions"><button class="button quiet" data-plan="professional">Professional 선택</button><button class="sample-button" data-example="professional">상세 노트 예시 보기 <span>↗</span></button></div><p class="plan-outcome">개념의 연결과 판단 근거를 차근차근 풀어낸 상세 노트.</p><p class="benefits-label">포함:</p><ul class="benefits"><li class="carry">Essential의 모든 기능</li><li>세부 주제까지 나눈 설명</li><li>비교 사례의 판단 근거</li><li>공식과 개념을 연결한 정리</li></ul></article>
   </div>
-  <p class="plan-note">유료 플랜은 출시 준비 중입니다. 표시된 구성은 출시 예정안이며, 이용량과 강의 1편의 길이 기준은 결제 개시 전에 안내합니다. 노트의 구성과 분량은 강의 내용에 따라 달라질 수 있습니다.</p>
+  <p class="plan-note">유료 플랜은 출시 준비 중입니다. 표시된 구성은 출시 예정안이며, 이용량과 강의 1편의 길이 기준은 결제 개시 전에 안내합니다. 노트의 구성과 분량은 강의 내용에 따라 달라질 수 있습니다. 학생 요금은 결제 시 학교 이메일 인증이 필요합니다.</p>
 </section>
 <section class="how-section"><div class="wrap"><div class="section-head"><div><p class="eyebrow">A SMALLER ROUTINE</p><h2>복습까지, 세 단계.</h2></div></div><div class="steps"><div><span>01 / SELECT</span><h3>강의를 열고</h3><p>영상이 재생 중인 탭과 읽을 화면 영역을 선택합니다.</p></div><div><span>02 / CAPTURE</span><h3>강의에 집중하세요</h3><p>화면 글자와 말소리를 읽는 동안 인식된 내용을 확인할 수 있습니다.</p></div><div><span>03 / REVIEW</span><h3>노트를 검토하고 저장</h3><p>시간순 원문 또는 요약 노트를 확인하고, 필요한 내용을 복사하거나 저장합니다.</p></div></div></div></section>
 <section class="section wrap faq"><div><p class="eyebrow">GOOD TO KNOW</p><h2>시작하기 전에.</h2></div><div class="faq-list"><details><summary>Free도 API 키가 필요한가요?</summary><p>아니요. Free의 화면·음성 인식과 원문 타임라인은 기기 안에서 동작합니다. 현재 AI 요약을 사용하려면 개인 API 키가 필요하며, 키 없이 사용하는 유료 구독은 준비 중입니다.</p></details><details><summary>플랜마다 결과가 얼마나 다른가요?</summary><p>위의 예시 보기에서 같은 입력으로 생성한 결과를 비교할 수 있습니다. 한 번의 비교 결과가 모든 강의에서 같은 품질 차이를 보장하지는 않습니다. 요약의 분량보다 자신에게 편한 정리 방식을 기준으로 골라 주세요.</p></details><details><summary>패널을 닫아도 노트가 남나요?</summary><p>패널을 닫으면 수집한 텍스트와 노트가 사라집니다. 필요한 결과는 닫기 전에 복사하거나 Markdown 파일로 저장해 주세요.</p></details><details><summary>강의 자료는 어떻게 처리되나요?</summary><p>처리 방식과 전송 범위는 <a href="policies/copyright.html">저작권 방침</a>과 <a href="policies/privacy.html">개인정보처리방침</a>에서 확인할 수 있습니다.</p></details></div></section>
@@ -125,7 +124,7 @@
 <dialog id="installDialog" class="compact-dialog" aria-labelledby="installTitle"><div class="dialog-head"><h2 id="installTitle">Summrizei 시작하기</h2><form method="dialog"><button class="close-button">닫기 ×</button></form></div><p>Chrome 웹 스토어 등록을 준비하고 있습니다. 등록이 완료되면 이곳에서 설치할 수 있습니다.</p><p class="micro">이미 설치한 경우 Chrome 도구 모음의 Summrizei 아이콘을 눌러 패널을 여세요.</p></dialog>
 <!-- 시연은 장식용 CDN의 다운로드를 기다리지 않고 바로 연결한다. -->
 <script src="vendor/markdown-it.min.js"></script>
-<script src="note-viewer.js?v=20260911-4"></script>
-<script src="hero-mockup.js?v=20260911-4"></script>
+<script src="note-viewer.js?v=20260911-7"></script>
+<script src="hero-mockup.js?v=20260911-7"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.15.0/gsap.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.15.0/ScrollTrigger.min.js"></script><script src="gsap-animations.js"></script><script src="checkout-config.js"></script><script src="examples.js"></script><script src="landing.js"></script>
 </body></html>

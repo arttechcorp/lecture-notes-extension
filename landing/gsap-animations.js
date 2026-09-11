@@ -1,5 +1,5 @@
 /* GSAP을 쓰는 곳은 이 파일뿐이다. 의존성을 유지하는 이유를 남겨둔다.
-   1) 히어로 진입 타임라인 - eyebrow → h1 → lead → hero-actions → micro → .mock 순서 연출.
+   1) 히어로 진입 타임라인 - eyebrow → h1 → lead → hero-actions → .mock 순서 연출.
       순서가 있는 stagger라 CSS transition으로는 지연값을 손으로 계산해야 한다.
    2) ScrollTrigger 1회 등장 - .value-strip / .source-panel / .plan-grid / .steps / .faq-list / .demo-note.
       `animation-timeline: view()`는 Safari 미지원이라 아직 대체하지 않는다.
@@ -13,8 +13,8 @@
 
   if (typeof ScrollTrigger !== 'undefined') gsap.registerPlugin(ScrollTrigger);
 
-  // Hero entrance on load: eyebrow -> h1 -> lead -> hero-actions -> micro, then the browser mockup.
-  const heroCopyItems = document.querySelectorAll('.hero-copy > .eyebrow, .hero-copy > h1, .hero-copy > .lead, .hero-copy > .hero-actions, .hero-copy > .micro');
+  // Hero entrance on load: eyebrow -> h1 -> lead -> hero-actions, then the browser mockup.
+  const heroCopyItems = document.querySelectorAll('.hero-copy > .eyebrow, .hero-copy > h1, .hero-copy > .lead, .hero-copy > .hero-actions');
   const heroMock = document.querySelector('.mock');
   if (heroCopyItems.length || heroMock) {
     // 시작 상태를 먼저 인라인으로 고정한 뒤 클래스를 걷어야 한 프레임도 깜빡이지 않는다.
