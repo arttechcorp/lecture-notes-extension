@@ -384,7 +384,14 @@ async function prepareTesseract() {
 }
 
 // --- OCR 큐 ----------------------------------------------------------------------
-const ocrModelFor = (p) => (p === "gemini" ? "gemini-flash-latest" : "claude-haiku-4-5-20251001");
+// 모델 이름은 제공자마다 형식이 다르다. OpenRouter 는 "제공사/모델" 슬러그를 쓰고,
+// Anthropic 직통은 날짜 접미사 없는 이름을 쓴다. 하나로 뭉뚱그리면 404 가 난다.
+const OCR_MODEL = {
+  gemini: "gemini-flash-latest",
+  anthropic: "claude-haiku-4-5",
+  openrouter: "anthropic/claude-haiku-4.5",
+};
+const ocrModelFor = (p) => OCR_MODEL[p] || OCR_MODEL.openrouter;
 
 async function drainQueue() {
   if (draining) return;
@@ -397,8 +404,10 @@ async function drainQueue() {
       setStatus(`OCR 처리 중 (${frames.length}장, 대기 ${queue.length}배치)`);
       let lines;
       if (engine === "remote") {
-        const model = ocrModelFor(settings.provider);
-        const res = await callRemote(settings.provider, model, settings.apiKey, buildOcrBody(settings.provider, model, frames));
+        const configured = settings.provider || "openrouter";
+        const ocrProvider = providerForKey(settings.apiKey, configured);
+        const model = ocrModelFor(ocrProvider);
+        const res = await callRemote(ocrProvider, model, settings.apiKey, buildOcrBody(ocrProvider, model, frames));
         tokens.ocr.input += res.input;
         tokens.ocr.output += res.output;
         lines = parseOcrJson(res.text);
@@ -483,12 +492,11 @@ async function notesLocal(full, onProgress) {
 
 // 원격 호출 한 번. 프롬프트를 만드는 쪽에서 무엇을 담을지 이미 정해져 있다.
 async function notesRemote(prompt) {
-  const provider = settings.provider || "openrouter";
-  const defaultModel =
-    typeof PROVIDER_DEFAULT_MODEL !== "undefined" && PROVIDER_DEFAULT_MODEL[provider]
-      ? PROVIDER_DEFAULT_MODEL[provider]
-      : "anthropic/claude-sonnet-5";
-  const model = settings.summaryModel || defaultModel;
+  // body 를 만들기 전에 제공자를 확정한다. 형식·엔드포인트·응답 파서가 모두
+  // 같은 값을 봐야 한다 — 이게 어긋나면 400 으로 떨어지고 타임라인으로 밀린다.
+  const configured = settings.provider || "openrouter";
+  const provider = providerForKey(settings.apiKey, configured);
+  const model = modelForProvider(provider, configured, settings.summaryModel) || "anthropic/claude-sonnet-5";
   const body = buildSummaryBody(
     provider,
     model,
