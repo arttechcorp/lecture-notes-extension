@@ -5,12 +5,12 @@
 <title>히어로 목업 작업용 미리보기 — Summrizei</title>
 <meta name="robots" content="noindex">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,500;6..96,600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Hedvig+Letters+Serif:opsz@12..24&family=Geist+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="landing.css">
 <link rel="stylesheet" href="hero-mockup.css">
 </head>
 <body>
-<p class="mock-preview-note">작업용 미리보기 페이지입니다. 검토 후 이 목업 마크업을 <code>index.html</code> 히어로로 이식합니다.</p>
+<p class="mock-preview-note">히어로 목업 미리보기 · <a href="index.html">전체 랜딩페이지 보기 ↗</a></p>
 
 <header class="site-header wrap">
   <a class="brand" href="index.html" aria-label="Summrizei 홈">Summr<span>i</span>zei<span class="brand-dot">.</span></a>
@@ -27,92 +27,64 @@
     <p class="micro">Chrome 확장 프로그램 · Free는 API 키 없이 사용</p>
   </div>
 
-  <!-- 강의 탭 옆에 사이드패널이 열린 실제 사용 화면. 전부 CSS로 그린 목업이며 실제 강의 캡처는 쓰지 않는다. -->
-  <figure class="mock" aria-labelledby="mockCaption">
-    <!-- 창 안은 전부 장식이다. 설명은 figcaption 이 맡는다. -->
-    <div class="mock-window" aria-hidden="true">
-      <div class="mock-titlebar">
-        <span class="mock-lights" aria-hidden="true"><i></i><i></i><i></i></span>
-        <span class="mock-title">LetsLearn</span>
+  <!-- 제품 CSS를 공유하는 3단계 시연. 실제 캡처·녹음은 실행하지 않는다. -->
+  <figure class="mock" id="heroDemo" aria-labelledby="mockCaption" data-state="ready">
+    <div class="mock-window">
+      <div class="mock-titlebar" aria-hidden="true">
+        <span class="mock-lights"><i></i><i></i><i></i></span>
+        <span class="mock-tab"><span class="mock-favicon">L</span>NPV and IRR explained<span class="mock-tab-close">×</span></span>
+        <span class="mock-new-tab">+</span>
       </div>
-      <div class="mock-urlbar">
-        <span class="mock-url-icon" aria-hidden="true"></span>
-        <span class="mock-url"><b>letslearn.org</b>/mod/vod/viewer.php?id=4522284</span>
+      <div class="mock-urlbar" aria-hidden="true">
+        <span class="mock-navigation">←<span>→</span>↻</span>
+        <span class="mock-url"><span class="mock-url-icon"></span><b>letslearn.org</b><span>/classroom/finance</span></span>
+        <span class="mock-extension">S<span class="mock-extension-dot"></span></span><span class="mock-sidebar-icon"></span>
       </div>
-
       <div class="mock-body">
-        <div class="lecture">
-          <div class="lec-topbar">
-            <span class="lec-course">Engineering economic decisions</span>
-            <span class="lec-div" aria-hidden="true"></span>
-            <span class="lec-time">09:00</span>
-            <span class="lec-div" aria-hidden="true"></span>
-            <span class="lec-chapter">투자안 평가 구간</span>
-            <span class="lec-topbar-actions" aria-hidden="true"><i class="lec-help">?</i><i class="lec-close">×</i></span>
-          </div>
-
-          <div class="lec-stage">
-            <div class="lec-slide">
-              <p class="slide-title">Investment Decision Flow</p>
-              <div class="slide-cycles" aria-hidden="true">
-                <span>추정<br>Cycle</span><span>할인<br>Cycle</span><span>비교<br>Cycle</span><span>선택<br>Cycle</span>
+        <div class="lecture" aria-label="예시 강의 영상">
+          <div class="lec-topbar" aria-hidden="true"><span class="lec-platform">LetsLearn.</span><span class="lec-div"></span><span class="lec-course">NPV and IRR explained</span><span class="lec-chapter">기업재무 · 04</span></div>
+          <div class="lec-stage" aria-hidden="true">
+            <div class="lecture-screen">
+              <div class="lecture-slide" data-slide="0">
+                <h2>Comparing projects using NPV and IRR</h2>
+                <p class="lecture-subtitle">Net Present Value (NPV) and Internal Rate of Return (IRR)</p>
+                <table class="lecture-table"><thead><tr><th></th><th>Year 0</th><th>Year 1</th><th>Year 2</th><th>Year 3</th><th>Year 4</th></tr></thead><tbody><tr><th>Project A</th><td>($1000)</td><td>$400</td><td>$400</td><td>$400</td><td>$400</td></tr><tr><th>Project B</th><td>($1000)</td><td>$600</td><td>$500</td><td>$300</td><td>$200</td></tr><tr><th>Project C</th><td>($1000)</td><td>$200</td><td>$300</td><td>$500</td><td>$600</td></tr></tbody></table>
+                <div class="lecture-equations"><h3>NPV and IRR</h3><p>Project A NPV @ 20% WACC = <b>$35</b> / IRR 22%</p><p>Project B NPV @ 20% WACC = <b>$117</b> / IRR 27%</p><p>Project C NPV @ 20% WACC = <b>($46)</b> / IRR 18%</p></div>
+                <span class="lecture-page">12</span>
               </div>
-              <div class="slide-arcs" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
-              <div class="slide-nodes">
-                <span>현금흐름<br>추정</span><span>할인율<br>적용</span><span>현재가치<br>산출</span><span>기준별<br>비교</span><span>투자<br>결정</span>
+              <div class="lecture-slide" data-slide="1" hidden>
+                <h2>Why the timing of cash flows matters</h2>
+                <p class="lecture-subtitle">Same initial investment. Different timing. Different value.</p>
+                <table class="lecture-table"><thead><tr><th></th><th>Year 1</th><th>Year 2</th><th>Year 3</th><th>Year 4</th></tr></thead><tbody><tr class="lecture-highlight"><th>Project B</th><td>$600</td><td>$500</td><td>$300</td><td>$200</td></tr><tr><th>Project C</th><td>$200</td><td>$300</td><td>$500</td><td>$600</td></tr></tbody></table>
+                <div class="lecture-equations"><h3>Present value at a 20% discount rate</h3><p>Earlier cash flows have a higher present value.</p><p>NPV (B) = <b>$117</b> &gt; NPV (C) = <b>−$46</b></p></div>
+                <span class="lecture-page">13</span>
               </div>
-              <div class="slide-bars">
-                <span class="bar-npv">NPV · 금액 기준</span>
-                <span class="bar-irr">IRR · 비율 기준</span>
+              <div class="lecture-slide" data-slide="2" hidden>
+                <h2>Choosing between investment projects</h2>
+                <p class="lecture-subtitle">Two measures. Two different questions.</p>
+                <div class="lecture-definitions"><p><b>NPV</b><span>How much value does the project create?</span></p><p><b>IRR</b><span>What rate of return does the project earn?</span></p></div>
+                <div class="lecture-equations"><h3>Key takeaway</h3><p>For mutually exclusive projects of different sizes,</p><p>compare the <b>value created</b>, not just the percentage return.</p></div>
+                <span class="lecture-page">14</span>
               </div>
-              <span class="slide-page" aria-hidden="true">2</span>
+              <div class="capture-frame"><span>화면 인식 중</span></div>
+              <span class="lecture-pointer"></span>
             </div>
-            <div class="lec-presenter" aria-hidden="true">
-              <span class="presenter-figure"></span>
-            </div>
+            <div class="lecture-caption" id="lectureCaption">캡처 시작을 눌러 강의를 함께 들어보세요.</div>
           </div>
-
-          <div class="lec-controls" aria-hidden="true">
-            <span class="lec-icon lec-play"></span>
-            <span class="lec-icon lec-volume"></span>
-            <span class="lec-progress"><i class="lec-buffer"></i><i class="lec-knob"></i></span>
-            <span class="lec-remain">-10:13</span>
-            <span class="lec-icon lec-list"></span>
-            <span class="lec-rate">1x</span>
-            <span class="lec-icon lec-full"></span>
+          <div class="lec-controls">
+            <button class="lec-play-toggle" type="button" aria-label="체험 일시정지" hidden><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 3v10M12 3v10"/></svg></button>
+            <span class="lec-idle-play" aria-hidden="true">▶</span>
+            <span class="lec-time" aria-hidden="true"><span id="lectureTime">12:07</span> / 22:20</span>
+            <span class="lec-progress" aria-hidden="true"><i class="lec-buffer"></i><i class="lec-knob"></i></span>
+            <span class="lec-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+            <span class="lec-rate" aria-hidden="true">1×</span>
           </div>
         </div>
-
-        <!-- 실제 sidepanel.html 의 '캡처 중' 단계를 그대로 재현한다. 제품 UI가 바뀌면 memory.md 참고. -->
-        <aside class="panel">
-          <div class="panel-topbar">
-            <span class="panel-brand">Summr<span>i</span>zei<span class="brand-dot">.</span></span>
-            <span class="panel-pill"><i class="panel-pulse"></i>캡처 중</span>
-            <span class="panel-elapsed">12:07</span>
-          </div>
-          <p class="panel-detail">화면과 음성이 인식되면 아래에 쌓입니다. 원하는 구간까지 캡처한 뒤 노트를 열어보세요.</p>
-
-          <div class="panel-counters">
-            <div class="panel-counter"><b>24</b><span>슬라이드</span></div>
-            <div class="panel-counter"><b data-count="voice">186</b><span>음성 줄</span></div>
-            <div class="panel-counter"><b>2</b><span>처리 대기</span></div>
-          </div>
-
-          <div class="panel-feed">
-            <div class="panel-feed-head"><span>지금 인식 중</span><span>최근 3줄</span></div>
-            <div class="panel-feed-lines">
-              <div class="feed-line"><time>09:12</time><p>NPV는 금액의 증가분을, IRR은 수익률을 보여 줍니다.</p></div>
-              <div class="feed-line"><time>09:31</time><p>상호배타적 투자안에서는 두 기준의 순위가 달라질 수 있습니다.</p></div>
-              <div class="feed-line"><time>09:44</time><p>투자 규모가 다르면 NPV를 기준으로 비교합니다.</p></div>
-            </div>
-          </div>
-
-          <button class="panel-stop" type="button" tabindex="-1">캡처 마치고 노트 보기</button>
-          <div class="panel-foot"><span>무료 플랜</span><span>기기 안에서 처리</span></div>
-        </aside>
+        <iframe class="demo-panel" src="demo-panel.html" title="Summrizei 준비, 캡처, 노트 만들기 체험" sandbox="allow-same-origin" loading="eager"></iframe>
       </div>
     </div>
-    <figcaption id="mockCaption" class="mock-caption">강의 탭 옆에서 사이드패널이 화면과 말소리를 모으는 모습입니다. 실제 강의 화면이 아닌 예시입니다.</figcaption>
+    <figcaption id="mockCaption" class="mock-caption">버튼을 눌러 캡처부터 노트 완성까지 체험해보세요. 화면과 음성은 준비된 예시로 재생됩니다.</figcaption>
+    <p class="demo-announcement" role="status" aria-live="polite"></p>
   </figure>
 </section>
 </main>
