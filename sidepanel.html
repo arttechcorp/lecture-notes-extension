@@ -20,7 +20,7 @@
 
 <!-- ── 온보딩 (첫 실행 시에만) ─────────────────────────────────── -->
 <div id="onboard" hidden>
-  <div class="intro"><p class="eyebrow">WELCOME TO YOUR NOTES</p><h2>첫 노트를 준비해 볼까요?</h2><p class="detail">API 키 없이도 원문 타임라인을 만들 수 있어요.</p></div>
+  <div class="intro"><p class="eyebrow">WELCOME TO YOUR NOTES</p><h2>첫 노트를 준비해 볼까요?</h2></div>
 
   <div class="step">
     <span class="n">1</span>
@@ -44,10 +44,10 @@
   <div class="step">
     <span class="n">3</span>
     <span class="c">
-      <b>말소리 받아쓰기</b>
+      <b>음성 받아쓰기</b>
       <span class="why">Whisper Tiny가 기기 안에서 강의 음성을 글로 옮깁니다. 처음 켜면 모델을 다운로드하며, 처리 속도는 기기 성능에 따라 달라집니다.</span>
       <label class="checkline"><input type="checkbox" id="obWhisper" />
-        <span>말소리도 받아쓰기 (권장)</span></label>
+        <span>음성도 받아쓰기 (권장)</span></label>
     </span>
   </div>
 
@@ -63,12 +63,15 @@
       <span class="val" id="engineBanner">확인 중</span>
     </div>
     <div class="checkrow">
-      <span class="mark" id="markVoice">·</span><span class="what">말소리 받아쓰기</span>
+      <span class="mark" id="markVoice">·</span><span class="what">음성 받아쓰기</span>
       <span class="val" id="voiceState">—</span>
     </div>
-    <div class="checkrow">
-      <span class="mark" id="markTab">·</span><span class="what">영상 탭</span>
-      <span class="val" id="tabState">—</span>
+    <div class="checkrow tab-row">
+      <span class="mark" id="markTab">·</span><label class="what" for="tabSelect">영상 탭</label>
+      <div class="tab-select-wrap">
+        <select id="tabSelect" class="tab-select" aria-label="영상이 열린 탭"></select>
+        <button id="refreshTabsBtn" class="tab-refresh-btn" title="탭 목록 새로고침" aria-label="탭 목록 새로고침" type="button"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.19"/></svg></button>
+      </div>
     </div>
   </div>
   <p class="detail" id="engineDetail" hidden></p>
@@ -79,19 +82,11 @@
   </div>
 
   <button class="primary" id="startBtn" type="button">캡처 시작</button>
-  <p class="detail">Free · 화면 인식과 원문 타임라인은 무료입니다.<br>AI 요약은 설정에서 개인 API 키를 연결해 사용할 수 있어요.</p>
   <button id="resumeBtn" type="button" hidden>이전 노트로 돌아가기</button>
 </div>
 
 <!-- ── 설정 서랍 (준비/완료 양쪽에서 같은 것을 연다) ───────────── -->
 <div id="settingsDrawer" hidden>
-  <div class="field">
-    <label for="tabSelect">영상이 열린 탭</label>
-    <div style="display:flex; gap:6px;">
-      <select id="tabSelect"></select>
-      <button id="refreshTabsBtn" title="탭 목록 새로고침" aria-label="탭 목록 새로고침" type="button"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.19"/></svg></button>
-    </div>
-  </div>
 
   <div class="field">
     <label class="checkline" style="cursor: pointer;">

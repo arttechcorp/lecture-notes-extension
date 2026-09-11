@@ -188,7 +188,7 @@ async function detectEngine() {
     if (status === "available") {
       engine = "nano";
       setRow(els.markEngine, "ok", els.banner, "Gemini Nano · 온디바이스");
-      detail = "Chrome 내장 Gemini Nano가 기기 안에서 화면 글자를 읽습니다.";
+      detail = "";
     } else if (status === "downloadable" || status === "downloading") {
       engine = "nano";
       setRow(els.markEngine, "warn", els.banner, "다운로드 필요");
@@ -253,9 +253,9 @@ function renderPlan() {
 
 function renderTabRow() {
   const opt = els.tabSelect.selectedOptions[0];
-  const ok = !!opt;
-  setRow(els.markTab, ok ? "ok" : "warn", els.tabState, ok ? opt.textContent.split(" — ")[1] || opt.textContent : "없음");
-  els.tabState.title = opt ? opt.textContent : "";
+  const ok = !!opt && !!opt.value;
+  setRow(els.markTab, ok ? "ok" : "warn");
+  els.tabSelect.title = opt ? opt.textContent : "";
   if (!capturing && !busy && !preparing) els.startBtn.disabled = !ok;
 }
 
@@ -274,14 +274,21 @@ async function loadTabs() {
   const tabs = (await chrome.tabs.query({})).filter((t) => /^https?:/.test(t.url || ""));
   tabs.sort((a, b) => Number(b.active) - Number(a.active) || (originOf(b.url) === lastOrigin) - (originOf(a.url) === lastOrigin));
   els.tabSelect.innerHTML = "";
-  for (const t of tabs) {
+  if (!tabs.length) {
     const opt = document.createElement("option");
-    opt.value = String(t.id);
-    opt.textContent = `${new URL(t.url).hostname} — ${(t.title || "").slice(0, 60)}`;
+    opt.value = "";
+    opt.textContent = "열린 탭 없음";
     els.tabSelect.appendChild(opt);
+    setStatus("열린 http(s) 탭이 없습니다. 영상을 먼저 여세요.");
+  } else {
+    for (const t of tabs) {
+      const opt = document.createElement("option");
+      opt.value = String(t.id);
+      opt.textContent = t.title ? `${t.title.slice(0, 50)} (${new URL(t.url).hostname})` : new URL(t.url).hostname;
+      els.tabSelect.appendChild(opt);
+    }
+    if (tabs.some((tab) => String(tab.id) === selectedId)) els.tabSelect.value = selectedId;
   }
-  if (tabs.some((tab) => String(tab.id) === selectedId)) els.tabSelect.value = selectedId;
-  if (!tabs.length) setStatus("열린 http(s) 탭이 없습니다. 영상을 먼저 여세요.");
   renderTabRow();
 }
 
@@ -790,7 +797,7 @@ els.startBtn.addEventListener("click", async () => {
   settings = await loadSettings();
   const ocrActive = settings.ocrEnabled !== false;
   if (!ocrActive && !settings.whisperEnabled) {
-    return fail("화면 글자 읽기와 말소리 받아쓰기가 모두 꺼져 있습니다. 설정에서 최소 하나를 켜주세요.");
+    return fail("화면 글자 읽기와 음성 받아쓰기가 모두 꺼져 있습니다. 설정에서 최소 하나를 켜주세요.");
   }
   if (ocrActive && engine === "none") {
     return fail("사용 가능한 OCR 엔진이 없습니다. 설정에서 온디바이스 모델 상태를 확인하세요.");
@@ -856,7 +863,7 @@ els.startBtn.addEventListener("click", async () => {
     }
 
     if (!ocrWanted && !audioEnabled) {
-      throw new Error("화면 글자 읽기와 말소리 받아쓰기가 모두 꺼져 있거나 준비되지 않았습니다.");
+      throw new Error("화면 글자 읽기와 음성 받아쓰기가 모두 꺼져 있거나 준비되지 않았습니다.");
     }
 
     if (port !== capturePort) throw new Error("영상 탭 연결이 끊겼어요. 탭을 확인한 뒤 다시 시작해 주세요.");
@@ -1047,6 +1054,9 @@ window.addEventListener("message", (e) => {
 });
 
 loadTabs();
+window.addEventListener("focus", () => {
+  if (!capturing && !busy && !preparing) loadTabs();
+});
 (async () => {
   settings = await loadSettings();
   if (!settings.consentAccepted) await runOnboarding();

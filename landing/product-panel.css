@@ -402,6 +402,55 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .checkrow .tab-select-wrap {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 58%;
+    min-width: 0;
+    justify-content: flex-end;
+  }
+  .checkrow select.tab-select {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-sm);
+    padding: 3px 6px;
+    max-width: 100%;
+    min-width: 0;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 140ms ease, background-color 140ms ease;
+  }
+  .checkrow select.tab-select:hover {
+    border-color: var(--ash);
+  }
+  .checkrow select.tab-select:focus {
+    border-color: var(--brand);
+  }
+  .checkrow button.tab-refresh-btn {
+    background: none;
+    border: 1px solid transparent;
+    padding: 3px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ash);
+    cursor: pointer;
+    border-radius: var(--r-sm);
+    flex-shrink: 0;
+    transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease;
+  }
+  .checkrow button.tab-refresh-btn:hover {
+    color: var(--ink);
+    background: var(--sunk);
+    border-color: var(--rule);
+  }
 
   .settingbar {
     display: flex;
