@@ -25,6 +25,9 @@
   let batchStartedAt = 0; // 이 배치의 첫 프레임이 담긴 시각. 시간 초과 전송 판단용
   let audioCtx = null;
   let audioProc = null;
+  // 정지할 때 덜 찬 버퍼를 내보내기 위한 고리. startAudio 가 채우고 stopAudio 가 쓴다.
+  // 없으면 마지막 최대 20초가 통째로 사라진다.
+  let flushAudio = null;
   let ocrEngine = "local"; // 사이드패널이 START로 알려준다 — 엔진마다 원하는 입력 크기가 다르다
   let ocrEnabled = true;
   let lastDiffSample = null;
@@ -135,7 +138,12 @@
   // 대신 여기, 이미 영상에 접근하고 있는 컨텍스트에서 <video>의 오디오를 직접 딴다.
   // 추가 권한이 하나도 필요 없고, 창이 몇 개든 어떤 탭이든 똑같이 동작한다.
   const AUDIO_HZ = 16000;
-  const CHUNK = AUDIO_HZ * 5; // Whisper에 넘길 5초 단위
+  // Whisper 는 입력이 짧아도 항상 30초 창으로 추론한다. 5초를 넣으면 25초를
+  // 무음으로 패딩한 채 계산하므로 6분의 1만 쓸모 있는 일이 된다. 그 빈 구간이
+  // 반복 루프(환각)도 유도한다. 20초로 올리면 추론 횟수가 1/4 로 줄고 패딩이
+  // 10초로 짧아진다. 대가는 인식 결과가 20초 단위로 늦게 뜨는 것뿐이다.
+  const CHUNK_SECONDS = 20;
+  const CHUNK = AUDIO_HZ * CHUNK_SECONDS;
 
   // 무음 청크는 Whisper에 넣지 않는다. 넣으면 빈 결과가 아니라 환각이 나온다
   // ("감사합니다", "시청해주셔서 감사합니다" 같은 정형구) — 학습 데이터의 자막 상투구다.
@@ -145,7 +153,6 @@
   // 순간 최대값이 함께 낮을 때만 무음으로 판정한다.
   const SILENCE_PEAK = 0.02;
 
-  // 배속 재생 보정.
   // 확장 포트 메시지는 structured clone이 아니라 JSON이다. Float32Array를 그대로 넣으면
   // {"0":0.01,...} 로 부풀어 터진다. int16 PCM + base64가 가장 싼 전송 형식.
   function encodePcm(buf, len) {
@@ -194,42 +201,52 @@
       let silentCount = 0;
       let corsWarned = false;
 
+      // 한 청크를 내보낸다. 꽉 찬 경우와 정지 시 덜 찬 경우가 같은 길을 타야
+      // 무음 판정·타임스탬프가 어긋나지 않는다.
+      const emit = (len) => {
+        if (len <= 0) return;
+        let sum = 0;
+        let peak = 0;
+        for (let k = 0; k < len; k++) {
+          sum += buf[k] * buf[k];
+          const abs = buf[k] < 0 ? -buf[k] : buf[k];
+          if (abs > peak) peak = abs;
+        }
+        const rms = Math.sqrt(sum / len);
+
+        // CORS 무음 감지: 영상이 재생 중이고 볼륨이 켜져 있는데 3연속 완벽한 무음(0)이면 CORS 보안 차단일 가능성이 높음
+        if (rms < 0.00001 && !video.paused && video.volume > 0 && !video.muted) {
+          silentCount++;
+          if (silentCount >= 3 && !corsWarned) {
+            corsWarned = true;
+            debugLog("이 영상은 CORS 보안 정책으로 인해 페이지 내 직접 오디오 추출이 무음(0)으로 차단되고 있습니다.");
+          }
+        } else if (rms >= SILENCE_RMS) {
+          silentCount = 0;
+        }
+
+        // base64 인코딩 전에 거른다 — 버릴 청크에 그 비용을 쓸 이유가 없다.
+        if (rms < SILENCE_RMS && peak < SILENCE_PEAK) {
+          send({ type: "silence", t: chunkStart, rms, peak });
+        } else {
+          send({ type: "audio", pcm: encodePcm(buf, len), t: chunkStart, rms, rate: video.playbackRate || 1 });
+        }
+        chunkStart = video.currentTime;
+        off = 0;
+      };
+
+      // 정지 시 덜 찬 버퍼도 내보낸다. 아주 짧은 꼬리는 인식 가치가 없어 버린다.
+      flushAudio = () => {
+        if (off >= AUDIO_HZ) emit(off);
+        off = 0;
+      };
+
       proc.onaudioprocess = (e) => {
         if (!capturing) return;
         const input = e.inputBuffer.getChannelData(0);
         for (let i = 0; i < input.length; i++) {
           buf[off++] = input[i];
-          if (off >= CHUNK) {
-            let sum = 0;
-            let peak = 0;
-            for (let k = 0; k < CHUNK; k++) {
-              sum += buf[k] * buf[k];
-              const abs = buf[k] < 0 ? -buf[k] : buf[k];
-              if (abs > peak) peak = abs;
-            }
-            const rms = Math.sqrt(sum / CHUNK);
-
-            // CORS 무음 감지: 영상이 재생 중이고 볼륨이 켜져 있는데 3연속 완벽한 무음(0)이면 CORS 보안 차단일 가능성이 높음
-            if (rms < 0.00001 && !video.paused && video.volume > 0 && !video.muted) {
-              silentCount++;
-              if (silentCount >= 3 && !corsWarned) {
-                corsWarned = true;
-                debugLog("이 영상은 CORS 보안 정책으로 인해 페이지 내 직접 오디오 추출이 무음(0)으로 차단되고 있습니다.");
-              }
-            } else if (rms >= SILENCE_RMS) {
-              silentCount = 0;
-            }
-
-            // base64 인코딩 전에 거른다 — 버릴 청크에 그 비용을 쓸 이유가 없다.
-            if (rms < SILENCE_RMS && peak < SILENCE_PEAK) {
-              send({ type: "silence", t: chunkStart, rms, peak });
-            } else {
-              const rate = video.playbackRate || 1;
-              send({ type: "audio", pcm: encodePcm(buf, CHUNK), t: chunkStart, rms, rate });
-            }
-            chunkStart = video.currentTime;
-            off = 0;
-          }
+          if (off >= CHUNK) emit(CHUNK);
         }
       };
       src.connect(proc);
@@ -254,6 +271,11 @@
   }
 
   function stopAudio() {
+    // 워커로 보내기 전에 먼저 비운다. 프로세서를 끊은 뒤에는 버퍼에 손댈 수 없다.
+    if (flushAudio) {
+      flushAudio();
+      flushAudio = null;
+    }
     if (audioProc) {
       audioProc.onaudioprocess = null;
       audioProc.disconnect();

@@ -83,6 +83,9 @@ const tokens = { ocr: { input: 0, output: 0 }, notes: { input: 0, output: 0 } };
 
 // OCR 대기 배치 상한. slide 모드 기준 배치당 8장이니 최대 32장(약 5MB)까지만 쥔다.
 const MAX_QUEUE_BATCHES = 4;
+// 캡처 종료 후 음성 인식을 기다리는 상한. 20초 청크 기준 3분이면 밀린 것을
+// 웬만큼 따라잡는다. 넘으면 남은 건수를 알리고 진행한다.
+const FINISH_WAIT_MS = 3 * 60 * 1000;
 
 const setStatus = (t) => (els.status.textContent = t);
 // 로그는 2시간짜리 강의면 수천 줄까지 자란다. 오래된 건 진단에 쓸모가 없다.
@@ -124,7 +127,9 @@ function renderProgress() {
   const voice = transcript.filter((e) => e.text.startsWith("[음성]"));
   els.cntSlides.textContent = transcript.length - voice.length;
   els.cntVoice.textContent = voice.length;
-  els.cntQueue.textContent = queue.length;
+  // "처리 대기"가 OCR 배치만 세고 있었다. 정작 밀리는 쪽은 음성이다.
+  const pendingVoice = audioCapturer ? audioCapturer.pending : 0;
+  els.cntQueue.textContent = queue.length + pendingVoice;
 
   const last = transcript.slice(-3);
   if (!last.length) {
@@ -671,15 +676,34 @@ function finishCapture() {
     renderTabRow();
     return setStatus(els.panelAlert.textContent);
   }
-  // 남은 OCR 배치를 다 처리한 뒤에 노트를 만든다.
-  log(`캡처 종료 — 남은 배치 ${queue.length}, 인식 ${transcript.length}줄`);
+  // 남은 OCR 배치와 음성 인식을 모두 끝낸 뒤에 노트를 만든다. 예전에는 OCR 만
+  // 기다려서, 밀려 있던 음성이 노트에 한 줄도 들어가지 못했다.
+  log(
+    `캡처 종료 — 남은 배치 ${queue.length}, 음성 대기 ${audioCapturer.pending}건, 인식 ${transcript.length}줄`
+  );
   const waitT0 = Date.now();
   setStatus("캡처를 마쳤어요. 남은 인식 내용을 정리하고 있습니다...");
   finishTimer = setInterval(() => {
-    if (draining || queue.length) return;
+    const voiceLeft = audioCapturer.pending;
+    const waited = Date.now() - waitT0;
+    // 무한정 기다리지는 않는다. 상한에 닿으면 남은 건수를 밝히고 진행한다 —
+    // 조용히 버리는 것이 지금까지의 문제였다.
+    if ((draining || queue.length || voiceLeft) && waited < FINISH_WAIT_MS) {
+      if (voiceLeft) {
+        setStatus(`음성 인식을 마무리하는 중입니다... 남은 ${voiceLeft}건 (${Math.round(waited / 1000)}초)`);
+        renderProgress();
+      }
+      return;
+    }
     clearInterval(finishTimer);
     finishTimer = null;
-    log(`남은 OCR 처리 대기 — ${((Date.now() - waitT0) / 1000).toFixed(1)}초`);
+    log(`남은 처리 대기 — ${(waited / 1000).toFixed(1)}초 (음성 ${voiceLeft}건 남음)`);
+    if (voiceLeft) {
+      els.panelAlert.textContent =
+        `음성 ${voiceLeft}건이 아직 인식되지 않아 노트에 빠졌습니다. ` +
+        `설정에서 더 가벼운 모델을 쓰거나 1배속으로 재생하면 줄어듭니다.`;
+      els.panelAlert.hidden = false;
+    }
     if (!transcript.length) {
       setStage("ready");
       renderTabRow();
@@ -807,7 +831,9 @@ let audioCapturer = new AudioCapturer();
 audioCapturer.getVideoTime = () => lastVideoTime;
 audioCapturer.onLog = (m) => log(m);
 audioCapturer.onTranscript = (item) => {
-  if (!capturing) return;
+  // 캡처가 끝났다고 버리지 않는다. 인식은 재생보다 느려서 상당수가 종료 뒤에
+  // 도착하는데, 예전에는 여기서 조용히 사라졌다 — 40분 강의의 노트가 앞 1/3 로
+  // 만들어지고 사용자는 그 사실을 알 방법이 없었다. 정렬이 있어 순서는 맞는다.
   transcript.push({ time: item.time, text: `[음성] ${item.text}` });
   // time은 OCR 경로와 같은 "초" 숫자다. 문자열 비교로 정렬하면 OCR 항목에서 터진다.
   transcript.sort((a, b) => a.time - b.time);
