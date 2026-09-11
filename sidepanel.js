@@ -207,11 +207,11 @@ async function detectEngine() {
     detail = "화면 글자를 원격 API로 처리합니다. 캡처 이미지가 외부로 전송됩니다.";
   } else if (settings.ocrEngine === "nano") {
     const status = typeof localAvailability !== "undefined" ? await localAvailability() : "unavailable";
-    if (status === "available") {
+    if (status === "available" || status === "readily") {
       engine = "nano";
       setRow(els.markEngine, "ok", els.banner, "Gemini Nano · 온디바이스");
       detail = "Chrome 내장 Gemini Nano가 기기 안에서 화면 글자를 읽습니다.";
-    } else if (status === "downloadable" || status === "downloading") {
+    } else if (status === "downloadable" || status === "downloading" || status === "after-download") {
       engine = "nano";
       setRow(els.markEngine, "warn", els.banner, "다운로드 필요");
       detail = "Chrome 내장 Gemini Nano 모델 다운로드가 필요합니다.";
@@ -269,7 +269,7 @@ function renderPlan() {
     els.planUse.textContent = "수식·그래프·고품질 요약";
   } else {
     els.planName.textContent = "🌱 Free (무료 플랜)";
-    els.planUse.textContent = "온디바이스 Nano";
+    els.planUse.textContent = "온디바이스 Gemini Nano 요약";
   }
 
   // 개발용 키 파일이 쓰이는 중이면 알린다. 폴더를 압축해 배포하면 키가 함께
@@ -486,7 +486,11 @@ function buildNotesPrompt(script, truncated) {
 // 온디바이스 모델은 컨텍스트가 작아 스크립트를 통째로 못 받는다("The input is too large").
 // 잘라 버리는 대신 구간별로 요약한 뒤 그 요약들을 다시 요약한다. 세션은 매번 새로 뜬다.
 async function notesLocal(full, onProgress) {
-  const s = await createLocalSession(undefined, {}); // 텍스트만 — 이미지 능력 불필요
+  if (onProgress) onProgress("Gemini Nano 세션 준비 중...");
+  const s = await createLocalSession(
+    (loaded) => onProgress && onProgress(`Gemini Nano 모델 다운로드/준비 중... (${Math.round((loaded || 0) / 1024 / 1024)}MB)`),
+    {}
+  );
   try {
     return await summarizeLocal(
       s,
@@ -499,7 +503,7 @@ async function notesLocal(full, onProgress) {
       onProgress
     );
   } finally {
-    if (s.destroy) s.destroy();
+    if (s && s.destroy) s.destroy();
   }
 }
 
@@ -611,10 +615,10 @@ async function generateNotes() {
       renderTokens();
     } else {
       const avail = typeof localAvailability !== "undefined" ? await localAvailability({}) : "unavailable";
-      const localReady = avail === "available" || avail === "readily";
+      const localReady = avail === "available" || avail === "readily" || avail === "after-download" || avail === "downloadable";
       if (localReady) {
         setStatus("기기 안에서 Gemini Nano로 요약 노트를 작성하는 중...");
-        log(`기기 내 Gemini Nano 요약 시작 — 입력 ${full.length}자`);
+        log(`기기 내 Gemini Nano 요약 시작 (상태: ${avail}) — 입력 ${full.length}자`);
         const localT0 = Date.now();
         text = await notesLocal(full, (progressMsg) => {
           setStatus(progressMsg);
@@ -624,8 +628,9 @@ async function generateNotes() {
         // 원문을 대신 보여주지 않는다(AGENTS.md §2). 무엇이 없어서 못 만들었는지와
         // 무엇을 하면 되는지를 알린다.
         throw new Error(
-          "기기 내 요약 모델(Chrome 내장)을 쓸 수 없습니다. 설정에서 모델을 내려받거나, " +
-            "하단 플랜에서 Premium 으로 바꾸고 API 키를 넣으면 요약할 수 있습니다."
+          `기기 내 요약 모델(Chrome 내장 Gemini Nano)을 쓸 수 없습니다 (상태: ${avail}). ` +
+            `chrome://flags 에서 #prompt-api-for-gemini-nano 및 #optimization-guide-on-device-model 활성화 상태를 확인하거나, ` +
+            `하단 플랜에서 Premium 으로 바꾸고 API 키를 넣으면 요약할 수 있습니다.`
         );
       }
     }
@@ -870,7 +875,7 @@ els.startBtn.addEventListener("click", async () => {
         engine = "remote";
       } else if (settings.ocrEngine === "nano") {
         const nanoStat = typeof localAvailability !== "undefined" ? await localAvailability() : "unavailable";
-        if (nanoStat === "available") {
+        if (nanoStat === "available" || nanoStat === "readily") {
           engine = "nano";
           await prepareLocalSession();
         } else {
