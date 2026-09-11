@@ -376,7 +376,7 @@ async function prepareTesseract() {
   if (engine !== "tesseract" || tessReady) return;
   setStatus("Tesseract OCR 준비 중... 처음이면 언어 데이터를 읽는 데 잠시 걸립니다.");
   log("Tesseract 워커 생성 시도");
-  await createTesseractWorker((m) => {
+  await createTesseractPool((m) => {
     if (m && m.status) setStatus(`Tesseract ${m.status}${m.progress ? ` ${Math.round(m.progress * 100)}%` : ""}`);
   });
   tessReady = true;
@@ -416,7 +416,7 @@ async function drainQueue() {
         lines = await ocrLocal(localSession, frames, (i, n) => setStatus(`Gemini Nano OCR ${i}/${n}`));
       } else {
         await prepareTesseract();
-        lines = await ocrTesseract(await createTesseractWorker(), frames, (i, n) => setStatus(`Tesseract OCR ${i}/${n}`));
+        lines = await ocrTesseract(await createTesseractPool(), frames, (i, n) => setStatus(`Tesseract OCR ${i}/${n}`));
       }
       log(
         `OCR(${engine}) ${frames.length}장 — ${((Date.now() - batchT0) / 1000).toFixed(1)}초 ` +
