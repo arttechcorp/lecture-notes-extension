@@ -30,7 +30,7 @@ const els = {
   renderFrame: $("renderFrame"), viewRenderedBtn: $("viewRenderedBtn"), viewRawBtn: $("viewRawBtn"),
   pdfBtn: $("pdfBtn"), notionBtn: $("notionBtn"), exportRow: $("exportRow"),
   notionModal: $("notionModal"), notionModalClose: $("notionModalClose"),
-  noteLoadingOverlay: $("noteLoadingOverlay"), overlayPlanLink: $("overlayPlanLink"),
+  noteLoadingOverlay: $("noteLoadingOverlay"), noteLoadingTitle: $("noteLoadingTitle"), overlayPlanLink: $("overlayPlanLink"),
   // 하단
   planLine: $("planLine"), planSelect: $("planSelect"), planName: $("planName"), planUse: $("planUse"),
 };
@@ -53,7 +53,7 @@ function setStage(name) {
   $("stepLive").className = name === "live" ? "active" : "";
   $("stepDone").className = name === "done" ? "active" : "";
   if (name !== "ready") els.drawer.hidden = true;
-  if (name !== "done" && els.noteLoadingOverlay) els.noteLoadingOverlay.hidden = true;
+  if (name !== "done" && els.noteLoadingOverlay && !finishTimer) els.noteLoadingOverlay.hidden = true;
 }
 
 els.outputFormat.addEventListener("change", () => {
@@ -626,7 +626,10 @@ async function generateNotes() {
   if (els.doneAlert) els.doneAlert.hidden = true;
   setStage("done");
   els.donePill.textContent = "노트 생성 중";
-  if (els.noteLoadingOverlay) els.noteLoadingOverlay.hidden = false;
+  if (els.noteLoadingOverlay) {
+    if (els.noteLoadingTitle) els.noteLoadingTitle.textContent = "노트 필기중....";
+    els.noteLoadingOverlay.hidden = false;
+  }
   els.againBtn.disabled = true;
   els.notesBtn.disabled = true;
   els.formatToggle.disabled = true;
@@ -708,7 +711,7 @@ function finishCapture() {
   stopElapsed();
   els.stopBtn.disabled = true;
   els.startBtn.disabled = true;
-  if (!transcript.length && !queue.length && !draining) {
+  if (!transcript.length && !queue.length && !draining && !(audioCapturer && audioCapturer.pending)) {
     log("캡처 종료 — 인식된 텍스트 0줄");
     stopElapsed();
     const alertMsg = (settings && settings.ocrEnabled === false)
@@ -727,12 +730,20 @@ function finishCapture() {
   );
   const waitT0 = Date.now();
   setStatus("캡처를 마쳤어요. 남은 인식 내용을 정리하고 있습니다...");
+  if ((draining || queue.length || (audioCapturer && audioCapturer.pending)) && els.noteLoadingOverlay) {
+    if (els.noteLoadingTitle) els.noteLoadingTitle.textContent = "머릿속을 정리중이에요";
+    els.noteLoadingOverlay.hidden = false;
+  }
   finishTimer = setInterval(() => {
     const voiceLeft = audioCapturer.pending;
     const waited = Date.now() - waitT0;
     // 무한정 기다리지는 않는다. 상한에 닿으면 남은 건수를 밝히고 진행한다 —
     // 조용히 버리는 것이 지금까지의 문제였다.
     if ((draining || queue.length || voiceLeft) && waited < FINISH_WAIT_MS) {
+      if (els.noteLoadingOverlay) {
+        if (els.noteLoadingTitle) els.noteLoadingTitle.textContent = "머릿속을 정리중이에요";
+        els.noteLoadingOverlay.hidden = false;
+      }
       if (voiceLeft) {
         setStatus(`음성 인식을 마무리하는 중입니다... 남은 ${voiceLeft}건 (${Math.round(waited / 1000)}초)`);
         renderProgress();
@@ -751,6 +762,7 @@ function finishCapture() {
       els.panelAlert.hidden = false;
     }
     if (!transcript.length) {
+      if (els.noteLoadingOverlay) els.noteLoadingOverlay.hidden = true;
       setStage("ready");
       renderTabRow();
       return setStatus("텍스트를 인식하지 못했어요. 캡처 영역과 영상 재생 상태를 확인한 뒤 다시 시작하세요.");
