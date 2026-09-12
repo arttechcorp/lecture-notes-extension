@@ -72,6 +72,7 @@ let queue = []; // OCR 대기 중인 프레임 배치
 let draining = false;
 let localSession = null;
 let tessReady = false;
+let nanoFailedThisSession = false; // Gemini Nano가 연속 실패한 경우 해당 세션 동안 로컬 Tesseract로 자동 대체
 let cropRect = null; // 0~1 정규화
 let settings = null;
 let engine = "local"; // "local" | "remote" | "none"
@@ -213,19 +214,25 @@ async function detectEngine() {
     setRow(els.markEngine, "ok", els.banner, "원격");
     detail = "화면 글자를 원격 API로 처리합니다. 캡처 이미지가 외부로 전송됩니다.";
   } else if (settings.ocrEngine === "nano") {
-    const status = typeof localAvailability !== "undefined" ? await localAvailability() : "unavailable";
-    if (status === "available" || status === "readily") {
-      engine = "nano";
-      setRow(els.markEngine, "ok", els.banner, "Gemini Nano · 온디바이스");
-      detail = "Chrome 내장 Gemini Nano가 기기 안에서 화면 글자를 읽습니다.";
-    } else if (status === "downloadable" || status === "downloading" || status === "after-download") {
-      engine = "nano";
-      setRow(els.markEngine, "warn", els.banner, "다운로드 필요");
-      detail = "Chrome 내장 Gemini Nano 모델 다운로드가 필요합니다.";
-    } else {
+    if (nanoFailedThisSession) {
       engine = "tesseract";
       setRow(els.markEngine, "ok", els.banner, "Tesseract (대체)");
-      detail = "이 기기에서는 Gemini Nano를 사용할 수 없어 Tesseract로 대체 동작합니다.";
+      detail = "Gemini Nano 인식 오류로 인해 로컬 Tesseract로 자동 대체 동작 중입니다.";
+    } else {
+      const status = typeof localAvailability !== "undefined" ? await localAvailability() : "unavailable";
+      if (status === "available" || status === "readily") {
+        engine = "nano";
+        setRow(els.markEngine, "ok", els.banner, "Gemini Nano · 온디바이스");
+        detail = "Chrome 내장 Gemini Nano가 기기 안에서 화면 글자를 읽습니다.";
+      } else if (status === "downloadable" || status === "downloading" || status === "after-download") {
+        engine = "nano";
+        setRow(els.markEngine, "warn", els.banner, "다운로드 필요");
+        detail = "Chrome 내장 Gemini Nano 모델 다운로드가 필요합니다.";
+      } else {
+        engine = "tesseract";
+        setRow(els.markEngine, "ok", els.banner, "Tesseract (대체)");
+        detail = "이 기기에서는 Gemini Nano를 사용할 수 없어 Tesseract로 대체 동작합니다.";
+      }
     }
   } else {
     engine = "tesseract";
@@ -430,8 +437,22 @@ async function drainQueue() {
         tokens.ocr.output += res.output;
         lines = parseOcrJson(res.text);
       } else if (engine === "nano") {
-        await prepareLocalSession();
-        lines = await ocrLocal(localSession, frames, (i, n) => setStatus(`Gemini Nano OCR ${i}/${n}`));
+        try {
+          await prepareLocalSession();
+          lines = await ocrLocal(localSession, frames, (i, n) => setStatus(`Gemini Nano OCR ${i}/${n}`));
+        } catch (nanoErr) {
+          nanoFailedThisSession = true;
+          log(`[엔진 대체] Gemini Nano OCR 실패 (${nanoErr.message || nanoErr}) ➔ 로컬 Tesseract로 자동 전환합니다.`);
+          setStatus("Gemini Nano 화면 인식이 원활하지 않아 로컬 Tesseract로 자동 전환합니다...");
+          engine = "tesseract";
+          setRow(els.markEngine, "ok", els.banner, "Tesseract (대체)");
+          if (els.engineDetail) {
+            els.engineDetail.textContent = "Gemini Nano 오류로 인해 로컬 Tesseract로 자동 전환되어 동작 중입니다.";
+            els.engineDetail.hidden = false;
+          }
+          await prepareTesseract();
+          lines = await ocrTesseract(await createTesseractPool(), frames, (i, n) => setStatus(`Tesseract OCR ${i}/${n}`));
+        }
       } else {
         await prepareTesseract();
         lines = await ocrTesseract(await createTesseractPool(), frames, (i, n) => setStatus(`Tesseract OCR ${i}/${n}`));
@@ -819,6 +840,7 @@ if (els.ocrEnabledToggle) {
 
 if (els.ocrEngineSelect) {
   els.ocrEngineSelect.addEventListener("change", async () => {
+    nanoFailedThisSession = false;
     const ocrEngine = els.ocrEngineSelect.value;
     await saveSettings({ ocrEngine });
     await detectEngine();
@@ -881,13 +903,26 @@ els.startBtn.addEventListener("click", async () => {
       if (settings.allowRemoteOcr && settings.apiKey) {
         engine = "remote";
       } else if (settings.ocrEngine === "nano") {
-        const nanoStat = typeof localAvailability !== "undefined" ? await localAvailability() : "unavailable";
-        if (nanoStat === "available" || nanoStat === "readily") {
-          engine = "nano";
-          await prepareLocalSession();
-        } else {
+        if (nanoFailedThisSession) {
           engine = "tesseract";
           await prepareTesseract();
+        } else {
+          const nanoStat = typeof localAvailability !== "undefined" ? await localAvailability() : "unavailable";
+          if (nanoStat === "available" || nanoStat === "readily") {
+            try {
+              engine = "nano";
+              await prepareLocalSession();
+            } catch (prepErr) {
+              nanoFailedThisSession = true;
+              log(`[엔진 대체] Gemini Nano 세션 준비 실패 (${prepErr.message || prepErr}) ➔ 로컬 Tesseract로 자동 전환합니다.`);
+              engine = "tesseract";
+              setRow(els.markEngine, "ok", els.banner, "Tesseract (대체)");
+              await prepareTesseract();
+            }
+          } else {
+            engine = "tesseract";
+            await prepareTesseract();
+          }
         }
       } else {
         engine = "tesseract";
