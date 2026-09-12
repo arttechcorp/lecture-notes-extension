@@ -277,11 +277,34 @@
               el.innerHTML = svg;
             } catch (err) {
               console.warn('Mermaid diagram render error:', err);
-              el.innerHTML = '<pre style="color:#ef4444; font-size:11px; text-align:left;">그래프 렌더링 실패:\n' + mermaidBlocks[i] + '</pre>';
+              const wrap = document.createElement('div');
+              wrap.className = 'mermaid-fallback-box';
+              wrap.style.cssText = 'padding:10px 14px; background:var(--code-bg); border:1px dashed var(--border); border-radius:6px; font-size:12px; color:var(--sub); text-align:left; margin:8px 0;';
+              const title = document.createElement('div');
+              title.style.cssText = 'font-weight:600; margin-bottom:4px; color:var(--text); font-size:11px;';
+              title.textContent = '📊 다이어그램 (텍스트 요약)';
+              const pre = document.createElement('pre');
+              pre.style.cssText = 'margin:0; font-family:ui-monospace,monospace; font-size:11px; white-space:pre-wrap; color:var(--sub);';
+              pre.textContent = mermaidBlocks[i];
+              wrap.appendChild(title);
+              wrap.appendChild(pre);
+              el.replaceChildren(wrap);
             }
           }
         }
       }
+
+      // 8. 깨진 이미지 대체 처리 (환각 가짜 이미지 등 엑박 방지)
+      target.querySelectorAll('img').forEach((img) => {
+        img.addEventListener('error', () => {
+          const alt = img.getAttribute('alt') || '이미지';
+          const span = document.createElement('span');
+          span.className = 'broken-image-fallback';
+          span.style.cssText = 'display:inline-block; padding:2px 8px; font-size:11px; color:var(--sub); background:var(--code-bg); border:1px solid var(--border); border-radius:4px; margin:2px 0;';
+          span.textContent = `🖼️ [${alt}]`;
+          img.replaceWith(span);
+        }, { once: true });
+      });
 
       notifyParentHeight();
       requestAnimationFrame(() => notifyParentHeight());
