@@ -22,7 +22,7 @@
         const level = headings++ === 0 ? 'h3' : 'h4';
         parts.push(`<${level}>${block.innerHTML}</${level}>`);
       } else parts.push(block.outerHTML);
-      if (parts.length > 5) break;
+      if (parts.length > 8) break;
     }
     return parts.join('');
   }
@@ -120,5 +120,39 @@
       label.textContent = on ? label.dataset.studentLabel : label.dataset.label;
     }
   });
+  const reviews = document.querySelector('.reviews');
+  if (reviews) {
+    const reviewMotion = matchMedia('(prefers-reduced-motion: reduce)');
+    const reviewControl = reviews.querySelector('.reviews-control');
+    let reviewsPaused = false;
+    for (const track of reviews.querySelectorAll('.reviews-track')) {
+      const group = track.querySelector('.reviews-group');
+      if (!group) continue;
+      for (let i = 0; i < 3; i++) {
+        const copy = group.cloneNode(true);
+        copy.setAttribute('aria-hidden', 'true');
+        copy.inert = true;
+        track.append(copy);
+      }
+      requestAnimationFrame(() => track.classList.add('is-ready'));
+    }
+    reviews.classList.add('is-ready');
+    function syncReviews() {
+      const paused = reviewsPaused || document.hidden || reviewMotion.matches;
+      reviews.classList.toggle('is-paused', paused);
+      if (!reviewControl) return;
+      reviewControl.hidden = reviewMotion.matches;
+      reviewControl.setAttribute('aria-pressed', String(paused));
+      reviewControl.textContent = paused ? '후기 흐름 재생' : '후기 흐름 일시정지';
+    }
+    reviewControl?.addEventListener('click', () => { reviewsPaused = !reviewsPaused; syncReviews(); });
+    reviewMotion.addEventListener('change', syncReviews);
+    document.addEventListener('visibilitychange', syncReviews);
+    syncReviews();
+  }
   selectDemo('professional');
+  if (window.location.hash.startsWith('#example-')) {
+    const ex = window.location.hash.slice(9);
+    if (plans[ex]) showExample(ex);
+  }
 })();

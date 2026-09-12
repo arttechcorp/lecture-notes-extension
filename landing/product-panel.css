@@ -671,9 +671,11 @@
   }
   #stageDone .note-modes button,
   #stageDone .note-copy {
-    min-height: 44px;
+    height: 34px;
+    min-height: 34px;
     min-width: 56px;
-    padding: 8px 12px;
+    padding: 0 12px;
+    line-height: 1;
     border: 0;
     border-radius: var(--r-sm);
     background: transparent;
@@ -698,6 +700,15 @@
     background: transparent;
     flex-shrink: 0;
     color: var(--ink);
+  }
+
+  /* Keep the product panel's rendered/raw and copy actions aligned with the landing demo. */
+  #stageDone .note-view-tabs .tab-pill,
+  #stageDone .export-row button {
+    height: 34px;
+    min-height: 34px;
+    padding-block: 0;
+    line-height: 1;
   }
 
   #stageDone .note-surface {

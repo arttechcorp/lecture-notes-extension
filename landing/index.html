@@ -9,7 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Hedvig+Letters+Serif:opsz@12..24&family=Geist+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script>if(!matchMedia('(prefers-reduced-motion: reduce)').matches){var h=document.documentElement;h.classList.add('gsap-enter');setTimeout(function(){h.classList.remove('gsap-enter')},2000)}</script>
 <link rel="stylesheet" href="landing.css?v=20260911-8">
-<link rel="stylesheet" href="hero-mockup.css?v=20260911-8">
+<link rel="stylesheet" href="hero-mockup.css?v=20260912-2">
 </head>
 <body>
 <a class="skip" href="#main">본문으로 이동</a>
@@ -25,9 +25,11 @@
     <p class="lead">놓치기 쉬운 설명부터 중요한 슬라이드까지. 강의의 화면과 말소리를 모아, 다시 읽고 싶은 학습 노트로 만드세요.</p>
     <div class="hero-actions"><button class="button dark" data-install>Summrizei 무료로 시작 <span aria-hidden="true">↗</span></button></div>
   </div>
-  <!-- 시연 전용 데이터. 제품과 같은 product-panel.css를 사용하며 실제 캡처·녹음은 실행하지 않는다. -->
-  <figure class="mock" id="heroDemo" aria-labelledby="mockCaption" data-state="ready">
+  <!-- 시연 전용 2단계 데이터. 제품과 같은 product-panel.css를 사용하며 실제 캡처·녹음은 실행하지 않는다. -->
+  <figure class="mock" id="heroDemo" aria-label="Summrizei 체험 시연" data-state="ready">
+    <div class="mock-tilt">
     <div class="mock-window">
+      <div class="mock-canvas">
       <div class="mock-titlebar" aria-hidden="true">
         <span class="mock-lights"><i></i><i></i><i></i></span>
         <span class="mock-tab"><span class="mock-favicon">L</span>NPV and IRR explained<span class="mock-tab-close">×</span></span>
@@ -49,6 +51,29 @@
                 <table class="lecture-table"><thead><tr><th></th><th>Year 0</th><th>Year 1</th><th>Year 2</th><th>Year 3</th><th>Year 4</th></tr></thead><tbody><tr><th>Project A</th><td>($1000)</td><td>$400</td><td>$400</td><td>$400</td><td>$400</td></tr><tr><th>Project B</th><td>($1000)</td><td>$600</td><td>$500</td><td>$300</td><td>$200</td></tr><tr><th>Project C</th><td>($1000)</td><td>$200</td><td>$300</td><td>$500</td><td>$600</td></tr></tbody></table>
                 <div class="lecture-equations"><h3>NPV and IRR</h3><p>Project A NPV @ 20% WACC = <b>$35</b> / IRR 22%</p><p>Project B NPV @ 20% WACC = <b>$117</b> / IRR 27%</p><p>Project C NPV @ 20% WACC = <b>($46)</b> / IRR 18%</p></div>
                 <span class="lecture-page">12</span>
+                <svg class="lecture-ink" viewBox="0 0 960 540" aria-hidden="true">
+                  <title>NPV measures value in dollars; IRR measures a percentage return.</title>
+                  <path data-ink pathLength="1" d="M 679.5 424.9 L 684.5 369.9 L 709.5 422.4 L 717 367.4"/>
+                  <path data-ink pathLength="1" d="M 724.5 425.5 L 732 370.5 Q 764.5 363 762 385.5 Q 757 403 729.5 398"/>
+                  <path data-ink pathLength="1" d="M 767 373.6 Q 774.5 406.1 782 426.1 Q 792 401.1 807 368.6"/>
+                  <path data-ink pathLength="1" d="M815 369 Q841 365 866 369"/>
+                  <path data-ink pathLength="1" d="M854 358 L867 369 L854 381"/>
+                  <path data-ink pathLength="1" d="M 924.5 378.9 Q 904.5 361.4 892 381.4 Q 884.5 393.9 907 398.9 Q 932 403.9 917 418.9 Q 904.5 428.9 887 413.9"/>
+                  <path data-ink pathLength="1" d="M 909.5 358.9 L 899.5 433.9"/>
+                  <path data-ink pathLength="1" d="M 684.5 446.4 L 714.5 443.9"/>
+                  <path data-ink pathLength="1" d="M 702 443.9 L 694.5 496.4"/>
+                  <path data-ink pathLength="1" d="M 682 498.9 L 712 496.4"/>
+                  <path data-ink pathLength="1" d="M 719.5 499.5 L 727 444.5 Q 759.5 437 757 459.5 Q 749.5 474.5 724.5 472"/>
+                  <path data-ink pathLength="1" d="M 734.5 472 L 757 499.5"/>
+                  <path data-ink pathLength="1" d="M 767 500.1 L 774.5 445.1 Q 807 437.6 804.5 460.1 Q 797 475.1 772 472.6"/>
+                  <path data-ink pathLength="1" d="M 782 472.6 L 804.5 500.1"/>
+                  <path data-ink pathLength="1" d="M815 445 Q841 442 866 445"/>
+                  <path data-ink pathLength="1" d="M854 435 L867 445 L854 457"/>
+                  <path data-ink pathLength="1" d="M 889.6 492.4 L 929.2 441.8"/>
+                  <path data-ink pathLength="1" d="M 898.4 446.2 Q 885.2 441.8 885.2 455.1 Q 885.2 468.2 898.4 461.6 Q 907.2 452.8 898.4 446.2"/>
+                  <path data-ink pathLength="1" d="M 922.6 472.6 Q 909.4 468.2 909.4 483.6 Q 911.6 496.9 924.8 488.1 Q 933.6 477.1 922.6 472.6"/>
+                  <path class="lecture-pen" d="M0 0 3 25 9 18 17 30 22 27 14 15 25 14Z"/>
+                </svg>
               </div>
               <div class="lecture-slide" data-slide="1" hidden>
                 <h2>Why the timing of cash flows matters</h2>
@@ -56,6 +81,32 @@
                 <table class="lecture-table"><thead><tr><th></th><th>Year 1</th><th>Year 2</th><th>Year 3</th><th>Year 4</th></tr></thead><tbody><tr class="lecture-highlight"><th>Project B</th><td>$600</td><td>$500</td><td>$300</td><td>$200</td></tr><tr><th>Project C</th><td>$200</td><td>$300</td><td>$500</td><td>$600</td></tr></tbody></table>
                 <div class="lecture-equations"><h3>Present value at a 20% discount rate</h3><p>Earlier cash flows have a higher present value.</p><p>NPV (B) = <b>$117</b> &gt; NPV (C) = <b>−$46</b></p></div>
                 <span class="lecture-page">13</span>
+                <svg class="lecture-ink" viewBox="0 0 960 540" aria-hidden="true">
+                  <title>Earlier cash flows have more present value at a positive discount rate.</title>
+                  <path data-ink pathLength="1" d="M 393.2 505.2 Q 410.8 503.1 410.8 494.2 Q 404.2 485.4 395.4 498.6 Q 386.6 516.2 402 516.2 Q 410.8 516.2 417.4 507.4"/>
+                  <path data-ink pathLength="1" d="M 446 497 Q 437.2 486 428.4 497 Q 419.6 508 426.2 514.6 Q 435 519 443.8 499.2 L 446 492.6 L 441.6 512.4 Q 446 519 452.6 510.2"/>
+                  <path data-ink pathLength="1" d="M 461.4 493.2 L 457 517.4"/>
+                  <path data-ink pathLength="1" d="M 461.4 506.4 Q 468 488.8 474.6 493.2 Q 479 499.8 485.6 495.4"/>
+                  <path data-ink pathLength="1" d="M 490 507.4 Q 507.6 474.4 501 467.8 Q 492.2 463.4 492.2 485.4 L 490 507.4 Q 490 520.6 505.4 509.6"/>
+                  <path data-ink pathLength="1" d="M 516.4 494.8 L 512 512.4 Q 514.2 519 525.2 510.2"/>
+                  <path data-ink pathLength="1" d="M 520.8 479.4 L 520.8 481.6"/>
+                  <path data-ink pathLength="1" d="M 531.8 506.4 Q 549.4 504.2 549.4 495.4 Q 542.8 486.6 534 499.8 Q 525.2 517.4 540.6 517.4 Q 549.4 517.4 556 508.6"/>
+                  <path data-ink pathLength="1" d="M 564.8 492.1 L 560.4 516.2"/>
+                  <path data-ink pathLength="1" d="M 564.8 505.2 Q 571.4 487.6 578 492.1 Q 582.4 498.6 589 494.2"/>
+                  <path data-ink pathLength="1" d="M 598 491.1 Q 613.4 488.8 633.2 491.1"/>
+                  <path data-ink pathLength="1" d="M 598 506.4 L 631 504.2"/>
+                  <path data-ink pathLength="1" d="M 665.4 493.2 L 661 515.2"/>
+                  <path data-ink pathLength="1" d="M 663.2 506.4 Q 674.2 484.4 680.8 493.2 Q 685.2 497.6 678.6 513"/>
+                  <path data-ink pathLength="1" d="M 680.8 506.4 Q 694 484.4 700.6 493.2 Q 705 497.6 698.4 510.8 Q 700.6 517.5 709.4 506.4"/>
+                  <path data-ink pathLength="1" d="M 735.8 493.8 Q 722.6 485 716 500.4 Q 711.6 515.8 727 515.8 Q 740.2 515.8 740.2 500.4 Q 740.2 491.6 731.4 493.8"/>
+                  <path data-ink pathLength="1" d="M 751.2 492.2 L 746.8 516.4"/>
+                  <path data-ink pathLength="1" d="M 751.2 505.4 Q 757.8 487.8 764.4 492.2 Q 768.8 498.8 775.4 494.4"/>
+                  <path data-ink pathLength="1" d="M 779.8 504.2 Q 797.4 502.1 797.4 493.2 Q 790.8 484.4 782 497.6 Q 773.2 515.2 788.6 515.2 Q 797.4 515.2 804 506.4"/>
+                  <path data-ink pathLength="1" d="M 827.2 516.5 L 833.8 468.1 Q 862.4 461.4 860.2 481.2 Q 855.8 496.6 831.6 492.2"/>
+                  <path data-ink pathLength="1" d="M 864.6 470.8 Q 871.2 499.4 877.8 517 Q 886.6 495 899.8 466.4"/>
+                  <path data-ink pathLength="1" d="M389 518 Q584 513 895 516"/>
+                  <path class="lecture-pen" d="M0 0 3 25 9 18 17 30 22 27 14 15 25 14Z"/>
+                </svg>
               </div>
               <div class="lecture-slide" data-slide="2" hidden>
                 <h2>Choosing between investment projects</h2>
@@ -63,32 +114,56 @@
                 <div class="lecture-definitions"><p><b>NPV</b><span>How much value does the project create?</span></p><p><b>IRR</b><span>What rate of return does the project earn?</span></p></div>
                 <div class="lecture-equations"><h3>Key takeaway</h3><p>For mutually exclusive projects of different sizes,</p><p>compare the <b>value created</b>, not just the percentage return.</p></div>
                 <span class="lecture-page">14</span>
+                <svg class="lecture-ink" viewBox="0 0 960 540" aria-hidden="true">
+                  <title>Compare the value created, not just the percentage return.</title>
+                  <path data-ink pathLength="1" d="M 532.5 485.4 Q 537.5 502.9 542.5 513 Q 550 502.9 562.5 480.4"/>
+                  <path data-ink pathLength="1" d="M 595 488.5 Q 585 476 575 488.5 Q 565 501 572.5 508.5 Q 582.5 513.5 592.5 491 L 595 483.5 L 590 506 Q 595 513.5 602.5 503.5"/>
+                  <path data-ink pathLength="1" d="M 610 501.6 Q 630 464.1 622.5 456.6 Q 612.5 451.6 612.5 476.6 L 610 501.6 Q 610 516.5 627.5 504.1"/>
+                  <path data-ink pathLength="1" d="M 640 482.9 Q 630 518 645 507.9 L 660 482.9 L 655 505.4 Q 657.5 513 670 500.4"/>
+                  <path data-ink pathLength="1" d="M 675 498.5 Q 695 496 695 486 Q 687.5 476 677.5 491 Q 667.5 511 685 511 Q 695 511 702.5 501"/>
+                  <path data-ink pathLength="1" d="M 715 506.6 Q 720 514 710 524"/>
+                  <path data-ink pathLength="1" d="M 745 486.4 L 740 511.4"/>
+                  <path data-ink pathLength="1" d="M 742.5 501.4 Q 762.5 473.9 770 486.4 Q 775 491.4 767.5 506.4 Q 770 514 780 501.4"/>
+                  <path data-ink pathLength="1" d="M 807.5 487 Q 792.5 477 785 494.5 Q 780 512 797.5 512 Q 812.5 512 812.5 494.5 Q 812.5 484.5 802.5 487"/>
+                  <path data-ink pathLength="1" d="M 837.5 465.1 L 827.5 502.6 Q 825 520 845 505.1"/>
+                  <path data-ink pathLength="1" d="M 820 487.6 L 850 482.6"/>
+                  <path data-ink pathLength="1" d="M 882.5 514 L 927.5 456.4"/>
+                  <path data-ink pathLength="1" d="M 892.5 461.4 Q 877.5 456.4 877.5 471.4 Q 877.5 486.4 892.5 478.9 Q 902.5 468.9 892.5 461.4"/>
+                  <path data-ink pathLength="1" d="M 920 491.4 Q 905 486.4 905 503.9 Q 907.5 519 922.5 508.9 Q 932.5 496.4 920 491.4"/>
+                  <path data-ink pathLength="1" d="M530 522 Q610 516 700 520"/>
+                  <path class="lecture-pen" d="M0 0 3 25 9 18 17 30 22 27 14 15 25 14Z"/>
+                </svg>
               </div>
               <div class="capture-frame"><span>화면 인식 중</span></div>
-              <span class="lecture-pointer"></span>
             </div>
-            <div class="lecture-caption" id="lectureCaption">캡처 시작을 눌러 강의를 함께 들어보세요.</div>
+            <div class="lecture-caption" id="lectureCaption">준비된 강의 화면을 읽는 예시입니다.</div>
           </div>
           <div class="lec-controls">
-            <button class="lec-play-toggle" type="button" aria-label="체험 일시정지" hidden><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 3v10M12 3v10"/></svg></button>
-            <span class="lec-idle-play" aria-hidden="true">▶</span>
             <span class="lec-time" aria-hidden="true"><span id="lectureTime">12:07</span> / 22:20</span>
             <span class="lec-progress" aria-hidden="true"><i class="lec-buffer"></i><i class="lec-knob"></i></span>
             <span class="lec-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
             <span class="lec-rate" aria-hidden="true">1×</span>
           </div>
         </div>
-        <iframe class="demo-panel" src="demo-panel.html?v=20260911-7" title="Summrizei 준비, 캡처, 노트 만들기 체험" sandbox="allow-same-origin" loading="eager"></iframe>
+        <iframe class="demo-panel" src="demo-panel.html?v=20260912-1" title="Summrizei 캡처와 노트 만들기 자동 체험" sandbox="allow-same-origin" loading="eager"></iframe>
       </div>
+      </div>
+      <button class="lec-play-toggle" type="button" aria-label="체험 일시정지" aria-pressed="false"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 3v10M12 3v10"/></svg></button>
     </div>
-    <figcaption id="mockCaption" class="mock-caption">버튼을 눌러 캡처부터 노트 완성까지 체험해보세요. 화면과 음성은 준비된 예시로 재생됩니다.</figcaption>
+    </div>
     <p class="demo-announcement" role="status" aria-live="polite"></p>
   </figure>
 </section>
 <div class="value-strip wrap"><span><b>01</b> 화면의 핵심을 읽고</span><span><b>02</b> 말소리를 놓치지 않고</span><span><b>03</b> 복습할 내용만 한곳에</span></div>
+<section class="school-section" aria-label="전국 대학 로고">
+  <p class="school-heading">전국 대학의 학생들이 Summrizei로 공부하고 있어요</p>
+  <div class="school-marquee-wrap" aria-hidden="true">
+    <div class="school-marquee-track"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/1.webp"><img width="89" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/2.webp"><img width="53" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/3.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/4.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/5.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/6.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/7.webp"><img width="73" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/8.webp"><img width="69" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/9.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/10.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/11.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/12.webp"><img width="71" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/13.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/14.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/15.webp"><img width="71" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/16.webp"><img width="77" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/17.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/18.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/19.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/20.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/21.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/22.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/1.webp"><img width="89" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/2.webp"><img width="53" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/3.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/4.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/5.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/6.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/7.webp"><img width="73" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/8.webp"><img width="69" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/9.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/10.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/11.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/12.webp"><img width="71" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/13.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/14.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/15.webp"><img width="71" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/16.webp"><img width="77" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/17.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/18.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/19.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/20.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/21.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/22.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/1.webp"><img width="89" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/2.webp"><img width="53" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/3.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/4.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/5.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/6.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/7.webp"><img width="73" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/8.webp"><img width="69" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/9.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/10.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/11.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/12.webp"><img width="71" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/13.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/14.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/15.webp"><img width="71" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/16.webp"><img width="77" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/17.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/18.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/19.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/20.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/21.webp"><img width="72" height="72" alt="School logo" class="school-logo" loading="lazy" src="images/school/22.webp"></div>
+  </div>
+</section>
 <section class="demo-section" id="preview">
   <div class="wrap">
-    <div class="section-head on-dark"><div><p class="eyebrow">FROM LECTURE TO NOTES</p><h2>강의의 흐름은 그대로.<br>읽는 방식은 더 명확하게.</h2></div><p>같은 기업재무 강의 샘플을 입력한<br>모델 비교 결과를 직접 확인해 보세요.</p></div>
+    <div class="section-head on-dark"><div><p class="eyebrow">FROM LECTURE TO NOTES</p><h2>강의의 흐름은 그대로.<br>읽는 방식은 더 명확하게.</h2></div></div>
     <div class="demo-grid">
       <div class="source-panel"><div class="window-bar"><span class="dots">● ● ●</span><span>강의에서 인식한 원문</span></div><div class="source-heading"><span class="tag inverse">기업재무</span><h3>투자안 평가: NPV와 IRR</h3><p>화면 글자 + 말소리 받아쓰기</p></div>
         <div class="transcript-line"><time>03:42</time><p>정의: NPV를 정확히 0으로 만드는 할인율</p></div>
@@ -102,19 +177,19 @@
         <div class="note-bottom"><span id="demoModel"></span><button class="text-link" id="demoFull" data-example="professional">전체 예시 읽기 <span aria-hidden="true">↗</span></button></div>
       </div>
     </div>
-    <p class="demo-caption">제공된 7분 30초 강의 샘플의 비교 결과를 사용했습니다. 화면에는 발췌본을, 전체 예시에는 모델별 생성 결과를 표시합니다. 자동 생성 내용은 원문과 함께 검토해 주세요.</p>
   </div>
 </section>
+<section class="how-section"><div class="wrap"><div class="section-head"><div><p class="eyebrow">A SMALLER ROUTINE</p><h2>복습까지, 세 단계.</h2></div></div><div class="steps"><div><span>01 / SELECT</span><h3>강의를 열고</h3><p>영상이 재생 중인 탭과 읽을 화면 영역을 선택합니다.</p></div><div><span>02 / CAPTURE</span><h3>강의에 집중하세요</h3><p>화면 글자와 말소리를 읽는 동안 인식된 내용을 확인할 수 있습니다.</p></div><div><span>03 / REVIEW</span><h3>노트를 검토하고 저장</h3><p>시간순 원문 또는 요약 노트를 확인하고, 필요한 내용을 복사하거나 저장합니다.</p></div></div></div></section>
+<section class="reviews" id="reviews" aria-labelledby="reviews-title"><div class="reviews-head wrap"><p class="eyebrow">CERTIFIED BY STUDENTS</p><h2 id="reviews-title">나만 빼고 다 받는 A+.</h2><p class="review-subtitle">Summrizei를 이용해주신 학생들의 후기입니다.</p></div><div class="reviews-viewport" tabindex="0" role="region" aria-label="학생 후기 첫째 줄"><div class="reviews-row"><div class="reviews-track"><div class="reviews-group" role="list"><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><h3>필기하다 놓치던 설명까지</h3><p>슬라이드 글자와 말소리를 함께 읽어 노트로 정리해주니, 받아 적느라 놓쳤던 개념을 복습할 때 짚어보기 좋았어요.</p></article><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><h3>교수님 설명까지 노트에</h3><p>슬라이드만 봐서는 이해가 안 되던 부분이 있었는데, 강의 음성도 함께 정리하니까 개념을 다시 연결해 보기 편해요.</p></article><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><h3>지금 잘 읽고 있는지 보여요</h3><p>인식된 내용이 수업 중에 차곡차곡 보여서 좋아요. 켜두고 기다리는 동안 어떤 내용을 읽고 있는지 확인할 수 있어요.</p></article><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><h3>이제 설명에 집중하게 돼요</h3><p>강의창이랑 메모장을 번갈아 보던 게 줄었어요. 우선 설명을 듣고, 끝난 뒤 노트에서 필요한 부분을 다듬으니 편해요.</p></article><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><h3>보던 강의에서 바로 시작</h3><p>크롬에서 강의를 열고 옆 패널에서 시작하면 되니까 간단해요. 다른 앱으로 강의 자료를 옮길 필요가 없어서 좋아요.</p></article></div></div></div></div><div class="reviews-viewport" tabindex="0" role="region" aria-label="학생 후기 둘째 줄"><div class="reviews-row"><div class="reviews-track" style="--review-direction:reverse;--review-delay:-15s"><div class="reviews-group" role="list"><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><h3>스크린샷 정리가 줄었어요</h3><p>슬라이드마다 찍어 둔 사진을 다시 정리하는 게 일이었는데, 화면의 글자를 노트로 모아 보니 복습 준비가 한결 가벼워요.</p></article><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><h3>말로 설명하는 수업에도</h3><p>화면 캡처는 끄고 음성 인식만 켤 수 있어서 좋았어요. 화면 자료가 적은 수업에서도 설명을 바탕으로 노트를 만들 수 있어요.</p></article><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><h3>긴 내용도 핵심부터 복습</h3><p>개인 API 키를 연결해 요약 노트를 만들어봤어요. 길게 들었던 내용을 핵심 개념부터 다시 읽을 수 있어서 편하네요.</p></article><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><h3>고치고 복사하면 정리 끝</h3><p>노트에서 필요한 문장을 제 표현으로 고치고 노션에 붙여 넣었어요. 쓰던 공부 노트에 바로 이어 붙일 수 있어 좋아요.</p></article><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><h3>복습 노트는 PDF로</h3><p>노트를 검토한 뒤 PDF로 저장해두니 복습할 때 다시 펼쳐 보기 편해요. 종이로 읽고 싶을 때는 바로 인쇄할 수도 있고요.</p></article></div></div></div></div></section>
 <section class="section wrap" id="plans">
   <div class="section-head"><div><p class="eyebrow">CHOOSE YOUR DEPTH</p><h2>필기부터 깊이 있는 복습까지.</h2></div><p>강의를 어느 깊이까지 정리하고 싶은지에 맞춰 나에게 맞는 플랜을 선택하세요.</p></div>
   <p class="student-row"><button class="student-toggle" id="studentToggle" type="button" aria-pressed="false">학생이신가요?</button></p>
   <div class="plan-grid">
     <article class="plan" data-card="free"><div class="plan-heading"><h3>Free</h3><span class="tag">바로 시작</span></div><p class="plan-for">다시 볼 장면을 찾고 싶다면</p><p class="price">$0</p><div class="plan-actions"><button class="button quiet" data-install>무료로 시작</button><button class="sample-button" data-example="free">타임라인 예시 보기 <span>↗</span></button></div><p class="plan-outcome">강의의 화면과 말소리를 시각순으로 모은 타임라인.</p><p class="benefits-label">포함:</p><ul class="benefits"><li>시각이 표시된 인식 원문</li><li>로컬 화면·음성 인식</li><li>복사와 Markdown 저장</li><li>API 키 없이 시작</li></ul></article>
     <article class="plan recommended" data-card="essential"><div class="plan-heading"><h3>Essential</h3><span class="tag solid" data-label="추천" data-student-label="EDU 학생가">추천</span></div><p class="plan-for">많은 강의를 빠르게 훑고 싶다면</p><p class="price" data-price="9" data-student="7">$9<span> / 월</span></p><div class="plan-actions"><button class="button dark" data-plan="essential" data-label="시작하기" data-student-label="학생 요금으로 시작하기">시작하기</button><button class="sample-button" data-example="essential">요약 예시 보기 <span>↗</span></button></div><p class="plan-outcome">핵심 개념과 결론을 간결하게 정리한 요약 노트.</p><p class="benefits-label">포함:</p><ul class="benefits"><li class="carry">Free의 모든 기능</li><li>개념별로 묶은 핵심 요약</li><li>강의에서 다룬 공식과 기준</li></ul></article>
-    <article class="plan" data-card="professional"><div class="plan-heading"><h3>Professional</h3></div><p class="plan-for">중요한 강의를 깊이 이해한다면</p><p class="price">$14<span> / 월</span></p><div class="plan-actions"><button class="button quiet" data-plan="professional">시작하기</button><button class="sample-button" data-example="professional">상세 노트 예시 보기 <span>↗</span></button></div><p class="plan-outcome">개념의 연결과 판단 근거를 차근차근 풀어낸 상세 노트.</p><p class="benefits-label">포함:</p><ul class="benefits"><li class="carry">Essential의 모든 기능</li><li>세부 주제까지 나눈 설명</li><li>비교 사례의 판단 근거</li><li>공식과 개념을 연결한 정리</li></ul></article>
+    <article class="plan professional" data-card="professional"><div class="plan-heading"><h3>Professional</h3></div><p class="plan-for">중요한 강의를 깊이 이해한다면</p><p class="price">$14<span> / 월</span></p><div class="plan-actions"><button class="button quiet" data-plan="professional">시작하기</button><button class="sample-button" data-example="professional">상세 노트 예시 보기 <span>↗</span></button></div><p class="plan-outcome">개념의 연결과 판단 근거를 차근차근 풀어낸 상세 노트.</p><p class="benefits-label">포함:</p><ul class="benefits"><li class="carry">Essential의 모든 기능</li><li>세부 주제까지 나눈 설명</li><li>비교 사례의 판단 근거</li><li>공식과 개념을 연결한 정리</li></ul></article>
   </div>
 </section>
-<section class="how-section"><div class="wrap"><div class="section-head"><div><p class="eyebrow">A SMALLER ROUTINE</p><h2>복습까지, 세 단계.</h2></div></div><div class="steps"><div><span>01 / SELECT</span><h3>강의를 열고</h3><p>영상이 재생 중인 탭과 읽을 화면 영역을 선택합니다.</p></div><div><span>02 / CAPTURE</span><h3>강의에 집중하세요</h3><p>화면 글자와 말소리를 읽는 동안 인식된 내용을 확인할 수 있습니다.</p></div><div><span>03 / REVIEW</span><h3>노트를 검토하고 저장</h3><p>시간순 원문 또는 요약 노트를 확인하고, 필요한 내용을 복사하거나 저장합니다.</p></div></div></div></section>
 <section class="section wrap faq"><div><p class="eyebrow">GOOD TO KNOW</p><h2>시작하기 전에.</h2></div><div class="faq-list"><details><summary>Free도 API 키가 필요한가요?</summary><p>아니요. Free의 화면·음성 인식과 원문 타임라인은 기기 안에서 동작합니다. 현재 AI 요약을 사용하려면 개인 API 키가 필요하며, 키 없이 사용하는 유료 구독은 준비 중입니다.</p></details><details><summary>플랜마다 결과가 얼마나 다른가요?</summary><p>위의 예시 보기에서 같은 입력으로 생성한 결과를 비교할 수 있습니다. 한 번의 비교 결과가 모든 강의에서 같은 품질 차이를 보장하지는 않습니다. 요약의 분량보다 자신에게 편한 정리 방식을 기준으로 골라 주세요.</p></details><details><summary>패널을 닫아도 노트가 남나요?</summary><p>패널을 닫으면 수집한 텍스트와 노트가 사라집니다. 필요한 결과는 닫기 전에 복사하거나 Markdown 파일로 저장해 주세요.</p></details><details><summary>강의 자료는 어떻게 처리되나요?</summary><p>처리 방식과 전송 범위는 <a href="policies/copyright.html">저작권 방침</a>과 <a href="policies/privacy.html">개인정보처리방침</a>에서 확인할 수 있습니다.</p></details></div></section>
 </main>
 <footer class="site-footer"><div class="wrap"><div class="footer-top"><div><a class="brand" href="index.html">Summr<span>i</span>zei.</a><p>듣는 시간은 온전히.<br>배운 내용은 또렷하게.</p></div><nav aria-label="약관 및 방침"><a href="policies/copyright.html">저작권 방침</a><a href="policies/privacy.html">개인정보처리방침</a><a href="policies/terms.html">이용약관</a><a href="policies/refund.html">결제 및 환불 정책</a><a href="policies/licenses.html">오픈소스 라이선스</a></nav><div><p class="eyebrow">CONTACT</p><a href="mailto:jihwanbu26@gmail.com">jihwanbu26@gmail.com</a></div></div><div class="footer-bottom"><span>© 2026 Summrizei</span><span>개인 학습용 도구 · 운영 정보 및 정책 작성 중</span></div></div></footer>
@@ -124,6 +199,6 @@
 <!-- 시연은 장식용 CDN의 다운로드를 기다리지 않고 바로 연결한다. -->
 <script src="vendor/markdown-it.min.js"></script>
 <script src="note-viewer.js?v=20260911-7"></script>
-<script src="hero-mockup.js?v=20260911-7"></script>
+<script src="hero-mockup.js?v=20260912-2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.15.0/gsap.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.15.0/ScrollTrigger.min.js"></script><script src="gsap-animations.js?v=20260911-7"></script><script src="checkout-config.js?v=20260911-7"></script><script src="examples.js?v=20260911-7"></script><script src="landing.js?v=20260911-7"></script>
 </body></html>
