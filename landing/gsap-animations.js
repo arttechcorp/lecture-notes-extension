@@ -9,7 +9,7 @@
 (() => {
   const root = document.documentElement;
   if (typeof gsap === 'undefined') { root.classList.remove('gsap-enter'); return; }
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { root.classList.remove('gsap-enter'); return; }
+  if (window.matchMedia('(prefers-reduced-motion: reduce), (max-width: 760px)').matches) { root.classList.remove('gsap-enter'); return; }
 
   if (typeof ScrollTrigger !== 'undefined') gsap.registerPlugin(ScrollTrigger);
 
