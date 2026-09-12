@@ -215,21 +215,7 @@ if (typeof chrome === "undefined" || !chrome.storage) {
   footer p { margin: 0; }
   a { color: var(--ink); text-underline-offset: 3px; }
   #status:empty { display: none; }
-  #cropRow { flex-direction: column; align-items: flex-start; gap: 5px; }
-  
-  .plan-card { display: flex; flex-direction: column; gap: 8px; background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r-md); padding: 10px 12px; box-shadow: var(--lift-1); }
-  .plan-selector-row { display: flex; align-items: center; gap: 8px; }
-  .plan-badge { font-size: 10px; font-weight: 700; letter-spacing: .06em; padding: 2px 6px; background: var(--sunk); border: 1px solid var(--rule); border-radius: 4px; color: var(--ash); }
-  .plan-dropdown { flex: 1; padding: 5px 8px; font-size: 12px; font-weight: 600; border-radius: 6px; border: 1px solid var(--rule); background: var(--sunk); color: var(--ink); cursor: pointer; }
-  .plan-status-row { display: flex; align-items: center; justify-content: space-between; font-size: 11.5px; }
-  #planName { font-weight: 600; }
-  #planUse { color: var(--ash); font-variant-numeric: tabular-nums; }
   .legal { font-size: 11.5px; color: var(--faint); line-height: 1.45; }
-
-  #cropWrap { position: relative; display: none; margin-top: 9px; user-select: none; }
-  #cropWrap img { width: 100%; display: block; border-radius: var(--r-md); }
-  #cropBox { position: absolute; border: 2px solid var(--ink); background: rgba(0,0,0,.14); display: none; }
-  @media (prefers-color-scheme: dark) { #cropBox { background: rgba(255,255,255,.16); } }
 
   #onboard {
     display: flex; flex-direction: column; gap: 13px;
@@ -336,8 +322,7 @@ if (typeof chrome === "undefined" || !chrome.storage) {
     <span class="n">2</span>
     <span class="c">
       <b>화면 글자 읽기</b>
-      <span class="why" id="obEngineWhy">Tesseract가 기기 안에서 화면 글자를 읽습니다. 정확도는 화면 선명도와 글자 크기에 따라 달라집니다.</span>
-      <button id="obEngineBtn" type="button" hidden></button>
+      <span class="why">Tesseract가 기기 안에서 화면 글자를 읽습니다. 정확도는 화면 선명도와 글자 크기에 따라 달라집니다.</span>
     </span>
   </div>
 
@@ -379,8 +364,7 @@ if (typeof chrome === "undefined" || !chrome.storage) {
   </div>
 
   <button class="primary" id="startBtn" type="button">캡처 시작</button>
-  <p class="detail">Free · 화면 인식과 원문 타임라인은 무료입니다.<br>AI 요약은 설정에서 개인 API 키를 연결해 사용할 수 있어요.</p>
-  <button id="resumeBtn" type="button" hidden>이전 노트로 돌아가기</button>
+  <p class="detail">화면 인식과 원문 타임라인은 기기 안에서 무료로 동작합니다.<br>AI 요약은 설정에서 요약 서비스를 연결해야 사용할 수 있어요.</p>
 </div>
 
 <!-- ── 설정 서랍 (준비/완료 양쪽에서 같은 것을 연다) ───────────── -->
@@ -401,44 +385,22 @@ if (typeof chrome === "undefined" || !chrome.storage) {
     <p class="detail" style="margin: 4px 0 0;">끄면 화면 캡처 없이 음성(Whisper)만으로 깨끗하게 노트를 만듭니다.</p>
   </div>
 
-  <div class="field" id="ocrEngineField">
-    <label for="ocrEngineSelect">화면 인식(OCR) 엔진</label>
-    <select id="ocrEngineSelect">
-      <option value="nano">Gemini Nano (Chrome 내장 · 고품질)</option>
-      <option value="tesseract">Tesseract.js (경량 로컬)</option>
-    </select>
-  </div>
-
-  <div class="field" id="cropField">
+  <div class="field">
     <label for="modeSelect">캡처 영역</label>
     <select id="modeSelect">
-      <option value="region">영역 지정 (권장 — 슬라이드만)</option>
       <option value="slide">전체 화면</option>
       <option value="caption">하단 자막 띠</option>
     </select>
-    <div id="cropRow" style="display:none; margin-top:6px;">
-      <button id="previewBtn" type="button">현재 화면 불러오기</button>
-      <p class="detail" id="cropHint" style="margin-top:5px;">불러온 뒤 드래그해서 영역을 지정하세요</p>
-    </div>
-    <div id="cropWrap"><img id="cropImg" alt="" /><div id="cropBox"></div></div>
+    <p class="detail" style="margin-top:5px;">화면 안 영역을 직접 드래그로 지정하는 기능은 아직 준비 중입니다.</p>
   </div>
 
   <div class="field">
     <label for="langSelect">음성 인식 언어</label>
     <select id="langSelect">
       <option value="auto">자동 감지</option>
-      <option value="korean">한국어</option>
-      <option value="english">영어</option>
+      <option value="ko">한국어</option>
+      <option value="en">영어</option>
     </select>
-  </div>
-
-  <div class="field">
-    <label for="outputFormat">노트 형태</label>
-    <select id="outputFormat">
-      <option value="summary">핵심 요약본</option>
-      <option value="custom">직접 입력</option>
-    </select>
-    <textarea id="customPrompt" rows="3" placeholder="원하는 조건을 입력하세요 (예: 표 형식으로 정리해줘)" style="display:none; margin-top:6px;"></textarea>
   </div>
 
   <button id="settingsClose" type="button" style="width:100%; margin-top:11px;">닫기</button>
@@ -490,10 +452,6 @@ if (typeof chrome === "undefined" || !chrome.storage) {
     <button id="notionBtn" type="button" title="노션(Notion)에 붙여넣기 위한 형식으로 복사합니다">📝 노션으로 복사</button>
   </div>
 
-  <div class="settingbar">
-    <span class="summary" id="formatSummary">형태: 핵심 요약본</span>
-    <button class="link" id="formatToggle" type="button" aria-controls="settingsDrawer">변경</button>
-  </div>
   <details class="optional-api"><summary>AI 요약 연결하기 · 선택</summary><p class="detail">승인된 요약 서비스 URL과 앱 세션 토큰을 설정하고 외부 전송에 동의한 뒤 ‘다시 만들기’를 누르세요. 소비자 AI API 키는 이 확장에 저장되지 않습니다.</p><button id="summarySettingsBtn" type="button">연결 설정</button></details>
 
   <div class="btnrow">
@@ -534,20 +492,6 @@ if (typeof chrome === "undefined" || !chrome.storage) {
 </dialog>
 
 <footer>
-  <div id="planLine" class="plan-card">
-    <div class="plan-selector-row">
-      <span class="plan-badge">PLAN</span>
-      <select id="planSelect" class="plan-dropdown" aria-label="요약 플랜 선택">
-        <option value="premium">✨ Premium (Claude Sonnet · 고급 요약/수식/그래프)</option>
-        <option value="free">🌱 Free (무료 · 온디바이스 Gemini Nano 요약)</option>
-      </select>
-    </div>
-    <div class="plan-status-row">
-      <span id="planName">✨ Premium (Claude Sonnet 5)</span>
-      <span id="planUse">수식·그래프·고품질 요약</span>
-    </div>
-  </div>
-  <div id="tokenUsage" class="legal" style="font-family: ui-monospace, monospace; white-space: pre-wrap;"></div>
   <p class="legal">
     개인 학습용 도구입니다. 캡처물의 보관·재배포는 하지 마세요.
     <a href="#" id="optionsLink">설정 열기</a>

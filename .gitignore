@@ -9,3 +9,6 @@ __pycache__/
 apikey.env.local
 *.env.local
 .env
+
+# server-data/는 로컬 서버 런타임 데이터(사용량 및 암호화된 계정 정보)를 저장하므로 저장소에 들어가면 안 된다.
+server-data/
