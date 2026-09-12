@@ -254,3 +254,21 @@
   .mock[data-state="live"] .lec-wave i:nth-child(2n) { height: 14px; }
   .mock[data-state="live"] .capture-frame { opacity: 1; box-shadow: none; }
 }
+
+/* 휴대폰에서는 제품 패널을 축소하지 않고 강의 아래에 배치한다. */
+@media (max-width: 760px) {
+  .mock-window { aspect-ratio: auto; padding-bottom: 60px; }
+  .mock-canvas { position: relative; width: 100%; height: auto; transform: none; }
+  .mock-body { display: flex; flex-direction: column; overflow: visible; }
+  .mock-titlebar { gap: 10px; padding-inline: 10px; }
+  .mock-tab { width: auto; flex: 1; min-width: 0; }
+  .mock-urlbar { gap: 10px; padding-inline: 10px; }
+  .mock-navigation { gap: 8px; }
+  .demo-panel { height: 540px; border-left: 0; border-top: 1px solid var(--m-rule); }
+  .lec-topbar { flex-wrap: wrap; gap: 8px; padding: 12px; white-space: normal; }
+  .lec-course { overflow: visible; }
+  .lec-chapter { margin-left: 0; }
+  .lecture-caption { padding-inline: 0; font-size: 13px; }
+  .lec-controls { gap: 10px; padding-inline: 12px; }
+  .lec-play-toggle { width: 44px; height: 44px; right: 8px; bottom: 8px; }
+}

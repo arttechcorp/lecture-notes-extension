@@ -46,6 +46,7 @@
       : plan.type + ' · 2026.09.10 비교 파일의 생성 결과. 수식과 목록 표시를 정돈했습니다. 사례 수치는 원문에 따른 근삿값입니다.';
     // examples.js는 개발 시 원본을 HTML 이스케이프한 정적 콘텐츠만 포함한다.
     document.getElementById('sampleBody').innerHTML = result.html;
+    wrapTables(document.getElementById('sampleBody'));
     sample.showModal();
     sample.scrollTop = 0;
   }
@@ -68,9 +69,23 @@
       : '유료 플랜은 출시 준비 중입니다. 지금은 결제가 진행되지 않습니다.';
     checkout.showModal();
   }
+  function wrapTables(root) {
+    for (const table of root.querySelectorAll('table')) {
+      const scroll = document.createElement('div');
+      scroll.className = 'table-scroll';
+      scroll.tabIndex = 0;
+      scroll.setAttribute('role', 'region');
+      scroll.setAttribute('aria-label', '노트 표 · 좌우로 스크롤');
+      table.before(scroll);
+      scroll.append(table);
+    }
+  }
   function showInstall() {
     const url = httpsUrl(window.SUMMRIZEI_INSTALL_URL);
-    if (url && url.hostname === 'chromewebstore.google.com') window.location.assign(url.href);
+    const mobile = /Android|iPhone|iPad|iPod|KAKAOTALK|Instagram/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    document.getElementById('mobileInstall').hidden = !mobile;
+    document.getElementById('installAddress').value = new URL('.', location.href).href;
+    if (!mobile && url && url.hostname === 'chromewebstore.google.com') window.location.assign(url.href);
     else install.showModal();
   }
   document.querySelectorAll('[data-example]').forEach(button => button.addEventListener('click', () => showExample(button.dataset.example)));
@@ -93,6 +108,7 @@
     }
     const output = document.getElementById('demoOutput');
     output.innerHTML = excerpt(id);
+    wrapTables(output);
     output.setAttribute('aria-labelledby', 'tab-' + id);
     document.getElementById('demoModel').textContent = plans[id].type + ' · 편집된 발췌';
     full.dataset.example = id;

@@ -6,8 +6,8 @@
 <meta name="robots" content="noindex">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Hedvig+Letters+Serif:opsz@12..24&family=Geist+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="landing.css">
-<link rel="stylesheet" href="hero-mockup.css?v=20260912-2">
+<link rel="stylesheet" href="landing.css?v=20260912-mobile-1">
+<link rel="stylesheet" href="hero-mockup.css?v=20260912-mobile-1">
 </head>
 <body>
 <p class="mock-preview-note">히어로 목업 미리보기 · <a href="index.html">전체 랜딩페이지 보기 ↗</a></p>
@@ -47,10 +47,10 @@
           <div class="lec-stage" aria-hidden="true">
             <div class="lecture-screen">
               <div class="lecture-slide" data-slide="0">
-                <h2>Comparing projects using NPV and IRR</h2>
+                <div class="lecture-title">Comparing projects using NPV and IRR</div>
                 <p class="lecture-subtitle">Net Present Value (NPV) and Internal Rate of Return (IRR)</p>
                 <table class="lecture-table"><thead><tr><th></th><th>Year 0</th><th>Year 1</th><th>Year 2</th><th>Year 3</th><th>Year 4</th></tr></thead><tbody><tr><th>Project A</th><td>($1000)</td><td>$400</td><td>$400</td><td>$400</td><td>$400</td></tr><tr><th>Project B</th><td>($1000)</td><td>$600</td><td>$500</td><td>$300</td><td>$200</td></tr><tr><th>Project C</th><td>($1000)</td><td>$200</td><td>$300</td><td>$500</td><td>$600</td></tr></tbody></table>
-                <div class="lecture-equations"><h3>NPV and IRR</h3><p>Project A NPV @ 20% WACC = <b>$35</b> / IRR 22%</p><p>Project B NPV @ 20% WACC = <b>$117</b> / IRR 27%</p><p>Project C NPV @ 20% WACC = <b>($46)</b> / IRR 18%</p></div>
+                <div class="lecture-equations"><div class="lecture-eq-title">NPV and IRR</div><p>Project A NPV @ 20% WACC = <b>$35</b> / IRR 22%</p><p>Project B NPV @ 20% WACC = <b>$117</b> / IRR 27%</p><p>Project C NPV @ 20% WACC = <b>($46)</b> / IRR 18%</p></div>
                 <span class="lecture-page">12</span>
                 <svg class="lecture-ink" viewBox="0 0 960 540" aria-hidden="true">
                   <title>NPV measures value in dollars; IRR measures a percentage return.</title>
@@ -77,10 +77,10 @@
                 </svg>
               </div>
               <div class="lecture-slide" data-slide="1" hidden>
-                <h2>Why the timing of cash flows matters</h2>
+                <div class="lecture-title">Why the timing of cash flows matters</div>
                 <p class="lecture-subtitle">Same initial investment. Different timing. Different value.</p>
                 <table class="lecture-table"><thead><tr><th></th><th>Year 1</th><th>Year 2</th><th>Year 3</th><th>Year 4</th></tr></thead><tbody><tr class="lecture-highlight"><th>Project B</th><td>$600</td><td>$500</td><td>$300</td><td>$200</td></tr><tr><th>Project C</th><td>$200</td><td>$300</td><td>$500</td><td>$600</td></tr></tbody></table>
-                <div class="lecture-equations"><h3>Present value at a 20% discount rate</h3><p>Earlier cash flows have a higher present value.</p><p>NPV (B) = <b>$117</b> &gt; NPV (C) = <b>−$46</b></p></div>
+                <div class="lecture-equations"><div class="lecture-eq-title">Present value at a 20% discount rate</div><p>Earlier cash flows have a higher present value.</p><p>NPV (B) = <b>$117</b> &gt; NPV (C) = <b>−$46</b></p></div>
                 <span class="lecture-page">13</span>
                 <svg class="lecture-ink" viewBox="0 0 960 540" aria-hidden="true">
                   <title>Earlier cash flows have more present value at a positive discount rate.</title>
@@ -110,10 +110,10 @@
                 </svg>
               </div>
               <div class="lecture-slide" data-slide="2" hidden>
-                <h2>Choosing between investment projects</h2>
+                <div class="lecture-title">Choosing between investment projects</div>
                 <p class="lecture-subtitle">Two measures. Two different questions.</p>
                 <div class="lecture-definitions"><p><b>NPV</b><span>How much value does the project create?</span></p><p><b>IRR</b><span>What rate of return does the project earn?</span></p></div>
-                <div class="lecture-equations"><h3>Key takeaway</h3><p>For mutually exclusive projects of different sizes,</p><p>compare the <b>value created</b>, not just the percentage return.</p></div>
+                <div class="lecture-equations"><div class="lecture-eq-title">Key takeaway</div><p>For mutually exclusive projects of different sizes,</p><p>compare the <b>value created</b>, not just the percentage return.</p></div>
                 <span class="lecture-page">14</span>
                 <svg class="lecture-ink" viewBox="0 0 960 540" aria-hidden="true">
                   <title>Compare the value created, not just the percentage return.</title>
@@ -146,7 +146,7 @@
             <span class="lec-rate" aria-hidden="true">1×</span>
           </div>
         </div>
-        <iframe class="demo-panel" src="demo-panel.html?v=20260912-1" title="Summrizei 캡처와 노트 만들기 자동 체험" sandbox="allow-same-origin" loading="eager"></iframe>
+        <iframe class="demo-panel" src="demo-panel.html?v=20260912-mobile-1" title="Summrizei 캡처와 노트 만들기 자동 체험" sandbox="allow-same-origin" loading="eager"></iframe>
       </div>
       </div>
       <button class="lec-play-toggle" type="button" aria-label="체험 일시정지" aria-pressed="false"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 3v10M12 3v10"/></svg></button>
@@ -159,6 +159,6 @@
 
 <script src="vendor/markdown-it.min.js"></script>
 <script src="note-viewer.js?v=20260911-4"></script>
-<script src="hero-mockup.js?v=20260912-2"></script>
+<script src="hero-mockup.js?v=20260912-mobile-1"></script>
 </body>
 </html>

@@ -82,14 +82,14 @@
 
     function updateTilt() {
       updateScale();
-      if (reducedMotion.matches) {
+      panel.documentElement.classList.toggle('mobile-demo', window.matchMedia('(max-width: 760px)').matches);
+      if (reducedMotion.matches || window.matchMedia('(max-width: 760px)').matches) {
         tiltFrame.style.removeProperty('transform');
         return;
       }
-      const mobile = window.matchMedia('(max-width: 760px)').matches;
       const progress = clamp(window.scrollY / 400, 0, 1);
-      const rotation = mobile ? 0 : 12 * (1 - progress);
-      const scale = (mobile ? .88 : .78) + (mobile ? .12 : .22) * progress;
+      const rotation = 12 * (1 - progress);
+      const scale = .78 + .22 * progress;
       tiltFrame.style.transform = `perspective(1200px) rotateX(${rotation}deg) scale(${scale})`;
       tiltFrame.style.transformOrigin = 'center top';
     }
@@ -254,6 +254,7 @@
       clearTimeout(loopTimer);
       clearInterval(captureTimer);
       clearInterval(noteTimer);
+      panel.querySelector('.result-help').textContent = 'AI가 작성한 예시 초안입니다. 자동 재생을 멈추고 읽거나 복사할 수 있습니다.';
       elapsed = voice = slides = 0;
       lastEvent = -1;
       lastCapture = -10;
@@ -287,13 +288,19 @@
       updatePlayback();
     });
     $('copyBtn').addEventListener('click', async () => {
+      userPaused = true;
+      updatePlayback();
       try {
         await navigator.clipboard.writeText($('result').value);
         $('copyBtn').textContent = '복사됨 ✓';
         setTimeout(() => { $('copyBtn').textContent = '복사'; }, 1500);
       } catch {
-        noteViewer.edit(false);
-        announcement.textContent = '복사 권한을 사용할 수 없습니다. 일시정지한 뒤 직접 선택해 주세요.';
+        $('result').readOnly = true;
+        noteViewer.edit(true, true);
+        $('result').select();
+        $('copyBtn').textContent = '직접 복사';
+        panel.querySelector('.result-help').textContent = '자동 재생을 멈췄습니다. 선택된 노트를 길게 눌러 복사해 주세요.';
+        announcement.textContent = '선택된 노트를 길게 눌러 복사해 주세요.';
       }
     });
     lockDemoEditing();
@@ -310,6 +317,7 @@
     });
     window.addEventListener('scroll', updateTilt, { passive: true });
     window.addEventListener('resize', updateTilt);
+    window.addEventListener('pageshow', () => { updateTilt(); updatePlayback(); });
     window.addEventListener('pagehide', () => { clearInterval(captureTimer); clearInterval(noteTimer); clearTimeout(loopTimer); cancelAnimationFrame(inkFrame); });
     updateTilt();
     startCapture();

@@ -35,6 +35,17 @@
   #stageDone .note-document li + li { margin-top: 0.15em; }
   #stageDone .note-document hr { margin: 0.6em 0; }
   #stageDone .detail.result-help { font-size: 10px; margin-top: 3px; }
+  /* 부모의 모바일 모드에서만 적용: 데스크톱 제품 패널에는 영향이 없다. */
+  html.mobile-demo { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  .mobile-demo body { padding: 16px; overflow-y: auto; }
+  .mobile-demo #stageDone .note-document { font-size: 14px; line-height: 1.7; }
+  .mobile-demo #stageDone .note-document h2 { font-size: 18px; }
+  .mobile-demo #stageDone .note-document h3 { font-size: 16px; }
+  .mobile-demo #stageDone .note-document blockquote,
+  .mobile-demo #stageDone .note-document table { font-size: 13px; }
+  .mobile-demo #stageDone .detail.result-help { font-size: 12px; }
+  .mobile-demo .note-toolbar button { min-height: 44px; min-width: 44px; }
+  .mobile-demo #result { font-size: 16px; }
 </style>
 </head>
 <body>
