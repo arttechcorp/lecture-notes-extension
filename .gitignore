@@ -9,3 +9,5 @@ __pycache__/
 apikey.env.local
 *.env.local
 .env
+dist/
+store-assets/
