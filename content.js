@@ -1,465 +1,61 @@
-// 영상 페이지에 executeScript로 주입된다(선언적 content_scripts 없음 = 사이트 중립).
-//
-// 이 스크립트는 아무것도 저장하지 않고 아무데도 전송하지 않는다. 프레임은 메모리에만 있다가
-// 사이드패널 포트로 넘어가고, 포트가 끊기면(=패널이 닫히면) 캡처가 즉시 멈춘다.
+// Metadata/preflight only. No frames, audio, credentials or lecture text cross this boundary.
 (() => {
-  if (window.__lectureNotesLoaded) return; // allFrames 주입 + 재실행 대비 가드
-  window.__lectureNotesLoaded = true;
-
-  // ponytail: 영상마다 다른 튜닝값. 프레임을 너무 많이/적게 잡으면 여기를 조정.
-  // diffThreshold 는 "뚜렷하게 바뀐 픽셀의 비율(%)"이다. 3%면 축소본 1296픽셀 중
-  // 39픽셀 — 슬라이드에서 글자 한두 줄이 바뀌는 정도다. 잡음은 0%에 가깝다.
-  const MODES = {
-    slide: { interval: 5000, diffThreshold: 3, batchSize: 8, maxWidth: 1024, sample: [48, 27] },
-    caption: { interval: 2000, diffThreshold: 5, batchSize: 15, maxWidth: 0, rect: { x: 0, y: 0.8, w: 1, h: 0.2 }, sample: [48, 12] },
-    region: { interval: 5000, diffThreshold: 3, batchSize: 8, maxWidth: 1024, sample: [48, 27] },
-  };
-
-  // 배치가 8장을 채울 때까지 기다리면, 슬라이드가 드문 강의에서는 캡처를 멈출
-  // 때까지 인식이 한 건도 시작되지 않는다. 그 기다림이 통째로 "노트 생성 시간"으로
-  // 체감된다. 첫 프레임이 담긴 뒤 이만큼 지나면 덜 찼어도 보낸다.
-  const BATCH_MAX_WAIT = 30000;
-
-  let capturing = false;
-  let batch = [];
-  let batchStartedAt = 0; // 이 배치의 첫 프레임이 담긴 시각. 시간 초과 전송 판단용
-  let audioCtx = null;
-  let audioProc = null;
-  // 정지할 때 덜 찬 버퍼를 내보내기 위한 고리. startAudio 가 채우고 stopAudio 가 쓴다.
-  // 없으면 마지막 최대 20초가 통째로 사라진다.
-  let flushAudio = null;
-  let ocrEngine = "local"; // 사이드패널이 START로 알려준다 — 엔진마다 원하는 입력 크기가 다르다
-  let ocrEnabled = true;
-  let lastDiffSample = null;
-  let port = null;
-
-  const send = (msg) => port && port.postMessage(msg);
-  const report = (stage, detail) => send({ type: "progress", stage, detail });
-  const debugLog = (...args) =>
-    send({ type: "log", text: args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ") });
-
-  const getVideo = () => {
-    const videos = Array.from(document.querySelectorAll("video"));
-    if (!videos.length) return null;
-    if (videos.length === 1) return videos[0];
-    // 1. 현재 재생 중인 영상 우선
-    const playing = videos.find((v) => !v.paused && v.currentTime > 0 && !v.ended);
-    if (playing) return playing;
-    // 2. 화면에 보이는 영상 중 가장 큰 영상
-    return videos.sort((a, b) => (b.offsetWidth * b.offsetHeight) - (a.offsetWidth * a.offsetHeight))[0];
-  };
-
-  // rect는 0~1 정규화 좌표. 지정이 없으면 전체 화면.
-  function pixelRect(video, rect) {
-    const r = rect || { x: 0, y: 0, w: 1, h: 1 };
-    return {
-      x: Math.round(video.videoWidth * r.x),
-      y: Math.round(video.videoHeight * r.y),
-      w: Math.max(1, Math.round(video.videoWidth * r.w)),
-      h: Math.max(1, Math.round(video.videoHeight * r.h)),
-    };
-  }
-
-  function drawRect(video, px, destW, destH) {
-    const c = document.createElement("canvas");
-    c.width = destW;
-    c.height = destH;
-    const ctx = c.getContext("2d");
-    // 확대할 때 획이 계단지면 OCR이 바로 나빠진다.
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(video, px.x, px.y, px.w, px.h, 0, 0, destW, destH);
-    return c;
-  }
-
-  // 저해상도 그레이스케일 썸네일로 직전 프레임과의 변화량을 저렴하게 측정
-  function sampleForDiff(video, px, cfg) {
-    const [w, h] = cfg.sample;
-    const { data } = drawRect(video, px, w, h).getContext("2d").getImageData(0, 0, w, h);
-    const gray = new Uint8Array(w * h);
-    for (let i = 0; i < gray.length; i++) {
-      const o = i * 4;
-      gray[i] = (data[o] + data[o + 1] + data[o + 2]) / 3;
+  if (window.__summrizeiMetadata) return;
+  window.__summrizeiMetadata = true;
+  let timer, video, epoch = 0, sessionId, failures = 0, blocked = false;
+  const onSeek = () => { epoch++; };
+  const onEncrypted = () => { blocked = true; };
+  function locate() {
+    const found = [...document.querySelectorAll("video")].filter(v => v.videoWidth && v.getBoundingClientRect().width > 0).sort((a, b) => b.videoWidth * b.videoHeight - a.videoWidth * a.videoHeight)[0];
+    if (found !== video) {
+      video?.removeEventListener("seeking", onSeek); video?.removeEventListener("encrypted", onEncrypted);
+      video = found; epoch++;
+      video?.addEventListener("seeking", onSeek); video?.addEventListener("encrypted", onEncrypted);
     }
-    return gray;
+    return video;
   }
-
-  // 한 픽셀이 이만큼 넘게 움직여야 "바뀌었다"고 센다. 압축 잡음은 대개 ±5 안쪽이다.
-  const PIXEL_DELTA = 24;
-
-  // 묻고 싶은 것은 "평균이 얼마나 움직였나"가 아니라 "얼마나 많은 픽셀이 뚜렷하게
-  // 바뀌었나"다. 평균 절대차는 안 바뀐 배경이 값을 희석한다 — 슬라이드는 배경과
-  // 틀이 그대로고 글자만 바뀌므로 이 희석이 심하다. 실측에서 명백한 슬라이드
-  // 전환이 평균차 17.1로 나와 기준을 못 넘었는데, 같은 변화를 비율로 재면 10%다.
-  // 압축 잡음은 픽셀당 변화가 작아 이 지표에서 0%에 가깝게 떨어진다.
-  function diffScore(a, b) {
-    if (!a || !b) return Infinity;
-    let changed = 0;
-    for (let i = 0; i < a.length; i++) if (Math.abs(a[i] - b[i]) > PIXEL_DELTA) changed++;
-    return (changed / a.length) * 100; // 바뀐 픽셀 비율(%)
+  function metadata() {
+    const v = locate();
+    if (!v) return { ended: true, epoch };
+    const r = v.getBoundingClientRect();
+    return { time: v.currentTime, rate: v.playbackRate, paused: v.paused, ended: v.ended, epoch,
+      blocked: blocked || !!v.mediaKeys,
+      box: { x: r.x / innerWidth, y: r.y / innerHeight, w: r.width / innerWidth, h: r.height / innerHeight },
+      videoAspect: v.videoWidth / v.videoHeight };
   }
-
-  // 진단용. 예전 지표를 나란히 찍어 기준을 실측으로 맞출 수 있게 남긴다.
-  function meanAbsDiff(a, b) {
-    if (!a || !b) return 0;
-    let sum = 0;
-    for (let i = 0; i < a.length; i++) sum += Math.abs(a[i] - b[i]);
-    return sum / a.length;
-  }
-
-  // Tesseract는 글자 획이 뭉개지면 급격히 나빠진다. Nano처럼 1024로 줄이면 저해상도
-  // 강의에서 읽을 게 남지 않는다. 그래서 줄이지 않고, 오히려 작으면 키워서 넘긴다.
-  // Tesseract는 대략 글자 높이 20px 이상을 원하는데, 720p 영상의 슬라이드 본문은
-  // 그에 한참 못 미친다. 확대해도 정보가 늘지는 않지만 획 경계가 살아나서 실제로 는다.
-  // JPEG 품질도 올린다 — 0.7은 텍스트 가장자리에 링잉을 남긴다.
-  const TESS_MIN_WIDTH = 1600;
-  const TESS_MAX_WIDTH = 2560; // 무한정 키우면 큐·포트 부담만 커진다
-
-  // 원격 OCR은 프레임 크기가 곧 돈이다. Gemini는 768x768 타일당 258토큰이라
-  // 폭을 768로 맞추면 타일이 한 장으로 떨어지고, Claude는 면적에 비례하므로
-  // 1024x576 대비 토큰이 약 44% 줄어든다. 인쇄된 슬라이드 글자를 읽는 데는
-  // 768px면 충분하다.
-  const REMOTE_MAX_WIDTH = 768;
-  // 강의 한 편이 보낼 수 있는 프레임 상한. 이게 없으면 슬라이드가 자주 넘어가는
-  // 강의 하나가 월 손익을 뒤집는다. 상한을 넘으면 캡처만 멈추고 음성은 계속 간다.
-  const REMOTE_FRAME_CAP = 60;
-  let remoteFrames = 0;
-
-  function captureFrame(video, px, cfg) {
-    let destW = px.w;
-    let quality = 0.7;
-    if (ocrEngine === "tesseract") {
-      destW = Math.min(TESS_MAX_WIDTH, Math.max(px.w, TESS_MIN_WIDTH));
-      quality = 0.92;
-    } else if (ocrEngine === "remote") {
-      destW = Math.min(REMOTE_MAX_WIDTH, px.w);
-      quality = 0.85; // 압축 잡음이 인식을 깎지 않을 만큼만
-    } else if (cfg.maxWidth && px.w > cfg.maxWidth) {
-      destW = cfg.maxWidth; // Nano는 큰 이미지를 싫어한다 (컨텍스트·크래시)
-    }
-    const scale = destW / px.w;
-    return drawRect(video, px, Math.round(px.w * scale), Math.round(px.h * scale)).toDataURL("image/jpeg", quality);
-  }
-
-  // ── 오디오 ────────────────────────────────────────────────────────────────
-  // tabCapture는 쓰지 않는다. tabCapture는 activeTab 부여(= 그 탭에서 확장 아이콘 클릭)를
-  // 요구하는데, 강의 뷰어처럼 툴바 없는 창에서 열리는 페이지에서는 아이콘을 누를 방법이 없다.
-  // 대신 여기, 이미 영상에 접근하고 있는 컨텍스트에서 <video>의 오디오를 직접 딴다.
-  // 추가 권한이 하나도 필요 없고, 창이 몇 개든 어떤 탭이든 똑같이 동작한다.
-  const AUDIO_HZ = 16000;
-  // Whisper 는 입력이 짧아도 항상 30초 창으로 추론한다. 5초를 넣으면 25초를
-  // 무음으로 패딩한 채 계산하므로 6분의 1만 쓸모 있는 일이 된다. 그 빈 구간이
-  // 반복 루프(환각)도 유도한다. 20초로 올리면 추론 횟수가 1/4 로 줄고 패딩이
-  // 10초로 짧아진다. 대가는 인식 결과가 20초 단위로 늦게 뜨는 것뿐이다.
-  const CHUNK_SECONDS = 20;
-  const CHUNK = AUDIO_HZ * CHUNK_SECONDS;
-
-  // 무음 청크는 Whisper에 넣지 않는다. 넣으면 빈 결과가 아니라 환각이 나온다
-  // ("감사합니다", "시청해주셔서 감사합니다" 같은 정형구) — 학습 데이터의 자막 상투구다.
-  // 20초 구간 내 쉼표/호흡이 섞인 조용한 발화나 저음량 영상도 버리지 않도록 현실적 임계값 적용.
-  const SILENCE_RMS = 0.0004; // 약 -68 dBFS
-  // 순간 최대값이 함께 낮을 때만 무음으로 판정한다.
-  const SILENCE_PEAK = 0.004; // 약 -48 dBFS
-
-  // 확장 포트 메시지는 structured clone이 아니라 JSON이다. Float32Array를 그대로 넣으면
-  // {"0":0.01,...} 로 부풀어 터진다. int16 PCM + base64가 가장 싼 전송 형식.
-  function encodePcm(buf, len) {
-    const bytes = new Uint8Array(len * 2);
-    const view = new DataView(bytes.buffer);
-    for (let i = 0; i < len; i++) {
-      const v = Math.max(-1, Math.min(1, buf[i]));
-      view.setInt16(i * 2, v < 0 ? v * 0x8000 : v * 0x7fff, true);
-    }
-    let s = "";
-    for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-    return btoa(s);
-  }
-
-  async function startAudio(video) {
-    if (audioProc) return; // 이미 붙어 있다
+  function preflight() {
+    const v = locate();
+    if (!v) throw new Error("이 페이지의 영상을 찾지 못했습니다. iframe 전용 플레이어는 현재 지원하지 않습니다.");
+    if (blocked || v.mediaKeys) throw new Error("보호된 강의는 캡처하지 않습니다.");
+    const canvas = document.createElement("canvas"); canvas.width = 32; canvas.height = 18;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
     try {
-      // createMediaElementSource는 엘리먼트당 딱 한 번만 된다. 재시작에 대비해 캐시한다.
-      if (!video.__lnAudio) {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: AUDIO_HZ });
-        let src;
-        try {
-          src = ctx.createMediaElementSource(video);
-          src.connect(ctx.destination); // 소리는 계속 스피커로 나가야 한다
-        } catch (err) {
-          if (typeof video.captureStream === "function" || typeof video.mozCaptureStream === "function") {
-            const stream = (video.captureStream || video.mozCaptureStream).call(video);
-            src = ctx.createMediaStreamSource(stream);
-          } else {
-            throw new Error("영상 오디오 노드가 이미 점유되어 있습니다. 강의 영상 페이지를 새로고침(F5) 후 다시 시도해 주세요.");
-          }
-        }
-        video.__lnAudio = { ctx, src };
-      }
-      const { ctx, src } = video.__lnAudio;
-      audioCtx = ctx;
-      // 재생 중인 페이지라 보통 running이지만, suspended면 영상이 무음이 된다.
-      if (ctx.state === "suspended") await ctx.resume();
-
-      // AudioWorklet은 페이지 CSP가 확장 URL 모듈 로드를 막을 수 있다.
-      // ScriptProcessor는 폐기 예정이지만 로드할 파일이 없어 어디서든 뜬다.
-      const proc = ctx.createScriptProcessor(4096, 1, 1);
-      let buf = new Float32Array(CHUNK);
-      let off = 0;
-      let chunkStart = video.currentTime;
-      let silentCount = 0;
-      let corsWarned = false;
-
-      // 한 청크를 내보낸다. 꽉 찬 경우와 정지 시 덜 찬 경우가 같은 길을 타야
-      // 무음 판정·타임스탬프가 어긋나지 않는다.
-      const emit = (len) => {
-        if (len <= 0) return;
-        let sum = 0;
-        let peak = 0;
-        for (let k = 0; k < len; k++) {
-          sum += buf[k] * buf[k];
-          const abs = buf[k] < 0 ? -buf[k] : buf[k];
-          if (abs > peak) peak = abs;
-        }
-        const rms = Math.sqrt(sum / len);
-
-        // CORS 무음 감지: 영상이 재생 중이고 볼륨이 켜져 있는데 3연속 완벽한 무음(0)이면 CORS 보안 차단일 가능성이 높음
-        if (rms < 0.00001 && !video.paused && video.volume > 0 && !video.muted) {
-          silentCount++;
-          if (silentCount >= 3 && !corsWarned) {
-            corsWarned = true;
-            debugLog("이 영상은 CORS 보안 정책으로 인해 페이지 내 직접 오디오 추출이 무음(0)으로 차단되고 있습니다.");
-          }
-        } else if (rms >= SILENCE_RMS) {
-          silentCount = 0;
-        }
-
-        // base64 인코딩 전에 거른다 — 버릴 청크에 그 비용을 쓸 이유가 없다.
-        if (rms < SILENCE_RMS && peak < SILENCE_PEAK) {
-          send({ type: "silence", t: chunkStart, rms, peak });
-        } else {
-          send({ type: "audio", pcm: encodePcm(buf, len), t: chunkStart, rms, rate: video.playbackRate || 1 });
-        }
-        chunkStart = video.currentTime;
-        off = 0;
-      };
-
-      // 정지 시 덜 찬 버퍼도 내보낸다. 아주 짧은 꼬리는 인식 가치가 없어 버린다.
-      flushAudio = () => {
-        if (off >= AUDIO_HZ) emit(off);
-        off = 0;
-      };
-
-      let muteWarned = false;
-      proc.onaudioprocess = (e) => {
-        if (!capturing || video.paused) return;
-        if (ctx.state === "suspended") {
-          ctx.resume().catch(() => {});
-        }
-        if (video.muted || video.volume === 0) {
-          if (!muteWarned) {
-            muteWarned = true;
-            debugLog("강의 영상이 음소거(Mute)되어 있거나 플레이어 볼륨이 0입니다. 웹 플레이어의 음소거를 해제해야 오디오 인식이 가능합니다.");
-          }
-        } else if (muteWarned) {
-          muteWarned = false;
-        }
-        const input = e.inputBuffer.getChannelData(0);
-        const inRate = ctx.sampleRate || AUDIO_HZ;
-        if (inRate === AUDIO_HZ) {
-          for (let i = 0; i < input.length; i++) {
-            buf[off++] = input[i];
-            if (off >= CHUNK) emit(CHUNK);
-          }
-        } else {
-          // 브라우저 sampleRate가 16000이 아닐 경우 16kHz로 리샘플링하여 배속 왜곡 방지
-          const ratio = inRate / AUDIO_HZ;
-          const outLen = Math.floor(input.length / ratio);
-          for (let i = 0; i < outLen; i++) {
-            const srcIdx = i * ratio;
-            const i0 = Math.floor(srcIdx);
-            const i1 = Math.min(i0 + 1, input.length - 1);
-            const f = srcIdx - i0;
-            buf[off++] = input[i0] * (1 - f) + input[i1] * f;
-            if (off >= CHUNK) emit(CHUNK);
-          }
-        }
-      };
-      src.connect(proc);
-      proc.connect(ctx.destination); // 연결돼 있어야 onaudioprocess가 돈다 (출력은 무음)
-      audioProc = proc;
-      debugLog("오디오 캡처 시작", {
-        state: ctx.state,
-        sampleRate: ctx.sampleRate,
-      });
-    } catch (e) {
-      if (
-        e.name === "InvalidStateError" ||
-        String(e.message || "").includes("already connected") ||
-        String(e.message || "").includes("MediaElementSource") ||
-        String(e.message || "").includes("점유")
-      ) {
-        report("error", "영상 오디오가 이전 세션에 연결되어 있습니다. 강의 탭을 새로고침(F5)한 뒤 다시 캡처를 시작해 주세요.");
-      } else {
-        report("error", `영상 오디오에 연결하지 못했습니다: ${e.name} ${e.message}`);
-      }
+      ctx.drawImage(v, 0, 0, 32, 18);
+      const pixels = ctx.getImageData(0, 0, 32, 18).data;
+      let bright = 0;
+      for (let i = 0; i < pixels.length; i += 4) bright += pixels[i] + pixels[i + 1] + pixels[i + 2];
+      if (bright / (32 * 18 * 3) < 2) throw new Error("검은 화면입니다. 보호 여부를 확인할 수 없어 중단했습니다.");
+    } catch (error) {
+      if (error.name === "SecurityError") throw new Error("영상의 캡처가 차단돼 있습니다. 다른 캡처 경로로 우회하지 않습니다.");
+      throw error;
     }
+    return metadata();
   }
-
-  function stopAudio() {
-    // 워커로 보내기 전에 먼저 비운다. 프로세서를 끊은 뒤에는 버퍼에 손댈 수 없다.
-    if (flushAudio) {
-      flushAudio();
-      flushAudio = null;
+  chrome.runtime.onMessage.addListener((message, sender, reply) => {
+    if (sender.id !== chrome.runtime.id) return;
+    if (message.type === "PREFLIGHT") {
+      try { reply({ ok: true, metadata: preflight() }); } catch (error) { reply({ ok: false, error: error.message }); }
     }
-    if (audioProc) {
-      audioProc.onaudioprocess = null;
-      audioProc.disconnect();
-      audioProc = null;
+    if (message.type === "WATCH_MEDIA") {
+      clearInterval(timer); sessionId = message.sessionId; failures = 0;
+      timer = setInterval(() => {
+        chrome.runtime.sendMessage({ target: "session", type: "MEDIA_METADATA", sessionId, metadata: metadata() }).then(r => {
+          if (!r?.ok && ++failures > 3) clearInterval(timer);
+        }).catch(() => { if (++failures > 3) clearInterval(timer); });
+      }, 250);
+      reply({ ok: true });
     }
-    audioCtx = null; // ctx/src는 엘리먼트에 캐시된 채 남긴다 (재연결용)
-  }
-
-  // 사이트별 캡처 가능 여부를 미리 판정한다. 이게 없으면 사이트마다 원인 불명으로 죽는다.
-  // DRM 영상에서는 캡처를 시도하지 않고 중단한다 — 기술적 보호조치를 우회하지 않는다는 정책.
-  function preflight(video, px, cfg) {
-    let canvas;
-    try {
-      canvas = drawRect(video, px, ...cfg.sample);
-      canvas.toDataURL("image/jpeg", 0.5);
-    } catch (e) {
-      return `이 사이트는 CORS 정책으로 영상 프레임 캡처가 차단됩니다 (${e.name}).`;
-    }
-    const [w, h] = cfg.sample;
-    const { data } = canvas.getContext("2d").getImageData(0, 0, w, h);
-    let max = 0;
-    for (let i = 0; i < data.length; i += 4) max = Math.max(max, data[i], data[i + 1], data[i + 2]);
-    if (max < 8) {
-      return "캡처된 화면이 완전히 검습니다. DRM으로 보호된 영상이거나 아직 재생 전일 수 있습니다. DRM 영상은 이 확장으로 처리하지 않습니다.";
-    }
-    return null;
-  }
-
-  // 프레임은 포트로 넘기는 즉시 참조를 끊는다 (GC 대상이 되게).
-  function flushBatch() {
-    if (batch.length === 0) return;
-    batchStartedAt = 0;
-    const frames = batch.map((e) => e.frame);
-    const times = batch.map((e) => e.time);
-    batch = [];
-    send({ type: "frames", frames, times });
-  }
-
-  let tickCount = 0;
-  function captureLoop(video, px, cfg) {
-    if (!capturing) return;
-    if (ocrEnabled && px && !video.paused && !video.ended) {
-      const sample = sampleForDiff(video, px, cfg);
-      const score = diffScore(sample, lastDiffSample);
-      // 프레임이 왜 안 모이는지는 변화량으로만 알 수 있다. 매 틱을 찍으면 시끄러우니
-      // 30초에 한 번만 — 루프가 살아 있는지와 기준을 넘는지를 동시에 보여준다.
-      if (++tickCount % 6 === 0) {
-        debugLog(
-          `캡처 감시 — 변경 ${score === Infinity ? "첫프레임" : score.toFixed(1) + "%"} ` +
-            `(기준 ${cfg.diffThreshold}%, 평균차 ${meanAbsDiff(sample, lastDiffSample).toFixed(1)}), ` +
-            `모은 프레임 ${batch.length}/${cfg.batchSize}장`
-        );
-      }
-      const capped = ocrEngine === "remote" && remoteFrames >= REMOTE_FRAME_CAP;
-      if (!capped && diffScore(sample, lastDiffSample) > cfg.diffThreshold) {
-        lastDiffSample = sample;
-        if (batch.length === 0) batchStartedAt = Date.now();
-        batch.push({ frame: captureFrame(video, px, cfg), time: video.currentTime });
-        if (ocrEngine === "remote") remoteFrames++;
-        report("capture", `프레임 ${batch.length}장 대기 중`);
-        debugLog(`프레임 포착 ${batch.length}/${cfg.batchSize}장 (변경 ${score === Infinity ? "첫프레임" : score.toFixed(1) + "%"})`);
-        if (batch.length >= cfg.batchSize) flushBatch();
-        if (ocrEngine === "remote" && remoteFrames === REMOTE_FRAME_CAP) {
-          flushBatch();
-          debugLog(`원격 인식 프레임 상한 ${REMOTE_FRAME_CAP}장에 도달했습니다. 화면 캡처를 멈추고 음성 인식만 계속합니다.`);
-        }
-      }
-    }
-    if (batch.length && batchStartedAt && Date.now() - batchStartedAt >= BATCH_MAX_WAIT) {
-      debugLog(`배치 대기 ${BATCH_MAX_WAIT / 1000}초 초과 — ${batch.length}장으로 먼저 보냅니다`);
-      flushBatch();
-    }
-    // 음성 인식 쪽이 벽시계 대신 영상 시각으로 타임스탬프를 찍게 한다.
-    // 배속·탐색 때 벽시계는 영상 시각과 어긋난다(2배속이면 2배로 벌어진다).
-    send({ type: "tick", t: video.currentTime });
-    if (video.ended) {
-      if (ocrEnabled) flushBatch();
-      capturing = false;
-      stopAudio();
-      send({ type: "done", title: document.title });
-      return;
-    }
-    // 배속 재생 시 화면이 머무는 실제 시간이 짧아지므로 간격도 비례해서 줄인다.
-    const interval = ocrEnabled ? cfg.interval : 1000;
-    setTimeout(() => captureLoop(video, px, cfg), interval / (video.playbackRate || 1));
-  }
-
-  function startCapture(mode, rect, wantAudio) {
-    const video = getVideo();
-    if (!video) return; // 이 프레임엔 영상이 없다 — 다른 프레임이 처리한다
-    const cfg = MODES[mode] || MODES.slide;
-    if (video.videoWidth === 0) {
-      return report("error", "영상이 아직 로드되지 않았습니다. 재생한 뒤 다시 시도하세요.");
-    }
-    let px = null;
-    if (ocrEnabled) {
-      px = pixelRect(video, rect || cfg.rect);
-      const problem = preflight(video, px, cfg);
-      if (problem) return report("error", problem);
-    }
-
-    capturing = true;
-    remoteFrames = 0;
-    batch = [];
-    lastDiffSample = null;
-    debugLog("캡처 시작", { mode, ocrEngine, ocrEnabled, videoWidth: video.videoWidth, videoHeight: video.videoHeight, px });
-    report("capture", "캡처 시작");
-    if (wantAudio) startAudio(video);
-    captureLoop(video, px, cfg);
-  }
-
-  // 영역 지정용 미리보기 한 장. 저장되지 않고 사이드패널 메모리로만 간다.
-  function sendPreview() {
-    const video = getVideo();
-    if (!video || video.videoWidth === 0) return;
-    const px = pixelRect(video, null);
-    if (preflight(video, px, MODES.slide)) return;
-    const scale = Math.min(1, 640 / px.w);
-    send({
-      type: "preview",
-      dataUrl: drawRect(video, px, Math.round(px.w * scale), Math.round(px.h * scale)).toDataURL("image/jpeg", 0.6),
-    });
-  }
-
-  chrome.runtime.onConnect.addListener((p) => {
-    if (p.name !== "capture") return;
-    port = p;
-    p.onMessage.addListener((msg) => {
-      if (msg.type === "START") {
-        ocrEngine = msg.ocr || "local";
-        ocrEnabled = msg.ocrEnabled !== false && msg.ocr !== "none";
-        startCapture(msg.mode, msg.rect, msg.audio);
-      }
-      if (msg.type === "STOP" && capturing) {
-        capturing = false;
-        flushBatch();
-        stopAudio();
-        send({ type: "done", title: document.title });
-      }
-      if (msg.type === "PREVIEW") sendPreview();
-    });
-    // 사이드패널이 닫히면 포트가 끊긴다 → 캡처를 즉시 멈춘다.
-    // "패널이 열려 있는 동안만 동작한다"는 무저장 설계의 수명 보장.
-    p.onDisconnect.addListener(() => {
-      capturing = false;
-      stopAudio();
-      batch = [];
-      lastDiffSample = null;
-      port = null;
-    });
+    if (message.type === "STOP_WATCH") { clearInterval(timer); reply({ ok: true }); }
   });
+  addEventListener("pagehide", () => clearInterval(timer), { once: true });
 })();

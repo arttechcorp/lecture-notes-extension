@@ -466,6 +466,7 @@ if (typeof chrome === "undefined" || !chrome.storage) {
   <div class="alert warn" id="panelAlert" hidden></div>
 
   <button class="danger" id="stopBtn" type="button" disabled>캡처 마치고 노트 보기</button>
+  <div class="btnrow"><button id="pauseBtn" type="button" disabled>일시정지</button><button id="disposeBtn" type="button" disabled>세션 지우기</button></div>
 </div>
 
 <!-- ── 완료 ────────────────────────────────────────────────── -->
@@ -484,7 +485,7 @@ if (typeof chrome === "undefined" || !chrome.storage) {
   <iframe id="renderFrame" src="sandbox.html" class="preview-frame" title="노트 서식 미리보기" sandbox="allow-scripts allow-forms allow-popups allow-modals"></iframe>
   <textarea id="result" aria-label="강의 노트 내용" placeholder="노트가 여기 표시됩니다. 인식된 내용을 직접 검토해 주세요." hidden></textarea>
   <p class="detail result-help" id="resultHint">서식 보기에서는 수식과 다이어그램이 렌더링되며, 마크다운 편집 탭에서 원문을 직접 수정할 수 있습니다.</p>
-  <div class="export-row" id="exportRow">
+  <div class="export-row" id="exportRow" hidden>
     <button id="pdfBtn" type="button" title="현재 노트를 고화질 PDF로 인쇄 또는 저장합니다">📄 PDF 출력</button>
     <button id="notionBtn" type="button" title="노션(Notion)에 붙여넣기 위한 형식으로 복사합니다">📝 노션으로 복사</button>
   </div>
@@ -493,23 +494,32 @@ if (typeof chrome === "undefined" || !chrome.storage) {
     <span class="summary" id="formatSummary">형태: 핵심 요약본</span>
     <button class="link" id="formatToggle" type="button" aria-controls="settingsDrawer">변경</button>
   </div>
-  <details class="optional-api"><summary>AI 요약 연결하기 · 선택</summary><p class="detail">Claude 또는 Gemini API 키를 저장한 뒤 이 패널에서 ‘다시 만들기’를 누르세요. 캡처한 원문은 그대로 유지됩니다.</p><button id="summarySettingsBtn" type="button">API 키 설정</button></details>
+  <details class="optional-api"><summary>AI 요약 연결하기 · 선택</summary><p class="detail">승인된 요약 서비스 URL과 앱 세션 토큰을 설정하고 외부 전송에 동의한 뒤 ‘다시 만들기’를 누르세요. 소비자 AI API 키는 이 확장에 저장되지 않습니다.</p><button id="summarySettingsBtn" type="button">연결 설정</button></details>
 
   <div class="btnrow">
     <button id="notesBtn" type="button" disabled title="재캡처 없이 선택한 형태로 다시 만듭니다">다시 만들기</button>
   </div>
 
   <button id="againBtn" type="button" style="width:100%;">새로 캡처하기</button>
+
+  <details class="optional-api">
+    <summary>암호화 보관함</summary>
+    <p class="detail">보관 암호는 기기에서만 사용합니다. 원문 캡처나 오디오는 보관하지 않습니다.</p>
+    <input id="vaultPassphrase" type="password" minlength="12" autocomplete="off" placeholder="보관 암호 (12자 이상)">
+    <div class="btnrow"><button id="saveVaultBtn" type="button">현재 노트 보관</button><button id="refreshVaultBtn" type="button">목록 새로고침</button></div>
+    <select id="vaultList" aria-label="암호화 보관 목록"></select>
+    <div class="btnrow"><button id="loadVaultBtn" type="button">불러오기</button><button id="deleteVaultBtn" type="button">보관본 삭제</button></div>
+  </details>
 </div>
 
 <!-- ── 공통 ────────────────────────────────────────────────── -->
 <div id="status" class="detail" role="status" aria-live="polite" style="min-height:1.4em; white-space:pre-wrap;"></div>
 
-<details>
+<details id="rawEvidence" hidden>
   <summary>인식된 텍스트 전체 (메모리에만 존재)</summary>
   <pre id="rawScript"></pre>
 </details>
-<details>
+<details hidden>
   <summary>디버그 로그</summary>
   <pre id="debugLog"></pre>
 </details>
@@ -544,12 +554,7 @@ if (typeof chrome === "undefined" || !chrome.storage) {
   </p>
 </footer>
 
-  <script src="lib/vendor/tesseract/tesseract.min.js"></script>
-  <script src="lib/mergeLines.js"></script>
-  <script src="lib/repeats.js"></script>
   <script src="lib/settings.js"></script>
-  <script src="lib/audio.js"></script>
-  <script src="lib/ai.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>
