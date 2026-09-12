@@ -305,6 +305,99 @@ if (typeof chrome === "undefined" || !chrome.storage) {
     width: 100%;
     margin-top: 4px;
   }
+
+  /* 오디오 버퍼 수집 중 실시간 행 */
+  .audio-buffering-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    font-size: 11.5px;
+    color: var(--ash);
+    background: var(--sunk);
+    border: 1px dashed var(--rule);
+    border-radius: var(--r-sm);
+    margin-top: 2px;
+  }
+  .buffering-pulse {
+    width: 7px;
+    height: 7px;
+    background: #10b981;
+    border-radius: 50%;
+    flex-shrink: 0;
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+    animation: bufferDotPulse 1.6s infinite;
+  }
+  @keyframes bufferDotPulse {
+    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+    70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  }
+
+  /* 노트 필기 중 전체 화면 로딩 오버레이 */
+  .note-loading-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 24px;
+    animation: overlayFadeIn 200ms ease-out;
+  }
+  @keyframes overlayFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  .note-loading-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    max-width: 280px;
+    gap: 12px;
+  }
+  .note-loading-spinner {
+    width: 44px;
+    height: 44px;
+    border: 3.5px solid rgba(255, 255, 255, 0.2);
+    border-top-color: #ffffff;
+    border-radius: 50%;
+    animation: noteSpin 0.85s linear infinite;
+  }
+  @keyframes noteSpin {
+    to { transform: rotate(360deg); }
+  }
+  .note-loading-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: #ffffff;
+    letter-spacing: -0.01em;
+    margin-top: 4px;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  }
+  .overlay-plan-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 6px;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: #e4e4e7;
+    text-decoration: underline;
+    text-underline-offset: 4px;
+    cursor: pointer;
+    transition: all 150ms ease;
+    padding: 4px 8px;
+    border-radius: var(--r-sm);
+  }
+  .overlay-plan-link:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.1);
+  }
 </style>
 </head>
 <body>
@@ -522,6 +615,15 @@ if (typeof chrome === "undefined" || !chrome.storage) {
     <button type="button" id="notionModalClose" class="primary">확인</button>
   </div>
 </dialog>
+
+<!-- ── 노트 필기 중 전체 화면 로딩 오버레이 ────────────────────────── -->
+<div id="noteLoadingOverlay" class="note-loading-overlay" hidden>
+  <div class="note-loading-content">
+    <div class="note-loading-spinner" aria-hidden="true"></div>
+    <div class="note-loading-title">노트 필기중....</div>
+    <a href="#" id="overlayPlanLink" class="overlay-plan-link">필기를 더 빠르게 하고 싶으신가요? ⚡</a>
+  </div>
+</div>
 
 <footer>
   <div id="planLine" class="plan-card">

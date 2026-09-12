@@ -30,6 +30,7 @@ const els = {
   renderFrame: $("renderFrame"), viewRenderedBtn: $("viewRenderedBtn"), viewRawBtn: $("viewRawBtn"),
   pdfBtn: $("pdfBtn"), notionBtn: $("notionBtn"), exportRow: $("exportRow"),
   notionModal: $("notionModal"), notionModalClose: $("notionModalClose"),
+  noteLoadingOverlay: $("noteLoadingOverlay"), overlayPlanLink: $("overlayPlanLink"),
   // 하단
   planLine: $("planLine"), planSelect: $("planSelect"), planName: $("planName"), planUse: $("planUse"),
 };
@@ -52,6 +53,7 @@ function setStage(name) {
   $("stepLive").className = name === "live" ? "active" : "";
   $("stepDone").className = name === "done" ? "active" : "";
   if (name !== "ready") els.drawer.hidden = true;
+  if (name !== "done" && els.noteLoadingOverlay) els.noteLoadingOverlay.hidden = true;
 }
 
 els.outputFormat.addEventListener("change", () => {
@@ -135,7 +137,9 @@ function renderProgress() {
 
   const last = transcript.slice(-3);
   if (!last.length) {
-    els.feedLines.innerHTML = '<div class="empty">아직 인식된 내용이 없습니다.</div>';
+    els.feedLines.innerHTML =
+      '<div class="empty">아직 인식된 내용이 없습니다.</div>' +
+      (capturing ? '<div class="audio-buffering-row"><span class="buffering-pulse"></span><span>오디오 버퍼 수집중...</span></div>' : '');
     return;
   }
   els.feedLines.textContent = "";
@@ -148,6 +152,16 @@ function renderProgress() {
     body.textContent = item.text.replace(/^\[음성\] /, "");
     row.append(t, body);
     els.feedLines.appendChild(row);
+  }
+  if (capturing) {
+    const bufRow = document.createElement("div");
+    bufRow.className = "audio-buffering-row";
+    const pulse = document.createElement("span");
+    pulse.className = "buffering-pulse";
+    const text = document.createElement("span");
+    text.textContent = "오디오 버퍼 수집중...";
+    bufRow.append(pulse, text);
+    els.feedLines.appendChild(bufRow);
   }
 }
 
@@ -612,6 +626,7 @@ async function generateNotes() {
   if (els.doneAlert) els.doneAlert.hidden = true;
   setStage("done");
   els.donePill.textContent = "노트 생성 중";
+  if (els.noteLoadingOverlay) els.noteLoadingOverlay.hidden = false;
   els.againBtn.disabled = true;
   els.notesBtn.disabled = true;
   els.formatToggle.disabled = true;
@@ -675,6 +690,7 @@ async function generateNotes() {
     }
     return fail(errMsg);
   } finally {
+    if (els.noteLoadingOverlay) els.noteLoadingOverlay.hidden = true;
     busy = false;
     els.againBtn.disabled = false;
     els.notesBtn.disabled = !transcript.length;
@@ -744,6 +760,7 @@ function finishCapture() {
 }
 
 function fail(message) {
+  if (els.noteLoadingOverlay) els.noteLoadingOverlay.hidden = true;
   busy = false;
   capturing = false;
   clearInterval(finishTimer);
@@ -1228,6 +1245,18 @@ window.addEventListener("message", (e) => {
     setStatus(`PDF 인쇄 오류: ${e.data.error || "알 수 없는 오류"}`);
   }
 });
+
+if (els.overlayPlanLink) {
+  els.overlayPlanLink.addEventListener("click", (e) => {
+    e.preventDefault();
+    const planUrl = chrome.runtime.getURL("landing/index.html#plans");
+    if (chrome.tabs && chrome.tabs.create) {
+      chrome.tabs.create({ url: planUrl });
+    } else {
+      window.open(planUrl, "_blank");
+    }
+  });
+}
 
 loadTabs();
 (async () => {
