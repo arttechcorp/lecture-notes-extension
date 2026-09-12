@@ -38,7 +38,16 @@
   const debugLog = (...args) =>
     send({ type: "log", text: args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ") });
 
-  const getVideo = () => document.querySelector("video");
+  const getVideo = () => {
+    const videos = Array.from(document.querySelectorAll("video"));
+    if (!videos.length) return null;
+    if (videos.length === 1) return videos[0];
+    // 1. 현재 재생 중인 영상 우선
+    const playing = videos.find((v) => !v.paused && v.currentTime > 0 && !v.ended);
+    if (playing) return playing;
+    // 2. 화면에 보이는 영상 중 가장 큰 영상
+    return videos.sort((a, b) => (b.offsetWidth * b.offsetHeight) - (a.offsetWidth * a.offsetHeight))[0];
+  };
 
   // rect는 0~1 정규화 좌표. 지정이 없으면 전체 화면.
   function pixelRect(video, rect) {
@@ -147,11 +156,10 @@
 
   // 무음 청크는 Whisper에 넣지 않는다. 넣으면 빈 결과가 아니라 환각이 나온다
   // ("감사합니다", "시청해주셔서 감사합니다" 같은 정형구) — 학습 데이터의 자막 상투구다.
-  // 관측된 말소리 RMS는 0.014 근처. 임계값은 그보다 한참 아래여야 조용한 발화를 안 버린다.
-  const SILENCE_RMS = 0.002; // 약 -54 dBFS
-  // RMS만 보면 5초 중 4초가 무음이고 한 단어만 있는 청크가 잘려나간다.
+  // 20초 구간 내 쉼표/호흡이 섞인 조용한 발화나 저음량 영상도 버리지 않도록 현실적 임계값 적용.
+  const SILENCE_RMS = 0.0004; // 약 -68 dBFS
   // 순간 최대값이 함께 낮을 때만 무음으로 판정한다.
-  const SILENCE_PEAK = 0.02;
+  const SILENCE_PEAK = 0.004; // 약 -48 dBFS
 
   // 확장 포트 메시지는 structured clone이 아니라 JSON이다. Float32Array를 그대로 넣으면
   // {"0":0.01,...} 로 부풀어 터진다. int16 PCM + base64가 가장 싼 전송 형식.
@@ -241,12 +249,39 @@
         off = 0;
       };
 
+      let muteWarned = false;
       proc.onaudioprocess = (e) => {
-        if (!capturing) return;
+        if (!capturing || video.paused) return;
+        if (ctx.state === "suspended") {
+          ctx.resume().catch(() => {});
+        }
+        if (video.muted || video.volume === 0) {
+          if (!muteWarned) {
+            muteWarned = true;
+            debugLog("강의 영상이 음소거(Mute)되어 있거나 플레이어 볼륨이 0입니다. 웹 플레이어의 음소거를 해제해야 오디오 인식이 가능합니다.");
+          }
+        } else if (muteWarned) {
+          muteWarned = false;
+        }
         const input = e.inputBuffer.getChannelData(0);
-        for (let i = 0; i < input.length; i++) {
-          buf[off++] = input[i];
-          if (off >= CHUNK) emit(CHUNK);
+        const inRate = ctx.sampleRate || AUDIO_HZ;
+        if (inRate === AUDIO_HZ) {
+          for (let i = 0; i < input.length; i++) {
+            buf[off++] = input[i];
+            if (off >= CHUNK) emit(CHUNK);
+          }
+        } else {
+          // 브라우저 sampleRate가 16000이 아닐 경우 16kHz로 리샘플링하여 배속 왜곡 방지
+          const ratio = inRate / AUDIO_HZ;
+          const outLen = Math.floor(input.length / ratio);
+          for (let i = 0; i < outLen; i++) {
+            const srcIdx = i * ratio;
+            const i0 = Math.floor(srcIdx);
+            const i1 = Math.min(i0 + 1, input.length - 1);
+            const f = srcIdx - i0;
+            buf[off++] = input[i0] * (1 - f) + input[i1] * f;
+            if (off >= CHUNK) emit(CHUNK);
+          }
         }
       };
       src.connect(proc);
