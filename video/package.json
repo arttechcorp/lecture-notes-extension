@@ -1,0 +1,24 @@
+{
+  "name": "video",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "remotion studio",
+    "build": "remotion render LaunchVideo out/launch-video.mp4",
+    "upgrade": "remotion upgrade",
+    "test": "npx esbuild src/mockup/timeline.test.ts --bundle --platform=node --outfile=node_modules/.cache/timeline.test.cjs --log-level=error && node node_modules/.cache/timeline.test.cjs"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.524",
+    "@types/markdown-it": "^14.2.0",
+    "markdown-it": "^15.0.2",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.524"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.1",
+    "@types/react-dom": "18.3.1",
+    "typescript": "5.7.3"
+  }
+}
