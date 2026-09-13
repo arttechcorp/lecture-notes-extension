@@ -1,0 +1,179 @@
+- banner:
+  - link "Home":
+    - /url: /ko
+    - img "alt"
+  - link "Game 게임":
+    - /url: /ko/game
+    - img "Game"
+    - text: 게임
+  - link "기능":
+    - /url: /ko/features
+  - button
+  - button "로그인"
+  - button "한국어"
+- main:
+  - button "드디어 Alt 안드로이드 앱이 출시되었어요 🎉":
+    - paragraph: 드디어 Alt 안드로이드 앱이 출시되었어요 🎉
+  - heading "무료 · 무제한 · 프라이빗 · 온디바이스 AI 노트" [level=1]
+  - heading "무료·무제한으로 음성을 기록하는 가장 좋은 방법" [level=2]
+  - paragraph: 회의·수업 모두 기록하여, 나만의 지식저장소를 구축하세요.
+  - link "iPhone 다운로드":
+    - /url: https://apps.apple.com/app/id6759488047
+  - button "데스크톱 앱 받기"
+  - button
+  - button
+  - button "음성인식"
+  - button "요약"
+  - button "퀴즈"
+  - button "채팅"
+  - button
+  - heading "화자별 점유율" [level=4]
+  - text: 화자 1 80% 화자 2 12% 화자 3 8%
+  - heading "주요 발언" [level=4]
+  - text: 화자 1
+  - list:
+    - listitem: • Alt는 시간 제한 없는 무료 AI 회의 필기 앱
+  - text: 화자 2
+  - list:
+    - listitem: • 음성 데이터 보안 처리 방식 질문
+  - text: 1 화자1 13:25:37
+  - button "번역"
+  - paragraph: Alt는 시간 제한 없는 무료 AI 강의 회의 필기 앱입니다. 강의나 회의에서 중요한 내용을 놓치지 않으려면 듣는 동시에 정리해야 하는데, 실제로는 메모에 집중하다가 흐름을 놓치거나 반대로 듣느라 기록이 비는 순간이 생기곤 합니다. Alt는 그 부담을 없애기 위해 만들어졌습니다.
+  - text: 2 화자2 13:25:59
+  - button "번역"
+  - paragraph: 음성 데이터는 어떻게 처리되나요? 보안 쪽이 좀 걱정되는데요.
+  - text: 1 화자1 13:26:06
+  - button "번역"
+  - paragraph: KAIST 출신 엔지니어 3명이 자체 개발한 고성능 음성 인식 엔진을 사용자 PC에서 직접 실행하기 때문에 음성 데이터가 외부 서버로 나가지 않습니다. 그래서 회의, 면접, 세일즈 미팅처럼 민감한 내용도 안심하고 기록할 수 있습니다.
+  - text: 3 화자3 13:26:31
+  - button "번역"
+  - paragraph: 인터넷 없는 환경에서도 사용할 수 있나요?
+  - text: 1 화자1 13:26:39
+  - button "번역"
+  - paragraph: 네, 오프라인 환경에서도 사용 가능합니다. 기능도 실전 환경에 맞춰져 있어서, 시간 제한 없이 무제한으로 사용할 수 있고 Zoom이나 Google Meet 같은 환경에서도 그대로 활용할 수 있습니다.
+  - text: 2 화자2 13:26:59
+  - button "번역"
+  - paragraph: 다국어 지원은 어떤가요?
+  - text: 1 화자1 13:27:04
+  - button "번역"
+  - paragraph: 100개 언어를 지원하면서 실시간 번역까지 제공해서, 다국어 미팅에도 유용합니다. 회의 중에는 실시간으로 회의록을 받아보거나 AI와 채팅하듯 필요한 내용을 즉시 정리할 수도 있습니다.
+  - text: 이 버튼을 클릭해보세요!
+  - button
+  - button "한국어"
+  - button
+  - button
+  - button "Keywords"
+  - button
+  - button "에너지 효율 모드"
+  - heading "이 곳의 인재들이 신뢰합니다" [level=2]
+  - img "구글"
+  - img "당근마켓"
+  - img "카카오"
+  - img "toss"
+  - img "크래프톤"
+  - img "엘리스"
+  - img "KAIST"
+  - img "서울대"
+  - img "포스텍"
+  - img "구글"
+  - img "당근마켓"
+  - img "카카오"
+  - img "toss"
+  - img "크래프톤"
+  - img "엘리스"
+  - img "KAIST"
+  - img "서울대"
+  - img "포스텍"
+  - heading "무료. 정말로 무료." [level=3]
+  - heading "무제한 음성인식 사용량" [level=3]
+  - paragraph: 월 00분 시간제한이 불편해서 만든 앱인 만큼, 음성인식은 평생 시간제한 없이 무료로 제공합니다.
+  - heading "보안" [level=3]
+  - paragraph: 모든 데이터는 당신 PC에만 저장되며 당신의 것입니다.
+  - heading "인터넷 없어도 사용 가능" [level=3]
+  - heading "No lock-in" [level=3]
+  - paragraph: 모든 데이터는 당신의 기기에만 저장됩니다. 원하는 포맷으로 언제든 내보내고, 다른 도구로 자유롭게 옮길 수 있어요.
+  - heading "어떻게 무료, 무제한 제공이 가능한가요?" [level=3]
+  - paragraph: 당신의 기기에서 AI 모델을 돌리기 때문입니다.
+  - paragraph: 보통의 AI 서비스는 당신의 데이터를 그들의 서버로 보내 처리합니다. 하지만 Alt는 AI가 당신의 노트북 안에서 작업을 처리합니다. AI, 서버 비용이 없으니 무료·무제한으로 제공할 수 있어요.
+  - heading "핵심 기능" [level=3]
+  - heading "100개 언어 지원 + 실시간 번역" [level=3]
+  - heading "발화자 구분" [level=3]
+  - text: Mac 지원 (Windows 예정)
+  - paragraph: 발화자를 구분하며, 발화자 별 발언을 요약합니다.
+  - img "Google Meet"
+  - img "Zoom"
+  - img "Microsoft Teams"
+  - img "Discord"
+  - heading "Google Meet, Zoom 등 온라인 오디오도 깔끔하게 기록해요." [level=3]
+  - heading "음성·PDF 자료의 핵심 요약부터 AI 채팅, 맞춤형 퀴즈까지" [level=3]
+  - heading "YouTube 영상 요약" [level=3]
+  - paragraph: 유튜브 링크만 넣으면 영상 내용을 텍스트로 정리하고 핵심만 빠르게 요약해요.
+  - heading "AI 회의록 실시간 서기" [level=3]
+  - heading "무제한 녹음 파일 업로드하여 텍스트 변환" [level=3]
+  - heading "압도적인 한국어 인식률" [level=3]
+  - paragraph: 세계 최고 수준의 최적화 기술로 고성능 모델을 기기에서 직접 구동하여, 한국어 특유의 미묘한 뉘앙스까지 정확하게 잡아냅니다.
+  - heading "고성능 AI 모델을 개인 PC에서도 가볍고 빠르게 돌리기 위해, 핵심 엔진을 직접 설계했어요." [level=3]
+  - text: 2025년 기준 세계 최고 성능(SOTA) Apple Silicon에서 실시간 스트리밍 음성 인식을 기존 최고 성능 대비 15배 빠르고 전력 효율적으로 구현 Encoding Performance CoreML Encoder
+  - img
+  - text: 272.7 ms 기존
+  - img
+  - text: 5060.6 ms Decoding Performance MLX Decoder
+  - img
+  - text: 28.5 ms 기존
+  - img
+  - text: 451.7 ms
+  - link "Lightning-SimulWhisper 654 Stars":
+    - /url: https://github.com/altalt-org/Lightning-SimulWhisper
+  - text: 현 시점 세계 최고 성능 Pyannote 엔진(SOTA) Pyannote 화자분리 모델을 GGML + CoreML로 재구현한, 실시간 대비 39배 속도의 고성능 엔진 Segmentation Performance CoreML
+  - img
+  - text: 12 ms/chunk 기존
+  - img
+  - text: 46 ms/chunk Embedding Performance CoreML
+  - img
+  - text: 13 ms/chunk 기존
+  - img
+  - text: 25 ms/chunk
+  - link "pyannote-ggml":
+    - /url: https://github.com/altalt-org/pyannote-ggml
+  - heading "Alt는 왜 만들었나요?" [level=3]
+  - img "Coby profile"
+  - img "Andy profile"
+  - heading "KAIST 공대생들이 시간제한 없는 수업 필기를 위해 만든 앱" [level=4]
+  - link "만든 사람들 →":
+    - /url: /ko/about
+  - text: AI Lecture NoteTaker, Alt는 학교 수업을 들을 때, speech-to-text 모델을 직접 돌려 필기한다는 친구로부터 시작했습니다. 대부분의 AI 필기앱은 사용시간 제한이 있어 강의 3-4개를 들으면 한도를 초과하고, 글로벌 무료 앱들은 한국어 지원이 잘 안된다고 하더라고요. 가볍게 만들어볼 수 있을 것 같아 작은 프로젝트로 시작했습니다. 어떤 고통이 기다리고 있는지 모른 채로요... 메모리 사용량을 줄이면서 높은 성능을 내는 것이 생각보다 어려웠어요. 덕분에
+  - link "오픈소스":
+    - /url: https://github.com/altalt-org/Lightning-SimulWhisper
+  - text: 까지 만들게 되었네요😂 (star 눌러주시면 감사합니다) 결국 한달동안 틈틈히 시간을 내어 완성했습니다. 제가 수업을 들을 땐 이런 AI 툴이 없었고, 영어 수업을 듣고 공부하는게 너무 고통스러웠는데 이런 서비스가 있었다면 훨씬 수월하게 공부하지 않았을까 싶어요. 많은 대학생 분들이 쉽게 강의를 듣고 공부했으면 좋겠다는 마음으로 이 서비스를 만든만큼, 완전 무료로 제공합니다. 서버나 API가 없기 때문에 다행히 가능하네요. 유용하게 써주시길 바라며, 아직 부족한 점이 많을텐데,
+  - link "피드백":
+    - /url: /ko/support
+  - text: 많이 주시면 저희가 열심히 개선해보겠습니다😊 감사합니다.
+  - link "alt 팀":
+    - /url: /ko/about
+  - text: 드림
+  - heading "언제 사용하면 좋나요?" [level=3]
+  - heading "학교 수업" [level=3]
+  - heading "온라인 강의" [level=3]
+  - heading "세미나" [level=3]
+  - heading "컨퍼런스" [level=3]
+  - heading "회의" [level=3]
+  - heading "유저 인터뷰" [level=3]
+  - heading "면접" [level=3]
+  - heading "1on1" [level=3]
+  - heading "IR 피칭" [level=3]
+  - paragraph: 맥락을 더 많이 쌓을수록, AI가 당신을 더 잘 이해해요.
+  - paragraph: 나만의 컨텍스트 라이브러리를 만들어보세요 — 무료·무제한, 그리고 온전히 당신의 것.
+  - link "iPhone 다운로드":
+    - /url: https://apps.apple.com/app/id6759488047
+  - button "데스크톱 앱 받기"
+  - text: Alt ·
+  - link "이용약관":
+    - /url: /ko/terms
+  - link "개인정보처리방침":
+    - /url: /ko/privacy
+  - link "개발자":
+    - /url: /ko/developers
+  - link "문의":
+    - /url: /ko/support
+- region "Notifications alt+T"
+- alert

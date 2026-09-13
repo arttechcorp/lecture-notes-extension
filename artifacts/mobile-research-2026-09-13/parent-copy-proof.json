@@ -1,0 +1,8 @@
+{
+  "sandbox": "allow-same-origin",
+  "selected": 554,
+  "total": 554,
+  "visible": true,
+  "paused": "true",
+  "note": "Disposable browser DOM proof only; production HTML/JS unchanged. OS long-press menu not tested."
+}

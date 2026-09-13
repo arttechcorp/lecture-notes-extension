@@ -1,0 +1,24 @@
+[
+  {
+    "engine": "26.6",
+    "events": [
+      "QA_PAGESHOW false",
+      "QA_PAGESHOW false",
+      "QA_PAGESHOW false"
+    ],
+    "liveTimer": true,
+    "generates": true,
+    "resumeTimer": true
+  },
+  {
+    "engine": "153.0.8010.36",
+    "events": [
+      "QA_PAGESHOW false",
+      "QA_PAGESHOW false",
+      "QA_PAGESHOW false"
+    ],
+    "liveTimer": true,
+    "generates": true,
+    "resumeTimer": true
+  }
+]

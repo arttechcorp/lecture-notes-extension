@@ -1,0 +1,470 @@
+[
+  {
+    "profile": "ios-kakao",
+    "engine": "26.6",
+    "hostile": false,
+    "checks": [
+      {
+        "name": "body fits width",
+        "pass": true
+      },
+      {
+        "name": "visible navigation tap",
+        "pass": true
+      },
+      {
+        "name": "install dialog touch / PC guidance / selectable URL",
+        "pass": true
+      },
+      {
+        "name": "student prices and checkout",
+        "pass": true
+      },
+      {
+        "name": "sample free scroll / close at reduced height",
+        "pass": true
+      },
+      {
+        "name": "sample essential scroll / close at reduced height",
+        "pass": true
+      },
+      {
+        "name": "sample professional scroll / close at reduced height",
+        "pass": true
+      },
+      {
+        "name": "FAQ tap",
+        "pass": true
+      },
+      {
+        "name": "review horizontal scroll",
+        "pass": true
+      },
+      {
+        "name": "copy blocked: pause, readonly text and selection",
+        "pass": false,
+        "error": "locator.waitFor: Timeout 12000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.demo-panel').contentFrame().locator('#result') to be visible\u001b[22m\n\u001b[2m    27 × locator resolved to hidden <textarea hidden=\"\" id=\"result\" aria-label=\"강의 노트 Markdown 편집\"></textarea>\u001b[22m\n"
+      },
+      {
+        "name": "orientation and font enlargement no page overflow",
+        "pass": true
+      },
+      {
+        "name": "policy navigation and real history return",
+        "pass": true
+      }
+    ],
+    "errors": [],
+    "url": "https://summrizei.vercel.app/",
+    "status": 200
+  },
+  {
+    "profile": "ios-kakao",
+    "engine": "26.6",
+    "hostile": true,
+    "checks": [
+      {
+        "name": "body fits width",
+        "pass": true
+      },
+      {
+        "name": "visible navigation tap",
+        "pass": true
+      },
+      {
+        "name": "install dialog touch / PC guidance / selectable URL",
+        "pass": true
+      },
+      {
+        "name": "student prices and checkout",
+        "pass": true
+      },
+      {
+        "name": "sample free scroll / close at reduced height",
+        "pass": true
+      },
+      {
+        "name": "sample essential scroll / close at reduced height",
+        "pass": true
+      },
+      {
+        "name": "sample professional scroll / close at reduced height",
+        "pass": true
+      },
+      {
+        "name": "FAQ tap",
+        "pass": true
+      },
+      {
+        "name": "review horizontal scroll",
+        "pass": true
+      },
+      {
+        "name": "copy blocked: pause, readonly text and selection",
+        "pass": false,
+        "error": "locator.waitFor: Timeout 12000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.demo-panel').contentFrame().locator('#result') to be visible\u001b[22m\n\u001b[2m    27 × locator resolved to hidden <textarea hidden=\"\" id=\"result\" aria-label=\"강의 노트 Markdown 편집\"></textarea>\u001b[22m\n"
+      },
+      {
+        "name": "orientation and font enlargement no page overflow",
+        "pass": true
+      },
+      {
+        "name": "policy navigation and real history return",
+        "pass": true
+      }
+    ],
+    "errors": [],
+    "url": "https://summrizei.vercel.app/",
+    "status": 200
+  },
+  {
+    "profile": "ios-instagram",
+    "engine": "26.6",
+    "hostile": false,
+    "checks": [
+      {
+        "name": "body fits width",
+        "pass": true
+      },
+      {
+        "name": "visible navigation tap",
+        "pass": true
+      },
+      {
+        "name": "install dialog touch / PC guidance / selectable URL",
+        "pass": true
+      },
+      {
+        "name": "student prices and checkout",
+        "pass": true
+      },
+      {
+        "name": "sample free scroll / close at reduced height",
+        "pass": true
+      },
+      {
+        "name": "sample essential scroll / close at reduced height",
+        "pass": true
+      },
+      {
+        "name": "sample professional scroll / close at reduced height",
+        "pass": true
+      },
+      {
+        "name": "FAQ tap",
+        "pass": true
+      },
+      {
+        "name": "review horizontal scroll",
+        "pass": true
+      },
+      {
+        "name": "copy blocked: pause, readonly text and selection",
+        "pass": false,
+        "error": "locator.waitFor: Timeout 12000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.demo-panel').contentFrame().locator('#result') to be visible\u001b[22m\n\u001b[2m    27 × locator resolved to hidden <textarea hidden=\"\" id=\"result\" aria-label=\"강의 노트 Markdown 편집\"></textarea>\u001b[22m\n"
+      },
+      {
+        "name": "orientation and font enlargement no page overflow",
+        "pass": true
+      },
+      {
+        "name": "policy navigation and real history return",
+        "pass": true
+      }
+    ],
+    "errors": [],
+    "url": "https://summrizei.vercel.app/",
+    "status": 200
+  },
+  {
+    "profile": "ios-instagram",
+    "engine": "26.6",
+    "hostile": true,
+    "checks": [
+      {
+        "name": "body fits width",
+        "pass": true
+      },
+      {
+        "name": "visible navigation tap",
+        "pass": true
+      },
+      {
+        "name": "install dialog touch / PC guidance / selectable URL",
+        "pass": true
+      },
+      {
+        "name": "student prices and checkout",
+        "pass": true
+      },
+      {
+        "name": "sample free scroll / close at reduced height",
+        "pass": true
+      },
+      {
+        "name": "sample essential scroll / close at reduced height",
+        "pass": true
+      },
+      {
+        "name": "sample professional scroll / close at reduced height",
+        "pass": true
+      },
+      {
+        "name": "FAQ tap",
+        "pass": true
+      },
+      {
+        "name": "review horizontal scroll",
+        "pass": true
+      },
+      {
+        "name": "copy blocked: pause, readonly text and selection",
+        "pass": false,
+        "error": "locator.waitFor: Timeout 12000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.demo-panel').contentFrame().locator('#result') to be visible\u001b[22m\n\u001b[2m    27 × locator resolved to hidden <textarea hidden=\"\" id=\"result\" aria-label=\"강의 노트 Markdown 편집\"></textarea>\u001b[22m\n"
+      },
+      {
+        "name": "orientation and font enlargement no page overflow",
+        "pass": true
+      },
+      {
+        "name": "policy navigation and real history return",
+        "pass": true
+      }
+    ],
+    "errors": [],
+    "url": "https://summrizei.vercel.app/",
+    "status": 200
+  },
+  {
+    "profile": "android-kakao",
+    "engine": "153.0.8010.36",
+    "hostile": false,
+    "checks": [
+      {
+        "name": "body fits width",
+        "pass": true
+      },
+      {
+        "name": "visible navigation tap",
+        "pass": true
+      },
+      {
+        "name": "install dialog touch / PC guidance / selectable URL",
+        "pass": true
+      },
+      {
+        "name": "student prices and checkout",
+        "pass": true
+      },
+      {
+        "name": "sample free scroll / close at reduced height",
+        "pass": true
+      },
+      {
+        "name": "sample essential scroll / close at reduced height",
+        "pass": true
+      },
+      {
+        "name": "sample professional scroll / close at reduced height",
+        "pass": true
+      },
+      {
+        "name": "FAQ tap",
+        "pass": true
+      },
+      {
+        "name": "review horizontal scroll",
+        "pass": true
+      },
+      {
+        "name": "copy blocked: pause, readonly text and selection",
+        "pass": true
+      },
+      {
+        "name": "orientation and font enlargement no page overflow",
+        "pass": true
+      },
+      {
+        "name": "policy navigation and real history return",
+        "pass": true
+      }
+    ],
+    "errors": [],
+    "url": "https://summrizei.vercel.app/",
+    "status": 200
+  },
+  {
+    "profile": "android-kakao",
+    "engine": "153.0.8010.36",
+    "hostile": true,
+    "checks": [
+      {
+        "name": "body fits width",
+        "pass": true
+      },
+      {
+        "name": "visible navigation tap",
+        "pass": true
+      },
+      {
+        "name": "install dialog touch / PC guidance / selectable URL",
+        "pass": true
+      },
+      {
+        "name": "student prices and checkout",
+        "pass": true
+      },
+      {
+        "name": "sample free scroll / close at reduced height",
+        "pass": true
+      },
+      {
+        "name": "sample essential scroll / close at reduced height",
+        "pass": true
+      },
+      {
+        "name": "sample professional scroll / close at reduced height",
+        "pass": true
+      },
+      {
+        "name": "FAQ tap",
+        "pass": true
+      },
+      {
+        "name": "review horizontal scroll",
+        "pass": true
+      },
+      {
+        "name": "copy blocked: pause, readonly text and selection",
+        "pass": true
+      },
+      {
+        "name": "orientation and font enlargement no page overflow",
+        "pass": true
+      },
+      {
+        "name": "policy navigation and real history return",
+        "pass": true
+      }
+    ],
+    "errors": [],
+    "url": "https://summrizei.vercel.app/",
+    "status": 200
+  },
+  {
+    "profile": "android-instagram",
+    "engine": "153.0.8010.36",
+    "hostile": false,
+    "checks": [
+      {
+        "name": "body fits width",
+        "pass": true
+      },
+      {
+        "name": "visible navigation tap",
+        "pass": true
+      },
+      {
+        "name": "install dialog touch / PC guidance / selectable URL",
+        "pass": true
+      },
+      {
+        "name": "student prices and checkout",
+        "pass": true
+      },
+      {
+        "name": "sample free scroll / close at reduced height",
+        "pass": true
+      },
+      {
+        "name": "sample essential scroll / close at reduced height",
+        "pass": true
+      },
+      {
+        "name": "sample professional scroll / close at reduced height",
+        "pass": true
+      },
+      {
+        "name": "FAQ tap",
+        "pass": true
+      },
+      {
+        "name": "review horizontal scroll",
+        "pass": true
+      },
+      {
+        "name": "copy blocked: pause, readonly text and selection",
+        "pass": true
+      },
+      {
+        "name": "orientation and font enlargement no page overflow",
+        "pass": true
+      },
+      {
+        "name": "policy navigation and real history return",
+        "pass": true
+      }
+    ],
+    "errors": [],
+    "url": "https://summrizei.vercel.app/",
+    "status": 200
+  },
+  {
+    "profile": "android-instagram",
+    "engine": "153.0.8010.36",
+    "hostile": true,
+    "checks": [
+      {
+        "name": "body fits width",
+        "pass": true
+      },
+      {
+        "name": "visible navigation tap",
+        "pass": true
+      },
+      {
+        "name": "install dialog touch / PC guidance / selectable URL",
+        "pass": true
+      },
+      {
+        "name": "student prices and checkout",
+        "pass": true
+      },
+      {
+        "name": "sample free scroll / close at reduced height",
+        "pass": true
+      },
+      {
+        "name": "sample essential scroll / close at reduced height",
+        "pass": true
+      },
+      {
+        "name": "sample professional scroll / close at reduced height",
+        "pass": true
+      },
+      {
+        "name": "FAQ tap",
+        "pass": true
+      },
+      {
+        "name": "review horizontal scroll",
+        "pass": true
+      },
+      {
+        "name": "copy blocked: pause, readonly text and selection",
+        "pass": true
+      },
+      {
+        "name": "orientation and font enlargement no page overflow",
+        "pass": true
+      },
+      {
+        "name": "policy navigation and real history return",
+        "pass": true
+      }
+    ],
+    "errors": [],
+    "url": "https://summrizei.vercel.app/",
+    "status": 200
+  }
+]

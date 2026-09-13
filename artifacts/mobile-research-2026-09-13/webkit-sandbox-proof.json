@@ -1,0 +1,11 @@
+{
+  "diagnosticOnly": "Response override in disposable test browser. No source or deployment change; not the proposed production fix.",
+  "sandbox": "allow-same-origin allow-scripts",
+  "copy": "직접 복사",
+  "paused": "true",
+  "selection": [
+    554,
+    554
+  ],
+  "console": []
+}

@@ -1,0 +1,318 @@
+{
+  "url": "https://daglo.ai/d/ko",
+  "title": "다글로 — 음성 인텔리전스 워크스페이스",
+  "width": 390,
+  "height": 744,
+  "scrollWidth": 390,
+  "scrollHeight": 7057,
+  "headings": [
+    {
+      "tag": "H1",
+      "text": "대화로만 끝나지 않게,자동으로 기록하세요",
+      "y": 180
+    },
+    {
+      "tag": "H2",
+      "text": "음성과 AI로 할 수 있는 일, 상상이 현실이 될 수 있어요",
+      "y": 1923
+    },
+    {
+      "tag": "H2",
+      "text": "녹음에서 결과물까지, 전부 다글로 안에서",
+      "y": 2693
+    },
+    {
+      "tag": "H3",
+      "text": "녹음 & 받아쓰기 →",
+      "y": 2907
+    },
+    {
+      "tag": "H3",
+      "text": "AI 채팅 →",
+      "y": 3114
+    },
+    {
+      "tag": "H3",
+      "text": "AI 슬라이드 →",
+      "y": 3321
+    },
+    {
+      "tag": "H3",
+      "text": "AI 문서번역 →",
+      "y": 3528
+    },
+    {
+      "tag": "H3",
+      "text": "PDF 분석 →",
+      "y": 3736
+    },
+    {
+      "tag": "H3",
+      "text": "YouTube 요약 →",
+      "y": 3943
+    },
+    {
+      "tag": "H2",
+      "text": "보안·확장성·맞춤형을 모두 제공하는 온프레미스 LLM",
+      "y": 4181
+    },
+    {
+      "tag": "H2",
+      "text": "필요한 만큼만, 합리적으로.",
+      "y": 4657
+    },
+    {
+      "tag": "H2",
+      "text": "대화가 일이 되는 곳, 다글로.",
+      "y": 5911
+    }
+  ],
+  "actions": [
+    {
+      "text": "다글로 시작하기",
+      "href": "/sign-in",
+      "y": 12,
+      "height": 41
+    },
+    {
+      "text": "NEW\n다글로 팀플랜이 출시되었습니다 →",
+      "href": "/d/ko/solutions/teams",
+      "y": 117,
+      "height": 37
+    },
+    {
+      "text": "다글로 시작하기",
+      "href": "/sign-in",
+      "y": 354,
+      "height": 47
+    },
+    {
+      "text": "제품 둘러보기 →",
+      "href": "/d/ko/product",
+      "y": 354,
+      "height": 47
+    },
+    {
+      "text": "녹음 & 받아쓰기\n→\n\n회의와 강의를 검색·편집 가능한 텍스트로.",
+      "href": "/d/ko/product#transcribe",
+      "y": 2778,
+      "height": 191
+    },
+    {
+      "text": "AI 채팅\n→\n\n내 자료를 아는 AI. 모든 주요 모델을 하나의 창에서.",
+      "href": "/d/ko/product#ai-chat",
+      "y": 2985,
+      "height": 191
+    },
+    {
+      "text": "AI 슬라이드\n→\n\n주제 하나 또는 내 자료로 완성된 덱.",
+      "href": "/d/ko/product#slides",
+      "y": 3192,
+      "height": 191
+    },
+    {
+      "text": "EN\n→\nKO\nAI 문서번역\n→\n\n레이아웃 그대로 문서 전체 번역.",
+      "href": "/d/ko/product#translate",
+      "y": 3399,
+      "height": 191
+    },
+    {
+      "text": "PDF 분석\n→\n\nPDF를 넣으면 핵심과 답변이 나옵니다.",
+      "href": "/d/ko/product#pdf",
+      "y": 3607,
+      "height": 191
+    },
+    {
+      "text": "▶\nYouTube 요약\n→\n\n링크만 붙여넣으면 바로 핵심 파악.",
+      "href": "/d/ko/product#youtube",
+      "y": 3814,
+      "height": 191
+    },
+    {
+      "text": "제품 자세히 보기 →",
+      "href": "/d/ko/product",
+      "y": 4044,
+      "height": 19
+    },
+    {
+      "text": "엔터프라이즈 자세히 보기 →",
+      "href": "/d/ko/enterprise",
+      "y": 4516,
+      "height": 19
+    },
+    {
+      "text": "월 결제",
+      "href": null,
+      "y": 4774,
+      "height": 42
+    },
+    {
+      "text": "연 결제",
+      "href": null,
+      "y": 4774,
+      "height": 42
+    },
+    {
+      "text": "다글로 시작하기",
+      "href": "/sign-in",
+      "y": 5518,
+      "height": 47
+    },
+    {
+      "text": "다글로 시작하기",
+      "href": "/sign-in",
+      "y": 5518,
+      "height": 47
+    },
+    {
+      "text": "다글로 시작하기",
+      "href": "/sign-in",
+      "y": 5518,
+      "height": 47
+    },
+    {
+      "text": "다글로 시작하기",
+      "href": "/d/ko/solutions/teams",
+      "y": 5518,
+      "height": 47
+    },
+    {
+      "text": "온프레미스 · 프라이빗 LLM · 맞춤 계약이 필요하신가요? 도입 문의\n→",
+      "href": "/d/ko/enterprise#contact",
+      "y": 5630,
+      "height": 83
+    },
+    {
+      "text": "다글로 시작하기",
+      "href": "/sign-in",
+      "y": 6013,
+      "height": 47
+    },
+    {
+      "text": "도입 문의",
+      "href": "/d/ko/enterprise#contact",
+      "y": 6072,
+      "height": 47
+    },
+    {
+      "text": "다글로 소개",
+      "href": "/d/ko/product",
+      "y": 6248,
+      "height": 31
+    },
+    {
+      "text": "요금제",
+      "href": "/d/ko/pricing",
+      "y": 6279,
+      "height": 31
+    },
+    {
+      "text": "고객사례",
+      "href": "/d/ko/customers",
+      "y": 6310,
+      "height": 31
+    },
+    {
+      "text": "앱 다운로드 ↗",
+      "href": "/sign-in",
+      "y": 6341,
+      "height": 31
+    },
+    {
+      "text": "개발자 / API ↗",
+      "href": "https://developers.daglo.ai/",
+      "y": 6372,
+      "height": 31
+    },
+    {
+      "text": "팀",
+      "href": "/d/ko/solutions/teams",
+      "y": 6465,
+      "height": 31
+    },
+    {
+      "text": "교육",
+      "href": "/d/ko/solutions/education",
+      "y": 6496,
+      "height": 31
+    },
+    {
+      "text": "기업",
+      "href": "/d/ko/enterprise",
+      "y": 6527,
+      "height": 31
+    },
+    {
+      "text": "블로그",
+      "href": "/d/ko/blog",
+      "y": 6465,
+      "height": 31
+    },
+    {
+      "text": "가이드",
+      "href": "/d/ko/guide",
+      "y": 6496,
+      "height": 31
+    },
+    {
+      "text": "FAQ",
+      "href": "/d/ko/faq",
+      "y": 6527,
+      "height": 31
+    },
+    {
+      "text": "회사 소개",
+      "href": "/d/ko/company",
+      "y": 6621,
+      "height": 31
+    },
+    {
+      "text": "연구 & 기술",
+      "href": "/d/ko/research",
+      "y": 6651,
+      "height": 31
+    },
+    {
+      "text": "뉴스룸",
+      "href": "/d/ko/newsroom",
+      "y": 6682,
+      "height": 31
+    },
+    {
+      "text": "채용 ↗",
+      "href": "https://actionpower.notion.site/",
+      "y": 6713,
+      "height": 31
+    },
+    {
+      "text": "액션파워 ↗",
+      "href": "https://actionpower.kr",
+      "y": 6744,
+      "height": 31
+    },
+    {
+      "text": "문의하기",
+      "href": "/d/ko/enterprise#contact",
+      "y": 6775,
+      "height": 31
+    },
+    {
+      "text": "개인정보처리방침",
+      "href": "/d/ko/legal/privacy",
+      "y": 7003,
+      "height": 15
+    },
+    {
+      "text": "이용약관",
+      "href": "/d/ko/legal/terms",
+      "y": 7003,
+      "height": 15
+    },
+    {
+      "text": "라이선스",
+      "href": "/d/ko/legal/license",
+      "y": 7003,
+      "height": 15
+    }
+  ]
+}
