@@ -193,7 +193,29 @@ if (typeof chrome === "undefined" || !chrome.storage) {
   .note-view-tabs { display: flex; gap: 6px; background: var(--sunk); padding: 3px; border-radius: var(--r-md); border: 1px solid var(--rule); margin-bottom: 2px; }
   .tab-pill { flex: 1; border: none; background: transparent; padding: 7px 10px; font-size: 12px; font-weight: 500; cursor: pointer; border-radius: 6px; color: var(--ash); transition: all 120ms; }
   .preview-frame { width: 100%; height: 220px; min-height: 140px; max-height: 70vh; border: 1px solid var(--rule); border-radius: var(--r-md); background: var(--paper); box-shadow: var(--lift-1); display: block; transition: height 120ms ease; }
-  .export-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+  .export-section { margin: 8px 0; display: flex; flex-direction: column; gap: 6px; }
+  .pdf-ratio-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--sunk); padding: 4px 6px; border-radius: var(--r-md);
+    border: 1px solid var(--rule);
+  }
+  .pdf-ratio-bar .ratio-label {
+    font-size: 11px; font-weight: 600; color: var(--ash); margin-left: 4px;
+  }
+  .pdf-ratio-bar .ratio-pills {
+    display: flex; gap: 4px;
+  }
+  .ratio-pill {
+    border: 1px solid transparent; background: transparent; padding: 4px 8px;
+    font-size: 11px; font-weight: 500; cursor: pointer; border-radius: 5px;
+    color: var(--ash); transition: all 120ms ease;
+  }
+  .ratio-pill:hover { background: rgba(0,0,0,0.04); color: var(--ink); }
+  .ratio-pill.active {
+    background: var(--paper); color: var(--ink); border-color: var(--rule);
+    font-weight: 600; box-shadow: var(--lift-1);
+  }
+  .export-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0; }
   .export-row button {
     display: inline-flex; align-items: center; justify-content: center; gap: 5px;
     padding: 8px 10px; font-size: 12px; font-weight: 600; border-radius: var(--r-md);
@@ -447,9 +469,18 @@ if (typeof chrome === "undefined" || !chrome.storage) {
   <iframe id="renderFrame" src="sandbox.html" class="preview-frame" title="노트 서식 미리보기" sandbox="allow-scripts allow-forms allow-popups allow-modals"></iframe>
   <textarea id="result" aria-label="강의 노트 내용" placeholder="노트가 여기 표시됩니다. 인식된 내용을 직접 검토해 주세요." hidden></textarea>
   <p class="detail result-help" id="resultHint">서식 보기에서는 수식과 다이어그램이 렌더링되며, 마크다운 편집 탭에서 원문을 직접 수정할 수 있습니다.</p>
-  <div class="export-row" id="exportRow" hidden>
-    <button id="pdfBtn" type="button" title="현재 노트를 고화질 PDF로 인쇄 또는 저장합니다">📄 PDF 출력</button>
-    <button id="notionBtn" type="button" title="노션(Notion)에 붙여넣기 위한 형식으로 복사합니다">📝 노션으로 복사</button>
+  <div class="export-section" id="exportRow" hidden>
+    <div class="pdf-ratio-bar">
+      <span class="ratio-label">PDF 용지 비율:</span>
+      <div class="ratio-pills" role="radiogroup" aria-label="PDF 용지 비율 선택">
+        <button type="button" class="ratio-pill active" id="pdfRatioA4" data-ratio="a4" title="기본 A4 세로 문서 규격">A4 (세로)</button>
+        <button type="button" class="ratio-pill" id="pdfRatio169" data-ratio="16:9" title="PPT 슬라이드 및 굿노트 가로 최적화 규격 (16:9)">16:9 (PPT·굿노트)</button>
+      </div>
+    </div>
+    <div class="export-row">
+      <button id="pdfBtn" type="button" title="선택한 비율로 노트를 고화질 PDF로 인쇄 또는 저장합니다">📄 PDF 출력</button>
+      <button id="notionBtn" type="button" title="노션(Notion)에 붙여넣기 위한 형식으로 복사합니다">📝 노션으로 복사</button>
+    </div>
   </div>
 
   <details class="optional-api"><summary>AI 요약 연결하기 · 선택</summary><p class="detail">승인된 요약 서비스 URL과 앱 세션 토큰을 설정하고 외부 전송에 동의한 뒤 ‘다시 만들기’를 누르세요. 소비자 AI API 키는 이 확장에 저장되지 않습니다.</p><button id="summarySettingsBtn" type="button">연결 설정</button></details>

@@ -24,7 +24,20 @@ async function refreshVault(){const result=await action('LIST_VAULT',{settings:a
 els.startBtn.addEventListener('click',start);els.stopBtn.addEventListener('click',()=>action(state?.status==='summarizing'?'CANCEL_SUMMARY':'STOP_SESSION'));els.notesBtn.addEventListener('click',async()=>action('GENERATE_NOTES',{settings:await loadSettings()}));els.againBtn.addEventListener('click',()=>action('DISPOSE_SESSION'));els.settingsToggle.addEventListener('click',()=>els.settingsDrawer.hidden=!els.settingsDrawer.hidden);els.settingsClose.addEventListener('click',()=>els.settingsDrawer.hidden=true);els.refreshTabsBtn.addEventListener('click',loadTabs);els.tabSelect.addEventListener('change',updateReadyCard);els.ocrEnabledToggle.addEventListener('change',async()=>{settings=await saveSettings({ocrEnabled:els.ocrEnabledToggle.checked});updateReadyCard();});els.modeSelect.addEventListener('change',updateReadyCard);els.langSelect.addEventListener('change',async()=>{settings=await saveSettings({whisperLang:els.langSelect.value});updateReadyCard();});els.summarySettingsBtn.addEventListener('click',()=>chrome.runtime.openOptionsPage());for(const id of ['settingsLink','optionsLink'])els[id].addEventListener('click',event=>{event.preventDefault();chrome.runtime.openOptionsPage();});
 if(els.pauseBtn)els.pauseBtn.addEventListener('click',()=>action(state?.status==='paused'?'RESUME_SESSION':'PAUSE_SESSION'));if(els.disposeBtn)els.disposeBtn.addEventListener('click',()=>action('DISPOSE_SESSION'));if(els.saveVaultBtn){els.saveVaultBtn.addEventListener('click',()=>vault('SAVE_VAULT'));els.loadVaultBtn.addEventListener('click',()=>vault('LOAD_VAULT'));els.deleteVaultBtn.addEventListener('click',()=>vault('DELETE_VAULT'));els.refreshVaultBtn.addEventListener('click',refreshVault);}
 els.viewRenderedBtn.addEventListener('click',()=>{els.renderFrame.hidden=false;els.result.hidden=true;});els.viewRawBtn.addEventListener('click',()=>{els.renderFrame.hidden=true;els.result.hidden=false;});if(els.popoutBtn)els.popoutBtn.addEventListener('click',()=>chrome.windows?.create?.({url:'sidepanel.html',type:'popup',width:480,height:760}));
-if(els.pdfBtn)els.pdfBtn.addEventListener('click',()=>{if(!els.result.value)return;els.renderFrame.hidden=false;els.result.hidden=true;setStatus('PDF 인쇄 대화상자를 준비하는 중입니다...');els.renderFrame.contentWindow?.postMessage({type:'PRINT',markdown:els.result.value},'*');});
+let currentPdfRatio = 'a4';
+try { currentPdfRatio = localStorage.getItem('lecture_notes_pdf_ratio') || 'a4'; } catch(e){}
+function updatePdfRatioUI() {
+  const is169 = currentPdfRatio === '16:9';
+  $('pdfRatioA4')?.classList.toggle('active', !is169);
+  $('pdfRatio169')?.classList.toggle('active', is169);
+  if (els.pdfBtn) {
+    els.pdfBtn.title = is169 ? '16:9 (PPT·굿노트) 비율로 PDF를 인쇄 또는 저장합니다' : 'A4 세로 비율로 PDF를 인쇄 또는 저장합니다';
+  }
+}
+$('pdfRatioA4')?.addEventListener('click', () => { currentPdfRatio = 'a4'; try { localStorage.setItem('lecture_notes_pdf_ratio', 'a4'); }catch(e){} updatePdfRatioUI(); });
+$('pdfRatio169')?.addEventListener('click', () => { currentPdfRatio = '16:9'; try { localStorage.setItem('lecture_notes_pdf_ratio', '16:9'); }catch(e){} updatePdfRatioUI(); });
+updatePdfRatioUI();
+if(els.pdfBtn)els.pdfBtn.addEventListener('click',()=>{if(!els.result.value)return;els.renderFrame.hidden=false;els.result.hidden=true;const ratioLabel=currentPdfRatio==='16:9'?'16:9 (PPT·굿노트)':'A4';setStatus(`${ratioLabel} 비율로 PDF 인쇄 대화상자를 준비하는 중입니다...`);els.renderFrame.contentWindow?.postMessage({type:'PRINT',markdown:els.result.value,ratio:currentPdfRatio},'*');});
 if(els.notionBtn)els.notionBtn.addEventListener('click',async()=>{const text=els.result.value;if(!text)return;try{await navigator.clipboard.writeText(text);}catch(error){setStatus(`복사 실패: ${error.message||error}`);return;}setStatus('복사 완료! 이제 노션에 붙여넣으세요.');if(els.notionModal?.showModal)els.notionModal.showModal();});
 if(els.notionModalClose)els.notionModalClose.addEventListener('click',()=>els.notionModal.close());
 if(els.notionModal)els.notionModal.addEventListener('click',event=>{if(event.target===els.notionModal)els.notionModal.close();});
