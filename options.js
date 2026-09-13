@@ -1,140 +1,20 @@
-const apiKeyEl = document.getElementById("apiKey");
-const savedEl = document.getElementById("saved");
-const syncCb = document.getElementById("syncCb");
-const revealCb = document.getElementById("revealCb");
-const providerEl = document.getElementById("provider");
-const keyLink = document.getElementById("keyLink");
-const whisperCb = document.getElementById("whisperCb");
-const whisperModelEl = document.getElementById("whisperModel");
-const ocrEnabledCb = document.getElementById("ocrEnabledCb");
-const ocrEngineSelect = document.getElementById("ocrEngineSelect");
-const themeSelect = document.getElementById("themeSelect");
-
-const PROVIDER_URLS = {
-  openrouter: "https://openrouter.ai/keys",
-  gemini: "https://aistudio.google.com/apikey",
-  anthropic: "https://console.anthropic.com/settings/keys"
-};
-
-function updateLink() {
-  if (keyLink && providerEl) {
-    keyLink.href = PROVIDER_URLS[providerEl.value] || "#";
-  }
+const $=id=>document.getElementById(id);
+// Explicit-save fields: gathered by the API section's own Save/Test buttons.
+const fields=['serviceUrl','appSessionToken','summaryModel','remoteSummaryConsent'];
+// Auto-save fields: each persists immediately on change (elements below carry the "자동 저장" badge).
+const AUTO=[['themeSelect','theme'],['ocrEnabledCb','ocrEnabled'],['whisperCb','whisperEnabled'],['whisperModel','whisperModel'],['whisperLang','whisperLang']];
+const BOOL_FIELDS=new Set(['remoteSummaryConsent']);
+function notice(message){$('saved').hidden=false;$('saved').textContent=message;}
+function values(){return Object.fromEntries(fields.map(id=>[id,BOOL_FIELDS.has(id)?$(id).checked:$(id).value]));}
+(async()=>{try{
+  const s=await loadSettings();
+  for(const id of fields)if(BOOL_FIELDS.has(id))$(id).checked=s[id];else $(id).value=s[id];
+  for(const [id,key] of AUTO){const el=$(id);if(!el)continue;if(el.type==='checkbox')el.checked=s[key];else el.value=s[key];}
+}catch(error){notice(error.message);}})();
+for(const [id,key] of AUTO){
+  const el=$(id);
+  if(!el)continue;
+  el.addEventListener('change',async()=>{try{await saveSettings({[key]:el.type==='checkbox'?el.checked:el.value});notice('설정이 저장되었습니다');}catch(error){notice(error.message);}});
 }
-
-if (providerEl) {
-  providerEl.addEventListener("change", updateLink);
-}
-
-async function populateSettings() {
-  const { apiKey, provider, whisperEnabled, whisperModel, syncKey, ocrEnabled, ocrEngine, theme } = await loadSettings();
-
-  if (themeSelect) {
-    themeSelect.value = theme || "system";
-  }
-  
-  if (whisperModelEl) {
-    whisperModelEl.value = whisperModel || "tiny";
-  }
-  
-  if (providerEl && provider) {
-    providerEl.value = provider;
-  }
-  
-  if (whisperCb) {
-    whisperCb.checked = !!whisperEnabled;
-  }
-  if (ocrEnabledCb) {
-    ocrEnabledCb.checked = ocrEnabled !== false;
-  }
-  if (ocrEngineSelect) {
-    ocrEngineSelect.value = ocrEngine || "nano";
-  }
-  updateLink();
-
-  if (apiKeyEl) {
-    apiKeyEl.value = apiKey || "";
-  }
-  if (syncCb) {
-    syncCb.checked = !!syncKey;
-  }
-}
-
-populateSettings();
-
-if (revealCb && apiKeyEl) {
-  revealCb.addEventListener("change", () => {
-    apiKeyEl.type = revealCb.checked ? "text" : "password";
-  });
-}
-
-if (whisperCb) {
-  whisperCb.addEventListener("change", async () => {
-    await chrome.storage.local.set({ whisperEnabled: whisperCb.checked });
-    if (savedEl) {
-      savedEl.hidden = false;
-      setTimeout(() => (savedEl.hidden = true), 1500);
-    }
-  });
-}
-
-if (whisperModelEl) {
-  whisperModelEl.addEventListener("change", async () => {
-    await chrome.storage.local.set({ whisperModel: whisperModelEl.value });
-    if (savedEl) {
-      savedEl.hidden = false;
-      setTimeout(() => (savedEl.hidden = true), 1500);
-    }
-  });
-}
-
-if (ocrEnabledCb) {
-  ocrEnabledCb.addEventListener("change", async () => {
-    await chrome.storage.local.set({ ocrEnabled: ocrEnabledCb.checked });
-    if (savedEl) {
-      savedEl.hidden = false;
-      setTimeout(() => (savedEl.hidden = true), 1500);
-    }
-  });
-}
-
-if (themeSelect) {
-  // 적용은 lib/theme.js가 storage.onChanged로 받아서 한다. 여기서는 값만 쓴다.
-  themeSelect.addEventListener("change", async () => {
-    await chrome.storage.local.set({ theme: themeSelect.value });
-    if (savedEl) {
-      savedEl.hidden = false;
-      setTimeout(() => (savedEl.hidden = true), 1500);
-    }
-  });
-}
-
-if (ocrEngineSelect) {
-  ocrEngineSelect.addEventListener("change", async () => {
-    await chrome.storage.local.set({ ocrEngine: ocrEngineSelect.value });
-    if (savedEl) {
-      savedEl.hidden = false;
-      setTimeout(() => (savedEl.hidden = true), 1500);
-    }
-  });
-}
-
-const saveBtn = document.getElementById("saveBtn");
-if (saveBtn) {
-  saveBtn.addEventListener("click", async () => {
-    const key = apiKeyEl ? apiKeyEl.value.trim() : "";
-    const provider = providerEl ? providerEl.value : "gemini";
-    const whisperEnabled = whisperCb ? whisperCb.checked : false;
-    const whisperModel = whisperModelEl ? whisperModelEl.value : "tiny";
-    const ocrEnabled = ocrEnabledCb ? ocrEnabledCb.checked : true;
-    const ocrEngine = ocrEngineSelect ? ocrEngineSelect.value : "nano";
-    
-    await chrome.storage.local.set({ provider, whisperEnabled, whisperModel, ocrEnabled, ocrEngine });
-    
-    await saveApiKey(key, syncCb ? syncCb.checked : false);
-    if (savedEl) {
-      savedEl.hidden = false;
-      setTimeout(() => (savedEl.hidden = true), 1500);
-    }
-  });
-}
+$('saveBtn').addEventListener('click',async()=>{try{await saveSettings(values());notice('설정을 저장했습니다. 열려 있는 강의 패널로 돌아갈 수 있습니다.');}catch(error){notice(error.message);}});
+$('testBtn').addEventListener('click',async()=>{const button=$('testBtn');button.disabled=true;try{const s=validateSettings(values());const result=await ServiceClient.me({baseUrl:s.serviceUrl,token:s.appSessionToken,timeoutMs:15000});if(typeof result.accountId!=='string'||!Array.isArray(result.models))throw new Error('계정 정보를 확인하지 못했습니다.');notice(result.models.includes(s.summaryModel)?'연결됨 · 선택한 요약 모델을 사용할 수 있습니다.':'연결됨 · 선택한 모델이 계정에 허용되지 않았습니다. 다른 모델을 선택하세요.');}catch(error){notice(error.message);}finally{button.disabled=false;}});
