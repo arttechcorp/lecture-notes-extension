@@ -1,0 +1,6 @@
+- alert
+- dialog:
+  - img "Tiro Icon"
+  - text: 휴대폰에서 사용중이신가요? Mac, Windows 앱 다운로드 링크를 이메일로 보내드릴게요. 앱에서는 시스템 오디오도 기록할 수 있어요. 이메일을 입력해 주세요
+  - button [disabled]:
+    - img

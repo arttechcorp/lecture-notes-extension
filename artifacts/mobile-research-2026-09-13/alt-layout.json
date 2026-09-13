@@ -1,0 +1,396 @@
+{
+  "url": "https://www.altalt.io/ko",
+  "title": "강의와 회의를 위한 AI 노트 | Alt",
+  "width": 390,
+  "height": 744,
+  "scrollWidth": 390,
+  "scrollHeight": 6215,
+  "headings": [
+    {
+      "tag": "H1",
+      "text": "무료 · 무제한 · 프라이빗 · 온디바이스 AI 노트",
+      "y": 144
+    },
+    {
+      "tag": "H2",
+      "text": "무료·무제한으로 음성을 기록하는 가장 좋은 방법",
+      "y": 182
+    },
+    {
+      "tag": "H2",
+      "text": "이 곳의 인재들이 신뢰합니다",
+      "y": 1109
+    },
+    {
+      "tag": "H3",
+      "text": "무료. 정말로 무료.",
+      "y": 1271
+    },
+    {
+      "tag": "H3",
+      "text": "무제한 음성인식 사용량",
+      "y": 1392
+    },
+    {
+      "tag": "H3",
+      "text": "보안",
+      "y": 1392
+    },
+    {
+      "tag": "H3",
+      "text": "인터넷 없어도 사용 가능",
+      "y": 1609
+    },
+    {
+      "tag": "H3",
+      "text": "No lock-in",
+      "y": 1609
+    },
+    {
+      "tag": "H3",
+      "text": "어떻게 무료, 무제한 제공이 가능한가요?",
+      "y": 1822
+    },
+    {
+      "tag": "H3",
+      "text": "핵심 기능",
+      "y": 2132
+    },
+    {
+      "tag": "H3",
+      "text": "100개 언어 지원 + 실시간 번역",
+      "y": 2253
+    },
+    {
+      "tag": "H3",
+      "text": "발화자 구분",
+      "y": 2314
+    },
+    {
+      "tag": "H3",
+      "text": "Google Meet, Zoom 등 온라인 오디오도 깔끔하게 기록해요.",
+      "y": 2475
+    },
+    {
+      "tag": "H3",
+      "text": "음성·PDF 자료의 핵심 요약부터 AI 채팅, 맞춤형 퀴즈까지",
+      "y": 2564
+    },
+    {
+      "tag": "H3",
+      "text": "YouTube 영상 요약",
+      "y": 2653
+    },
+    {
+      "tag": "H3",
+      "text": "AI 회의록 실시간 서기",
+      "y": 2772
+    },
+    {
+      "tag": "H3",
+      "text": "무제한 녹음 파일 업로드하여 텍스트 변환",
+      "y": 2833
+    },
+    {
+      "tag": "H3",
+      "text": "압도적인 한국어 인식률",
+      "y": 2894
+    },
+    {
+      "tag": "H3",
+      "text": "고성능 AI 모델을 개인 PC에서도 가볍고 빠르게 돌리기 위해,\n핵심 엔진을 직접 설계했어요.",
+      "y": 3035
+    },
+    {
+      "tag": "H3",
+      "text": "Alt는 왜 만들었나요?",
+      "y": 4095
+    },
+    {
+      "tag": "H3",
+      "text": "언제 사용하면 좋나요?",
+      "y": 5287
+    },
+    {
+      "tag": "H3",
+      "text": "학교 수업",
+      "y": 5407
+    },
+    {
+      "tag": "H3",
+      "text": "온라인 강의",
+      "y": 5407
+    },
+    {
+      "tag": "H3",
+      "text": "세미나",
+      "y": 5468
+    },
+    {
+      "tag": "H3",
+      "text": "컨퍼런스",
+      "y": 5468
+    },
+    {
+      "tag": "H3",
+      "text": "회의",
+      "y": 5529
+    },
+    {
+      "tag": "H3",
+      "text": "유저 인터뷰",
+      "y": 5529
+    },
+    {
+      "tag": "H3",
+      "text": "면접",
+      "y": 5590
+    },
+    {
+      "tag": "H3",
+      "text": "1on1",
+      "y": 5590
+    },
+    {
+      "tag": "H3",
+      "text": "IR 피칭",
+      "y": 5651
+    }
+  ],
+  "actions": [
+    {
+      "text": "개발자",
+      "href": "/ko/developers",
+      "y": -82,
+      "height": 32
+    },
+    {
+      "text": "Pricing",
+      "href": "/ko/pricing",
+      "y": -50,
+      "height": 32
+    },
+    {
+      "text": "Join our community",
+      "href": "https://matrix.to/#/#Alt:matrix.org",
+      "y": -18,
+      "height": 32
+    },
+    {
+      "text": "이용 가이드",
+      "href": "https://altalt.notion.site/user-guide",
+      "y": 14,
+      "height": 32
+    },
+    {
+      "text": "고객문의",
+      "href": "/ko/support",
+      "y": 46,
+      "height": 32
+    },
+    {
+      "text": "Join us",
+      "href": "/ko/about",
+      "y": 78,
+      "height": 32
+    },
+    {
+      "text": "새로운 소식",
+      "href": "/ko/whats-new",
+      "y": 110,
+      "height": 32
+    },
+    {
+      "text": "게임",
+      "href": "/ko/game",
+      "y": 14,
+      "height": 32
+    },
+    {
+      "text": "기능",
+      "href": "/ko/features",
+      "y": 14,
+      "height": 32
+    },
+    {
+      "text": "한국어",
+      "href": null,
+      "y": 14,
+      "height": 32
+    },
+    {
+      "text": "드디어 Alt 안드로이드 앱이 출시되었어요 🎉",
+      "href": null,
+      "y": 60,
+      "height": 40
+    },
+    {
+      "text": "iPhone 다운로드",
+      "href": "https://apps.apple.com/app/id6759488047",
+      "y": 327,
+      "height": 40
+    },
+    {
+      "text": "데스크톱 앱 받기",
+      "href": null,
+      "y": 373,
+      "height": 40
+    },
+    {
+      "text": "음성인식",
+      "href": null,
+      "y": 531,
+      "height": 26
+    },
+    {
+      "text": "요약",
+      "href": null,
+      "y": 531,
+      "height": 26
+    },
+    {
+      "text": "퀴즈",
+      "href": null,
+      "y": 531,
+      "height": 26
+    },
+    {
+      "text": "채팅",
+      "href": null,
+      "y": 531,
+      "height": 26
+    },
+    {
+      "text": "번역",
+      "href": null,
+      "y": 889,
+      "height": 19
+    },
+    {
+      "text": "번역",
+      "href": null,
+      "y": 1053,
+      "height": 19
+    },
+    {
+      "text": "번역",
+      "href": null,
+      "y": 1133,
+      "height": 19
+    },
+    {
+      "text": "번역",
+      "href": null,
+      "y": 1276,
+      "height": 19
+    },
+    {
+      "text": "번역",
+      "href": null,
+      "y": 1334,
+      "height": 19
+    },
+    {
+      "text": "번역",
+      "href": null,
+      "y": 1477,
+      "height": 19
+    },
+    {
+      "text": "번역",
+      "href": null,
+      "y": 1536,
+      "height": 19
+    },
+    {
+      "text": "한국어",
+      "href": null,
+      "y": 986,
+      "height": 28
+    },
+    {
+      "text": "Keywords",
+      "href": null,
+      "y": 986,
+      "height": 28
+    },
+    {
+      "text": "에너지 효율 모드",
+      "href": null,
+      "y": 1024,
+      "height": 24
+    },
+    {
+      "text": "Lightning-SimulWhisper\n654 Stars",
+      "href": "https://github.com/altalt-org/Lightning-SimulWhisper",
+      "y": 3566,
+      "height": 16
+    },
+    {
+      "text": "pyannote-ggml",
+      "href": "https://github.com/altalt-org/pyannote-ggml",
+      "y": 3987,
+      "height": 16
+    },
+    {
+      "text": "만든 사람들 →",
+      "href": "/ko/about",
+      "y": 4323,
+      "height": 20
+    },
+    {
+      "text": "오픈소스",
+      "href": "https://github.com/altalt-org/Lightning-SimulWhisper",
+      "y": 4700,
+      "height": 16
+    },
+    {
+      "text": "피드백",
+      "href": "/ko/support",
+      "y": 5064,
+      "height": 16
+    },
+    {
+      "text": "alt 팀",
+      "href": "/ko/about",
+      "y": 5155,
+      "height": 16
+    },
+    {
+      "text": "iPhone 다운로드",
+      "href": "https://apps.apple.com/app/id6759488047",
+      "y": 5968,
+      "height": 36
+    },
+    {
+      "text": "데스크톱 앱 받기",
+      "href": null,
+      "y": 6010,
+      "height": 36
+    },
+    {
+      "text": "이용약관",
+      "href": "/ko/terms",
+      "y": 6089,
+      "height": 20
+    },
+    {
+      "text": "개인정보처리방침",
+      "href": "/ko/privacy",
+      "y": 6089,
+      "height": 20
+    },
+    {
+      "text": "개발자",
+      "href": "/ko/developers",
+      "y": 6089,
+      "height": 20
+    },
+    {
+      "text": "문의",
+      "href": "/ko/support",
+      "y": 696,
+      "height": 32
+    }
+  ]
+}

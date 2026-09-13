@@ -1,0 +1,246 @@
+- banner:
+  - img "UnivAI Logo"
+  - navigation
+  - button "Switch to dark mode":
+    - img
+  - button "Language":
+    - img
+  - button "웹에서 이용하기"
+- main:
+  - heading "강의 녹음, 무료·무제한. 수업에만 집중하세요." [level=1]
+  - paragraph: 받아쓰기는 AI에게 맡기고, 쌓인 강의는 요약·퀴즈로 복습하세요.
+  - link "앱 다운로드":
+    - /url: https://apps.apple.com/app/id6754797367
+    - img
+    - text: 앱 다운로드
+  - button "웹에서 이용하기"
+  - img "Student 1"
+  - img "Student 2"
+  - img "Student 3"
+  - paragraph:
+    - text: 이미
+    - strong: 52만 명
+    - text: 이상의 대학생들이
+    - strong: AI 학습 콘텐츠 9,200만 건
+    - text: 을 만들었어요
+  - paragraph: 전국 대학의 학생 52만 명이 UnivAI로 공부하고 있어요
+  - text: 강의 녹음
+  - heading "수업은 녹음만 하세요. 필기는 AI가 합니다." [level=2]
+  - paragraph: 녹음 버튼 하나면 실시간 자막이 쌓이고, 수업이 끝나는 순간 요약·핵심 개념·퀴즈까지 준비돼요. 놓친 부분은 자막에서 바로 찾아 다시 들을 수 있어요.
+  - text: 일반생물학 4주차 48:12 실시간 자막 끝나면 요약 퀴즈 생성
+  - heading "뭘 넣어도 됩니다." [level=2]
+  - paragraph: 강의 자료, 유튜브 링크, 녹음, 메모, 칠판 사진까지. 넣는 순간 AI가 읽고 정리합니다.
+  - img
+  - text: PDF · PPT · Word
+  - img
+  - text: 유튜브 링크
+  - img
+  - text: 강의 녹음
+  - img
+  - text: 메모
+  - img
+  - text: 필기 사진
+  - img "UnivAI"
+  - img
+  - text: AI 요약
+  - img
+  - text: AI 퀴즈
+  - img
+  - text: AI 플래시카드
+  - img
+  - text: AI 마인드맵
+  - img
+  - text: AI 튜터
+  - heading "자료 하나면, 시험 준비 끝" [level=2]
+  - text: "01"
+  - heading "AI 요약" [level=2]
+  - paragraph: 수업 자료를 넣기만 하면 시험에 나올 핵심만 AI가 빠르게 요약하고, 핵심 개념 카드와 암기 체크리스트까지 함께 만들어줘요.
+  - text: "02"
+  - heading "AI 퀴즈" [level=2]
+  - paragraph: AI가 만들어주는 쪽집게 퀴즈로, 시험 범위 전체를 완벽하게 암기하세요.
+  - text: "03"
+  - heading "AI 플래시카드" [level=2]
+  - paragraph: 핵심 개념을 플래시카드로 만들어, 반복 학습으로 완벽하게 머릿속에 새겨요.
+  - text: "04"
+  - heading "AI 마인드맵" [level=2]
+  - paragraph: 복잡한 개념들의 연결고리를 한눈에, AI가 자동으로 마인드맵을 그려줘요.
+  - text: "05"
+  - heading "AI 튜터" [level=2]
+  - paragraph: 밤새도록 질문해도 괜찮아, 24시간 나만의 AI 전공 튜터가 있으니까.
+  - heading "실제 학생들 사용 후기" [level=2]
+  - paragraph: 유니브 AI를 이용해주신 학생들의 앱스토어 실제 후기입니다.
+  - text: ★★★★★
+  - heading "와 개좋음!!!!!!!!!!!!!!!" [level=3]
+  - paragraph: 필기한걸 토대로 문제 만들어준다는 릴스 보고 깔아봤는데 악필인 내글씨에도 불구하고 핵심내용 정확하게 파악해주고 문제 만들어주는거 개혁신 너무너무 잘쓸거 같애용
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "너무 좋음 !!!!!" [level=3]
+  - paragraph: 시험 대비로 간단하게 퀴즈 만들어주니까 겁나 편하고 좋음 !!!!!! 필기 인식도 다 정확하게 함
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "너무 좋은 앱" [level=3]
+  - paragraph: 리뷰 잘 안쓰는데 너무 유용합니다!! 이게 무료라니.. 제발 유료로 전환하지 말아주세요ㅠㅠ
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "진짜 좋음ㅜㅠ" [level=3]
+  - paragraph: 생각보다 퀄리티 대박이고 글씨도 잘쓴것 만아니라 대충쓴것도 알아봐서 완전 좋아요!!
+  - text: 앱스토어 리뷰 ★★★★★
+  - paragraph: 저도 릴스에서 봐서 한번 깔아봤는데 진짜 좋고 문제 만들어주는거 선택할수도 있는게 개꿀임ㅜㅜ
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "와 개좋음!!!!!!!!!!!!!!!" [level=3]
+  - paragraph: 필기한걸 토대로 문제 만들어준다는 릴스 보고 깔아봤는데 악필인 내글씨에도 불구하고 핵심내용 정확하게 파악해주고 문제 만들어주는거 개혁신 너무너무 잘쓸거 같애용
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "너무 좋음 !!!!!" [level=3]
+  - paragraph: 시험 대비로 간단하게 퀴즈 만들어주니까 겁나 편하고 좋음 !!!!!! 필기 인식도 다 정확하게 함
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "너무 좋은 앱" [level=3]
+  - paragraph: 리뷰 잘 안쓰는데 너무 유용합니다!! 이게 무료라니.. 제발 유료로 전환하지 말아주세요ㅠㅠ
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "진짜 좋음ㅜㅠ" [level=3]
+  - paragraph: 생각보다 퀄리티 대박이고 글씨도 잘쓴것 만아니라 대충쓴것도 알아봐서 완전 좋아요!!
+  - text: 앱스토어 리뷰 ★★★★★
+  - paragraph: 저도 릴스에서 봐서 한번 깔아봤는데 진짜 좋고 문제 만들어주는거 선택할수도 있는게 개꿀임ㅜㅜ
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "와 개좋음!!!!!!!!!!!!!!!" [level=3]
+  - paragraph: 필기한걸 토대로 문제 만들어준다는 릴스 보고 깔아봤는데 악필인 내글씨에도 불구하고 핵심내용 정확하게 파악해주고 문제 만들어주는거 개혁신 너무너무 잘쓸거 같애용
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "너무 좋음 !!!!!" [level=3]
+  - paragraph: 시험 대비로 간단하게 퀴즈 만들어주니까 겁나 편하고 좋음 !!!!!! 필기 인식도 다 정확하게 함
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "너무 좋은 앱" [level=3]
+  - paragraph: 리뷰 잘 안쓰는데 너무 유용합니다!! 이게 무료라니.. 제발 유료로 전환하지 말아주세요ㅠㅠ
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "진짜 좋음ㅜㅠ" [level=3]
+  - paragraph: 생각보다 퀄리티 대박이고 글씨도 잘쓴것 만아니라 대충쓴것도 알아봐서 완전 좋아요!!
+  - text: 앱스토어 리뷰 ★★★★★
+  - paragraph: 저도 릴스에서 봐서 한번 깔아봤는데 진짜 좋고 문제 만들어주는거 선택할수도 있는게 개꿀임ㅜㅜ
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "와 개좋음!!!!!!!!!!!!!!!" [level=3]
+  - paragraph: 필기한걸 토대로 문제 만들어준다는 릴스 보고 깔아봤는데 악필인 내글씨에도 불구하고 핵심내용 정확하게 파악해주고 문제 만들어주는거 개혁신 너무너무 잘쓸거 같애용
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "너무 좋음 !!!!!" [level=3]
+  - paragraph: 시험 대비로 간단하게 퀴즈 만들어주니까 겁나 편하고 좋음 !!!!!! 필기 인식도 다 정확하게 함
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "너무 좋은 앱" [level=3]
+  - paragraph: 리뷰 잘 안쓰는데 너무 유용합니다!! 이게 무료라니.. 제발 유료로 전환하지 말아주세요ㅠㅠ
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "진짜 좋음ㅜㅠ" [level=3]
+  - paragraph: 생각보다 퀄리티 대박이고 글씨도 잘쓴것 만아니라 대충쓴것도 알아봐서 완전 좋아요!!
+  - text: 앱스토어 리뷰 ★★★★★
+  - paragraph: 저도 릴스에서 봐서 한번 깔아봤는데 진짜 좋고 문제 만들어주는거 선택할수도 있는게 개꿀임ㅜㅜ
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "제발!!!!" [level=3]
+  - paragraph: 완전 좋고 깔끔하고 누구든 쉽게 쓸 수 있을 것 같습니다 강추!!
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "챗지피티 쓰는 것보다 편해요!!" [level=3]
+  - paragraph: 저 진짜 앱 리뷰 잘 안 쓰는데 너무 좋아서 써요..
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "진짜 너무너무 좋음 ㅠㅠ 나만 알고싶은앱!!!" [level=3]
+  - paragraph: 진짜 너무너무 좋음 ㅠㅠㅠ 진짜 나만알고 싶은앱 1위!!!! 사랑해요 이 앱 평생 갔으면 좋겠다 ㅠㅠ
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "좋아요" [level=3]
+  - paragraph: 요약을 정말 잘해주고 퀴즈도 깔끔하게 나오네요
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "개조음 ㅋㅋㅋㅋ" [level=3]
+  - paragraph: 문제잘뽑아줌
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "제발!!!!" [level=3]
+  - paragraph: 완전 좋고 깔끔하고 누구든 쉽게 쓸 수 있을 것 같습니다 강추!!
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "챗지피티 쓰는 것보다 편해요!!" [level=3]
+  - paragraph: 저 진짜 앱 리뷰 잘 안 쓰는데 너무 좋아서 써요..
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "진짜 너무너무 좋음 ㅠㅠ 나만 알고싶은앱!!!" [level=3]
+  - paragraph: 진짜 너무너무 좋음 ㅠㅠㅠ 진짜 나만알고 싶은앱 1위!!!! 사랑해요 이 앱 평생 갔으면 좋겠다 ㅠㅠ
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "좋아요" [level=3]
+  - paragraph: 요약을 정말 잘해주고 퀴즈도 깔끔하게 나오네요
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "개조음 ㅋㅋㅋㅋ" [level=3]
+  - paragraph: 문제잘뽑아줌
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "제발!!!!" [level=3]
+  - paragraph: 완전 좋고 깔끔하고 누구든 쉽게 쓸 수 있을 것 같습니다 강추!!
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "챗지피티 쓰는 것보다 편해요!!" [level=3]
+  - paragraph: 저 진짜 앱 리뷰 잘 안 쓰는데 너무 좋아서 써요..
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "진짜 너무너무 좋음 ㅠㅠ 나만 알고싶은앱!!!" [level=3]
+  - paragraph: 진짜 너무너무 좋음 ㅠㅠㅠ 진짜 나만알고 싶은앱 1위!!!! 사랑해요 이 앱 평생 갔으면 좋겠다 ㅠㅠ
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "좋아요" [level=3]
+  - paragraph: 요약을 정말 잘해주고 퀴즈도 깔끔하게 나오네요
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "개조음 ㅋㅋㅋㅋ" [level=3]
+  - paragraph: 문제잘뽑아줌
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "제발!!!!" [level=3]
+  - paragraph: 완전 좋고 깔끔하고 누구든 쉽게 쓸 수 있을 것 같습니다 강추!!
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "챗지피티 쓰는 것보다 편해요!!" [level=3]
+  - paragraph: 저 진짜 앱 리뷰 잘 안 쓰는데 너무 좋아서 써요..
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "진짜 너무너무 좋음 ㅠㅠ 나만 알고싶은앱!!!" [level=3]
+  - paragraph: 진짜 너무너무 좋음 ㅠㅠㅠ 진짜 나만알고 싶은앱 1위!!!! 사랑해요 이 앱 평생 갔으면 좋겠다 ㅠㅠ
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "좋아요" [level=3]
+  - paragraph: 요약을 정말 잘해주고 퀴즈도 깔끔하게 나오네요
+  - text: 앱스토어 리뷰 ★★★★★
+  - heading "개조음 ㅋㅋㅋㅋ" [level=3]
+  - paragraph: 문제잘뽑아줌
+  - text: 앱스토어 리뷰
+  - heading "지금 바로 시작하세요" [level=2]
+  - paragraph: 밤샘 공부 대신 AI 학습으로 A+ 학점을 가장 쉽게. 웹은 물론 iOS·Android 앱에서 이어서 공부할 수 있어요.
+  - link "App Store":
+    - /url: https://apps.apple.com/app/id6754797367
+    - img
+    - text: App Store
+  - img "UnivAI"
+  - paragraph: 수업자료 PDF와 강의 녹음을 요약·핵심 개념·퀴즈로 바꿔보세요.
+  - link "App Store":
+    - /url: https://apps.apple.com/app/id6754797367
+    - img
+  - link "Google Play":
+    - /url: https://play.google.com/store/apps/details?id=com.ai.univai
+    - img
+  - navigation:
+    - link "이용약관":
+      - /url: /terms
+    - link "개인정보 처리방침":
+      - /url: /privacy
+    - link "환불 정책":
+      - /url: /refund-policy
+    - link "사업자정보확인":
+      - /url: http://www.ftc.go.kr/bizCommPop.do?wrkr_no=7948803226
+  - navigation "Language":
+    - link "한국어":
+      - /url: /
+    - link "English":
+      - /url: /en/
+    - link "日本語":
+      - /url: /ja/
+    - link "简体中文":
+      - /url: /zh/
+    - link "繁體中文":
+      - /url: /zh-tw/
+    - link "Deutsch":
+      - /url: /de/
+    - link "Français":
+      - /url: /fr/
+    - link "Español":
+      - /url: /es/
+    - link "Bahasa Indonesia":
+      - /url: /id/
+    - link "ไทย":
+      - /url: /th/
+    - link "Italiano":
+      - /url: /it/
+    - link "Tiếng Việt":
+      - /url: /vi/
+    - link "हिन्दी":
+      - /url: /hi/
+  - paragraph: "주식회사 싱귤래러티 · 대표: 김서현"
+  - paragraph: "사업자등록번호: 794-88-03226 · 통신판매: 2025-경기안산-3490"
+  - paragraph: "주소: 경기도 안산시 상록구 한양대학로 60, 4층 2호"
+  - paragraph:
+    - text: "이메일:"
+    - link "contact@univai.co.kr":
+      - /url: mailto:contact@univai.co.kr
+  - text: Copyright © 2026 Singularity Inc. All rights reserved.

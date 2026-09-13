@@ -1,0 +1,376 @@
+- navigation:
+  - link "Tiro Logo":
+    - /url: /ko/
+    - img "Tiro Logo"
+  - button "로그인"
+  - button "도입 문의"
+- main:
+  - link "ISO/IEC 27001:2022 · SOC 2 Type 2":
+    - /url: https://trust.tiro.ooo
+    - text: ISO/IEC 27001:2022 · SOC 2 Type 2
+    - img
+  - paragraph: 대화에만 집중할 수 있게,
+  - heading "가장 정확한 AI 회의록" [level=1]
+  - paragraph: 실시간 요약 · 다국어 동시 번역으로 자신있게 대화하고 원하는 양식의 문서를 3초 만에 완성하여 공유해보세요
+  - button "Download Mobile Icon iOS 앱 다운로드":
+    - img "Download Mobile Icon"
+    - text: iOS 앱 다운로드
+  - button "데스크탑 앱 다운로드":
+    - img
+    - text: 데스크탑 앱 다운로드
+  - img
+  - text: 노트 목록
+  - img
+  - text: 공유하기
+  - heading "Untitled" [level=3]
+  - img
+  - text: 김티로
+  - img
+  - text: Daily Meeting
+  - button "맥락 입력":
+    - img
+    - text: 맥락 입력
+  - img
+  - text: 2026.01.30 오후 2:00
+  - img
+  - text: 0분
+  - button "문서"
+  - button "원본"
+  - button "요약"
+  - button "스크립트"
+  - img
+  - text: 복사
+  - paragraph: 한 문단이 완성되면, 스크립트의 내용이 더 정확해져요
+  - paragraph: 회의 기록이 정확하려면 녹음 품질만큼이나 회의의 맥락이 중요해요. 티로에서는 기록을 시작하기 전에 회의 주제와 참석자, 회사명이나 제품명을 맥락으로 입력할 수 있고, 자주 쓰는 전문용어는 단어장에 등록해둘 수 있어요. 그래서 발음이 비슷한 이름이나 업계 용어도 문맥에 맞게 구분하고, 여러 사람이 동시에 말하거나 주변 소음이 있는 상황에서도 더 정확하게 기록해요. 영어와 일본어처럼 여러 언어가 섞인 회의에서는 15개 이상 언어를 실시간으로 번역하면서 기록할 수 있어서, 글로벌 팀도 같은 내용을 바로 확인할 수 있습니다.
+  - img
+  - img
+  - heading "이미 300+개 기업이 티로와 함께합니다" [level=2]
+  - img "Kwangdong"
+  - img "Kakao"
+  - img "KPMG"
+  - img "TOTO"
+  - img "Incheon Airport"
+  - img "LG U+"
+  - img "CJ CheilJedang"
+  - img "SK chemicals"
+  - img "Channel Talk"
+  - img "Wrtn"
+  - img "freee"
+  - img "KOICA"
+  - img "Toss"
+  - img "Krafton"
+  - img "APR"
+  - img "SOCAR"
+  - button "Previous testimonials":
+    - img
+  - text: 셀피쉬클럽에서 소개한 수많은 AI 서비스 중, 유저들이 직접 찾고, 묻고, '진짜 유용하다'고 말하는 AI는 티로였습니다.
+  - img "Quote"
+  - text: 젬마 SELFISH CLUB Master 이제 오프라인/온라인 미팅, 컨퍼런스에서도 메모에 신경쓰는 대신 내용에 더욱 집중할 수 있게 되었습니다. 티로 덕분에 기억력의 한계가 사라졌습니다.
+  - img "Quote"
+  - text: 이택경 매쉬업밴쳐스 대표 가장 소중한 자원인 시간을 획기적으로 절약해줍니다. 모든 기록과 요약은 티로가 자동으로 처리해주어 업무 효율이 크게 향상되었고, 외국어 소통에서도 언어 장벽 없이 원활하게 진행할 수 있습니다.
+  - img "Quote"
+  - text: 유영준 뤼튼 COO 티로 사용 후로 미팅의 질이 달라졌습니다. 매일 3시간 이상의 미팅으로 기억의 한계를 느끼던 저에겐 업무 필수템입니다.
+  - img "Quote"
+  - text: 조유진 스마일게이트인베스트먼트 팀장 티로를 사용하며 회의에 대한 부담이 확 줄었습니다. 그동안 회의를 진행하며 내용을 놓칠까봐 걱정이 컸는데, 이제는 편하게 회의에만 몰입할 수 있게 되어서 업무 효율이 훨씬 올라갔습니다.
+  - img "Quote"
+  - text: 헌트 노션남매 & 저스트두잇클럽 대표 해외강의 들을 때 영어가 전혀 무섭지 않아요! 너무 좋은 프로그램을 만들어주셔서 감사합니다.
+  - img "Quote"
+  - text: 허찬 에스동물암센터 원장
+  - button "Next testimonials":
+    - img
+  - heading "언제 어디서나, 어떤 언어든 걱정 없어요" [level=2]
+  - img "Real-time recording feature"
+  - heading "고품질 실시간 기록 & 완벽한 요약 노트" [level=3]
+  - paragraph: 단순한 받아쓰기가 아니에요. 사용자의 맥락을 이해하고, 문단별로 구조화하여 정리해요.
+  - list:
+    - listitem:
+      - img
+      - text: 발화 0.5초 이내 텍스트 변환
+    - listitem:
+      - img
+      - text: 맥락 입력으로 더욱 향상되는 품질
+    - listitem:
+      - img
+      - text: 자동 오탈자 교정
+    - listitem:
+      - img
+      - text: 도메인 기반 전문용어 인식
+    - listitem:
+      - img
+      - text: 압도적인 숫자·고유명사 인식 정확도
+  - img "Multilingual translation feature"
+  - heading "15+개 언어 실시간 번역 & 다국어 동시 기록" [level=3]
+  - paragraph: 여러 언어가 섞인 회의도 빠짐없이 기록하고 실시간으로 번역해요. 외국어 미팅도 자신있게, 언어의 장벽을 뛰어넘어 보세요.
+  - heading "모든 디바이스, 모든 대화 상황에서" [level=2]
+  - paragraph: 고객사마다 화상 미팅 플랫폼이 다를 때, 노트북을 켜기 어려울 때, 와이파이 연결이 안 될 때 난감하셨나요? 이제 티로 하나만 준비해 가세요.
+  - img "Device support preview"
+  - list:
+    - listitem:
+      - img
+      - text: 앱 설치 없이도 바로 사용 가능한 웹 브라우저
+    - listitem:
+      - img
+      - text: 모든 플랫폼의 화상 미팅, 유튜브 영상, 온라인 강의까지 인식하는 데스크탑 앱
+    - listitem:
+      - img
+      - text: 노트북을 켜기 어려울 때, 오프라인 환경에서도 문제 없는 모바일 앱
+  - heading "매일 쌓이는 기록을 가치있는 자산으로 만들어드려요" [level=2]
+  - heading "내가 원하는 양식 그대로, 3초 만에 문서 완성" [level=3]
+  - paragraph: 귀찮은 회의록 정리는 티로에게 맡기세요. 소중한 시간이 더 가치있게 쓰이도록 도와드릴게요.
+  - img "One-Click Template Feature"
+  - heading "원클릭 템플릿" [level=4]
+  - paragraph: 티로가 제공하는 상황별 템플릿으로, 클릭 한 번에 완벽히 정리된 문서가 완성돼요
+  - img "Custom Template Feature"
+  - heading "나만의 템플릿 만들기" [level=4]
+  - paragraph: 원하는 양식으로 직접 맞춤형 커스텀템플릿을 만들 수 있어요. 팀에 딱 맞는 양식으로 회의록 작성을 완전히 자동화해보세요.
+  - heading "중요한 대화를 필요한 곳에 자동으로 전해드려요" [level=2]
+  - img "Team sharing feature"
+  - heading "더 쉬운 협업, 회의 이후 공유까지도 한 번에" [level=3]
+  - paragraph: 회의 결과를 번거롭게 여러 번 공유할 필요 없어요. 티로에서 간편하게 접근 권한을 관리하세요.
+  - list:
+    - listitem:
+      - img
+      - text: 팀 폴더로 한 번에 모든 팀원에게 공유
+    - listitem:
+      - img
+      - text: 팀원들과 실시간 기록 동시 시청
+    - listitem:
+      - img
+      - text: 간편한 링크 공유
+    - listitem:
+      - img
+      - text: 보안 설정으로 안전한 노트 공유
+  - img "Workflow integration feature"
+  - heading "캘린더·워크스페이스·사내 메신저·CRM·ATS 연동" [level=3]
+  - paragraph: 미팅 전후가 편해지도록 티로는 다양한 워크플로우에 자연스럽게 녹아들어요. 캘린더로부터 회의 일정을 불러오고, 회의가 끝나면 자동으로 회의록을 전송해드려요.
+  - img "Ask Tiro Feature"
+  - heading "모든 대화를 지식으로 바꾸는 Ask Tiro" [level=2]
+  - paragraph: 지난 회의 내용, 인사이트 추출, 액션아이템 도출까지, 무엇이든 물어보세요. 티로는 모든 대화를 기억하고 똑똑하게 답변해줘요.
+  - heading "보안 및 개인정보 보호" [level=2]
+  - paragraph: 티로는 고객의 보안과 개인정보 보호를 최우선으로 생각합니다.
+  - heading "데이터 전면 암호화" [level=3]
+  - paragraph: 모든 텍스트 기록은 가장 강력한 AES-256 암호화 방식으로 보호됩니다. 데이터 전송 시 TLS 1.2 이상 통신 보안 프로토콜을 통해 안전하게 보호됩니다.
+  - heading "철저한 접근 제한" [level=3]
+  - paragraph: 사용자마다 AWS KMS로 보호되는 개인 암호화 키가 발급되며 모든 접근 시도 로그가 남습니다. 사용자 본인 외에는 내부 직원을 포함한 그 누구도 임의 접근이 불가합니다.
+  - heading "음성·데이터 즉시 폐기" [level=3]
+  - paragraph: 모든 음성은 텍스트 변환 즉시 폐기하며 서버에 저장하지 않습니다. 사용자가 노트를 삭제하는 경우 관련된 모든 데이터를 복구 불가하게 제거하여 위험을 원천 차단합니다.
+  - heading "AI 모델 재학습 이용 금지" [level=3]
+  - paragraph: 사용자의 데이터는 AI 모델의 학습이나 성능 개선에 어떠한 방식으로도 활용되지 않습니다. 서드파티 프로바이더와의 계약에서 학습 금지를 명시하고 있습니다.
+  - heading "통신 및 네트워크 보안" [level=3]
+  - paragraph: 방화벽 설정으로 DDoS 공격 및 악성 트래픽을 차단합니다. VPC 기반 네트워크 격리를 통해 허가받지 않은 사용자의 네트워크 침입을 원천 차단합니다.
+  - heading "감사 로그 & 실시간 모니터링" [level=3]
+  - paragraph: 감사 로그를 통해 시스템 내 모든 접근·변경·쿼리 로그를 최소 1년 이상 보관합니다. 실시간 취약점 점검 및 이상 행위 탐지를 시행하여 잠재적 위협을 사전 차단합니다.
+  - img "ISO/IEC 27001:2022 certification badge"
+  - img "SOC 2 Type 2 attestation badge"
+  - paragraph: 국제 보안 인증 취득
+  - paragraph: ISO/IEC 27001:2022 · SOC 2 Type 2
+  - paragraph: "티로는 고객 데이터 보호와 안정적인 서비스 운영을 위해 ISO/IEC 27001:2022 인증과, 5개 Trust Services Criteria 전 범위의 SOC 2 Type 2 인증을 적정의견으로 취득했습니다(감사인: Sensiba LLP). 정보보호 관리체계를 기반으로 보안 리스크를 지속적으로 관리하고, 신뢰할 수 있는 서비스 환경을 제공하기 위해 노력하겠습니다."
+  - paragraph: 티로는 기업별 보안 규정을 준수하는 엔터프라이즈 맞춤형 보안을 제공합니다.
+  - button "엔터프라이즈 문의":
+    - img
+    - text: 엔터프라이즈 문의
+  - heading "철저한 계정 보안" [level=3]
+  - paragraph: SAML 2.0 기반 SSO 연동과 Multi-Factor Authentication을 필수로 지원힙니다.
+  - paragraph: 2단계 인증을 통해 무분별한 로그인 시도를 제한하고 세션 타임아웃으로 무단 접근을 방지합니다.
+  - heading "세분화된 접근 권한 설정" [level=3]
+  - paragraph: 역할 기반 접근 제한(RBAC)을 적용하여 세부적으로 조직 내 데이터 접근 권한을 관리합니다.
+  - paragraph: SCIM 기반 조직도 통합으로 대규모 조직의 손쉬운 권한 관리를 지원합니다.
+  - heading "접속 IP 제한" [level=3]
+  - paragraph: IP 화이트리스팅으로 허용된 IP에서만 접근이 가능합니다.
+  - paragraph: 서브도메인 제공으로 내부 VPN 등 지정된 영역에서만 접근 가능하도록 제한합니다.
+  - heading "실시간 문의 대응" [level=3]
+  - paragraph: 전담 핫라인을 통해 맞춤형 온보딩 세션을 지원합니다.
+  - paragraph: 추가 감사 로그 및 보고서 등 보안 관련 추가 요청 시 즉시 응대 시스템을 운영합니다.
+  - heading "가격 안내" [level=2]
+  - paragraph: 다양한 플랜으로 제공되는 티로를 만나보세요
+  - text: 월간 구독
+  - switch
+  - text: 연간 구독
+  - img "Tiro Logo"
+  - heading "무료로 시작하고, 유연하게 확장하세요" [level=2]
+  - paragraph: 3주간 최대 300분의 무료 체험을 드려요
+  - img
+  - text: 노트당 50분 기록 제한
+  - img
+  - text: Pro 기능을 포함한 전 기능 무료 체험
+  - button "무료 체험 시작하기"
+  - heading "개인용 플랜" [level=2]
+  - heading "Lite" [level=3]
+  - text: $7 / 월
+  - img
+  - paragraph: 월 300분의 사용량
+  - img
+  - paragraph: 노트당 기록 제한 해제
+  - img
+  - paragraph: 고품질 한페이지 문서
+  - img
+  - paragraph: 노트 기록 기반의 무제한 AI 채팅
+  - img
+  - paragraph: 나만의 템플릿 요약
+  - button "시작하기"
+  - heading "Pro" [level=3]
+  - text: $13 / 월
+  - img
+  - paragraph: 월 1000분의 사용량
+  - img
+  - paragraph: Lite 플랜의 모든 기능
+  - img
+  - paragraph: 화자 분리
+  - img
+  - paragraph: 티로 위키
+  - button "시작하기"
+  - heading "Max" [level=3]
+  - text: $29 / 월
+  - img
+  - paragraph: 매일 써도 걱정 없는 무제한 사용량
+  - img
+  - paragraph: Pro 플랜의 모든 기능
+  - button "시작하기"
+  - heading "기업용 플랜" [level=2]
+  - heading "팀 플랜" [level=3]
+  - text: $29 / 월, 계정당
+  - img
+  - paragraph: 개인용 Max 플랜의 모든 기능
+  - img
+  - paragraph: 팀의 협업과 실행을 위한 기능
+  - img
+  - paragraph: 통합 결제, 구성원 관리, 계정별 사용량 대시보드
+  - img
+  - paragraph: 워크스페이스 폴더로 권한별 노트 자동 공유
+  - img
+  - paragraph: 공용 템플릿으로 기록과 문서의 일관성 유지
+  - img
+  - paragraph: 공유 단어장으로 고유명사 인식 정확도 향상
+  - button "팀플랜 시작하기"
+  - heading "엔터프라이즈 플랜" [level=3]
+  - text: 별도 문의
+  - img
+  - paragraph: 팀 플랜의 모든 기능
+  - img
+  - paragraph: 엔터프라이즈 전용 맞춤형 기능
+  - img
+  - paragraph: 기업의 내부 규정에 따른 추가 보안 옵션
+  - img
+  - paragraph: 사내 시스템 연동을 위한 전용 API 및 Webhook 지원
+  - img
+  - paragraph: 공용 로그인 도메인 지원
+  - img
+  - paragraph: 맞춤형 온보딩 세션 제공 및 핫라인 개설
+  - button "문의하기"
+  - text: 자주 묻는 질문 티로에 대해 더 알고 싶으신가요?
+  - button "어떻게 시작하나요?"
+  - text: 티로는 가입 즉시 100분의 무료 사용량을 드려요. 캘린더 연동, 데스크탑·모바일 앱 설치, 첫 노트 만들기 4가지를 마치면 각각 50분씩 더해져 최대 300분이 됩니다. 무료 체험은 가입 후 3주간 이용할 수 있어요. 로그인 후 빨간버튼을 누르기만 하면 바로 티로의 실시간 기록을 확인할 수 있어요. 혹은 '음성파일 업로드'를 통해 기존에 녹음해둔 대화를 티로의 요약노트로 받아보실 수도 있습니다.
+  - button "화상회의도 기록할 수 있나요?"
+  - text: 네, 데스크탑 앱(Windows, Mac)을 통해
+  - strong: 별도의 미팅봇 초대 없이
+  - text: 화상회의, 유튜브, 웨비나 등 시스템 소리를 기록할 수 있습니다. 랜딩페이지 상단의
+  - link "앱 다운로드":
+    - /url: https://tiro.ooo/ko/download/app
+  - text: 를 누르면 즉시 설치할 수 있으니 많은 활용 부탁드립니다!
+  - button "티로 모바일앱도 있나요?"
+  - text: 네, 티로 모바일앱은 안드로이드, IOS 모두 정식 출시된 상태입니다. 앱 다운로드 링크에서 설치 가능하며 언제 어디서나 티로와 함께 하실 수 있습니다.
+  - button "보안정책, 믿을 수 있나요?"
+  - text: 티로는 현재 적용가능한 모든 음성 암호화 기술을 도입하고 있으며 가장 높은 수준의 보안을 제공합니다. 모든 텍스트 데이터는 생성 즉시 암호화되어 사용자 외에는 절대 내용을 알 수 없습니다.
+  - link "티로의 보안정책":
+    - /url: https://tiro.ooo/ko/blog/%ED%8B%B0%EB%A1%9C%EC%9D%98-%EB%B3%B4%EC%95%88-%EC%A0%95%EC%B1%85-%EC%A0%95%EB%A7%90-%EB%AF%BF%EC%9D%84-%EC%88%98-%EC%9E%88%EB%82%98%EC%9A%94-51060
+  - text: 링크에서 더욱 자세한 내용을 확인하실 수 있어요.
+  - button "'티로 선물하기'는 무엇인가요?"
+  - text: 설정의 '티로 선물하기' 탭에서 링크를 공유하거나 이메일로 초대할 수 있어요. 친구는 프로 플랜 1개월 할인 혜택을 받고, 친구가 10분 이상 기록하면 $3, 첫 유료 결제 후 7일이 지나면 $5가 내 리워드로 적립돼요.
+  - button "실시간 번역도 지원하나요?"
+  - text: 네, 티로는 한국어, 영어, 일본어를 포함하여 총 15개 언어를 지원하고 있어요. 회의가 진행되는 언어와 기록되는 언어를 각각 설정하면 실시간 번역을 체험할 수 있습니다. 나에게 가장 편한 언어로 기록되는 티로 노트를 만나보세요!
+  - button "팀 플랜을 구독할 때, 계정 수를 어떻게 정하는 것이 좋나요?"
+  - text: 계정 수는, 인원 수가 아닌 동시에 진행되는 미팅 수를 기준으로 선택하시는 걸 추천해요. 하나의 계정을 여러 팀원이 함께 사용할 수 있고, 동시 로그인도 가능하지만 하나의 계정으로는 한 번에 하나의 미팅만 기록할 수 있어요. 예. 10명 팀이라도 동시에 2~3개의 미팅만 진행된다면, 3개 계정으로 충분합니다.
+  - button "팀 플랜과 엔터프라이즈 플랜 중 어떤 것이 우리 팀에 더 적합할까요?"
+  - text: 팀 플랜은 작은 팀이나 부서 단위에서 협업을 위한 기본 기능을 충분히 제공하는 요금제예요 반면 엔터프라이즈 플랜은 다음과 같은 경우에 적합합니다.
+  - listitem: 맞춤형 계약, 기능 커스터마이징 등을 원하는 경우
+  - listitem: 팀을 넘어, 더 큰 규모의 조직이나 전사 차원에서 도입을 원하는 경우
+  - text: 고민되신다면, 간단한 문의만 주셔도 맞춤 플랜을 안내해 드릴게요. [문의하기]
+  - img "Tiro icon"
+  - paragraph: 대화에만 집중할 수 있게,
+  - heading "가장 정확한 AI 회의록" [level=2]
+  - button "Download Mobile Icon iOS 앱 다운로드":
+    - img "Download Mobile Icon"
+    - text: iOS 앱 다운로드
+  - button "데스크탑 앱 다운로드":
+    - img
+    - text: 데스크탑 앱 다운로드
+- contentinfo:
+  - img "Plato Logo"
+  - paragraph: We make something wonderful.
+  - button "한국어":
+    - text: 한국어
+    - img
+  - text: 프로덕트
+  - link "제품 소개":
+    - /url: /ko/global#key-features-1
+  - link "가격 안내":
+    - /url: /ko/global#pricing
+  - link "도입 견적":
+    - /url: https://www.tiro.ax/ko/roi?utm_source=tiro_ooo&utm_medium=footer&utm_campaign=roi
+  - link "사용 가이드":
+    - /url: https://docs.tiro.ooo/ko?utm_source=tiro-web&utm_medium=in-app&utm_campaign=docs&utm_content=nav-footer
+  - link "체인지로그":
+    - /url: https://docs.tiro.ooo/ko/updates
+  - link "서비스 상태":
+    - /url: https://status.tiro.ooo
+  - link "블로그":
+    - /url: /ko/blog
+  - link "언론 보도":
+    - /url: /ko/press
+  - text: 개발자 도구
+  - link "API 문서":
+    - /url: https://docs.tiro.ooo/ko/developers/fundamentals/api-overview?utm_source=tiro-web&utm_medium=in-app&utm_campaign=docs&utm_content=nav-footer-dev-api
+  - link "CLI":
+    - /url: https://docs.tiro.ooo/ko/developers/cli/cli-overview?utm_source=tiro-web&utm_medium=in-app&utm_campaign=docs&utm_content=nav-footer-dev-cli
+  - link "MCP Server":
+    - /url: https://docs.tiro.ooo/ko/developers/mcp/mcp-overview?utm_source=tiro-web&utm_medium=in-app&utm_campaign=docs&utm_content=nav-footer-dev-mcp
+  - link "Webhook":
+    - /url: https://docs.tiro.ooo/ko/developers/webhooks/webhooks-overview?utm_source=tiro-web&utm_medium=in-app&utm_campaign=docs&utm_content=nav-footer-dev-webhooks
+  - text: 서비스 비교
+  - link "Tiro vs CLOVA Note":
+    - /url: https://www.tiro.ax/ko/compare/clova-note?utm_source=tiro_ooo&utm_medium=footer&utm_campaign=compare
+  - link "Tiro vs 다글로":
+    - /url: https://www.tiro.ax/ko/compare/daglo?utm_source=tiro_ooo&utm_medium=footer&utm_campaign=compare
+  - link "Tiro vs Plaud":
+    - /url: https://www.tiro.ax/ko/compare/plaud?utm_source=tiro_ooo&utm_medium=footer&utm_campaign=compare
+  - link "Tiro vs Otter.ai":
+    - /url: https://www.tiro.ax/ko/compare/otter?utm_source=tiro_ooo&utm_medium=footer&utm_campaign=compare
+  - link "Tiro vs Fireflies":
+    - /url: https://www.tiro.ax/ko/compare/fireflies?utm_source=tiro_ooo&utm_medium=footer&utm_campaign=compare
+  - link "Tiro vs tl;dv":
+    - /url: https://www.tiro.ax/ko/compare/tldv?utm_source=tiro_ooo&utm_medium=footer&utm_campaign=compare
+  - text: 고객 지원
+  - link "일반 문의":
+    - /url: mailto:hello@theplato.io
+  - link "기업 문의":
+    - /url: mailto:partners@theplato.io
+  - link "접근성 지원":
+    - /url: /ko/accessibility
+  - text: 약관·보안
+  - link "서비스 이용약관":
+    - /url: /ko/terms-of-service
+  - link "개인정보처리방침":
+    - /url: /ko/privacy-policy
+  - link "Security":
+    - /url: /ko/security
+  - link "Trust Center":
+    - /url: https://trust.tiro.ooo
+  - link "SLA":
+    - /url: /ko/service-level-agreement
+  - paragraph: 주식회사 더플레이토
+  - paragraph:
+    - text: 사업자등록번호 649-81-03140 대표이사 임은성 통신판매업 신고 제 2025-서울강남-02575호
+    - link "통신판매정보 확인":
+      - /url: https://www.ftc.go.kr/bizCommPop.do?wrkr_no=6498103140&apv_perm_no=
+  - paragraph: 서울특별시 관악구 관악로17길 9, 3층 455 Market St Ste 1940, San Francisco, CA 94105, USA
+  - paragraph:
+    - text: 이메일
+    - link "hello@theplato.io":
+      - /url: mailto:hello@theplato.io
+    - text: 사업 제휴 문의
+    - link "partners@theplato.io":
+      - /url: mailto:partners@theplato.io
+  - paragraph: © 2026 ThePlato Inc.
+- region "Notifications (F8)":
+  - list
+- alert

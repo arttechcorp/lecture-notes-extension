@@ -1,0 +1,51 @@
+- button "사이드바 열기"
+- button "콘텐츠 추가":
+  - img
+  - text: 콘텐츠 추가
+- button "문서":
+  - img
+  - text: 문서
+- button "유니 (AI 채팅)":
+  - img
+  - text: 유니 (AI 채팅)
+- button "피드백 남기기":
+  - img
+  - text: 피드백 남기기
+- button "테마 변경":
+  - img
+  - text: 테마 변경
+- button "앱 다운로드":
+  - img
+  - text: 앱 다운로드
+- button "로그인":
+  - img
+- button "사이드바 열기":
+  - img
+- heading "문서" [level=1]
+- button "언어 선택":
+  - text: 한국어
+  - img
+- button "테마 변경":
+  - img
+- button "로그인"
+- img
+- text: 새로 만들기
+- img "[샘플] 대학 강의자료 · 글로벌 브랜드 전략론.pdf"
+- paragraph: "[샘플] 대학 강의자료 · 글로벌 브랜드 전략론"
+- text: PDF 2026-09-05
+- button "파일 옵션":
+  - img
+- paragraph: "[샘플] 딥러닝 논문"
+- text: PDF 2026-09-13
+- button "파일 옵션":
+  - img
+- img "[신시] 0-1강. 혁펜하임의 \"퍼펙트\" 신호 및 시스템. 이번 학기 신시 A+ 받아갈 사람?"
+- img
+- paragraph: "[신시] 0-1강. 혁펜하임의 \"퍼펙트\" 신호 및 시스템. 이번 학기 신시 A+ 받아갈 사람?"
+- text: YouTube 2026-06-10
+- button "비디오 옵션":
+  - img
+- button "3:07 인지심리학 · 기억에 남는 공부법 강의 녹음 샘플":
+  - text: 3:07
+  - paragraph: 인지심리학 · 기억에 남는 공부법
+  - text: 강의 녹음 샘플

@@ -1,0 +1,270 @@
+{
+  "url": "https://summrizei.vercel.app/",
+  "title": "온라인 강의 자동 필기·요약 — Summrizei 크롬 확장",
+  "width": 390,
+  "height": 744,
+  "scrollWidth": 390,
+  "scrollHeight": 7760,
+  "headings": [
+    {
+      "tag": "H1",
+      "text": "온라인 강의 딸깍.",
+      "y": 202
+    },
+    {
+      "tag": "H2",
+      "text": "강의의 흐름은 그대로.읽는 방식은 더 명확하게.",
+      "y": 1984
+    },
+    {
+      "tag": "H3",
+      "text": "투자안 평가: NPV와 IRR",
+      "y": 2222
+    },
+    {
+      "tag": "H3",
+      "text": "투자안 평가: 순현재가치(NPV)와 내부수익률(IRR)",
+      "y": 2855
+    },
+    {
+      "tag": "H2",
+      "text": "복습까지, 세 단계.",
+      "y": 3554
+    },
+    {
+      "tag": "H3",
+      "text": "강의를 열고",
+      "y": 3696
+    },
+    {
+      "tag": "H3",
+      "text": "강의에 집중하세요",
+      "y": 3855
+    },
+    {
+      "tag": "H3",
+      "text": "노트를 검토하고 저장",
+      "y": 4032
+    },
+    {
+      "tag": "H2",
+      "text": "나만 빼고 다 받는 A+.",
+      "y": 4273
+    },
+    {
+      "tag": "H3",
+      "text": "필기하다 놓치던 설명까지",
+      "y": 4418
+    },
+    {
+      "tag": "H3",
+      "text": "교수님 설명까지 노트에",
+      "y": 4418
+    },
+    {
+      "tag": "H3",
+      "text": "지금 잘 읽고 있는지 보여요",
+      "y": 4418
+    },
+    {
+      "tag": "H3",
+      "text": "이제 설명에 집중하게 돼요",
+      "y": 4418
+    },
+    {
+      "tag": "H3",
+      "text": "보던 강의에서 바로 시작",
+      "y": 4418
+    },
+    {
+      "tag": "H3",
+      "text": "스크린샷 정리가 줄었어요",
+      "y": 4654
+    },
+    {
+      "tag": "H3",
+      "text": "말로 설명하는 수업에도",
+      "y": 4654
+    },
+    {
+      "tag": "H3",
+      "text": "긴 내용도 핵심부터 복습",
+      "y": 4654
+    },
+    {
+      "tag": "H3",
+      "text": "고치고 복사하면 정리 끝",
+      "y": 4654
+    },
+    {
+      "tag": "H3",
+      "text": "복습 노트는 PDF로",
+      "y": 4654
+    },
+    {
+      "tag": "H2",
+      "text": "필기부터 깊이 있는 복습까지.",
+      "y": 4949
+    },
+    {
+      "tag": "H3",
+      "text": "Free",
+      "y": 5174
+    },
+    {
+      "tag": "H3",
+      "text": "Essential",
+      "y": 5713
+    },
+    {
+      "tag": "H3",
+      "text": "Professional",
+      "y": 6222
+    },
+    {
+      "tag": "H2",
+      "text": "시작하기 전에.",
+      "y": 6848
+    }
+  ],
+  "actions": [
+    {
+      "text": "본문으로 이동",
+      "href": "#main",
+      "y": -60,
+      "height": 50
+    },
+    {
+      "text": "Summrizei.",
+      "href": "/",
+      "y": 21,
+      "height": 27
+    },
+    {
+      "text": "노트 미리보기",
+      "href": "#preview",
+      "y": 60,
+      "height": 44
+    },
+    {
+      "text": "플랜",
+      "href": "#plans",
+      "y": 60,
+      "height": 44
+    },
+    {
+      "text": "무료로 시작 ↗",
+      "href": null,
+      "y": 60,
+      "height": 44
+    },
+    {
+      "text": "Summrizei 무료로 시작\n↗",
+      "href": null,
+      "y": 383,
+      "height": 52
+    },
+    {
+      "text": "Essential",
+      "href": null,
+      "y": 2735,
+      "height": 44
+    },
+    {
+      "text": "Professional",
+      "href": null,
+      "y": 2735,
+      "height": 44
+    },
+    {
+      "text": "전체 예시 읽기\n↗",
+      "href": null,
+      "y": 3373,
+      "height": 44
+    },
+    {
+      "text": "학생이신가요?",
+      "href": null,
+      "y": 5089,
+      "height": 31
+    },
+    {
+      "text": "무료로 시작",
+      "href": null,
+      "y": 5324,
+      "height": 45
+    },
+    {
+      "text": "타임라인 예시 보기\n↗",
+      "href": null,
+      "y": 5385,
+      "height": 44
+    },
+    {
+      "text": "시작하기",
+      "href": null,
+      "y": 5863,
+      "height": 45
+    },
+    {
+      "text": "요약 예시 보기\n↗",
+      "href": null,
+      "y": 5924,
+      "height": 44
+    },
+    {
+      "text": "시작하기",
+      "href": null,
+      "y": 6372,
+      "height": 45
+    },
+    {
+      "text": "상세 노트 예시 보기\n↗",
+      "href": null,
+      "y": 6433,
+      "height": 44
+    },
+    {
+      "text": "Summrizei.",
+      "href": "/",
+      "y": 7266,
+      "height": 37
+    },
+    {
+      "text": "저작권 방침",
+      "href": "policies/copyright",
+      "y": 7393,
+      "height": 19
+    },
+    {
+      "text": "개인정보처리방침",
+      "href": "policies/privacy",
+      "y": 7421,
+      "height": 19
+    },
+    {
+      "text": "이용약관",
+      "href": "policies/terms",
+      "y": 7450,
+      "height": 19
+    },
+    {
+      "text": "결제 및 환불 정책",
+      "href": "policies/refund",
+      "y": 7478,
+      "height": 19
+    },
+    {
+      "text": "오픈소스 라이선스",
+      "href": "policies/licenses",
+      "y": 7506,
+      "height": 19
+    },
+    {
+      "text": "jihwanbu26@gmail.com",
+      "href": "mailto:jihwanbu26@gmail.com",
+      "y": 7597,
+      "height": 17
+    }
+  ]
+}

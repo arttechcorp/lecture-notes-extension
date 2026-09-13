@@ -1,0 +1,240 @@
+- link "본문으로 이동":
+  - /url: "#main"
+- banner:
+  - link "Summrizei 홈":
+    - /url: /
+    - text: Summrizei.
+  - navigation "주 메뉴":
+    - link "노트 미리보기":
+      - /url: "#preview"
+    - link "플랜":
+      - /url: "#plans"
+    - button "무료로 시작"
+- main:
+  - paragraph: LESS TRANSCRIBING. MORE UNDERSTANDING.
+  - heading "온라인 강의 딸깍." [level=1]
+  - paragraph: Summrizei는 온라인 강의의 화면과 음성을 함께 인식해 노트로 정리하는 크롬 확장 프로그램입니다. 놓치기 쉬운 설명부터 중요한 슬라이드까지. 강의의 화면과 말소리를 모아, 다시 읽고 싶은 학습 노트로 만드세요.
+  - button "Summrizei 무료로 시작"
+  - figure "Summrizei 체험 시연":
+    - iframe
+    - button "체험 재생"
+    - status: 예시 노트가 완성되었습니다. 일시정지하면 내용을 읽거나 복사할 수 있습니다.
+  - text: 01 강의 화면과 음성을 인식하고 02 보기 좋게 요약, 정리해서 03 내가 쓰던 노트앱에 PDF로
+  - region "전국 대학 로고":
+    - paragraph: 전국 대학의 학생들이 Summrizei로 공부하고 있어요
+    - paragraph: 전국 주요 대학 재학생이 사용하고 있습니다.
+  - paragraph: FROM LECTURE TO NOTES
+  - heading "강의의 흐름은 그대로. 읽는 방식은 더 명확하게." [level=2]
+  - text: ● ● ● 강의에서 인식한 원문 기업재무
+  - 'heading "투자안 평가: NPV와 IRR" [level=3]'
+  - paragraph: 화면 글자 + 말소리 받아쓰기
+  - time: 03:42
+  - paragraph: "정의: NPV를 정확히 0으로 만드는 할인율"
+  - time: 04:35
+  - paragraph: 하지만 여기서 아주 중요한 시험 단골 문제가 발생합니다. 바로 독립적 투자안이 아니라 '상호배타적 투자안'일 때입니다.
+  - time: 05:40
+  - paragraph: 대안 A의 IRR은 50%로 대안 B의 30%보다 훨씬 높습니다. 만약 IRR 기준으로 보면 A를 골라야 합니다.
+  - time: 06:30
+  - paragraph: 둘 중 하나만 골라야 한다면 무엇을 골라야 할까요? 당연히 기업의 부를 1억 8천만원이나 늘려주는 B를 골라야 합니다.
+  - text: 원문 시각순 타임라인 Free
+  - tablist "요약 예시 플랜":
+    - tab "Essential"
+    - tab "Professional" [selected]
+  - tabpanel "Professional":
+    - paragraph: 상세 노트
+    - 'heading "투자안 평가: 순현재가치(NPV)와 내부수익률(IRR)" [level=3]'
+    - text: 핵심 결론 상호배타적 투자안 선택의 절대 원칙 상호배타적 투자안(둘 중 하나만 선택) 평가 시
+    - strong: NPV(순현재가치) 기준을 절대 우선
+    - text: 해야 합니다. 상대적 수익률 지표인 IRR(대안 A 50% vs 대안 B 30%)의 착시를 배제하고, 기업의 절대적 부를 1억 8,182만 원 증가시키는
+    - strong: 대안 B를 최종 채택
+    - text: 합니다.
+    - heading "1. 상호배타적 대안 비교 요약 및 최적 의사결정" [level=4]
+    - region "노트 표 · 좌우로 스크롤":
+      - table:
+        - rowgroup:
+          - row "평가 항목 대안 A (소규모) 대안 B (대규모) 증분 투자 (B − A) 평가 결과":
+            - columnheader "평가 항목"
+            - columnheader "대안 A (소규모)"
+            - columnheader "대안 B (대규모)"
+            - columnheader "증분 투자 (B − A)"
+            - columnheader "평가 결과"
+        - rowgroup:
+          - row "초기 투자액 (CF₀) 1억 원 10억 원 +9억 원 규모 차이 10배":
+            - cell "초기 투자액 (CF₀)":
+              - strong: 초기 투자액 (CF₀)
+            - cell "1억 원"
+            - cell "10억 원"
+            - cell "+9억 원"
+            - cell "규모 차이 10배"
+          - row "1년 후 현금유입 (CF₁) 1.5억 원 13억 원 +11.5억 원 +11.5억 창출":
+            - cell "1년 후 현금유입 (CF₁)":
+              - strong: 1년 후 현금유입 (CF₁)
+            - cell "1.5억 원"
+            - cell "13억 원"
+            - cell "+11.5억 원"
+            - cell "+11.5억 창출"
+          - row "내부수익률 (IRR) 50.0% 30.0% 27.8% (피셔 교차율) A 우위 (착시)":
+            - cell "내부수익률 (IRR)":
+              - strong: 내부수익률 (IRR)
+            - cell "50.0%":
+              - strong: 50.0%
+            - cell "30.0%"
+            - cell "27.8% (피셔 교차율)"
+            - cell "A 우위 (착시)"
+          - row "순현재가치 (NPV, r=10%) 3,636만 원 1억 8,182만 원 +1억 4,545만 원 B 우위 (기업가치 극대화)":
+            - cell "순현재가치 (NPV, r=10%)":
+              - strong: 순현재가치 (NPV, r=10%)
+            - cell "3,636만 원"
+            - cell "1억 8,182만 원":
+              - strong: 1억 8,182만 원
+            - cell "+1억 4,545만 원":
+              - strong: +1억 4,545만 원
+            - cell "B 우위 (기업가치 극대화)"
+          - row "최종 채택 여부 기각 (IRR 왜곡) 최종 채택 투자 타당성 입증 대안 B 채택":
+            - cell "최종 채택 여부":
+              - strong: 최종 채택 여부
+            - cell "기각 (IRR 왜곡)"
+            - cell "최종 채택":
+              - strong: 최종 채택
+            - cell "투자 타당성 입증"
+            - cell "대안 B 채택"
+    - heading "절대적 부의 창출액 (NPV, 할인율 10% 기준)" [level=5]
+    - text: "단위: 만 원"
+    - strong: 대안 B
+    - text: (초기 10억 → 수익 13억 · IRR 30%) +18,182만 원 (100%) NPV 1.82억 원
+    - strong: 대안 A
+    - text: (초기 1억 → 수익 1.5억 · IRR 50%) +3,636만 원 (20%) NPV 3,636만 원
+    - strong: "💡 핵심 인사이트:"
+    - text: IRR은 비율(%)만 보여주므로 대안 A가 우수해 보이지만, 실제 회사에 귀속되는
+    - strong: 절대 부 창출액(NPV)은 대안 B가 대안 A의 5배
+    - text: 에 달합니다.
+    - heading "2. 할인율별 NPV 프로파일 곡선 & Fisher 교차점" [level=4]
+    - heading "NPV 프로파일 곡선 (NPV vs 할인율 r)" [level=5]
+    - text: Fisher Rate = 27.8%
+    - img "할인율에 따른 대안 A와 B의 NPV 프로파일 곡선 그래프. 할인율 27.8%에서 두 대안의 NPV가 일치하며 피셔 교차율을 형성합니다.": "0 1.0억 2.0억 3.0억 NPV(원) 0% 10% 27.8% 30% 50% 할인율(r) B: 1.82억 A: 0.36억 Fisher 교차점 (27.8%) IRR_B = 30% IRR_A = 50% r < 27.8%: 대안 B 우월구간 r > 27.8%: 대안 A 우월구간"
+    - strong: "📈 그래프 해석:"
+    - text: 자본비용이
+    - strong: 27.8%(피셔 교차율) 미만인 현실적 환경(현재 10%)
+    - text: 에서는 대안 B의 NPV 곡선이 대안 A보다 위에 위치하여 기업가치 창출 면에서 항상 우월합니다.
+    - heading "3. 투자안 평가 3대 기법 종합 비교 매트릭스" [level=4]
+  - text: 상세 노트 · 편집된 발췌
+  - button "전체 예시 읽기"
+  - paragraph: A SMALLER ROUTINE
+  - heading "복습까지, 세 단계." [level=2]
+  - text: 01 / SELECT
+  - heading "강의를 열고" [level=3]
+  - paragraph: 영상이 재생 중인 탭과 읽을 화면 영역을 선택합니다.
+  - text: 02 / CAPTURE
+  - heading "강의에 집중하세요" [level=3]
+  - paragraph: 화면 글자와 말소리를 읽는 동안 인식된 내용을 확인할 수 있습니다.
+  - text: 03 / REVIEW
+  - heading "노트를 검토하고 저장" [level=3]
+  - paragraph: 시간순 원문 또는 요약 노트를 확인하고, 필요한 내용을 복사하거나 저장합니다.
+  - region "나만 빼고 다 받는 A+.":
+    - paragraph: CERTIFIED BY STUDENTS
+    - heading "나만 빼고 다 받는 A+." [level=2]
+    - paragraph: Summrizei를 이용해주신 학생들의 후기입니다.
+    - region "학생 후기 첫째 줄":
+      - list:
+        - listitem:
+          - heading "필기하다 놓치던 설명까지" [level=3]
+          - paragraph: 슬라이드 글자와 말소리를 함께 읽어 노트로 정리해주니, 받아 적느라 놓쳤던 개념을 복습할 때 짚어보기 좋았어요.
+        - listitem:
+          - heading "교수님 설명까지 노트에" [level=3]
+          - paragraph: 슬라이드만 봐서는 이해가 안 되던 부분이 있었는데, 강의 음성도 함께 정리하니까 개념을 다시 연결해 보기 편해요.
+        - listitem:
+          - heading "지금 잘 읽고 있는지 보여요" [level=3]
+          - paragraph: 인식된 내용이 수업 중에 차곡차곡 보여서 좋아요. 켜두고 기다리는 동안 어떤 내용을 읽고 있는지 확인할 수 있어요.
+        - listitem:
+          - heading "이제 설명에 집중하게 돼요" [level=3]
+          - paragraph: 강의창이랑 메모장을 번갈아 보던 게 줄었어요. 우선 설명을 듣고, 끝난 뒤 노트에서 필요한 부분을 다듬으니 편해요.
+        - listitem:
+          - heading "보던 강의에서 바로 시작" [level=3]
+          - paragraph: 크롬에서 강의를 열고 옆 패널에서 시작하면 되니까 간단해요. 다른 앱으로 강의 자료를 옮길 필요가 없어서 좋아요.
+    - region "학생 후기 둘째 줄":
+      - list:
+        - listitem:
+          - heading "스크린샷 정리가 줄었어요" [level=3]
+          - paragraph: 슬라이드마다 찍어 둔 사진을 다시 정리하는 게 일이었는데, 화면의 글자를 노트로 모아 보니 복습 준비가 한결 가벼워요.
+        - listitem:
+          - heading "말로 설명하는 수업에도" [level=3]
+          - paragraph: 화면 캡처는 끄고 음성 인식만 켤 수 있어서 좋았어요. 화면 자료가 적은 수업에서도 설명을 바탕으로 노트를 만들 수 있어요.
+        - listitem:
+          - heading "긴 내용도 핵심부터 복습" [level=3]
+          - paragraph: 개인 API 키를 연결해 요약 노트를 만들어봤어요. 길게 들었던 내용을 핵심 개념부터 다시 읽을 수 있어서 편하네요.
+        - listitem:
+          - heading "고치고 복사하면 정리 끝" [level=3]
+          - paragraph: 노트에서 필요한 문장을 제 표현으로 고치고 노션에 붙여 넣었어요. 쓰던 공부 노트에 바로 이어 붙일 수 있어 좋아요.
+        - listitem:
+          - heading "복습 노트는 PDF로" [level=3]
+          - paragraph: 노트를 검토한 뒤 PDF로 저장해두니 복습할 때 다시 펼쳐 보기 편해요. 종이로 읽고 싶을 때는 바로 인쇄할 수도 있고요.
+  - paragraph: CHOOSE YOUR DEPTH
+  - heading "필기부터 깊이 있는 복습까지." [level=2]
+  - paragraph: 강의를 어느 깊이까지 정리하고 싶은지에 맞춰 나에게 맞는 플랜을 선택하세요.
+  - paragraph:
+    - button "학생이신가요?"
+  - article:
+    - heading "Free" [level=3]
+    - text: 바로 시작
+    - paragraph: 다시 볼 장면을 찾고 싶다면
+    - paragraph: $0
+    - button "무료로 시작"
+    - button "타임라인 예시 보기 ↗"
+    - paragraph: 강의의 화면과 말소리를 시각순으로 모은 타임라인.
+    - paragraph: "포함:"
+    - list:
+      - listitem: ✓시각이 표시된 인식 원문
+      - listitem: ✓로컬 화면·음성 인식
+      - listitem: ✓복사와 Markdown 저장
+      - listitem: ✓API 키 없이 시작
+  - article:
+    - heading "Essential" [level=3]
+    - text: 추천
+    - paragraph: 많은 강의를 빠르게 훑고 싶다면
+    - paragraph: $9 / 월
+    - button "시작하기"
+    - button "요약 예시 보기 ↗"
+    - paragraph: 핵심 개념과 결론을 간결하게 정리한 요약 노트.
+    - paragraph: "포함:"
+    - list:
+      - listitem: ✓Free의 모든 기능
+      - listitem: ✓개념별로 묶은 핵심 요약
+      - listitem: ✓강의에서 다룬 공식과 기준
+  - article:
+    - heading "Professional" [level=3]
+    - paragraph: 중요한 강의를 깊이 이해한다면
+    - paragraph: $14 / 월
+    - button "시작하기"
+    - button "상세 노트 예시 보기 ↗"
+    - paragraph: 개념의 연결과 판단 근거를 차근차근 풀어낸 상세 노트.
+    - paragraph: "포함:"
+    - list:
+      - listitem: ✓Essential의 모든 기능
+      - listitem: ✓세부 주제까지 나눈 설명
+      - listitem: ✓비교 사례의 판단 근거
+      - listitem: ✓공식과 개념을 연결한 정리
+  - paragraph: GOOD TO KNOW
+  - heading "시작하기 전에." [level=2]
+  - group: Free도 API 키가 필요한가요?
+  - group: 플랜마다 결과가 얼마나 다른가요?
+  - group: 패널을 닫아도 노트가 남나요?
+  - group: 강의 자료는 어떻게 처리되나요?
+- contentinfo:
+  - link "Summrizei.":
+    - /url: /
+  - paragraph: 듣는 시간은 온전히. 배운 내용은 또렷하게.
+  - navigation "약관 및 방침":
+    - link "저작권 방침":
+      - /url: policies/copyright
+    - link "개인정보처리방침":
+      - /url: policies/privacy
+    - link "이용약관":
+      - /url: policies/terms
+    - link "결제 및 환불 정책":
+      - /url: policies/refund
+    - link "오픈소스 라이선스":
+      - /url: policies/licenses
+  - paragraph: CONTACT
+  - link "jihwanbu26@gmail.com":
+    - /url: mailto:jihwanbu26@gmail.com
+  - text: © 2026 Summrizei 개인 학습용 도구

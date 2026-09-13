@@ -1,0 +1,7 @@
+- region "Notifications alt+T"
+- dialog "Alt 다운로드":
+  - heading "Alt 다운로드" [level=2]
+  - paragraph: 이메일을 입력하면 Mac, Windows 다운로드 링크를 보내드립니다. 또는 PC에서 altalt.io를 방문하세요.
+  - textbox "이메일로 다운로드 링크 받기"
+  - button "다운로드 링크 보내기"
+  - button "Close"

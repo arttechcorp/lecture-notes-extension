@@ -1,0 +1,29 @@
+console info Successfully preconnected to https://fonts.googleapis.com/
+console info Successfully preconnected to https://fonts.gstatic.com/
+console info Successfully preconnected to https://fonts.googleapis.com/
+console info Successfully preconnected to https://fonts.gstatic.com/
+console error Blocked script execution in 'https://summrizei.vercel.app/demo-panel?v=20260912-mobile-1' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.
+console error Blocked script execution in 'https://summrizei.vercel.app/demo-panel?v=20260912-mobile-1' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.
+console error Blocked script execution in 'https://summrizei.vercel.app/demo-panel?v=20260912-mobile-1' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.
+console error Blocked script execution in 'https://summrizei.vercel.app/demo-panel?v=20260912-mobile-1' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.
+console error Blocked script execution in 'https://summrizei.vercel.app/demo-panel?v=20260912-mobile-1' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.
+console error Blocked script execution in 'https://summrizei.vercel.app/demo-panel?v=20260912-mobile-1' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.
+console error Blocked script execution in 'https://summrizei.vercel.app/demo-panel?v=20260912-mobile-1' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.
+console error Blocked script execution in 'https://summrizei.vercel.app/demo-panel?v=20260912-mobile-1' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.
+console error Blocked script execution in 'https://summrizei.vercel.app/demo-panel?v=20260912-mobile-1' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.
+console error Blocked script execution in 'https://summrizei.vercel.app/demo-panel?v=20260912-mobile-1' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.
+console error Blocked script execution in 'https://summrizei.vercel.app/demo-panel?v=20260912-mobile-1' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.
+console error Blocked script execution in 'https://summrizei.vercel.app/demo-panel?v=20260912-mobile-1' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.
+tap 0 { seen: [], paused: 'false', hidden: true }
+console error Blocked script execution in 'https://summrizei.vercel.app/demo-panel?v=20260912-mobile-1' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.
+console error Blocked script execution in 'https://summrizei.vercel.app/demo-panel?v=20260912-mobile-1' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.
+console error Blocked script execution in 'https://summrizei.vercel.app/demo-panel?v=20260912-mobile-1' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.
+console error Blocked script execution in 'https://summrizei.vercel.app/demo-panel?v=20260912-mobile-1' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.
+console error Blocked script execution in 'https://summrizei.vercel.app/demo-panel?v=20260912-mobile-1' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.
+console error Blocked script execution in 'https://summrizei.vercel.app/demo-panel?v=20260912-mobile-1' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.
+console error Blocked script execution in 'https://summrizei.vercel.app/demo-panel?v=20260912-mobile-1' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.
+console error Blocked script execution in 'https://summrizei.vercel.app/demo-panel?v=20260912-mobile-1' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.
+console error Blocked script execution in 'https://summrizei.vercel.app/demo-panel?v=20260912-mobile-1' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.
+console error Blocked script execution in 'https://summrizei.vercel.app/demo-panel?v=20260912-mobile-1' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.
+console error Blocked script execution in 'https://summrizei.vercel.app/demo-panel?v=20260912-mobile-1' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.
+console error Blocked script execution in 'https://summrizei.vercel.app/demo-panel?v=20260912-mobile-1' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.

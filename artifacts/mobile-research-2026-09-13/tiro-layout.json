@@ -1,0 +1,536 @@
+{
+  "url": "https://tiro.ooo/ko/",
+  "title": "티로 | 가장 정확한 AI 회의록",
+  "width": 390,
+  "height": 744,
+  "scrollWidth": 390,
+  "scrollHeight": 14819,
+  "headings": [
+    {
+      "tag": "H1",
+      "text": "가장 정확한 AI 회의록",
+      "y": 218
+    },
+    {
+      "tag": "H3",
+      "text": "Untitled",
+      "y": 584
+    },
+    {
+      "tag": "H2",
+      "text": "이미 300+개 기업이 티로와 함께합니다",
+      "y": 1458
+    },
+    {
+      "tag": "H2",
+      "text": "언제 어디서나, 어떤 언어든 걱정 없어요",
+      "y": 2076
+    },
+    {
+      "tag": "H3",
+      "text": "고품질 실시간 기록 & 완벽한 요약 노트",
+      "y": 2366
+    },
+    {
+      "tag": "H3",
+      "text": "15+개 언어 실시간 번역 & 다국어 동시 기록",
+      "y": 2834
+    },
+    {
+      "tag": "H2",
+      "text": "모든 디바이스, 모든 대화 상황에서",
+      "y": 2986
+    },
+    {
+      "tag": "H2",
+      "text": "매일 쌓이는 기록을 가치있는 자산으로 만들어드려요",
+      "y": 3550
+    },
+    {
+      "tag": "H3",
+      "text": "내가 원하는 양식 그대로, 3초 만에 문서 완성",
+      "y": 3630
+    },
+    {
+      "tag": "H2",
+      "text": "중요한 대화를 필요한 곳에 자동으로 전해드려요",
+      "y": 4508
+    },
+    {
+      "tag": "H3",
+      "text": "더 쉬운 협업, 회의 이후 공유까지도 한 번에",
+      "y": 4852
+    },
+    {
+      "tag": "H3",
+      "text": "캘린더·워크스페이스·사내 메신저·CRM·ATS 연동",
+      "y": 5330
+    },
+    {
+      "tag": "H2",
+      "text": "모든 대화를 지식으로 바꾸는 Ask Tiro",
+      "y": 6122
+    },
+    {
+      "tag": "H2",
+      "text": "보안 및 개인정보 보호",
+      "y": 6292
+    },
+    {
+      "tag": "H3",
+      "text": "데이터 전면 암호화",
+      "y": 6553
+    },
+    {
+      "tag": "H3",
+      "text": "철저한 접근 제한",
+      "y": 6710
+    },
+    {
+      "tag": "H3",
+      "text": "음성·데이터 즉시 폐기",
+      "y": 6889
+    },
+    {
+      "tag": "H3",
+      "text": "AI 모델 재학습 이용 금지",
+      "y": 7069
+    },
+    {
+      "tag": "H3",
+      "text": "통신 및 네트워크 보안",
+      "y": 7249
+    },
+    {
+      "tag": "H3",
+      "text": "감사 로그 & 실시간 모니터링",
+      "y": 7406
+    },
+    {
+      "tag": "H3",
+      "text": "철저한 계정 보안",
+      "y": 8140
+    },
+    {
+      "tag": "H3",
+      "text": "세분화된 접근 권한 설정",
+      "y": 8315
+    },
+    {
+      "tag": "H3",
+      "text": "접속 IP 제한",
+      "y": 8490
+    },
+    {
+      "tag": "H3",
+      "text": "실시간 문의 대응",
+      "y": 8642
+    },
+    {
+      "tag": "H2",
+      "text": "가격 안내",
+      "y": 8907
+    },
+    {
+      "tag": "H2",
+      "text": "무료로 시작하고, 유연하게 확장하세요",
+      "y": 9138
+    },
+    {
+      "tag": "H2",
+      "text": "개인용 플랜",
+      "y": 9389
+    },
+    {
+      "tag": "H3",
+      "text": "Lite",
+      "y": 9466
+    },
+    {
+      "tag": "H3",
+      "text": "Pro",
+      "y": 9902
+    },
+    {
+      "tag": "H3",
+      "text": "Max",
+      "y": 10338
+    },
+    {
+      "tag": "H2",
+      "text": "기업용 플랜",
+      "y": 10783
+    },
+    {
+      "tag": "H3",
+      "text": "팀 플랜",
+      "y": 10860
+    },
+    {
+      "tag": "H3",
+      "text": "엔터프라이즈 플랜",
+      "y": 11296
+    },
+    {
+      "tag": "H2",
+      "text": "가장 정확한 AI 회의록",
+      "y": 13223
+    }
+  ],
+  "actions": [
+    {
+      "text": "로그인",
+      "href": null,
+      "y": 26,
+      "height": 24
+    },
+    {
+      "text": "도입 문의",
+      "href": null,
+      "y": 19,
+      "height": 37
+    },
+    {
+      "text": "ISO/IEC 27001:2022 · SOC 2 Type 2",
+      "href": "https://trust.tiro.ooo",
+      "y": 112,
+      "height": 28
+    },
+    {
+      "text": "iOS 앱 다운로드",
+      "href": null,
+      "y": 376,
+      "height": 48
+    },
+    {
+      "text": "데스크탑 앱 다운로드",
+      "href": null,
+      "y": 440,
+      "height": 50
+    },
+    {
+      "text": "맥락 입력",
+      "href": null,
+      "y": 618,
+      "height": 21
+    },
+    {
+      "text": "문서",
+      "href": null,
+      "y": 681,
+      "height": 24
+    },
+    {
+      "text": "원본",
+      "href": null,
+      "y": 681,
+      "height": 24
+    },
+    {
+      "text": "요약",
+      "href": null,
+      "y": 716,
+      "height": 25
+    },
+    {
+      "text": "스크립트",
+      "href": null,
+      "y": 716,
+      "height": 25
+    },
+    {
+      "text": "엔터프라이즈 문의",
+      "href": null,
+      "y": 8064,
+      "height": 34
+    },
+    {
+      "text": "무료 체험 시작하기",
+      "href": null,
+      "y": 9289,
+      "height": 40
+    },
+    {
+      "text": "시작하기",
+      "href": null,
+      "y": 9779,
+      "height": 58
+    },
+    {
+      "text": "시작하기",
+      "href": null,
+      "y": 10215,
+      "height": 58
+    },
+    {
+      "text": "시작하기",
+      "href": null,
+      "y": 10652,
+      "height": 58
+    },
+    {
+      "text": "팀플랜 시작하기",
+      "href": null,
+      "y": 11173,
+      "height": 58
+    },
+    {
+      "text": "문의하기",
+      "href": null,
+      "y": 11610,
+      "height": 58
+    },
+    {
+      "text": "어떻게 시작하나요?",
+      "href": null,
+      "y": 11990,
+      "height": 74
+    },
+    {
+      "text": "화상회의도 기록할 수 있나요?",
+      "href": null,
+      "y": 12345,
+      "height": 74
+    },
+    {
+      "text": "앱 다운로드",
+      "href": "https://tiro.ooo/ko/download/app",
+      "y": 12521,
+      "height": 19
+    },
+    {
+      "text": "티로 모바일앱도 있나요?",
+      "href": null,
+      "y": 12420,
+      "height": 74
+    },
+    {
+      "text": "보안정책, 믿을 수 있나요?",
+      "href": null,
+      "y": 12495,
+      "height": 74
+    },
+    {
+      "text": "티로의 보안정책",
+      "href": "https://tiro.ooo/ko/blog/%ED%8B%B0%EB%A1%9C%EC%9D%98-%EB%B3%B4%EC%95%88-%EC%A0%95%EC%B1%85-%EC%A0%95%EB%A7%90-%EB%AF%BF%EC%9D%84-%EC%88%98-%EC%9E%88%EB%82%98%EC%9A%94-51060",
+      "y": 12671,
+      "height": 51
+    },
+    {
+      "text": "'티로 선물하기'는 무엇인가요?",
+      "href": null,
+      "y": 12570,
+      "height": 74
+    },
+    {
+      "text": "실시간 번역도 지원하나요?",
+      "href": null,
+      "y": 12645,
+      "height": 74
+    },
+    {
+      "text": "팀 플랜을 구독할 때, 계정 수를 어떻게 정하는 것이 좋나요?",
+      "href": null,
+      "y": 12720,
+      "height": 100
+    },
+    {
+      "text": "팀 플랜과 엔터프라이즈 플랜 중 어떤 것이 우리 팀에 더 적합할까요?",
+      "href": null,
+      "y": 12821,
+      "height": 100
+    },
+    {
+      "text": "iOS 앱 다운로드",
+      "href": null,
+      "y": 13320,
+      "height": 48
+    },
+    {
+      "text": "데스크탑 앱 다운로드",
+      "href": null,
+      "y": 13384,
+      "height": 50
+    },
+    {
+      "text": "한국어",
+      "href": null,
+      "y": 13722,
+      "height": 28
+    },
+    {
+      "text": "제품 소개",
+      "href": "/ko/global#key-features-1",
+      "y": 13826,
+      "height": 20
+    },
+    {
+      "text": "가격 안내",
+      "href": "/ko/global#pricing",
+      "y": 13850,
+      "height": 20
+    },
+    {
+      "text": "도입 견적",
+      "href": "https://www.tiro.ax/ko/roi?utm_source=tiro_ooo&utm_medium=footer&utm_campaign=roi",
+      "y": 13874,
+      "height": 20
+    },
+    {
+      "text": "사용 가이드",
+      "href": "https://docs.tiro.ooo/ko?utm_source=tiro-web&utm_medium=in-app&utm_campaign=docs&utm_content=nav-footer",
+      "y": 13898,
+      "height": 20
+    },
+    {
+      "text": "체인지로그",
+      "href": "https://docs.tiro.ooo/ko/updates",
+      "y": 13922,
+      "height": 20
+    },
+    {
+      "text": "서비스 상태",
+      "href": "https://status.tiro.ooo",
+      "y": 13946,
+      "height": 20
+    },
+    {
+      "text": "블로그",
+      "href": "/ko/blog",
+      "y": 13970,
+      "height": 20
+    },
+    {
+      "text": "언론 보도",
+      "href": "/ko/press",
+      "y": 13994,
+      "height": 20
+    },
+    {
+      "text": "API 문서",
+      "href": "https://docs.tiro.ooo/ko/developers/fundamentals/api-overview?utm_source=tiro-web&utm_medium=in-app&utm_campaign=docs&utm_content=nav-footer-dev-api",
+      "y": 13826,
+      "height": 20
+    },
+    {
+      "text": "CLI",
+      "href": "https://docs.tiro.ooo/ko/developers/cli/cli-overview?utm_source=tiro-web&utm_medium=in-app&utm_campaign=docs&utm_content=nav-footer-dev-cli",
+      "y": 13850,
+      "height": 20
+    },
+    {
+      "text": "MCP Server",
+      "href": "https://docs.tiro.ooo/ko/developers/mcp/mcp-overview?utm_source=tiro-web&utm_medium=in-app&utm_campaign=docs&utm_content=nav-footer-dev-mcp",
+      "y": 13874,
+      "height": 20
+    },
+    {
+      "text": "Webhook",
+      "href": "https://docs.tiro.ooo/ko/developers/webhooks/webhooks-overview?utm_source=tiro-web&utm_medium=in-app&utm_campaign=docs&utm_content=nav-footer-dev-webhooks",
+      "y": 13898,
+      "height": 20
+    },
+    {
+      "text": "Tiro vs CLOVA Note",
+      "href": "https://www.tiro.ax/ko/compare/clova-note?utm_source=tiro_ooo&utm_medium=footer&utm_campaign=compare",
+      "y": 14090,
+      "height": 20
+    },
+    {
+      "text": "Tiro vs 다글로",
+      "href": "https://www.tiro.ax/ko/compare/daglo?utm_source=tiro_ooo&utm_medium=footer&utm_campaign=compare",
+      "y": 14114,
+      "height": 20
+    },
+    {
+      "text": "Tiro vs Plaud",
+      "href": "https://www.tiro.ax/ko/compare/plaud?utm_source=tiro_ooo&utm_medium=footer&utm_campaign=compare",
+      "y": 14138,
+      "height": 20
+    },
+    {
+      "text": "Tiro vs Otter.ai",
+      "href": "https://www.tiro.ax/ko/compare/otter?utm_source=tiro_ooo&utm_medium=footer&utm_campaign=compare",
+      "y": 14162,
+      "height": 20
+    },
+    {
+      "text": "Tiro vs Fireflies",
+      "href": "https://www.tiro.ax/ko/compare/fireflies?utm_source=tiro_ooo&utm_medium=footer&utm_campaign=compare",
+      "y": 14186,
+      "height": 20
+    },
+    {
+      "text": "Tiro vs tl;dv",
+      "href": "https://www.tiro.ax/ko/compare/tldv?utm_source=tiro_ooo&utm_medium=footer&utm_campaign=compare",
+      "y": 14210,
+      "height": 20
+    },
+    {
+      "text": "일반 문의",
+      "href": "mailto:hello@theplato.io",
+      "y": 14090,
+      "height": 20
+    },
+    {
+      "text": "기업 문의",
+      "href": "mailto:partners@theplato.io",
+      "y": 14114,
+      "height": 20
+    },
+    {
+      "text": "접근성 지원",
+      "href": "/ko/accessibility",
+      "y": 14138,
+      "height": 20
+    },
+    {
+      "text": "서비스 이용약관",
+      "href": "/ko/terms-of-service",
+      "y": 14306,
+      "height": 20
+    },
+    {
+      "text": "개인정보처리방침",
+      "href": "/ko/privacy-policy",
+      "y": 14330,
+      "height": 20
+    },
+    {
+      "text": "Security",
+      "href": "/ko/security",
+      "y": 14354,
+      "height": 20
+    },
+    {
+      "text": "Trust Center",
+      "href": "https://trust.tiro.ooo",
+      "y": 14378,
+      "height": 20
+    },
+    {
+      "text": "SLA",
+      "href": "/ko/service-level-agreement",
+      "y": 14402,
+      "height": 20
+    },
+    {
+      "text": "통신판매정보 확인",
+      "href": "https://www.ftc.go.kr/bizCommPop.do?wrkr_no=6498103140&apv_perm_no=",
+      "y": 14622,
+      "height": 14
+    },
+    {
+      "text": "hello@theplato.io",
+      "href": "mailto:hello@theplato.io",
+      "y": 14694,
+      "height": 14
+    },
+    {
+      "text": "partners@theplato.io",
+      "href": "mailto:partners@theplato.io",
+      "y": 14716,
+      "height": 14
+    }
+  ]
+}
