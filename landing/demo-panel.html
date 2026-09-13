@@ -37,26 +37,38 @@
   #stageDone .detail.result-help { font-size: 10px; margin-top: 3px; }
   /* 부모의 모바일 모드에서만 적용: 데스크톱 제품 패널에는 영향이 없다. */
   html.mobile-demo { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
-  .mobile-demo body { padding: 16px; overflow-y: auto; }
-  .mobile-demo #stageDone .note-document { font-size: 14px; line-height: 1.7; }
-  .mobile-demo #stageDone .note-document h2 { font-size: 18px; }
-  .mobile-demo #stageDone .note-document h3 { font-size: 16px; }
+  .mobile-demo body { padding: 10px 14px; gap: 8px; overflow-y: auto; }
+  .mobile-demo .stage-steps span { padding: 4px; font-size: 10.5px; }
+  .mobile-demo .counter { padding: 6px 4px; }
+  .mobile-demo .counter b { font-size: 16px; }
+  .mobile-demo .counter span { font-size: 10px; margin-top: 1px; }
+  .mobile-demo .feed { gap: 4px; }
+  .mobile-demo .feed .head { font-size: 10.5px; padding-bottom: 4px; margin-bottom: 4px; }
+  .mobile-demo #feedLines { gap: 4px; }
+  .mobile-demo #feedLines div { font-size: 11px; line-height: 1.4; }
+  .mobile-demo #stageDone { gap: 5px; }
+  .mobile-demo #stageDone .result-title { font-size: 13px; margin: 0; }
+  .mobile-demo #stageDone .note-toolbar { margin: 1px 0 3px; }
+  .mobile-demo .note-toolbar button { height: 28px; min-height: 28px; min-width: 44px; font-size: 12px; padding: 0 10px; }
+  .mobile-demo #stageDone .note-surface { flex: 1; min-height: 0; max-height: 155px; }
+  .mobile-demo #stageDone .note-document { font-size: 12.5px; line-height: 1.6; padding: 2px 2px 8px; }
+  .mobile-demo #stageDone .note-document h1 { font-size: 14px; margin: 0.5em 0 0.2em; }
+  .mobile-demo #stageDone .note-document h2 { font-size: 13px; margin: 0.5em 0 0.2em; }
+  .mobile-demo #stageDone .note-document h3 { font-size: 12px; margin: 0.5em 0 0.2em; }
   .mobile-demo #stageDone .note-document blockquote,
-  .mobile-demo #stageDone .note-document table { font-size: 13px; }
-  .mobile-demo #stageDone .detail.result-help { font-size: 12px; }
-  .mobile-demo .note-toolbar button { min-height: 44px; min-width: 44px; }
-  .mobile-demo #result { font-size: 16px; }
+  .mobile-demo #stageDone .note-document table { font-size: 11.5px; }
+  .mobile-demo #stageDone .detail.result-help { font-size: 10.5px; margin-top: 2px; }
+  .mobile-demo #result { font-size: 13px; }
 </style>
 </head>
 <body>
 <div class="topbar">
-  <div><h1>Summr<span>i</span>zei<span class="brand-dot">.</span></h1><p class="brand-caption">강의의 흐름을, 나의 노트로.</p></div>
+  <div><h1>Summr<span>i</span>zei<span class="brand-dot">.</span></h1></div>
 </div>
 <nav class="stage-steps" aria-label="노트 만들기 단계"><span id="stepLive" class="active" aria-current="step">02 캡처</span><i aria-hidden="true"></i><span id="stepDone">03 노트</span></nav>
 
 <div id="stageLive" hidden>
   <div class="statusline"><span class="pill live"><span class="pulse"></span>캡처 중</span><span class="sub" id="elapsed">00:00</span></div>
-  <p class="detail">화면과 음성이 인식되는 과정을 예시로 보여드립니다.</p>
   <div class="counters">
     <div class="counter"><b id="cntSlides">0</b><span>슬라이드</span></div>
     <div class="counter"><b id="cntVoice">0</b><span>음성 줄</span></div>
