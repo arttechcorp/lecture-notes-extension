@@ -110,3 +110,101 @@ dialog { overscroll-behavior: contain; }
   .reviews.is-ready .reviews-viewport, .school-marquee-wrap { overflow-x: auto; }
   .reviews-row { overflow: visible; }
 }
+
+/* FROM LECTURE TO NOTES: a fixed illustrative scene keeps the evidence readable without a tab state. */
+#preview.comparison-section{padding:88px 0 80px}
+#preview .section-head{margin-bottom:30px}
+#preview .comparison-phrase{white-space:nowrap}
+#preview .section-head>p{max-width:28em}
+#preview .lecture-graph{max-width:960px;margin:0 auto 22px;padding:0;overflow:hidden;border:1px solid #30343a;border-radius:16px;background:#171a1e;color:#f5f4ef;box-shadow:0 24px 60px rgba(0,0,0,.2)}
+#preview .lecture-player-bar{display:flex;align-items:center;gap:8px;min-height:42px;padding:0 18px;background:#20242a;color:#d7d9dc;font-size:12px;letter-spacing:.01em}
+#preview .lecture-player-brand{font-weight:700;color:#fff;letter-spacing:-.03em}
+#preview .lecture-player-course{color:#9ba2aa}#preview .lecture-player-live{margin-left:auto;color:#ffb18e;font-size:11px}
+#preview .comparison-slide{margin:18px;background:#fbfaf6;color:#20252a;border-radius:9px;box-shadow:0 1px 0 rgba(255,255,255,.15);overflow:hidden}
+#preview .comparison-slide-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:24px 30px 8px}
+#preview .comparison-slide-kicker{margin-bottom:6px;color:#71808c;font:500 11px/1.4 var(--mono);letter-spacing:.04em}
+#preview .comparison-slide h3{margin:0;font-size:23px;line-height:1.35;letter-spacing:-.04em}
+#preview .comparison-slide-page{flex:none;padding-top:3px;color:#7d858c;font:12px/1.4 var(--mono)}
+#preview .comparison-slide-body{display:grid;grid-template-columns:minmax(0,1fr) 165px;align-items:center;gap:4px;padding:0 20px 0 8px}
+#preview .comparison-slide-body>svg{display:block;width:100%;max-width:680px;height:300px;margin-inline:auto;overflow:visible}
+#preview .comparison-margin-notes{display:grid;gap:14px;padding:8px 0}#preview .comparison-margin-notes p{display:grid;gap:3px;padding-left:12px;border-left:2px solid #e5a058}#preview .comparison-margin-notes strong{font:600 18px/1 var(--mono);color:#d67c2c}#preview .comparison-margin-notes span,#preview .comparison-margin-notes em{font-size:11px;line-height:1.5;font-style:normal}#preview .comparison-margin-notes em{color:#208d88;font-weight:600}
+#preview .chart-grid path{stroke:#dde1df;stroke-width:1}
+#preview .chart-axis path{stroke:#65717a;stroke-width:1.25}
+#preview .chart-axis text,#preview .chart-legend text{fill:#5e6b73;font:15px var(--sans)}
+#preview .curve-a,#preview .curve-b,#preview .legend-a,#preview .legend-b{fill:none;stroke-linecap:round;stroke-width:4}
+#preview .curve-a,#preview .legend-a{stroke:#64727d}
+#preview .curve-a{stroke-dasharray:10 8}
+#preview .curve-b,#preview .legend-b{stroke:#198f8b}
+#preview .guide{stroke:#df9650;stroke-width:1.5;stroke-dasharray:5 5}
+#preview .point-a{fill:#64727d;stroke:#fbfaf6;stroke-width:3}
+#preview .point-b,#preview .cross-point{fill:#198f8b;stroke:#fbfaf6;stroke-width:3}
+#preview svg [data-evidence] text{fill:#35434b;font:600 15px var(--mono)}
+#preview svg .annotation{font-family:var(--sans)!important;letter-spacing:-.02em}
+#preview .lecture-cross-ring{fill:none;stroke:#e5a058;stroke-width:4;stroke-dasharray:5 4;opacity:0;transition:opacity .35s ease}
+#preview #lecturePlayer[data-scene="crossing"] .lecture-cross-ring,#preview #lecturePlayer[data-scene="after"] .lecture-cross-ring,#preview #lecturePlayer[data-scene="complete"] .lecture-cross-ring{opacity:1}
+#preview .lecture-pointer{fill:#e07d35;stroke:#fff;stroke-width:2;transform:translate(380px,216px);transform-origin:0 0;transition:transform .35s ease}
+#preview #lecturePlayer[data-scene="current"] .lecture-pointer{transform:translate(230px,280px)}
+#preview #lecturePlayer[data-scene="choice"] .lecture-pointer{transform:translate(230px,136px)}
+#preview #lecturePlayer[data-scene="crossing"] .lecture-pointer{transform:translate(380px,216px)}
+#preview #lecturePlayer[data-scene="after"] .lecture-pointer{transform:translate(450px,232px)}
+#preview .comparison-slide-subtitle{display:flex;align-items:center;min-height:100px;margin:0 14px;padding:10px 14px 12px;border:0;border-radius:6px 6px 0 0;background:rgba(24,29,34,.92)}#preview .comparison-slide-subtitle p{color:#fff;font-size:12px;line-height:1.6}
+#preview .lecture-player-controls{display:grid;grid-template-columns:auto auto 1fr auto;align-items:center;gap:10px;padding:12px 18px 14px;background:#20242a;color:#aeb5ba;font:11px/1.4 var(--mono)}
+#preview .lecture-player-controls button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:44px;min-height:44px;padding:4px 10px;border:1px solid #4c555e;border-radius:6px;background:#2c3239;color:#fff;font-size:11px}#preview .lecture-player-controls button svg{width:14px;height:14px;fill:currentColor}#preview .lecture-player-controls button .icon-pause{display:none}#preview #lecturePlayer[data-playing="true"] .lecture-player-controls button .icon-play{display:none}#preview #lecturePlayer[data-playing="true"] .lecture-player-controls button .icon-pause{display:block}#preview .lecture-time-row{white-space:nowrap}#preview .lecture-progress{height:3px;border-radius:9px;background:#454d54}#preview .lecture-progress span{display:block;height:100%;border-radius:inherit;background:#e28a48}#preview .lecture-player-caption{color:#8d969d;font:11px/1.4 var(--sans);white-space:nowrap}
+#preview mark{color:inherit;background:transparent}
+#preview .comparison-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+#preview .comparison-card{display:flex;flex-direction:column;min-width:0;border:1px solid rgba(255,255,255,.14);border-radius:14px;padding:25px;background:#18181b}
+#preview .comparison-card.screen-audio{border-color:rgba(255,86,0,.6);background:linear-gradient(150deg,rgba(255,86,0,.13),#18181b 44%)}
+#preview .comparison-card header{min-height:132px;padding-bottom:20px;border-bottom:1px solid rgba(255,255,255,.12)}
+#preview .comparison-card .eyebrow{margin-bottom:12px;color:rgba(255,255,255,.58)}
+#preview .comparison-card.screen-audio .eyebrow{color:#ff9a68}
+#preview .comparison-card h3{font-size:21px;line-height:1.35;letter-spacing:-.025em}
+#preview .comparison-card header>p:last-child{margin-top:10px;font-size:12px;line-height:1.8;color:rgba(255,255,255,.63)}
+#preview .comparison-card dl{margin:0}
+#preview .comparison-card dl>div{display:grid;grid-template-columns:132px 1fr;gap:14px;padding:18px 0;border-bottom:1px solid rgba(255,255,255,.12)}
+#preview .comparison-card dt{font-size:12px;font-weight:600;color:rgba(255,255,255,.58)}
+#preview .comparison-card dd{margin:0;font-size:13px;line-height:1.75;color:#f4f4f5}
+#preview .comparison-card strong{color:#ffac84;font-weight:600}
+#preview .comparison-qualifier{font-size:11px;color:rgba(255,255,255,.62);white-space:nowrap}
+#preview .comparison-details{margin-top:16px;border-top:1px solid rgba(255,255,255,.17);border-bottom:1px solid rgba(255,255,255,.17);padding:0 2px;color:#f4f4f5}
+#preview .comparison-details summary{min-height:44px;display:flex;align-items:center;font-size:13px;font-weight:500}
+#preview .comparison-details summary::after{content:"+";margin-left:auto;font-size:20px}
+#preview .comparison-details[open] summary::after{content:"−"}
+#preview .comparison-details>p{margin-bottom:14px;font-size:12px;color:rgba(255,255,255,.62)}
+#preview .comparison-details .table-wrap{margin:0 0 18px;border-color:rgba(255,255,255,.16);background:#18181b}
+#preview .comparison-details table{color:#f4f4f5}
+#preview .comparison-details caption{padding:12px 14px;text-align:left;font-size:12px;color:rgba(255,255,255,.64)}
+#preview .comparison-details th{background:#242428;color:#fff;border-color:rgba(255,255,255,.12)}
+#preview .comparison-details td{border-color:rgba(255,255,255,.12)}
+#preview [data-evidence].is-highlighted{transition:filter .28s ease,background-color .28s ease,box-shadow .28s ease}
+#preview .comparison-card [data-evidence].is-highlighted{padding-inline:5px;margin-inline:-5px;background:rgba(255,86,0,.12);box-shadow:inset 2px 0 var(--accent)}
+#preview mark[data-evidence].is-highlighted{background:rgba(255,86,0,.28);border-radius:3px}
+#preview svg g[data-evidence].is-highlighted{filter:drop-shadow(0 0 7px rgba(255,86,0,.55))}
+@media(max-width:760px){
+  #preview.comparison-section{padding:48px 0}
+  #preview .lecture-graph{border-radius:11px}
+  #preview .lecture-player-bar{padding-inline:14px;font-size:11px}
+  #preview .lecture-player-course{display:none}
+  #preview .comparison-slide{margin:10px;border-radius:7px}
+  #preview .comparison-slide-head{padding:18px 16px 3px;gap:10px}
+  #preview .comparison-slide h3{font-size:18px}
+  #preview .comparison-slide-body{grid-template-columns:1fr;gap:0;padding:0 8px}
+  #preview .comparison-slide-body>svg{width:100%;height:auto;min-width:0}
+  #preview .comparison-margin-notes{grid-template-columns:1fr 1fr;gap:9px;padding:2px 8px 13px}
+  #preview .comparison-margin-notes p{padding-left:8px}
+  #preview .comparison-margin-notes strong{font-size:16px}
+  #preview .comparison-margin-notes span,#preview .comparison-margin-notes em{font-size:10px}
+  #preview .chart-axis text,#preview .chart-legend text{font-size:28px}
+  #preview svg [data-evidence] text{font-size:28px}
+  #preview .comparison-slide-subtitle{display:flex;min-height:100px;margin-inline:8px;padding:10px 12px;align-items:flex-start}
+  #preview .comparison-slide-subtitle p{margin-top:5px;font-size:12px}
+  #preview .lecture-player-controls{grid-template-columns:auto auto 1fr;gap:8px;padding-inline:12px}
+  #preview .lecture-player-caption{grid-column:1/-1;font-size:10px}
+  #preview .comparison-grid{grid-template-columns:1fr;gap:12px}
+  #preview .comparison-card{padding:20px;border-radius:11px}
+  #preview .comparison-card header{min-height:0}
+  #preview .comparison-card dl>div{grid-template-columns:1fr;gap:5px;padding:15px 0}
+  #preview .comparison-card dd{font-size:13px}
+}
+@media(prefers-reduced-motion:reduce){
+  #preview [data-evidence].is-highlighted,#preview .lecture-pointer,#preview .lecture-cross-ring{transition:none}
+}

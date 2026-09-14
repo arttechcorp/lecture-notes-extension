@@ -22,13 +22,13 @@ Rules for Codex, Claude Code, and Antigravity.
 
 ## 3. Git & Branching
 
-- Default: all current changes belong on `dev_ANTI`, as explicitly requested by the user. Do not create a new branch per task or per agent.
+- Default: all current changes belong on `-/dev`, as explicitly requested by the user. Do not create a new branch per task or per agent.
 - Identify user initial via `git config user.name`, `user.email`, or GitHub user:
   - `coconutdoyou` (Kiwook) -> `w`
   - `qnwlghks` (Jihwan) -> `b`
   - Fallback: ask user if neither matches.
 - New branch only when the user asks, or when work must be isolated (risky refactor, parallel spike). Then use `<initial>/<task-slug>` (no agent segment) and delete it after merge.
-- Never commit directly to `main`; merge via PR from `dev_ANTI`.
+- Never commit directly to `main`; merge via PR from `-/dev`.
 - Use Conventional Commits (`feat:`, `fix:`).
 
 ## 4. Agent Rules & Skills
