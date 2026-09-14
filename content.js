@@ -6,7 +6,10 @@
   const onSeek = () => { epoch++; };
   const onEncrypted = () => { blocked = true; };
   function locate() {
-    const found = [...document.querySelectorAll("video")].filter(v => v.videoWidth && v.getBoundingClientRect().width > 0).sort((a, b) => b.videoWidth * b.videoHeight - a.videoWidth * a.videoHeight)[0];
+    const videos = [...document.querySelectorAll("video")].filter(v => v.videoWidth && v.getBoundingClientRect().width > 0);
+    if (!videos.length) return null;
+    const playing = videos.find(v => !v.paused && v.currentTime > 0 && !v.ended);
+    const found = playing || videos.sort((a, b) => b.videoWidth * b.videoHeight - a.videoWidth * a.videoHeight)[0];
     if (found !== video) {
       video?.removeEventListener("seeking", onSeek); video?.removeEventListener("encrypted", onEncrypted);
       video = found; epoch++;
@@ -18,10 +21,30 @@
     const v = locate();
     if (!v) return { ended: true, epoch };
     const r = v.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, r.x / innerWidth));
+    const y = Math.max(0, Math.min(1, r.y / innerHeight));
+    const w = Math.max(0.01, Math.min(1 - x, r.width / innerWidth));
+    const h = Math.max(0.01, Math.min(1 - y, r.height / innerHeight));
     return { time: v.currentTime, rate: v.playbackRate, paused: v.paused, ended: v.ended, epoch,
       blocked: blocked || !!v.mediaKeys,
-      box: { x: r.x / innerWidth, y: r.y / innerHeight, w: r.width / innerWidth, h: r.height / innerHeight },
+      box: { x, y, w, h },
       videoAspect: v.videoWidth / v.videoHeight };
+  }
+  function preview() {
+    const v = locate();
+    if (!v || !v.videoWidth) throw new Error("영상을 찾지 못했거나 아직 재생되지 않았습니다. 영상을 먼저 재생해 주세요.");
+    if (blocked || v.mediaKeys) throw new Error("보호된 강의는 미리보기를 지원하지 않습니다.");
+    const scale = Math.min(1, 640 / v.videoWidth);
+    const w = Math.round(v.videoWidth * scale), h = Math.round(v.videoHeight * scale);
+    const canvas = document.createElement("canvas"); canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    try {
+      ctx.drawImage(v, 0, 0, w, h);
+      return canvas.toDataURL("image/jpeg", 0.65);
+    } catch (e) {
+      if (e.name === "SecurityError") throw new Error("보안 정책으로 영상 미리보기가 차단되었습니다.");
+      throw e;
+    }
   }
   function preflight() {
     const v = locate();
@@ -45,6 +68,9 @@
     if (sender.id !== chrome.runtime.id) return;
     if (message.type === "PREFLIGHT") {
       try { reply({ ok: true, metadata: preflight() }); } catch (error) { reply({ ok: false, error: error.message }); }
+    }
+    if (message.type === "PREVIEW") {
+      try { reply({ ok: true, dataUrl: preview() }); } catch (error) { reply({ ok: false, error: error.message }); }
     }
     if (message.type === "WATCH_MEDIA") {
       clearInterval(timer); sessionId = message.sessionId; failures = 0;
