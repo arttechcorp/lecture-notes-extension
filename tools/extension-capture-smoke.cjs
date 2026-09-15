@@ -60,6 +60,7 @@ const server = http.createServer((_req, res) => {
     await panel.waitForFunction(() => document.getElementById('startBtn')?.disabled === false);
     async function captureAndStop(view) {
       assert.equal(await view.locator('#tabSelect').inputValue(), String(tabId), 'Opening a control window must preserve the invoked lecture tab');
+      await view.selectOption('#modeSelect', 'slide');
       await view.click('#startBtn');
       await view.waitForFunction(() => !document.getElementById('readyAlert').hidden || !document.getElementById('stageLive').hidden, null, { timeout: 15000 });
       const start = await view.evaluate(() => ({ error: document.getElementById('readyAlert').textContent, live: !document.getElementById('stageLive').hidden }));

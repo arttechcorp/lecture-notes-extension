@@ -74,6 +74,11 @@ const init = () => {
     assert.equal(await panel.$eval('#startBtn', button => button.disabled), false);
     assert.equal(await panel.$eval('#tabSelect', select => select.value), '3');
     await panel.click('#startBtn');
+    await panel.waitForFunction(() => document.getElementById('readyAlert')?.textContent.includes('영역을 드래그'));
+    assert.equal(await panel.evaluate(() => mock.calls.includes('START_SESSION')), false);
+    assert.equal(await panel.$eval('#previewBtn', button => button === document.activeElement), true);
+    await panel.selectOption('#modeSelect', 'slide');
+    await panel.click('#startBtn');
     await panel.waitForFunction(() => document.getElementById('readyAlert')?.textContent === '합성 시작 실패');
     assert.equal(await panel.$eval('#readyAlert', alert => alert.hidden), false);
     const rendered = await panel.evaluate(() => {

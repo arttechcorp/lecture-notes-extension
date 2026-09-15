@@ -81,10 +81,7 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
       const current=session;summaryController=new AbortController();current.status="summarizing";current.error=null;current.publish();
       current.summaryCache||=new Map();current.summaryAttempt=(current.summaryAttempt||0)+1;
       try{
-        // Read the persisted settings at the inference boundary so a stale
-        // panel message cannot silently downgrade a configured OpenRouter key
-        // to the recognition-only result.
-        const config=settingsOf(await loadSettings()),summaryService=config.openRouterApiKey?OpenRouterClient:ServiceClient;
+        const config=settingsOf(message.settings),summaryService=config.openRouterApiKey?OpenRouterClient:ServiceClient;
         current.log(`[요약] 연결 확인 · ${config.openRouterApiKey?"OpenRouter API 키 입력됨":config.serviceUrl&&config.appSessionToken?"보관 서비스 설정됨":"연결 설정 없음"} · 동의 ${config.remoteSummaryConsent?"완료":"미확인"} · 모델 ${config.summaryModel||"기본"}`);
         current.summary=await SummaryPipeline.generate(current.store.snapshot(),{sessionId:current.id,settings:config,service:summaryService,signal:summaryController.signal,cache:current.summaryCache,attempt:current.summaryAttempt,onProgress:progress=>{current.progress=progress;current.publish();}});
       }catch(error){if(error.partial?.sections.length)current.summary=error.partial;current.error=error.name==="AbortError"?"요약을 취소했습니다. 완료한 구간은 유지됩니다.":error.message;}

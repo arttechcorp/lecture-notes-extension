@@ -21,10 +21,8 @@
     const v = locate();
     if (!v) return { ended: true, epoch };
     const r = v.getBoundingClientRect();
-    const x = Math.max(0, Math.min(1, r.x / innerWidth));
-    const y = Math.max(0, Math.min(1, r.y / innerHeight));
-    const w = Math.max(0.01, Math.min(1 - x, r.width / innerWidth));
-    const h = Math.max(0.01, Math.min(1 - y, r.height / innerHeight));
+    const x = r.x / innerWidth, y = r.y / innerHeight;
+    const w = r.width / innerWidth, h = r.height / innerHeight;
     return { time: v.currentTime, rate: v.playbackRate, paused: v.paused, ended: v.ended, epoch,
       blocked: blocked || !!v.mediaKeys,
       box: { x, y, w, h },

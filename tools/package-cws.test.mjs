@@ -65,6 +65,7 @@ test("2. 시크릿 정규식 탐지기(Secret Scanner) 회귀 테스트", () => 
     },
     {
       expected: "OpenRouter",
+      sample: 'const or = "' + 'sk-or-v1-' + 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";',
       sample: `const or = "sk-or-v1-${"abcdef0123456789".repeat(4)}";`,
     },
     {
