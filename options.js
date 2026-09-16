@@ -4,12 +4,28 @@ const fields=['openRouterApiKey','serviceUrl','appSessionToken','summaryModel','
 // Auto-save fields: each persists immediately on change (elements below carry the "자동 저장" badge).
 const AUTO=[['themeSelect','theme'],['ocrEnabledCb','ocrEnabled'],['whisperCb','whisperEnabled'],['whisperModel','whisperModel'],['whisperLang','whisperLang']];
 const BOOL_FIELDS=new Set(['remoteSummaryConsent']);
+// Speed correction is the one auto-saved toggle that is NOT wired through AUTO: turning it on changes what the
+// listener hears, so it is only persisted after the warning dialog is acknowledged.
+function wireSpeedCorrection(initial){
+  const box=$('speedCorrectionCb'),modal=$('speedWarn');
+  if(!box)return;
+  box.checked=initial;
+  const persist=async value=>{try{await saveSettings({speedCorrection:value});notice(value?'배속 인식 보정을 켰습니다. 다음 캡처부터 적용됩니다.':'배속 인식 보정을 껐습니다.');}catch(error){box.checked=!value;notice(error.message);}};
+  box.addEventListener('change',()=>{
+    if(!box.checked)return persist(false);
+    if(modal?.showModal)modal.showModal();else persist(true);
+  });
+  $('speedWarnOk')?.addEventListener('click',()=>{modal.close();persist(true);});
+  $('speedWarnCancel')?.addEventListener('click',()=>{modal.close();box.checked=false;});
+  modal?.addEventListener('cancel',()=>{box.checked=false;});
+}
 function notice(message){$('saved').hidden=false;$('saved').textContent=message;}
 function values(){return Object.fromEntries(fields.map(id=>[id,BOOL_FIELDS.has(id)?$(id).checked:$(id).value]));}
 (async()=>{try{
   const s=await loadSettings();
   for(const id of fields)if(BOOL_FIELDS.has(id))$(id).checked=s[id];else $(id).value=s[id];
   for(const [id,key] of AUTO){const el=$(id);if(!el)continue;if(el.type==='checkbox')el.checked=s[key];else el.value=s[key];}
+  wireSpeedCorrection(s.speedCorrection===true);
 }catch(error){notice(error.message);}})();
 for(const [id,key] of AUTO){
   const el=$(id);

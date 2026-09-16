@@ -83,7 +83,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       try { streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }); }
       catch (error) { throw captureError(error); }
       const response = await chrome.runtime.sendMessage({ target: "session", type: "START_SESSION", streamId, options: { ...message.options, tabId, metadata: probe.metadata } });
-      if (response.ok) await chrome.tabs.sendMessage(tabId, { type: "WATCH_MEDIA", sessionId: response.state.sessionId }, { frameId: 0 });
+      if (response.ok) await chrome.tabs.sendMessage(tabId, { type: "WATCH_MEDIA", sessionId: response.state.sessionId, speedCorrection: message.options?.speedCorrection === true }, { frameId: 0 });
       return response;
     } finally { starting = false; }
   })().then(reply).catch(error => reply({ ok: false, error: error.message || "요청을 처리하지 못했습니다." }));

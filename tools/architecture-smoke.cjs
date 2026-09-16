@@ -83,7 +83,7 @@ const init = () => {
     assert.equal(await panel.$eval('#readyAlert', alert => alert.hidden), false);
     const rendered = await panel.evaluate(() => {
       const cited = { content: '핵심 조건', importance: 'critical', evidenceIds: ['ev-1'] };
-      const summary = { title: '구조화 노트', keyConclusions: [cited], concepts: [], claims: [], definitions: [], relationships: [], examples: [], corrections: [], openQuestions: [], sections: [{ heading: '구간', ...cited }], formulas: [{ latex: 'V=IR', variables: 'V, I, R', units: 'V, A, Ω', conditions: '선형 저항', explanation: '옴의 법칙', importance: 'important', evidenceIds: ['ev-1'] }], visuals: [], reviewQuestions: [{ question: '조건은?', evidenceIds: ['ev-1'] }], evidenceIds: ['ev-1'], status: 'complete' };
+      const summary = { title: '구조화 노트', keyConclusions: [cited], concepts: [], corrections: [], openQuestions: [], sections: [{ heading: '구간', ...cited }], formulas: [{ latex: 'V=IR', variables: 'V, I, R', units: 'V, A, Ω', conditions: '선형 저항', explanation: '옴의 법칙', importance: 'important', evidenceIds: ['ev-1'] }], visuals: [], reviewQuestions: [{ question: '조건은?', evidenceIds: ['ev-1'] }], evidenceIds: ['ev-1'], status: 'complete' };
       mock.listeners[0]({ target: 'panel', type: 'SESSION_STATE', state: { sessionId: 'panel', generation: 1, status: 'completed', counts: { visual: 1, audio: 0 }, summary, gaps: [] } }, { id: chrome.runtime.id, url: chrome.runtime.getURL('offscreen.html') });
       return document.getElementById('result').value;
     });
@@ -98,7 +98,7 @@ const init = () => {
       session=new CaptureSession({id:'archive-source',generation:++generation,stream:null,options:{},emit:()=>{}});
       const item=session.store.add({source:'ocr',text:'PRIVATE_SYNTHETIC_MARKER',time:10});
       const noteItem={content:'개념의 적용 조건을 비교한 정리입니다.',importance:'important',evidenceIds:[item.id]};
-      session.summary={title:'합성 노트',keyConclusions:[noteItem],concepts:[],claims:[],definitions:[],relationships:[],examples:[],corrections:[],openQuestions:[],sections:Array.from({length:90},(_,i)=>({heading:'구간 '+i,...noteItem})),formulas:[],visuals:[],reviewQuestions:Array.from({length:40},(_,i)=>({question:'확인 질문 '+i,evidenceIds:[item.id]})),evidenceIds:[item.id],status:'partial',preprocessing:{decisions:[{id:item.id,selection:'uncertain',selectionReason:'합성 테스트 불확실성',relatedEvidenceIds:[]}]}};
+      session.summary={title:'합성 노트',keyConclusions:[noteItem],concepts:[],corrections:[],openQuestions:[],sections:Array.from({length:90},(_,i)=>({heading:'구간 '+i,...noteItem})),formulas:[],visuals:[],reviewQuestions:Array.from({length:40},(_,i)=>({question:'확인 질문 '+i,evidenceIds:[item.id]})),evidenceIds:[item.id],status:'partial',preprocessing:{decisions:[{id:item.id,selection:'uncertain',selectionReason:'합성 테스트 불확실성',relatedEvidenceIds:[]}]}};
       session.counts.visual=1;session.closed=true;session.status='completed';
       const result=await call({type:'SAVE_VAULT',settings,passphrase:'synthetic-password-123'});
       if(!result.ok)throw new Error(result.error);

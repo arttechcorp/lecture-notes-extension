@@ -213,6 +213,10 @@
   footer { border-top: 1px solid var(--rule); padding-top: 16px; display: flex; flex-direction: column; gap: 8px; }
   footer p { margin: 0; }
   a { color: var(--ink); text-underline-offset: 3px; }
+  .working { display: flex; align-items: center; gap: 10px; margin: 10px 0 0; font-size: 12.5px; line-height: 1.45; }
+  .working-ring { width: 16px; height: 16px; flex: none; border-radius: 50%; border: 2px solid currentColor; border-top-color: transparent; opacity: .75; animation: working-spin .9s linear infinite; }
+  @keyframes working-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .working-ring { animation-duration: 3s; } }
   #status:empty { display: none; }
   .legal { font-size: 11.5px; color: var(--faint); line-height: 1.45; }
   @media (prefers-color-scheme: dark) {
@@ -492,6 +496,7 @@
 </div>
 
 <!-- ── 공통 ────────────────────────────────────────────────── -->
+<div id="working" class="working" hidden role="status" aria-live="polite"><span class="working-ring" aria-hidden="true"></span><span>노트 필기중. 만약 노트가 생성되지 않았으면 다시 생성해주세요</span></div>
 <div id="status" class="detail" role="status" aria-live="polite" style="min-height:1.4em; white-space:pre-wrap;"></div>
 
 <details id="rawEvidence" hidden>

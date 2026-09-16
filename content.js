@@ -1,8 +1,11 @@
 // Metadata/preflight only. No frames, audio, credentials or lecture text cross this boundary.
+// The one page mutation is preservesPitch, and only when the user turns on 배속 인식 보정: Chrome's pitch-preserving
+// time stretch cannot be undone by resampling, so it is switched off for the capture and restored when it ends.
 (() => {
   if (window.__summrizeiMetadata) return;
   window.__summrizeiMetadata = true;
   let timer, video, epoch = 0, sessionId, failures = 0, blocked = false;
+  let pitchWas = null;
   const onSeek = () => { epoch++; };
   const onEncrypted = () => { blocked = true; };
   function locate() {
@@ -62,6 +65,14 @@
     }
     return metadata();
   }
+  function setPitchPreservation(on) {
+    const v = locate();
+    if (!v) return;
+    const key = "preservesPitch" in v ? "preservesPitch" : "webkitPreservesPitch" in v ? "webkitPreservesPitch" : null;
+    if (!key) return;
+    if (!on) { if (pitchWas === null) pitchWas = v[key]; v[key] = false; }
+    else if (pitchWas !== null) { v[key] = pitchWas; pitchWas = null; }
+  }
   chrome.runtime.onMessage.addListener((message, sender, reply) => {
     if (sender.id !== chrome.runtime.id) return;
     if (message.type === "PREFLIGHT") {
@@ -72,6 +83,7 @@
     }
     if (message.type === "WATCH_MEDIA") {
       clearInterval(timer); sessionId = message.sessionId; failures = 0;
+      if (message.speedCorrection === true) setPitchPreservation(false);
       timer = setInterval(() => {
         chrome.runtime.sendMessage({ target: "session", type: "MEDIA_METADATA", sessionId, metadata: metadata() }).then(r => {
           if (!r?.ok && ++failures > 3) clearInterval(timer);
@@ -79,7 +91,7 @@
       }, 250);
       reply({ ok: true });
     }
-    if (message.type === "STOP_WATCH") { clearInterval(timer); reply({ ok: true }); }
+    if (message.type === "STOP_WATCH") { clearInterval(timer); setPitchPreservation(true); reply({ ok: true }); }
   });
-  addEventListener("pagehide", () => clearInterval(timer), { once: true });
+  addEventListener("pagehide", () => { clearInterval(timer); setPitchPreservation(true); }, { once: true });
 })();

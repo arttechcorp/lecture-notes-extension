@@ -145,6 +145,47 @@
       padding: 40px 12px;
       font-size: 13px;
     }
+    .workflow-card {
+      margin: 14px 0;
+      padding: 14px 16px;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 12.5px;
+      text-align: left;
+    }
+    .workflow-group {
+      margin-bottom: 12px;
+    }
+    .workflow-group:last-child {
+      margin-bottom: 0;
+    }
+    .workflow-title {
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 8px;
+      font-size: 13px;
+    }
+    .workflow-steps {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+    .workflow-step {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-weight: 500;
+      color: var(--text);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    }
+    .workflow-arrow {
+      color: var(--sub);
+      font-weight: bold;
+      user-select: none;
+    }
     @media print {
       body {
         padding: 0 !important;
@@ -256,19 +297,103 @@
         });
       }
 
+      function escapeHtml(str) {
+        return String(str || '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+      }
+
+      function sanitizeMermaid(code) {
+        if (!code) return '';
+        let s = code.trim();
+        // 1. graph TD -> flowchart TD (subgraph direction 지원)
+        s = s.replace(/^graph\s+([A-Za-z]+)/m, 'flowchart $1');
+        // 2. subgraph 공백 및 대괄호 문법 보정
+        s = s.replace(/^(\s*subgraph\s+)(.+)$/gm, (match, prefix, rest) => {
+          rest = rest.trim();
+          if (/^"[^"]+"$/.test(rest) || /^\w+\s*\["[^"]+"\]$/.test(rest)) return match;
+          const bracketMatch = rest.match(/^(.+?)\s*\[(.*)\]$/);
+          if (bracketMatch) {
+            const rawId = bracketMatch[1].trim();
+            const rawTitle = bracketMatch[2].trim();
+            const safeId = rawId.replace(/[^a-zA-Z0-9_]/g, '_');
+            const safeTitle = (rawId + (rawTitle ? ' (' + rawTitle + ')' : '')).replace(/"/g, "'");
+            return `${prefix}${safeId} ["${safeTitle}"]`;
+          }
+          if (/\s/.test(rest)) {
+            const safeId = rest.replace(/[^a-zA-Z0-9_]/g, '_');
+            const safeTitle = rest.replace(/"/g, "'");
+            return `${prefix}${safeId} ["${safeTitle}"]`;
+          }
+          return match;
+        });
+        // 3. 노드 라벨 따옴표 누락 보정
+        s = s.replace(/(\b\w+)\s*\[([^"\n\[\]]+)\]/g, (match, id, label) => {
+          if (!label.startsWith('"') && !label.endsWith('"')) {
+            const safe = label.replace(/"/g, "'");
+            return `${id}["${safe}"]`;
+          }
+          return match;
+        });
+        return s;
+      }
+
+      function renderFallbackWorkflow(code) {
+        const nodeLabels = new Map();
+        const nodeRegex = /(\b\w+)\s*\["?(.*?)"?\]/g;
+        let m;
+        while ((m = nodeRegex.exec(code)) !== null) {
+          if (!nodeLabels.has(m[1]) && m[2].trim()) nodeLabels.set(m[1], m[2].trim());
+        }
+        const subgraphs = [];
+        const lines = code.split('\n');
+        let curSub = null;
+        for (const line of lines) {
+          const subMatch = line.match(/subgraph\s+\w+\s*\["?(.*?)"?\]/i) || line.match(/subgraph\s+"?(.*?)"?$/i);
+          if (subMatch) {
+            curSub = { title: subMatch[1].trim(), steps: [] };
+            subgraphs.push(curSub);
+          } else if (/^\s*end\b/i.test(line)) {
+            curSub = null;
+          } else {
+            for (const [id, label] of nodeLabels) {
+              if (line.includes(id) && curSub && !curSub.steps.includes(label)) curSub.steps.push(label);
+            }
+          }
+        }
+        if (!subgraphs.length && nodeLabels.size > 0) {
+          subgraphs.push({ title: '단계별 흐름', steps: Array.from(nodeLabels.values()) });
+        }
+        if (!subgraphs.length) {
+          return `<pre style="font-size:11px; text-align:left; background:var(--code-bg); padding:10px; border-radius:6px;">${escapeHtml(code)}</pre>`;
+        }
+        let html = '<div class="workflow-card">';
+        for (const sub of subgraphs) {
+          html += `<div class="workflow-group"><div class="workflow-title">📌 ${escapeHtml(sub.title)}</div><div class="workflow-steps">`;
+          sub.steps.forEach((step, idx) => {
+            if (idx > 0) html += '<span class="workflow-arrow">➔</span>';
+            html += `<span class="workflow-step">${escapeHtml(step)}</span>`;
+          });
+          html += '</div></div>';
+        }
+        html += '</div>';
+        return html;
+      }
+
       // 7. Mermaid 다이어그램 렌더링
       if (typeof mermaid !== 'undefined' && mermaidBlocks.length > 0) {
         for (let i = 0; i < mermaidBlocks.length; i++) {
           if (curSeq !== renderSeq) return;
           const el = document.getElementById('mermaid-wrap-' + i);
           if (el) {
+            const rawCode = mermaidBlocks[i];
+            const cleanCode = sanitizeMermaid(rawCode);
             try {
               const svgId = 'mermaid-svg-' + curSeq + '-' + i;
-              const { svg } = await mermaid.render(svgId, mermaidBlocks[i]);
+              const { svg } = await mermaid.render(svgId, cleanCode);
               el.innerHTML = svg;
             } catch (err) {
-              console.warn('Mermaid diagram render error:', err);
-              el.innerHTML = '<pre style="color:#ef4444; font-size:11px; text-align:left;">그래프 렌더링 실패:\n' + mermaidBlocks[i] + '</pre>';
+              console.warn('Mermaid render error after sanitization:', err);
+              // 붉은색 에러 대신 품격있는 카드형 워크플로우로 자동 폴백
+              el.innerHTML = renderFallbackWorkflow(cleanCode || rawCode);
             }
           }
         }

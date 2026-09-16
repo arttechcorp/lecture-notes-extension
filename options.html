@@ -462,6 +462,11 @@
     text-underline-offset: 3px;
   }
   .key-link svg { flex-shrink: 0; }
+  .warn-modal { max-width: 420px; border: 1px solid var(--line, #d7dbe2); border-radius: 12px; padding: 20px; background: Canvas; color: CanvasText; }
+  .warn-modal::backdrop { background: rgba(15, 18, 24, .45); }
+  .warn-modal h2 { margin: 0 0 10px; font-size: 15px; }
+  .warn-modal p { margin: 0 0 10px; font-size: 13px; line-height: 1.55; }
+  .warn-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
   .checklist {
     display: grid;
     gap: 10px;
@@ -716,7 +721,26 @@
       </div>
       <p class="note" id="voiceSaved" role="status" aria-live="polite">변경 사항은 다음 캡처부터 적용됩니다.</p>
     </div>
+
+    <div class="form-field">
+      <label class="check-label">
+        <input type="checkbox" id="speedCorrectionCb" class="check-input">
+        <span>배속 인식 보정 <span class="badge">자동 저장</span></span>
+      </label>
+      <p class="note">2배속 이상으로 듣는 경우에만 켜세요. 캡처 중 강의 영상의 음정 보정을 끄고 인식 직전에 원래 속도로 되돌립니다. <strong>재생 중 목소리가 높게 들립니다.</strong></p>
+    </div>
   </section>
+
+  <dialog id="speedWarn" class="warn-modal" aria-labelledby="speedWarnTitle">
+    <h2 id="speedWarnTitle">배속 인식 보정을 켤까요?</h2>
+    <p>켜는 동안 <strong>강의 소리가 평소보다 높은 음정으로 들립니다.</strong> 크롬의 음정 보정을 꺼야 배속 음성을 원래 속도로 되돌릴 수 있기 때문입니다.</p>
+    <p>기기와 강의에 따라 <strong>2배속에서는 음성이 깨지거나 인식이 부정확할 수 있습니다.</strong> 노트가 이상하면 1배속으로 다시 캡처해 주세요.</p>
+    <p class="note">캡처를 마치면 원래 재생 설정으로 되돌립니다.</p>
+    <div class="warn-actions">
+      <button type="button" id="speedWarnCancel">취소</button>
+      <button type="button" id="speedWarnOk" class="primary">이해했고 켜기</button>
+    </div>
+  </dialog>
 
   <section class="card" aria-labelledby="apiHeading">
     <details>
@@ -759,8 +783,9 @@
             <select id="summaryModel">
               <option value="google/gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite · 비용 우선</option>
               <option value="google/gemini-3.8-flash">Gemini 3.8 Flash · 기본 추천</option>
+              <option value="google/gemini-2.5-pro">Gemini 2.5 Pro · 플래그십 심층 분석</option>
               <option value="anthropic/claude-haiku-4.5">Claude Haiku 4.5</option>
-              <option value="anthropic/claude-sonnet-5">Claude Sonnet 5 · 상세 노트</option>
+              <option value="anthropic/claude-sonnet-4.6">Claude Sonnet 4.6 · 상세 노트</option>
             </select>
           </div>
         </div>
