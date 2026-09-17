@@ -1,5 +1,5 @@
 // 자동 생성 — landing/hero-mockup.html 에서 추출. 수정하지 말 것.
-// 재생성: node scripts/extract-slides.mjs
+// 재생성: node tools/extract-slides.mjs
 
 export type Slide = {
   title: string;

@@ -26,7 +26,7 @@ mkdirSync("video/src/mockup", { recursive: true });
 writeFileSync(
   "video/src/mockup/slides.ts",
   `// 자동 생성 — landing/hero-mockup.html 에서 추출. 수정하지 말 것.\n` +
-    `// 재생성: node scripts/extract-slides.mjs\n\n` +
+    `// 재생성: node tools/extract-slides.mjs\n\n` +
     `export type Slide = {\n  title: string;\n  subtitle: string;\n  page: string;\n  inkTitle: string;\n  body: string;\n  ink: string[];\n};\n\n` +
     `export const slides: Slide[] = ${JSON.stringify(slides.map(({ index, ...s }) => s), null, 2)};\n`
 );
