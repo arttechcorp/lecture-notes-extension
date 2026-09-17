@@ -3,7 +3,7 @@
 const fs=require("node:fs"),path=require("node:path"),http=require("node:http"),crypto=require("node:crypto");
 const Vault=require("../lib/vault.js"),{validateSummary}=require("../lib/summary.js");
 const RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"google/gemini-2.5-pro":[1.25,10],"anthropic/claude-haiku-4.5":[1,5],"anthropic/claude-sonnet-4.6":[3,15],"anthropic/claude-sonnet-5":[2,10]};
-const {schema,systemFor,reasoningFor,maxTokensFor}=require("../lib/openrouter-client.js");
+const {schema,systemFor,reasoningFor,maxTokensFor,parseNote}=require("../lib/openrouter-client.js");
 const safePart=x=>{if(typeof x!=="string"||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(x))throw new Error("invalid_id");return x;};
 const tokenEqual=(a,b)=>{const x=Buffer.from(String(a)),y=Buffer.from(String(b));return x.length===y.length&&crypto.timingSafeEqual(x,y);};
 const positive=(x,fallback)=>{const n=Number(x??fallback);if(!Number.isFinite(n)||n<=0)throw new Error("invalid_limit");return n;};
@@ -120,7 +120,7 @@ function createServer(env=process.env,deps={}){
         if(typeof u.cost==="number"&&Number.isFinite(u.cost)&&u.cost>=0)amount+=u.cost;else reported=false;
         try{
           if(raw.choices?.[0]?.finish_reason!=="stop")throw new Error("provider_output_incomplete");
-          parsed=validateSummary(JSON.parse(raw.choices[0].message.content),items);
+          parsed=validateSummary(parseNote(raw.choices[0].message.content),items);
           break;
         }catch(error){if(retry===attempts-1)throw error;}
       }
