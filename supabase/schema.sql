@@ -91,6 +91,8 @@ begin
 end;
 $$;
 
+-- 반환 타입이 바뀌면 create or replace가 거부되므로 먼저 떨어뜨린다.
+drop function if exists admin_list_codes();
 create or replace function admin_list_codes()
 returns table(code text, kind text, owner_email text, used_by_email text, used boolean, created_at timestamptz)
 language plpgsql
