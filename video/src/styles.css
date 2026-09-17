@@ -1,0 +1,51 @@
+@import url('https://fonts.googleapis.com/css2?family=Hedvig+Letters+Serif:opsz@12..24&family=Geist+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap');
+
+/* 랜딩페이지와 같은 스타일을 그대로 쓴다. 목업이 실제 제품 화면과 어긋나지 않게. */
+@import url('../../landing/landing.css');
+@import url('../../landing/product-panel.css');
+@import url('../../landing/hero-mockup.css');
+
+body { background: var(--ground); }
+
+/* 한글은 어절 단위로 끊는다. 안 그러면 "자동 / 으로." 처럼 낱말 중간에서 줄이 바뀐다. */
+body, body * { word-break: keep-all; }
+
+/* --- 결정론 보정 --- */
+/* CSS 애니메이션은 wall-clock 기반이라 프레임 단위 캡처에서 결과가 매번 달라진다. 전부 끈다.
+   움직여야 하는 것(파형, 캡처 테두리)은 Mockup.tsx 가 프레임 값으로 직접 그린다. */
+*, *::before, *::after { animation: none !important; transition: none !important; }
+
+/* demo-panel 은 원래 iframe 이라 product-panel.css 의 body 규칙을 받았다. div 로 옮겼으니 다시 붙인다. */
+.demo-panel {
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  line-height: 1.6;
+  padding: 18px 16px;
+  color: var(--ink);
+  background: var(--ground);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 아래는 demo-panel.html 의 인라인 <style> 을 그대로 옮긴 것 — 목업 크기에 맞춘 축소판. */
+#stageLive, #stageDone { min-height: 0; }
+#stageDone { flex: 1; gap: 6px; }
+#stageDone .result-title { font-size: 13.5px; margin: 0; }
+#stageDone .statusline { margin-bottom: 0; }
+#stageDone .note-toolbar { margin: 2px 0 4px; }
+#stageDone .note-surface { flex: 1; min-height: 0; max-height: none; overflow: hidden; }
+#stageDone .note-document { font-size: 11.5px; line-height: 1.55; padding: 2px 4px 14px; }
+#stageDone .note-document h1 { font-size: 15px; margin: .7em 0 .25em; }
+#stageDone .note-document h2 { font-size: 13.5px; margin: .75em 0 .25em; }
+#stageDone .note-document h3 { font-size: 12px; margin: .7em 0 .2em; }
+#stageDone .note-document p { margin: 0 0 .45em; }
+#stageDone .note-document blockquote { margin: 0 0 .5em; padding: 5px 8px; font-size: 11px; line-height: 1.5; }
+#stageDone .note-document table { font-size: 10.5px; margin: .35em 0 .5em; }
+#stageDone .note-document th, #stageDone .note-document td { padding: 3px 5px; }
+#stageDone .note-document ul, #stageDone .note-document ol { margin: 0 0 .45em; padding-left: 1.15em; }
+#stageDone .note-document li + li { margin-top: .15em; }
+#stageDone .note-document hr { margin: .6em 0; }
+#stageDone .detail.result-help { font-size: 10px; margin-top: 3px; }

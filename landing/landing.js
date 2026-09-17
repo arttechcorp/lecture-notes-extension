@@ -5,33 +5,10 @@
     essential: { name: 'Essential', type: '핵심 요약', example: 'basic' },
     professional: { name: 'Professional', type: '상세 노트', example: 'premium' },
   };
-  // 발췌는 examples.js의 전체 예시 앞부분에서 파생한다. 같은 내용을 손으로 두 번 쓰지 않는다.
-  // #demoOutput은 h3를 제목, h4를 소제목으로 스타일링하므로 첫 제목만 h3로 내린다.
-  function excerpt(id) {
-    const plan = plans[id];
-    if (!plan) return '';
-    const source = window.SUMMRIZEI_EXAMPLES?.[plan.example]?.html;
-    if (!source) return '';
-    const holder = document.createElement('div');
-    holder.innerHTML = source;
-    const parts = [`<p class="eyebrow">${plan.type}</p>`];
-    let headings = 0;
-    for (const block of holder.children) {
-      if (block.tagName === 'HR') continue;
-      if (/^H[1-4]$/.test(block.tagName)) {
-        const level = headings++ === 0 ? 'h3' : 'h4';
-        parts.push(`<${level}>${block.innerHTML}</${level}>`);
-      } else parts.push(block.outerHTML);
-      if (parts.length > 8) break;
-    }
-    return parts.join('');
-  }
-
   const studentToggle = document.getElementById('studentToggle');
   const sample = document.getElementById('sampleDialog');
   const checkout = document.getElementById('checkout');
   const install = document.getElementById('installDialog');
-  const full = document.getElementById('demoFull');
   function httpsUrl(value) {
     try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password ? url : null; } catch { return null; }
   }
@@ -98,32 +75,6 @@
       card.dataset.card === 'free' ? showInstall() : showPlan(card.dataset.card);
     });
   });
-  const tabs = [...document.querySelectorAll('[data-demo]')];
-  function selectDemo(id, focus = false) {
-    for (const tab of tabs) {
-      const selected = tab.dataset.demo === id;
-      tab.setAttribute('aria-selected', String(selected));
-      tab.tabIndex = selected ? 0 : -1;
-      if (selected && focus) tab.focus();
-    }
-    const output = document.getElementById('demoOutput');
-    output.innerHTML = excerpt(id);
-    wrapTables(output);
-    output.setAttribute('aria-labelledby', 'tab-' + id);
-    document.getElementById('demoModel').textContent = plans[id].type + ' · 편집된 발췌';
-    full.dataset.example = id;
-  }
-  tabs.forEach((tab,index) => {
-    tab.addEventListener('click', () => selectDemo(tab.dataset.demo));
-    tab.addEventListener('keydown', event => {
-      let next;
-      if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
-      if (event.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length;
-      if (event.key === 'Home') next = 0;
-      if (event.key === 'End') next = tabs.length - 1;
-      if (next !== undefined) { event.preventDefault(); selectDemo(tabs[next].dataset.demo, true); }
-    });
-  });
   studentToggle?.addEventListener('click', () => {
     const on = studentToggle.getAttribute('aria-pressed') !== 'true';
     studentToggle.setAttribute('aria-pressed', String(on));
@@ -166,9 +117,142 @@
     document.addEventListener('visibilitychange', syncReviews);
     syncReviews();
   }
-  selectDemo('professional');
   if (window.location.hash.startsWith('#example-')) {
     const ex = window.location.hash.slice(9);
     if (plans[ex]) showExample(ex);
   }
+})();
+
+// Six-second, silent sample scene; independent of the real lecture capture and hero demo.
+(() => {
+  const player = document.getElementById('lecturePlayer');
+  const playBtn = document.getElementById('lectureScenePlay');
+  const label = playBtn?.querySelector('[data-player-label]');
+  const caption = document.getElementById('lectureSceneCaption');
+  const timeEl = document.getElementById('lectureSceneTime');
+  const progEl = document.getElementById('lectureSceneProgress');
+
+  if (!player || !playBtn || !label || !caption || !timeEl || !progEl) {
+    if (playBtn) playBtn.hidden = true;
+    return;
+  }
+
+  const BASE_SEC = 340;
+  const TOTAL_SEC = 2538;
+  const DURATION = 6000;
+  const FULL_CAPTION = caption.textContent;
+  const STAGES = [
+    { max: 1500, scene: 'current', text: '지금 조건에서는' },
+    { max: 3000, scene: 'choice', text: '위쪽 안을 고르면 됩니다.' },
+    { max: 4500, scene: 'crossing', text: '다만 여기 교차점을 지나면' },
+    { max: 6000, scene: 'after', text: '순서가 바뀌죠.' }
+  ];
+
+  let elapsed = 0;
+  let rafId = null;
+  let lastTime = 0;
+  let hasInteracted = false;
+  let ioInit = true;
+
+  const mm = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+  function fmtTime(sec) {
+    const m = String(Math.floor(sec / 60)).padStart(2, '0');
+    const s = String(Math.floor(sec % 60)).padStart(2, '0');
+    return `${m}:${s}`;
+  }
+
+  function render(ms) {
+    const curSec = BASE_SEC + (ms / 1000);
+    progEl.style.width = `${((curSec / TOTAL_SEC) * 100).toFixed(3)}%`;
+    timeEl.textContent = fmtTime(curSec);
+
+    if (ms >= DURATION) {
+      player.dataset.scene = 'complete';
+      caption.textContent = FULL_CAPTION;
+      label.textContent = '다시 재생';
+      return;
+    }
+
+    const stage = STAGES.find(s => ms < s.max) || STAGES[STAGES.length - 1];
+    if (player.dataset.scene !== stage.scene) {
+      player.dataset.scene = stage.scene;
+      caption.textContent = stage.text;
+    }
+  }
+
+  function pause() {
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+    player.dataset.playing = 'false';
+    playBtn.setAttribute('aria-pressed', 'false');
+    if (elapsed < DURATION && hasInteracted) {
+      label.textContent = '이어서 재생';
+    }
+  }
+
+  function tick(now) {
+    elapsed += (now - lastTime);
+    lastTime = now;
+    if (elapsed >= DURATION) {
+      elapsed = DURATION;
+      render(DURATION);
+      pause();
+      return;
+    }
+    render(elapsed);
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function play() {
+    if (mm.matches || document.hidden) return;
+    if (elapsed >= DURATION) {
+      elapsed = 0;
+      render(0);
+    }
+    hasInteracted = true;
+    render(elapsed);
+    player.dataset.playing = 'true';
+    playBtn.setAttribute('aria-pressed', 'true');
+    label.textContent = '일시정지';
+    lastTime = performance.now();
+    rafId = requestAnimationFrame(tick);
+  }
+
+  playBtn.addEventListener('click', () => {
+    if (player.dataset.playing === 'true') pause();
+    else play();
+  });
+
+  function handleMotion() {
+    if (mm.matches) {
+      pause();
+      elapsed = 0;
+      hasInteracted = false;
+      render(DURATION);
+      label.textContent = '장면 재생';
+      timeEl.textContent = '05:40';
+      progEl.style.width = `${((BASE_SEC / TOTAL_SEC) * 100).toFixed(3)}%`;
+      playBtn.hidden = true;
+    } else {
+      playBtn.hidden = false;
+    }
+  }
+  player.dataset.playing = 'false';
+  playBtn.setAttribute('aria-pressed', 'false');
+  mm.addEventListener('change', handleMotion);
+  handleMotion();
+
+  document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
+  window.addEventListener('pagehide', pause);
+
+  const io = 'IntersectionObserver' in window ? new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (ioInit) { ioInit = false; return; }
+      if (!entry.isIntersecting) pause();
+    });
+  }, { threshold: 0 }) : null;
+  io?.observe(player);
 })();

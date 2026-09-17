@@ -19,9 +19,26 @@ const assert=require('node:assert/strict');
  await page.locator('#installDialog .close-button').click();
  await page.locator('#studentToggle').click();
  assert.equal(await page.locator('#studentToggle').getAttribute('aria-pressed'),'true');
+ // The comparison section shows evidence highlights by default.
+ await page.locator('#comparisonEvidence').scrollIntoViewIfNeeded();
+ const evidence=page.locator('#comparisonEvidence [data-evidence]');
+ assert(await evidence.count()>0);
+ assert(await evidence.evaluateAll(els=>els.every(e=>e.classList.contains('is-highlighted'))),'evidence is highlighted by default');
+ assert(await page.locator('#lectureScenePlay').isHidden(),'reduced motion keeps the poster static');
+ assert.equal(await page.locator('#lecturePlayer').getAttribute('data-scene'),'complete');
+ assert(await page.locator('#lectureSceneCaption').isVisible());
+ assert((await page.locator('#lecturePlayer').boundingBox()).height>350,'slide remains in player flow');
+ for(const selector of ['.lecture-graph','.lecture-graph svg[role="img"]','.comparison-card']){
+   for(const element of await page.locator('#preview '+selector).all()){
+     const box=await element.boundingBox();assert(box.x>=0 && box.x+box.width<=width+1,`${selector} bounds ${width}`);
+     assert(await element.evaluate(e=>e.scrollWidth<=e.clientWidth+1),`${selector} overflow ${width}`);
+   }
+ }
+ await page.locator('.comparison-details summary').click();
+ assert(await page.locator('.comparison-details table').isVisible());
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`expanded table overflow ${width}`);
+ await page.locator('.comparison-details summary').click();
  for(const id of ['free','essential','professional']){
- if(id!=="free") { await page.locator(`[data-demo="${id}"]`).click();
- assert.equal(await page.locator(`[data-demo="${id}"]`).getAttribute('aria-selected'),'true'); }
  await page.locator(`[data-example="${id}"]`).last().click();
  assert(await page.locator('#sampleDialog').isVisible());
  assert(await page.locator('#sampleDialog').evaluate(e=>e.scrollWidth<=e.clientWidth+1),`dialog overflow ${width} ${id}`);
@@ -37,5 +54,42 @@ const assert=require('node:assert/strict');
  if(width<=760){assert.equal(await frame.locator('html').getAttribute('class'),'mobile-demo');const b=await page.locator('.lec-play-toggle').boundingBox();assert(b.width>=44);}
  assert.deepEqual(errors,[]);console.log('PASS',width);await context.close();
  }
+ // Playback is optional; pausing, leaving the viewport and motion preferences must preserve control.
+ const playbackContext=await browser.newContext({viewport:{width:1280,height:900},reducedMotion:'no-preference'});
+ const playback=await playbackContext.newPage();const playbackErrors=[];playback.on('pageerror',e=>playbackErrors.push(e.message));
+ await playback.route('https://cdnjs.cloudflare.com/**',route=>route.abort());
+ await playback.goto(process.env.LANDING_URL || 'http://127.0.0.1:8765/landing/');
+ const play=playback.locator('#lectureScenePlay');const player=playback.locator('#lecturePlayer');
+ assert.equal(await player.getAttribute('data-playing'),'false');
+ const posterHeight=(await player.boundingBox()).height;
+ await play.click();
+ await playback.waitForFunction(()=>document.getElementById('lecturePlayer').dataset.scene==='choice');
+ await play.press('Space');
+ assert.equal((await player.boundingBox()).height,posterHeight,'caption changes do not shift player height');
+ assert.equal(await play.getAttribute('aria-pressed'),'false');
+ const frozen=await playback.locator('#lectureSceneProgress').getAttribute('style');
+ await playback.waitForTimeout(180);
+ assert.equal(await playback.locator('#lectureSceneProgress').getAttribute('style'),frozen,'pause freezes time');
+ await play.click();
+ await playback.waitForFunction(()=>document.getElementById('lecturePlayer').dataset.scene==='complete');
+ assert.equal(await playback.locator('#lectureSceneTime').textContent(),'05:46');
+ assert.equal(await play.getAttribute('aria-pressed'),'false');
+ assert.equal(await play.innerText(),'다시 재생');
+ await play.click();await playback.locator('footer').scrollIntoViewIfNeeded();
+ await playback.waitForFunction(()=>document.getElementById('lecturePlayer').dataset.playing==='false');
+ await player.scrollIntoViewIfNeeded();assert.equal(await play.getAttribute('aria-pressed'),'false','reenter does not autoplay');
+ await play.click();await playback.emulateMedia({reducedMotion:'reduce'});
+ await play.waitFor({state:'hidden'});
+ assert.equal(await player.getAttribute('data-scene'),'complete');
+ assert((await playback.locator('#lectureSceneCaption').textContent()).includes('교차점'));
+ await playback.emulateMedia({reducedMotion:'no-preference'});await play.waitFor({state:'visible'});
+ assert.equal(await play.getAttribute('aria-pressed'),'false');
+ assert.deepEqual(playbackErrors,[]);console.log('PASS playback, pause/resume, replay, offscreen, reduced motion');
+ await playbackContext.close();
+ const noScript=await browser.newContext({viewport:{width:375,height:812},javaScriptEnabled:false,reducedMotion:'reduce'});
+ const staticPage=await noScript.newPage();await staticPage.goto(process.env.LANDING_URL || 'http://127.0.0.1:8765/landing/',{waitUntil:'domcontentloaded'});
+ assert(await staticPage.locator('#lectureScenePlay').isHidden());assert(await staticPage.locator('#lectureSceneCaption').isVisible());
+ assert(await staticPage.locator('.screen-audio').isVisible());
+ console.log('PASS no-JavaScript readable poster and notes');await noScript.close();
  await browser.close();
 })().catch(e=>{console.error(e);process.exit(1)});
