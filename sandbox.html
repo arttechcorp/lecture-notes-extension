@@ -222,7 +222,6 @@
   </style>
   <script src="lib/vendor/marked.min.js"></script>
   <script src="lib/vendor/katex/katex.min.js"></script>
-  <script src="lib/vendor/katex/auto-render.min.js"></script>
   <script src="lib/vendor/mermaid/mermaid.min.js"></script>
 </head>
 <body>
@@ -271,7 +270,12 @@
       // 3. Inline Math ($ ... $) 플레이스홀더 변환
       const inlineMath = [];
       const inlineMathRegex = new RegExp('\\$([^$\\n]+)\\$', 'g');
-      sanitized = sanitized.replace(inlineMathRegex, (_, math) => {
+      // 한 줄에 통화 표기가 두 번 나오면($20,000 ... $10) 첫 $부터 둘째 $까지를 통째로 삼켜 그 사이 한글이 수식으로 오염된다.
+      // LaTeX 기호가 있으면 수식, 없어도 한글 산문이나 천 단위 콤마(1,234)를 담고 있지 않으면 대부분 수식이다(실측 282건 중 오탐 1건).
+      // ponytail: 문자 기반 판별이라 한글이 섞인 백슬래시 없는 수식($합격률$ 등)은 놓친다. 오탐 신고가 오면 넓힌다.
+      const looksLikeMath = s => /[\\^_{}]/.test(s) || !(/[가-힣]/.test(s) || /\d,\d/.test(s));
+      sanitized = sanitized.replace(inlineMathRegex, (full, math) => {
+        if (!looksLikeMath(math)) return full;
         const idx = inlineMath.length;
         inlineMath.push(math.trim());
         return '@@MATH_INLINE_' + idx + '@@';
@@ -280,22 +284,21 @@
       // 4. Marked 마크다운 파싱
       let html = marked.parse(sanitized);
 
-      // 5. Math 수식 원복
-      html = html.replace(/@@MATH_DISPLAY_(\d+)@@/g, (_, idx) => '$$' + (displayMath[idx] || '') + '$$');
-      html = html.replace(/@@MATH_INLINE_(\d+)@@/g, (_, idx) => '$' + (inlineMath[idx] || '') + '$');
+      // 5. Math 수식 원복 — 3단계가 이미 무엇이 수식인지 판정했으므로, 여기서는 판정을 다시 하지 않고
+      // 렌더링된 KaTeX HTML을 바로 꽂는다. (예전엔 여기서 문자열 $...$로 되돌린 뒤 6단계에서 renderMathInElement가
+      // DOM 전체를 다시 스캔해 3단계의 판정을 뒤집었다 — 소비자가 둘이라 하나가 다른 하나를 무효화하던 버그.)
+      const renderMathSafe = (src, displayMode) => {
+        try {
+          return (typeof katex !== 'undefined') ? katex.renderToString(src, { displayMode, throwOnError: false }) : src;
+        } catch (err) {
+          const esc = String(src || '').replace(/[&<>"'$]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '$': '&#36;' }[m]));
+          return displayMode ? '$$' + esc + '$$' : '$' + esc + '$';
+        }
+      };
+      html = html.replace(/@@MATH_DISPLAY_(\d+)@@/g, (_, idx) => renderMathSafe(displayMath[idx] || '', true));
+      html = html.replace(/@@MATH_INLINE_(\d+)@@/g, (_, idx) => renderMathSafe(inlineMath[idx] || '', false));
 
       target.innerHTML = html;
-
-      // 6. KaTeX 수식 렌더링
-      if (typeof renderMathInElement !== 'undefined') {
-        renderMathInElement(target, {
-          delimiters: [
-            { left: '$$', right: '$$', display: true },
-            { left: '$', right: '$', display: false },
-          ],
-          throwOnError: false,
-        });
-      }
 
       function escapeHtml(str) {
         return String(str || '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
@@ -304,6 +307,8 @@
       function sanitizeMermaid(code) {
         if (!code) return '';
         let s = code.trim();
+        // 0. gemini-2.5-flash-lite가 첫 줄 전체를 따옴표로 감싸 내보낸다("flowchart TD") — 노드 라벨의 따옴표는 건드리지 않도록 첫 줄만 검사.
+        s = s.replace(/^(["'])(.+)\1/, '$2');
         // 1. graph TD -> flowchart TD (subgraph direction 지원)
         s = s.replace(/^graph\s+([A-Za-z]+)/m, 'flowchart $1');
         // 2. subgraph 공백 및 대괄호 문법 보정

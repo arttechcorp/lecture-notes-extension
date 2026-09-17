@@ -20,7 +20,11 @@ function noteText(note){
   const bullet=x=>`- ${x.content}`;
   const heading=x=>`## ${x.heading||'핵심 내용'}${x.importance==='critical'?' ⭐':''}`;
   const formula=f=>`$$${f.latex}$$\n\n${f.explanation}${f.variables?`\n\n변수: ${f.variables}`:''}${f.units?`\n\n단위: ${f.units}`:''}${f.conditions?`\n\n조건: ${f.conditions}`:''}`;
-  const visual=v=>`### ${v.title}\n\n${v.description}${v.data?`\n\n${v.data}`:''}`;
+  // 모델이 ```mermaid 펜스를 78% 확률로 빼먹는다 (측정치) — 펜스 없으면 sandbox.html이 도식을 그냥 문단으로 렌더링한다.
+  // gemini-2.5-flash-lite가 지시어 줄을 통째로 따옴표로 감싸 내보낸다("flowchart TD") — 앞의 " 또는 '는 무시하고 키워드를 찾는다.
+  const diagramKeywordRe=/^["']?(flowchart|graph|sequenceDiagram|classDiagram|stateDiagram(-v2)?|erDiagram|mindmap|journey|gantt|pie)\b/;
+  const fenceIfBareDiagram=d=>d&&!d.includes('```')&&diagramKeywordRe.test(d.trim())?`\`\`\`mermaid\n${d.trim()}\n\`\`\``:d;
+  const visual=v=>`### ${v.title}\n\n${v.description}${v.data?`\n\n${fenceIfBareDiagram(v.data)}`:''}`;
   const groups=[['concepts','개념'],['claims','주장'],['definitions','정의'],['relationships','관계'],['examples','예시'],['corrections','정정·예외·불확실'],['openQuestions','남은 질문']];
   const items=groups.flatMap(([field])=>note[field]||[]);
   const questions=(note.reviewQuestions||note.questions||[]).map(q=>`- ${typeof q==='string'?q:q.question}`);

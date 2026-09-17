@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>mermaid render probe</title>
+<link rel="stylesheet" href="../lib/vendor/katex/katex.min.css">
+<style>
+  body { font-family: system-ui, sans-serif; background: #fafafa; color: #111; margin: 0; padding: 16px; }
+  #probe-summary { position: sticky; top: 0; background: #fff; border: 2px solid #333; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 16px; font-weight: bold; z-index: 10; }
+  #probe-summary .fail-list { font-weight: normal; font-size: 13px; color: #900; }
+  .panel { background: #fff; border: 1px solid #ccc; border-radius: 8px; padding: 14px; margin-bottom: 18px; }
+  .panel h2 { margin: 0 0 4px; font-size: 15px; }
+  .panel .id { color: #666; font-weight: normal; font-size: 13px; }
+  pre.raw { background: #f0f0f0; border: 1px solid #ddd; border-radius: 6px; padding: 10px; overflow-x: auto; font-family: ui-monospace, Consolas, monospace; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+  .rendered { border: 1px dashed #999; border-radius: 6px; padding: 10px; margin: 8px 0; min-height: 20px; }
+  .chip { display: inline-block; padding: 3px 10px; border-radius: 12px; font-weight: bold; font-size: 13px; color: #fff; }
+  .chip.pass { background: #1a8a3d; }
+  .chip.fail { background: #c62828; }
+  .err { color: #c62828; font-family: ui-monospace, Consolas, monospace; font-size: 12px; white-space: pre-wrap; }
+  .mermaid-box svg { max-width: 100%; }
+</style>
+<script src="../lib/vendor/marked.min.js"></script>
+<script src="../lib/vendor/katex/katex.min.js"></script>
+<script src="../lib/vendor/mermaid/mermaid.min.js"></script>
+<script src="render-probe-cases.js"></script>
+</head>
+<body>
+<div id="probe-summary">running...</div>
+<div id="panels"></div>
+
+<script>
+  if (typeof mermaid !== 'undefined') {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default',
+      securityLevel: 'loose',
+      fontFamily: 'inherit'
+    });
+  }
+
+  let renderSeq = 0;
+
+  // Copied verbatim (structure) from sandbox.html's renderMarkdown pipeline,
+  // adapted to take an explicit target element instead of a fixed #content node.
+  async function renderPipeline(markdown, target) {
+    if (!markdown || !markdown.trim()) {
+      target.innerHTML = '<div class="empty-notice">노트 내용이 없습니다.</div>';
+      return;
+    }
+
+    const curSeq = ++renderSeq;
+
+    // 1. Mermaid code block 추출 및 컨테이너 플레이스홀더 변환
+    const mermaidBlocks = [];
+    const codeFence = String.fromCharCode(96, 96, 96);
+    const mermaidRegex = new RegExp(codeFence + 'mermaid\\s*([\\s\\S]*?)' + codeFence, 'gi');
+    let sanitized = markdown.replace(mermaidRegex, (_, code) => {
+      const idx = mermaidBlocks.length;
+      mermaidBlocks.push(code.trim());
+      return '<div class="mermaid-box" id="mermaid-wrap-' + idx + '-' + curSeq + '"></div>';
+    });
+
+    // 2. Display Math ($$ ... $$) 플레이스홀더 변환
+    const displayMath = [];
+    const displayMathRegex = new RegExp('\\$\\$\\s*([\\s\\S]*?)\\s*\\$\\$', 'g');
+    sanitized = sanitized.replace(displayMathRegex, (_, math) => {
+      const idx = displayMath.length;
+      displayMath.push(math.trim());
+      return '@@MATH_DISPLAY_' + idx + '@@';
+    });
+
+    // 3. Inline Math ($ ... $) 플레이스홀더 변환
+    const inlineMath = [];
+    const inlineMathRegex = new RegExp('\\$([^$\\n]+)\\$', 'g');
+    // sandbox.html과 동일: LaTeX 기호가 있으면 수식, 없어도 한글 산문/천 단위 콤마가 없으면 수식으로 본다.
+    const looksLikeMath = s => /[\\^_{}]/.test(s) || !(/[가-힣]/.test(s) || /\d,\d/.test(s));
+    sanitized = sanitized.replace(inlineMathRegex, (full, math) => {
+      if (!looksLikeMath(math)) return full;
+      const idx = inlineMath.length;
+      inlineMath.push(math.trim());
+      return '@@MATH_INLINE_' + idx + '@@';
+    });
+
+    // 4. Marked 마크다운 파싱
+    let html = marked.parse(sanitized);
+
+    // 5. Math 수식 원복 — sandbox.html과 동일: 3단계 판정을 6단계 renderMathInElement가 뒤집던 버그라
+    // 문자열 복원 대신 katex.renderToString 결과(HTML)를 바로 꽂는다.
+    const renderMathSafe = (src, displayMode) => {
+      try {
+        return (typeof katex !== 'undefined') ? katex.renderToString(src, { displayMode, throwOnError: false }) : src;
+      } catch (err) {
+        const esc = String(src || '').replace(/[&<>"'$]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '$': '&#36;' }[m]));
+        return displayMode ? '$$' + esc + '$$' : '$' + esc + '$';
+      }
+    };
+    html = html.replace(/@@MATH_DISPLAY_(\d+)@@/g, (_, idx) => renderMathSafe(displayMath[idx] || '', true));
+    html = html.replace(/@@MATH_INLINE_(\d+)@@/g, (_, idx) => renderMathSafe(inlineMath[idx] || '', false));
+
+    target.innerHTML = html;
+
+    // 7. Mermaid 다이어그램 렌더링
+    if (typeof mermaid !== 'undefined' && mermaidBlocks.length > 0) {
+      for (let i = 0; i < mermaidBlocks.length; i++) {
+        if (curSeq !== renderSeq) return;
+        const el = target.querySelector('#mermaid-wrap-' + i + '-' + curSeq);
+        if (el) {
+          const rawCode = mermaidBlocks[i];
+          const cleanCode = sanitizeMermaid(rawCode);
+          try {
+            const svgId = 'mermaid-svg-' + curSeq + '-' + i;
+            const { svg } = await mermaid.render(svgId, cleanCode);
+            el.innerHTML = svg;
+          } catch (err) {
+            el.dataset.mermaidError = (err && err.message) || String(err);
+            throw err;
+          }
+        }
+      }
+    }
+  }
+
+  // sandbox.html에서 그대로 복사 (legacy graph TD / 따옴표 없는 subgraph 보정). 프로덕션이 실제로 거치는 단계이므로 프로브도 거쳐야 한다.
+  function sanitizeMermaid(code) {
+    if (!code) return '';
+    let s = code.trim();
+    // gemini-2.5-flash-lite가 첫 줄 전체를 따옴표로 감싸 내보낸다("flowchart TD") — sandbox.html과 동일하게 첫 줄만 보정.
+    s = s.replace(/^(["'])(.+)\1/, '$2');
+    s = s.replace(/^graph\s+([A-Za-z]+)/m, 'flowchart $1');
+    s = s.replace(/^(\s*subgraph\s+)(.+)$/gm, (match, prefix, rest) => {
+      rest = rest.trim();
+      if (/^"[^"]+"$/.test(rest) || /^\w+\s*\["[^"]+"\]$/.test(rest)) return match;
+      const bracketMatch = rest.match(/^(.+?)\s*\[(.*)\]$/);
+      if (bracketMatch) {
+        const rawId = bracketMatch[1].trim();
+        const rawTitle = bracketMatch[2].trim();
+        const safeId = rawId.replace(/[^a-zA-Z0-9_]/g, '_');
+        const safeTitle = (rawId + (rawTitle ? ' (' + rawTitle + ')' : '')).replace(/"/g, "'");
+        return `${prefix}${safeId} ["${safeTitle}"]`;
+      }
+      if (/\s/.test(rest)) {
+        const safeId = rest.replace(/[^a-zA-Z0-9_]/g, '_');
+        const safeTitle = rest.replace(/"/g, "'");
+        return `${prefix}${safeId} ["${safeTitle}"]`;
+      }
+      return match;
+    });
+    s = s.replace(/(\b\w+)\s*\[([^"\n\[\]]+)\]/g, (match, id, label) => {
+      if (!label.startsWith('"') && !label.endsWith('"')) {
+        const safe = label.replace(/"/g, "'");
+        return `${id}["${safe}"]`;
+      }
+      return match;
+    });
+    return s;
+  }
+
+  // sidepanel.js noteText()의 visual() 펜스 보정을 그대로 복사: 모델이 펜스를 빼먹는 케이스를 프로브에서도 재현한다.
+  const diagramLineRe = /^["']?(flowchart|graph|sequenceDiagram|classDiagram|stateDiagram(-v2)?|erDiagram|mindmap|journey|gantt|pie)\b/m;
+  function fenceIfBareDiagram(md) {
+    if (!md || md.includes('```')) return md;
+    const idx = md.search(diagramLineRe);
+    if (idx === -1) return md;
+    return md.slice(0, idx) + '```mermaid\n' + md.slice(idx).trim() + '\n```';
+  }
+
+  function escapeHtml(str) {
+    return String(str || '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+  }
+
+  // 확장 픽스처(render-probe-cases.js, 35케이스)가 있으면 그걸 쓰고, 없으면 내장 7케이스로 폴백한다.
+  const BUILTIN_CASES = [
+    {
+      id: 'bare_no_fence',
+      label: '펜스 없는 원시 mermaid 소스 (실패 예상)',
+      expect: 'diagram',
+      markdown: `### 원가 집계 흐름
+
+세 원가 요소가 총제조원가로 모인다.
+
+flowchart TD
+    A["직접재료비 $8"] --> C
+    B["직접노무비 $5"] --> C
+    D["제조간접비 배부액 $1 (예정배부율 $10/시간 적용)"] --> C
+    C["총제조원가 집계"] --> E["단위당 제품원가 $14"]`
+    },
+    {
+      id: 'fenced_with_dollars',
+      label: '펜스 처리된 동일 소스 ($ 라벨 포함) - 핵심 케이스',
+      expect: 'diagram',
+      markdown: "```mermaid\nflowchart TD\n    A[\"직접재료비 $8\"] --> C\n    B[\"직접노무비 $5\"] --> C\n    D[\"제조간접비 배부액 $1 (예정배부율 $10/시간 적용)\"] --> C\n    C[\"총제조원가 집계\"] --> E[\"단위당 제품원가 $14\"]\n```"
+    },
+    {
+      id: 'fenced_subgraph_quoted',
+      label: '펜스 + subgraph + 따옴표 라벨 (실제 gemini-3.8-flash 출력)',
+      expect: 'diagram',
+      markdown: "```mermaid\nflowchart TD\n  subgraph Input [\"원가 요소\"]\n    dm[\"직접재료비 $8\"]\n    dl[\"직접노무비 $5\"]\n    mo[\"제조간접비 배부액 $1\"]\n    rate[\"예정배부율 $10/시간 적용\"]\n  end\n  rate --> mo\n  dm --> total[\"총제조원가 집계\"]\n  dl --> total\n  mo --> total\n  total --> unit[\"단위당 제품원가 $14\"]\n```"
+    },
+    {
+      id: 'legacy_graph_unquoted_subgraph',
+      label: '레거시 graph + 따옴표 없는 subgraph (과거 실패 이력)',
+      expect: 'diagram',
+      markdown: "```mermaid\ngraph TD\n    subgraph Time Domain [f(t)]\n        direction LR\n        A[\"Circuit described by differential equations\"]\n        B[\"Solution of differential equations\"]\n        A --> B\n    end\n```"
+    },
+    {
+      id: 'currency_pair_in_prose',
+      label: '다이어그램 없는 산문 속 두 달러 금액 (인라인 수식 정규식 오탐 테스트)',
+      expect: 'text',
+      markdown: `예정배부율은 $20,000을 2,000시간으로 나눠 시간당 $10이 된다.`
+    },
+    {
+      id: 'real_inline_math',
+      label: '진짜 인라인 LaTeX',
+      expect: 'math',
+      markdown: `단위당 배부액은 $10 \\times 0.1 = 1$ 달러다.`
+    },
+    {
+      id: 'display_math',
+      label: 'display math ($$ ... $$) with \\frac',
+      expect: 'math',
+      markdown: `$$\\text{예정배부율} = \\frac{\\$20{,}000}{2{,}000\\text{시간}} = \\$10/\\text{시간}$$`
+    }
+  ];
+
+  const CASES = (Array.isArray(window.PROBE_CASES) && window.PROBE_CASES.length) ? window.PROBE_CASES : BUILTIN_CASES;
+
+  function verdictFor(kase, panelEl) {
+    if (kase.expect === 'diagram') {
+      return !!panelEl.querySelector('.rendered .mermaid-box svg');
+    }
+    if (kase.expect === 'math') {
+      if (kase.id.includes('display_math')) return !!panelEl.querySelector('.rendered .katex-display');
+      return !!panelEl.querySelector('.rendered .katex');
+    }
+    if (kase.expect === 'text') {
+      const renderedEl = panelEl.querySelector('.rendered');
+      const hasKatex = !!renderedEl.querySelector('.katex');
+      const text = renderedEl.textContent || '';
+      // 케이스마다 문장이 다르므로 하드코딩 대신 원본 markdown에서 $금액 조각을 뽑아 전부 살아남았는지 확인한다.
+      const amounts = kase.markdown.match(/\$[\d][\d,.]*/g) || [];
+      const allSurvived = amounts.every(a => text.includes(a));
+      return allSurvived && !hasKatex;
+    }
+    return false;
+  }
+
+  (async function run() {
+    const panelsRoot = document.getElementById('panels');
+    const results = [];
+
+    for (const kase of CASES) {
+      const panel = document.createElement('div');
+      panel.className = 'panel';
+      panel.innerHTML =
+        '<h2>' + escapeHtml(kase.label) + ' <span class="id">[' + escapeHtml(kase.id) + ', expect: ' + kase.expect + ']</span></h2>' +
+        '<pre class="raw">' + escapeHtml(kase.markdown) + '</pre>' +
+        '<div class="rendered"></div>' +
+        '<div class="verdict-line"></div>';
+      panelsRoot.appendChild(panel);
+
+      const renderedEl = panel.querySelector('.rendered');
+      let threw = null;
+      try {
+        await renderPipeline(fenceIfBareDiagram(kase.markdown), renderedEl);
+      } catch (err) {
+        threw = (err && err.message) || String(err);
+      }
+
+      let pass = false;
+      try {
+        pass = verdictFor(kase, panel);
+      } catch (e) {
+        pass = false;
+      }
+
+      const verdictLine = panel.querySelector('.verdict-line');
+      const chip = document.createElement('span');
+      chip.className = 'chip ' + (pass ? 'pass' : 'fail');
+      chip.textContent = pass ? 'PASS' : 'FAIL';
+      verdictLine.appendChild(chip);
+
+      if (threw) {
+        const errEl = document.createElement('div');
+        errEl.className = 'err';
+        errEl.textContent = 'mermaid.render error: ' + threw;
+        panel.appendChild(errEl);
+      }
+
+      results.push({ id: kase.id, pass });
+    }
+
+    const passCount = results.filter(r => r.pass).length;
+    const failCount = results.length - passCount;
+    const failingIds = results.filter(r => !r.pass).map(r => r.id);
+
+    const summaryText = passCount + ' PASS / ' + failCount + ' FAIL' +
+      (failingIds.length ? ' — failing: ' + failingIds.join(', ') : '');
+
+    const summaryEl = document.getElementById('probe-summary');
+    summaryEl.innerHTML = escapeHtml(summaryText) +
+      (failingIds.length ? '<div class="fail-list">failing ids: ' + escapeHtml(failingIds.join(', ')) + '</div>' : '');
+
+    document.title = summaryText;
+    window.__PROBE_RESULT = { pass: passCount, fail: failCount, failing: failingIds };
+  })();
+</script>
+</body>
+</html>
