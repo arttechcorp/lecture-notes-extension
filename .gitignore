@@ -15,3 +15,7 @@ server-data/
 
 # Chrome Web Store 배포 산출물 디렉터리
 dist/
+
+# 스킬 작업 산출물 — 루트의 _ 접두 이름은 Chrome 확장 로더가 예약어로 거부한다
+_workspace/
+.workspace/
