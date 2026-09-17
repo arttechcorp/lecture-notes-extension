@@ -91,12 +91,42 @@ begin
 end;
 $$;
 
+create or replace function admin_list_codes()
+returns table(code text, kind text, owner_email text, used_by_email text, used boolean, created_at timestamptz)
+language plpgsql
+security definer
+stable
+set search_path = public
+as $$
+begin
+  if not is_admin() then
+    raise exception 'not_admin' using errcode = '42501';
+  end if;
+  -- 초대 경로를 읽으려면 누가 뿌렸고 누가 썼는지가 같이 보여야 한다. uuid 대신 이메일로 낸다.
+  -- 이 목록은 관리자만 통과하므로 개인정보 노출면은 admins 테이블 크기와 같다.
+  return query
+    select c.code,
+           case when c.owner_id is null then 'seed' else 'derived' end,
+           o.email,
+           u.email,
+           c.used_by is not null,
+           c.created_at
+    from codes c
+    left join reservations o on o.user_id = c.owner_id
+    left join reservations u on u.user_id = c.used_by
+    order by c.created_at desc
+    limit 500;
+end;
+$$;
+
 revoke execute on function is_admin() from public, anon;
 revoke execute on function admin_stats() from public, anon;
 revoke execute on function admin_mint_codes(int) from public, anon;
+revoke execute on function admin_list_codes() from public, anon;
 grant execute on function is_admin() to authenticated;
 grant execute on function admin_stats() to authenticated;
 grant execute on function admin_mint_codes(int) to authenticated;
+grant execute on function admin_list_codes() to authenticated;
 
 -- 자체 점검: 비관리자는 차단되고 관리자는 통과하는지 확인한다.
 do $$
@@ -119,6 +149,13 @@ begin
     when sqlstate '42501' then null;
   end;
 
+  begin
+    perform admin_list_codes();
+    raise exception 'FAIL: 비관리자가 코드 목록을 읽었다';
+  exception
+    when sqlstate '42501' then null;
+  end;
+
   perform set_config('request.jwt.claims', json_build_object('email', 'jihwanbu26@gmail.com')::text, true);
   stats := admin_stats();
   if stats is null then
@@ -129,5 +166,7 @@ begin
   select array_agg(code) into minted from admin_mint_codes(1) as code;
   delete from codes where code = any(minted);
 
-  raise notice 'OK: admin_stats/admin_mint_codes 권한 점검 통과';
+  perform admin_list_codes();
+
+  raise notice 'OK: admin_stats/admin_mint_codes/admin_list_codes 권한 점검 통과';
 end $$;

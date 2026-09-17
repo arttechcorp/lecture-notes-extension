@@ -40,7 +40,60 @@
     $("statSubscribers").textContent = data.subscribers == null ? "—" : data.subscribers;
     show("dashboardView");
     if (!keep) setStatus("");
+    loadCodes();
   }
+
+  let loadedCodes = [];
+
+  async function loadCodes() {
+    const { data, error } = await supabase.rpc("admin_list_codes");
+    if (error) {
+      // admin_stats와 동일한 규약: 42501만 권한 문제, 그 외는 통신 실패.
+      if (error.code !== "42501") setStatus("코드 목록을 불러오지 못했습니다. 연결을 확인하고 새로고침해 주세요.");
+      return;
+    }
+    loadedCodes = data.map((row) => row.code);
+    const body = $("codesBody");
+    body.textContent = "";
+    if (!data.length) {
+      const tr = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = 6;
+      td.textContent = "아직 생성된 코드가 없습니다";
+      tr.appendChild(td);
+      body.appendChild(tr);
+      return;
+    }
+    for (const row of data) {
+      const tr = document.createElement("tr");
+      const cells = [
+        row.code,
+        row.kind === "seed" ? "시드" : "파생",
+        row.owner_email || "—",
+        row.used_by_email || "—",
+        row.used ? "사용됨" : "미사용",
+        new Date(row.created_at).toLocaleDateString("ko-KR"),
+      ];
+      for (const text of cells) {
+        const td = document.createElement("td");
+        td.textContent = text;
+        tr.appendChild(td);
+      }
+      body.appendChild(tr);
+    }
+  }
+
+  $("reloadCodesButton").addEventListener("click", loadCodes);
+
+  $("copyCodesButton").addEventListener("click", async () => {
+    if (!loadedCodes.length) { setStatus("복사할 코드가 없습니다."); return; }
+    try {
+      await navigator.clipboard.writeText(loadedCodes.join("\n"));
+      setStatus(`${loadedCodes.length}개 코드를 복사했습니다.`);
+    } catch {
+      setStatus("클립보드 접근이 막혀 있어 복사하지 못했습니다.");
+    }
+  });
 
   $("mintButton").addEventListener("click", async () => {
     const n = Number($("mintCount").value);
