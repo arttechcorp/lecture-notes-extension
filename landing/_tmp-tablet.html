@@ -27,7 +27,7 @@
   </div>
 
   <!-- 제품 CSS를 공유하는 2단계 시연. 실제 캡처·녹음은 실행하지 않는다. -->
-  <figure class="mock" id="heroDemo" aria-label="Summrizei 체험 시연" data-state="ready">
+  <figure class="mock" id="heroDemo" aria-label="Summrizei 체험 시연" data-state="tablet">
     <div class="mock-tilt">
     <div class="mock-window">
       <div class="mock-canvas">
@@ -252,5 +252,5 @@
 <script src="vendor/markdown-it.min.js"></script>
 <script src="note-viewer.js?v=20260911-4"></script>
 <script src="hero-mockup.js?v=20260918-note-1"></script>
-</body>
+<script>setInterval(()=>{document.querySelector("#heroDemo").dataset.state="tablet"},300)</script></body>
 </html>

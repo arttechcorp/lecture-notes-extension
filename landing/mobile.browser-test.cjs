@@ -12,6 +12,11 @@ const assert=require('node:assert/strict');
  await page.route('https://cdnjs.cloudflare.com/**',route=>route.abort());
  await page.goto(process.env.LANDING_URL || 'http://127.0.0.1:8765/landing/');
  await page.waitForSelector('#heroDemo[data-state="done"]');
+ // reduced-motion이면 정적 시퀀스가 ~3.2s 뒤 .tablet-scene으로 패널을 덮으므로 복사 확인은 done 상태에서 바로 한다.
+ const frame=page.frameLocator('.demo-panel');
+ await page.evaluate(()=>Object.defineProperty(navigator,'clipboard',{value:{writeText:()=>Promise.reject(new Error('denied'))},configurable:true}));
+ await frame.locator('#copyBtn').click();assert(await frame.locator('#result').isVisible());
+ assert.equal(await frame.locator('#result').evaluate(e=>e.selectionEnd-e.selectionStart),await frame.locator('#result').evaluate(e=>e.value.length));
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`overflow ${width}`);
  await page.locator('[data-install]').first().click();
  assert(await page.locator('#installDialog').isVisible());
@@ -24,9 +29,11 @@ const assert=require('node:assert/strict');
  const evidence=page.locator('#comparisonEvidence [data-evidence]');
  assert(await evidence.count()>0);
  assert(await evidence.evaluateAll(els=>els.every(e=>e.classList.contains('is-highlighted'))),'evidence is highlighted by default');
- assert(await page.locator('#lectureScenePlay').isHidden(),'reduced motion keeps the poster static');
+ assert.equal(await page.locator('#lectureScenePlay').count(),0,'no play control; scene loops on its own');
  assert.equal(await page.locator('#lecturePlayer').getAttribute('data-scene'),'complete');
  assert(await page.locator('#lectureSceneCaption').isVisible());
+ assert.equal(await page.locator('#preview .zoom-tile').count(),6,'presenter + 5 participants');
+ assert.equal(await page.locator('#lectureSceneTime').count(),0,'no clock row');
  assert((await page.locator('#lecturePlayer').boundingBox()).height>350,'slide remains in player flow');
  for(const selector of ['.lecture-graph','.lecture-graph svg[role="img"]','.comparison-card']){
    for(const element of await page.locator('#preview '+selector).all()){
@@ -34,10 +41,8 @@ const assert=require('node:assert/strict');
      assert(await element.evaluate(e=>e.scrollWidth<=e.clientWidth+1),`${selector} overflow ${width}`);
    }
  }
- await page.locator('.comparison-details summary').click();
- assert(await page.locator('.comparison-details table').isVisible());
- assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`expanded table overflow ${width}`);
- await page.locator('.comparison-details summary').click();
+ assert.equal(await page.locator('#preview .note-doc').count(),2,'two summary-note previews');
+ assert(await page.locator('#preview .screen-audio .note-doc table').isVisible());
  for(const id of ['free','essential','professional']){
  await page.locator(`[data-example="${id}"]`).last().click();
  assert(await page.locator('#sampleDialog').isVisible());
@@ -47,48 +52,38 @@ const assert=require('node:assert/strict');
  }
  await page.locator('[data-plan="essential"]').click();assert(await page.locator('#checkout').isVisible());await page.locator('#checkout .close-button').click();
  await page.locator('.faq details').first().locator('summary').click();assert(await page.locator('.faq details').first().getAttribute('open')!==null);
- await page.evaluate(()=>Object.defineProperty(navigator,'clipboard',{value:{writeText:()=>Promise.reject(new Error('denied'))},configurable:true}));
- const frame=page.frameLocator('.demo-panel');await frame.locator('#copyBtn').click();assert(await frame.locator('#result').isVisible());
- assert.equal(await frame.locator('#result').evaluate(e=>e.selectionEnd-e.selectionStart),await frame.locator('#result').evaluate(e=>e.value.length));
  await page.locator('#heroDemo').scrollIntoViewIfNeeded();
  if(width<=760){assert.equal(await frame.locator('html').getAttribute('class'),'mobile-demo');const b=await page.locator('.lec-play-toggle').boundingBox();assert(b.width>=44);}
  assert.deepEqual(errors,[]);console.log('PASS',width);await context.close();
  }
- // Playback is optional; pausing, leaving the viewport and motion preferences must preserve control.
+ // The scene loops on its own; leaving the viewport and motion preferences must pause it.
  const playbackContext=await browser.newContext({viewport:{width:1280,height:900},reducedMotion:'no-preference'});
  const playback=await playbackContext.newPage();const playbackErrors=[];playback.on('pageerror',e=>playbackErrors.push(e.message));
  await playback.route('https://cdnjs.cloudflare.com/**',route=>route.abort());
  await playback.goto(process.env.LANDING_URL || 'http://127.0.0.1:8765/landing/');
- const play=playback.locator('#lectureScenePlay');const player=playback.locator('#lecturePlayer');
+ const player=playback.locator('#lecturePlayer');
  assert.equal(await player.getAttribute('data-playing'),'false');
  const posterHeight=(await player.boundingBox()).height;
- await play.click();
- await playback.waitForFunction(()=>document.getElementById('lecturePlayer').dataset.scene==='choice');
- await play.press('Space');
+ await player.scrollIntoViewIfNeeded();
+ await playback.waitForFunction(()=>document.getElementById('lecturePlayer').dataset.playing==='true');
+ await playback.waitForFunction(()=>document.getElementById('lecturePlayer').dataset.scene==='boundary');
  assert.equal((await player.boundingBox()).height,posterHeight,'caption changes do not shift player height');
- assert.equal(await play.getAttribute('aria-pressed'),'false');
- const frozen=await playback.locator('#lectureSceneProgress').getAttribute('style');
- await playback.waitForTimeout(180);
- assert.equal(await playback.locator('#lectureSceneProgress').getAttribute('style'),frozen,'pause freezes time');
- await play.click();
  await playback.waitForFunction(()=>document.getElementById('lecturePlayer').dataset.scene==='complete');
- assert.equal(await playback.locator('#lectureSceneTime').textContent(),'05:46');
- assert.equal(await play.getAttribute('aria-pressed'),'false');
- assert.equal(await play.innerText(),'다시 재생');
- await play.click();await playback.locator('footer').scrollIntoViewIfNeeded();
+ assert((await playback.locator('#lectureSceneCaption').textContent()).includes('0.33'));
+ await playback.waitForFunction(()=>document.getElementById('lecturePlayer').dataset.scene==='points','loop restarts');
+ await playback.locator('footer').scrollIntoViewIfNeeded();
  await playback.waitForFunction(()=>document.getElementById('lecturePlayer').dataset.playing==='false');
- await player.scrollIntoViewIfNeeded();assert.equal(await play.getAttribute('aria-pressed'),'false','reenter does not autoplay');
- await play.click();await playback.emulateMedia({reducedMotion:'reduce'});
- await play.waitFor({state:'hidden'});
+ await player.scrollIntoViewIfNeeded();
+ await playback.waitForFunction(()=>document.getElementById('lecturePlayer').dataset.playing==='true','reenter resumes the loop');
+ await playback.emulateMedia({reducedMotion:'reduce'});
+ await playback.waitForFunction(()=>document.getElementById('lecturePlayer').dataset.playing==='false');
  assert.equal(await player.getAttribute('data-scene'),'complete');
- assert((await playback.locator('#lectureSceneCaption').textContent()).includes('교차점'));
- await playback.emulateMedia({reducedMotion:'no-preference'});await play.waitFor({state:'visible'});
- assert.equal(await play.getAttribute('aria-pressed'),'false');
- assert.deepEqual(playbackErrors,[]);console.log('PASS playback, pause/resume, replay, offscreen, reduced motion');
+ assert((await playback.locator('#lectureSceneCaption').textContent()).includes('0.33'));
+ assert.deepEqual(playbackErrors,[]);console.log('PASS playback, autoloop, offscreen, reduced motion');
  await playbackContext.close();
  const noScript=await browser.newContext({viewport:{width:375,height:812},javaScriptEnabled:false,reducedMotion:'reduce'});
  const staticPage=await noScript.newPage();await staticPage.goto(process.env.LANDING_URL || 'http://127.0.0.1:8765/landing/',{waitUntil:'domcontentloaded'});
- assert(await staticPage.locator('#lectureScenePlay').isHidden());assert(await staticPage.locator('#lectureSceneCaption').isVisible());
+ assert.equal(await staticPage.locator('#lectureScenePlay').count(),0);assert(await staticPage.locator('#lectureSceneCaption').isVisible());
  assert(await staticPage.locator('.screen-audio').isVisible());
  console.log('PASS no-JavaScript readable poster and notes');await noScript.close();
  await browser.close();

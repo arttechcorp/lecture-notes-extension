@@ -214,6 +214,126 @@
 .mock.is-paused .lec-wave i, .mock.is-paused .capture-frame { animation-play-state: paused; }
 .demo-announcement { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
+/* ── PDF 내보내기 → AirDrop → 태블릿 필기 시연 오버레이 ── */
+.share-sheet, .tablet-scene {
+  position: absolute; inset: 0; z-index: 4;
+  opacity: 0; visibility: hidden;
+  transition: opacity .45s ease, visibility 0s linear .45s;
+}
+.mock[data-state="share"] .share-sheet,
+.mock[data-state="tablet"] .tablet-scene { opacity: 1; visibility: visible; transition: opacity .45s ease; }
+
+/* macOS 공유 시트 */
+.share-sheet { display: grid; place-items: center; background: rgba(24, 24, 20, .32); }
+.share-panel {
+  width: 316px; padding: 14px 16px 16px;
+  background: rgba(250, 250, 247, .97);
+  border: 1px solid rgba(0, 0, 0, .08);
+  border-radius: 14px;
+  box-shadow: 0 22px 55px -20px rgba(0, 0, 0, .45);
+  transform: translateY(10px) scale(.96);
+  transition: transform .35s cubic-bezier(.2, .9, .3, 1);
+  font-size: 12px; color: var(--m-ink);
+}
+.mock[data-state="share"] .share-panel { transform: none; }
+.share-doc { display: flex; align-items: center; gap: 10px; padding-bottom: 11px; border-bottom: 1px solid var(--m-rule); }
+.share-doc-icon {
+  display: grid; place-items: center; width: 32px; height: 38px; flex-shrink: 0;
+  background: #fff; border: 1px solid var(--m-rule); border-radius: 5px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .06);
+  font: 700 8px/1 var(--mono); color: #c0392b;
+}
+.share-doc-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.share-doc-meta b { font-size: 12.5px; font-weight: 600; }
+.share-doc-meta i { font-style: normal; font-size: 10.5px; color: var(--m-muted); }
+.share-apps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 12px 0; }
+.share-app { display: flex; flex-direction: column; align-items: center; gap: 5px; font-size: 10px; }
+.app-icon {
+  display: grid; place-items: center; width: 40px; height: 40px;
+  background: #fff; border: 1px solid var(--m-rule); border-radius: 10px;
+}
+.app-icon svg { width: 20px; height: 20px; fill: none; stroke: #555550; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.app-icon.app-airdrop { background: #1f7bf6; border-color: #1f7bf6; }
+.app-icon.app-airdrop svg { stroke: #fff; }
+.app-icon.app-airdrop svg circle { fill: #fff; stroke: none; }
+.share-airdrop { display: flex; flex-direction: column; align-items: center; gap: 3px; padding-top: 12px; border-top: 1px solid var(--m-rule); }
+.share-recv { position: relative; width: 52px; height: 52px; display: grid; place-items: center; }
+.share-ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); opacity: 0; transition: opacity .2s; }
+.share-airdrop.is-selected .share-ring { opacity: 1; }
+.share-ring circle { fill: none; stroke-width: 2.5; }
+.share-ring .ring-bg { stroke: #dcdcd4; }
+.share-ring .ring-fg { stroke: #1f7bf6; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 1; }
+.share-ipad-icon svg { width: 22px; height: 22px; display: block; fill: none; stroke: #555550; stroke-width: 1.4; }
+.share-check { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; transition: opacity .25s; }
+.share-check circle { fill: #34c759; }
+.share-check path { fill: none; stroke: #fff; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.share-sheet.is-sent .share-ring, .share-sheet.is-sent .share-ipad-icon { opacity: 0; }
+.share-sheet.is-sent .share-check { opacity: 1; }
+.share-recv-name { font-size: 11px; font-weight: 600; }
+.share-status { font-size: 10.5px; color: var(--m-muted); }
+
+/* 태블릿 노트앱 장면 */
+.tablet-scene { display: flex; background: #141412; padding: 14px; }
+.tablet-bezel { flex: 1; min-height: 0; display: flex; background: #262624; border-radius: 20px; padding: 10px; }
+.tablet-screen { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #ebeaf0; border-radius: 12px; overflow: hidden; }
+.tablet-toolbar { flex-shrink: 0; }
+/* 굿노트 스타일의 2단 툴바: 네이비 내비게이션 바 + 화이트 도구 행 */
+.gn-top { display: flex; align-items: center; justify-content: space-between; gap: 14px; height: 42px; padding: 0 14px; background: #3f5aa6; }
+.gn-cluster { display: flex; align-items: center; gap: 3px; }
+.gn-ic { display: grid; place-items: center; width: 27px; height: 27px; border-radius: 6px; }
+.gn-ic svg { width: 16px; height: 16px; display: block; fill: none; stroke: #fff; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; opacity: .92; }
+.gn-pencircle { background: rgba(255, 255, 255, .18); border-radius: 50%; }
+.gn-title { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: #fff; white-space: nowrap; }
+.gn-caret { font-style: normal; font-size: 10px; opacity: .7; }
+.gn-tools { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; background: #fbfbfa; border-bottom: 1px solid var(--m-rule); }
+.gn-undos { display: flex; align-items: center; gap: 2px; }
+.gn-toolset { display: flex; align-items: center; gap: 2px; flex: 1; min-width: 0; }
+.gn-tool { display: grid; place-items: center; width: 27px; height: 27px; border-radius: 50%; flex-shrink: 0; }
+.gn-tool svg { width: 15.5px; height: 15.5px; display: block; fill: none; stroke: #3a3a36; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.gn-tool.is-active { background: #dce7f8; }
+.gn-tool.is-active svg { stroke: #2f6bd6; }
+.gn-strokes { display: flex; align-items: center; gap: 5px; padding: 0 10px; border-left: 1px solid var(--m-rule); }
+.gn-strokes i { display: block; width: 15px; background: #3a3a36; border-radius: 2px; }
+.gn-strokes i:nth-child(1) { height: 1.5px; }
+.gn-strokes i:nth-child(2) { height: 2.5px; }
+.gn-strokes i:nth-child(3) { height: 3.5px; }
+.gn-strokes i.on { background: #2f6bd6; }
+.gn-colors { display: flex; align-items: center; gap: 6px; padding-left: 10px; border-left: 1px solid var(--m-rule); }
+.gn-colors i { width: 13px; height: 13px; border-radius: 50%; border: 1px solid rgba(0, 0, 0, .15); }
+.gn-colors .c1 { background: #1c1c1a; }
+.gn-colors .c2 { background: #8a8a86; }
+.gn-colors .c3 { background: #fff; }
+.gn-colors i.on { box-shadow: 0 0 0 2px #fbfbfa, 0 0 0 3.5px #2f6bd6; }
+.tablet-workspace { flex: 1; min-height: 0; display: grid; justify-items: center; align-items: stretch; padding: 8px 18px; }
+.pdf-wrap { position: relative; width: min(640px, 100%); height: 100%; }
+.pdf-doc {
+  width: 100%; min-height: 100%; padding: 13px 26px 10px;
+  background: #fff; border-radius: 3px;
+  box-shadow: 0 3px 14px rgba(0, 0, 0, .14);
+  color: #1c1c1a;
+}
+.pdf-eyebrow { margin: 0 0 6px; font: 500 9.5px/1 var(--mono); letter-spacing: .08em; color: #8a8a82; }
+.pdf-doc h3 { margin: 0 0 6px; font-size: 17px; font-weight: 700; letter-spacing: -.02em; }
+.pdf-warn { margin: 0 0 7px; padding: 4px 8px; font-size: 10.5px; color: #8a6d3b; background: #fdf6e7; border: 1px solid #f0e3c0; border-radius: 6px; }
+.pdf-h { margin: 9px 0 4px; font-size: 11px; font-weight: 600; color: #8a8a82; }
+.pdf-warn + .pdf-h { margin-top: 0; }
+.pdf-key { margin: 0 0 6px; font-size: 13.5px; line-height: 1.6; }
+.pdf-key .hl-target { font-weight: 600; }
+.pdf-list { margin: 0 0 4px; padding-left: 17px; font-size: 11.5px; line-height: 1.5; }
+.pdf-list li + li { margin-top: 1px; }
+.pdf-meta { margin: 0 0 5px; font-size: 11px; line-height: 1.55; color: #4a4a45; }
+.pdf-concept { margin: 0 0 4px; padding: 5px 10px; font-size: 11px; line-height: 1.5; background: #f7f6f1; border: 1px solid #eceae2; border-radius: 6px; }
+.pdf-concept span { display: block; margin-top: 2px; font-size: 10px; color: #8a8a82; }
+.pdf-table { width: 100%; border-collapse: collapse; margin-bottom: 8px; font-size: 11.5px; }
+.pdf-table th, .pdf-table td { padding: 3px 8px; text-align: left; border-bottom: 1px solid #eeece6; }
+.pdf-table thead th { color: #8a8a82; font-weight: 600; border-bottom: 1px solid #e0ded6; }
+.pdf-table .best td { font-weight: 700; }
+.pdf-qs { margin-bottom: 0; color: #4a4a45; }
+.tablet-ink { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.tablet-ink .hl { fill: #ffd94d; opacity: .55; }
+.tablet-ink .ul { stroke: #2f6bd6; stroke-width: 2.4; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 1; }
+.tablet-pen { fill: #111; stroke: #fff; stroke-width: 1.6; stroke-linejoin: round; paint-order: stroke; opacity: 0; }
+
 @media (max-width: 1100px) {
   .hero-stacked { padding-block: 46px 36px; }
   .mock { margin-top: 12px; }
@@ -248,7 +368,8 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .mock .capture-frame, .mock .lec-wave i { animation: none; }
-  .mock .lecture-pen { display: none; }
+  .mock .lecture-pen, .mock .tablet-pen { display: none; }
+  .mock .share-sheet, .mock .tablet-scene, .mock .share-panel, .mock .share-check { transition: none; }
   .mock .lecture-ink [data-ink] { stroke-dashoffset: 0; }
   .mock[data-state="live"] .lec-wave i { height: 8px; }
   .mock[data-state="live"] .lec-wave i:nth-child(2n) { height: 14px; }
@@ -281,4 +402,28 @@
   .lec-wave { height: 18px; }
   .demo-panel { height: 310px; border-left: 0; border-top: 1px solid var(--m-rule); }
   .lec-play-toggle { width: 44px; height: 44px; right: 8px; bottom: 8px; }
+  .share-panel { width: min(316px, 88%); }
+  .tablet-scene { padding: 8px; }
+  .tablet-bezel { padding: 6px; border-radius: 16px; }
+  .gn-top { height: 36px; gap: 8px; padding: 0 8px; }
+  .gn-ic { width: 22px; height: 22px; }
+  .gn-ic svg { width: 13px; height: 13px; }
+  .gn-title { font-size: 11px; }
+  .gn-tools { height: 34px; gap: 6px; padding: 0 8px; }
+  .gn-tool { width: 22px; height: 22px; }
+  .gn-tool svg { width: 12px; height: 12px; }
+  .gn-strokes, .gn-colors { padding-inline: 6px; gap: 4px; }
+  .gn-strokes i { width: 11px; }
+  .gn-colors i { width: 10px; height: 10px; }
+  .tablet-workspace { padding: 8px; }
+  .pdf-doc { padding: 14px 16px 12px; }
+  .pdf-doc h3 { font-size: 15.5px; margin-bottom: 6px; }
+  .pdf-warn { font-size: 9px; margin-bottom: 8px; }
+  .pdf-h { font-size: 9.5px; margin-top: 10px; }
+  .pdf-key { font-size: 12.5px; margin-bottom: 8px; }
+  .pdf-list { font-size: 10.5px; }
+  .pdf-meta { font-size: 9.5px; margin-bottom: 6px; }
+  .pdf-concept { font-size: 10px; padding: 6px 9px; }
+  .pdf-concept span { font-size: 8.5px; }
+  .pdf-table { font-size: 10.5px; margin-bottom: 8px; }
 }

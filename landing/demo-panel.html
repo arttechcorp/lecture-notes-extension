@@ -35,6 +35,14 @@
   #stageDone .note-document li + li { margin-top: 0.15em; }
   #stageDone .note-document hr { margin: 0.6em 0; }
   #stageDone .detail.result-help { font-size: 10px; margin-top: 3px; }
+  /* 제품의 export-row를 데모용으로 축소한 스타일. PDF 출력만 실제로 눌린다. */
+  .export-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .export-row button {
+    height: 30px; font-size: 12px; font-weight: 600;
+    border: 1px solid var(--rule-solid, var(--rule)); border-radius: var(--r-md);
+    background: var(--paper); color: var(--ink);
+  }
+  .export-row button.is-pressed { background: var(--sunk); transform: translateY(1px); }
   /* 부모의 모바일 모드에서만 적용: 데스크톱 제품 패널에는 영향이 없다. */
   html.mobile-demo { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   .mobile-demo body { padding: 8px 12px; gap: 6px; overflow: hidden; }
@@ -67,6 +75,7 @@
   .mobile-demo #stageDone .note-document table { font-size: 11px; }
   .mobile-demo #stageDone .detail.result-help { font-size: 10px; margin-top: 1px; }
   .mobile-demo #result { font-size: 12px; }
+  .mobile-demo .export-row button { height: 26px; font-size: 11px; }
 </style>
 </head>
 <body>
@@ -98,6 +107,10 @@
   <div class="note-surface" id="noteSurface">
     <article class="note-document" id="notePreview" aria-label="강의 노트" tabindex="0"></article>
     <textarea id="result" aria-label="강의 노트 Markdown 편집" readonly hidden></textarea>
+  </div>
+  <div class="export-row" id="exportRow" hidden>
+    <button id="pdfBtn" type="button" disabled>PDF 출력</button>
+    <button id="notionBtn" type="button" disabled>노션으로 복사</button>
   </div>
   <p class="detail result-help">AI가 작성한 예시 초안입니다. 자동 재생을 멈추고 읽거나 복사할 수 있습니다.</p>
 </div>

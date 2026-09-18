@@ -90,8 +90,6 @@
   const reviews = document.querySelector('.reviews');
   if (reviews) {
     const reviewMotion = matchMedia('(prefers-reduced-motion: reduce)');
-    const reviewControl = reviews.querySelector('.reviews-control');
-    let reviewsPaused = false;
     for (const track of reviews.querySelectorAll('.reviews-track')) {
       const group = track.querySelector('.reviews-group');
       if (!group) continue;
@@ -105,14 +103,8 @@
     }
     reviews.classList.add('is-ready');
     function syncReviews() {
-      const paused = reviewsPaused || document.hidden || reviewMotion.matches;
-      reviews.classList.toggle('is-paused', paused);
-      if (!reviewControl) return;
-      reviewControl.hidden = reviewMotion.matches;
-      reviewControl.setAttribute('aria-pressed', String(paused));
-      reviewControl.textContent = paused ? '후기 흐름 재생' : '후기 흐름 일시정지';
+      reviews.classList.toggle('is-paused', document.hidden || reviewMotion.matches);
     }
-    reviewControl?.addEventListener('click', () => { reviewsPaused = !reviewsPaused; syncReviews(); });
     reviewMotion.addEventListener('change', syncReviews);
     document.addEventListener('visibilitychange', syncReviews);
     syncReviews();
@@ -123,62 +115,56 @@
   }
 })();
 
-// Six-second, silent sample scene; independent of the real lecture capture and hero demo.
+// Six-second, silent sample scene on a loop; independent of the real lecture capture and hero demo.
 (() => {
   const player = document.getElementById('lecturePlayer');
-  const playBtn = document.getElementById('lectureScenePlay');
-  const label = playBtn?.querySelector('[data-player-label]');
   const caption = document.getElementById('lectureSceneCaption');
-  const timeEl = document.getElementById('lectureSceneTime');
-  const progEl = document.getElementById('lectureSceneProgress');
+  if (!player || !caption) return;
 
-  if (!player || !playBtn || !label || !caption || !timeEl || !progEl) {
-    if (playBtn) playBtn.hidden = true;
-    return;
-  }
-
-  const BASE_SEC = 340;
-  const TOTAL_SEC = 2538;
   const DURATION = 6000;
+  const HOLD = 1600;
+  const LOOP = DURATION + HOLD;
   const FULL_CAPTION = caption.textContent;
   const STAGES = [
-    { max: 1500, scene: 'current', text: '지금 조건에서는' },
-    { max: 3000, scene: 'choice', text: '위쪽 안을 고르면 됩니다.' },
-    { max: 4500, scene: 'crossing', text: '다만 여기 교차점을 지나면' },
-    { max: 6000, scene: 'after', text: '순서가 바뀌죠.' }
+    { max: 1500, scene: 'points', text: '훈련 데이터 세 점을 놓고' },
+    { max: 3000, scene: 'boundary', text: '이 경계로 분류한다고 하면' },
+    { max: 4500, scene: 'miss', text: '왼쪽 점 하나가 반대편에 있죠.' },
+    { max: 6000, scene: 'loss', text: '그래서 평균 손실이 0.33입니다.' }
   ];
 
   let elapsed = 0;
   let rafId = null;
   let lastTime = 0;
-  let hasInteracted = false;
-  let ioInit = true;
+  let inView = false;
 
   const mm = window.matchMedia('(prefers-reduced-motion: reduce)');
 
-  function fmtTime(sec) {
-    const m = String(Math.floor(sec / 60)).padStart(2, '0');
-    const s = String(Math.floor(sec % 60)).padStart(2, '0');
-    return `${m}:${s}`;
-  }
-
   function render(ms) {
-    const curSec = BASE_SEC + (ms / 1000);
-    progEl.style.width = `${((curSec / TOTAL_SEC) * 100).toFixed(3)}%`;
-    timeEl.textContent = fmtTime(curSec);
-
     if (ms >= DURATION) {
       player.dataset.scene = 'complete';
       caption.textContent = FULL_CAPTION;
-      label.textContent = '다시 재생';
       return;
     }
-
     const stage = STAGES.find(s => ms < s.max) || STAGES[STAGES.length - 1];
     if (player.dataset.scene !== stage.scene) {
       player.dataset.scene = stage.scene;
       caption.textContent = stage.text;
     }
+  }
+
+  function tick(now) {
+    elapsed += now - lastTime;
+    lastTime = now;
+    if (elapsed >= LOOP) elapsed -= LOOP;
+    render(Math.min(elapsed, DURATION));
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function play() {
+    if (rafId !== null || mm.matches || document.hidden || !inView) return;
+    player.dataset.playing = 'true';
+    lastTime = performance.now();
+    rafId = requestAnimationFrame(tick);
   }
 
   function pause() {
@@ -187,72 +173,32 @@
       rafId = null;
     }
     player.dataset.playing = 'false';
-    playBtn.setAttribute('aria-pressed', 'false');
-    if (elapsed < DURATION && hasInteracted) {
-      label.textContent = '이어서 재생';
-    }
   }
-
-  function tick(now) {
-    elapsed += (now - lastTime);
-    lastTime = now;
-    if (elapsed >= DURATION) {
-      elapsed = DURATION;
-      render(DURATION);
-      pause();
-      return;
-    }
-    render(elapsed);
-    rafId = requestAnimationFrame(tick);
-  }
-
-  function play() {
-    if (mm.matches || document.hidden) return;
-    if (elapsed >= DURATION) {
-      elapsed = 0;
-      render(0);
-    }
-    hasInteracted = true;
-    render(elapsed);
-    player.dataset.playing = 'true';
-    playBtn.setAttribute('aria-pressed', 'true');
-    label.textContent = '일시정지';
-    lastTime = performance.now();
-    rafId = requestAnimationFrame(tick);
-  }
-
-  playBtn.addEventListener('click', () => {
-    if (player.dataset.playing === 'true') pause();
-    else play();
-  });
 
   function handleMotion() {
     if (mm.matches) {
       pause();
       elapsed = 0;
-      hasInteracted = false;
       render(DURATION);
-      label.textContent = '장면 재생';
-      timeEl.textContent = '05:40';
-      progEl.style.width = `${((BASE_SEC / TOTAL_SEC) * 100).toFixed(3)}%`;
-      playBtn.hidden = true;
     } else {
-      playBtn.hidden = false;
+      play();
     }
   }
   player.dataset.playing = 'false';
-  playBtn.setAttribute('aria-pressed', 'false');
   mm.addEventListener('change', handleMotion);
-  handleMotion();
 
-  document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
+  document.addEventListener('visibilitychange', () => { document.hidden ? pause() : play(); });
   window.addEventListener('pagehide', pause);
 
-  const io = 'IntersectionObserver' in window ? new IntersectionObserver((entries) => {
-    entries.forEach(entry => {
-      if (ioInit) { ioInit = false; return; }
-      if (!entry.isIntersecting) pause();
-    });
-  }, { threshold: 0 }) : null;
-  io?.observe(player);
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        inView = entry.isIntersecting;
+        inView ? play() : pause();
+      }
+    }, { threshold: 0 }).observe(player);
+  } else {
+    inView = true;
+    play();
+  }
 })();
