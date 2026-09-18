@@ -12,3 +12,10 @@ apikey.env.local
 
 # server-data/는 로컬 서버 런타임 데이터(사용량 및 암호화된 계정 정보)를 저장하므로 저장소에 들어가면 안 된다.
 server-data/
+
+# Chrome Web Store 배포 산출물 디렉터리
+dist/
+
+# 스킬 작업 산출물 — 루트의 _ 접두 이름은 Chrome 확장 로더가 예약어로 거부한다
+_workspace/
+.workspace/

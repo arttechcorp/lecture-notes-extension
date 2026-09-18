@@ -16,7 +16,8 @@
     "<all_urls>",
     "https://huggingface.co/*",
     "https://*.hf.co/*",
-    "https://cdn-lfs.huggingface.co/*"
+    "https://cdn-lfs.huggingface.co/*",
+    "https://openrouter.ai/*"
   ],
   "sandbox": {
     "pages": ["sandbox.html"]
@@ -35,10 +36,18 @@
     "128": "icons/icon128.png"
   },
   "action": {
-    "default_title": "Summrizei 열기",
+    "default_title": "Summrizei 열기 · Alt+Shift+S",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png"
+    }
+  },
+  "commands": {
+    "open-capture-panel": {
+      "suggested_key": {
+        "default": "Alt+Shift+S"
+      },
+      "description": "현재 강의 탭의 캡처 창 열기 (LearnUs 팝업용)"
     }
   },
   "content_security_policy": {
