@@ -24,7 +24,7 @@ function config(env){
     positive(limit.maxRequests);positive(limit.maxCostCents);
   }
   return {tokens,allow,providers,key:env.OPENROUTER_API_KEY,origin:env.EXTENSION_ORIGIN,root:path.resolve(env.VAULT_DIR||"server-data"),stateFile:env.USAGE_STATE_FILE?path.resolve(env.USAGE_STATE_FILE):null,
-    accountLimits,maxCents:positive(env.MAX_COST_CENTS,500),maxRequests:positive(env.MAX_REQUESTS,500),globalCents:positive(env.GLOBAL_COST_CENTS,5000),timeout:Math.min(positive(env.OPENROUTER_TIMEOUT_MS,120000),120000),maxFiles:100,maxArchiveBytes:200*1024*1024};
+    accountLimits,maxCents:positive(env.MAX_COST_CENTS,1500),maxRequests:positive(env.MAX_REQUESTS,500),globalCents:positive(env.GLOBAL_COST_CENTS,15000),timeout:Math.min(positive(env.OPENROUTER_TIMEOUT_MS,120000),120000),maxFiles:100,maxArchiveBytes:200*1024*1024};
 }
 function atomic(file,data){fs.mkdirSync(path.dirname(file),{recursive:true});const temp=file+"."+crypto.randomUUID()+".tmp";fs.writeFileSync(temp,JSON.stringify(data),{mode:0o600,flag:"wx"});fs.renameSync(temp,file);}
 function readState(file){
