@@ -26,35 +26,40 @@
       '서로 다른 규모의 투자안은 수익률만으로 비교하면 안 됩니다.',
       '상호배타적인 대안은 NPV와 판단 근거를 함께 확인하세요.',
     ];
-    const note = `## 핵심 요약
+    const note = `> ⚠ 노트가 다루지 못한 근거가 1건 있습니다 — 05:47
 
-> 같은 금액이라도 **언제 받는지**에 따라 가치가 달라집니다. 이 예시에서는 현금을 일찍 회수하는 B안이 가장 유리합니다.
+## 핵심 결론
+- **NPV(순현재가치)**: 투자 가치를 현재 금액으로 환산 — 같은 금액도 받는 시점에 따라 달라짐
+- **IRR(내부수익률)**: NPV를 0으로 만드는 할인율 — 규모가 다른 대안 비교에는 부적합
+- 할인율 20% 기준 B안 NPV **$117**로 최대 → 상호배타적 대안은 NPV 우선
 
-### NPV와 IRR, 무엇이 다를까?
-- **NPV · 순현재가치**: 투자로 창출하는 가치를 현재 시점의 금액으로 나타냅니다.
-- **IRR · 내부수익률**: NPV를 0으로 만드는 할인율입니다.
+## 1 구간 · 현재가치 개념 도입 ⭐
+**슬라이드 제목:** Time Value of Money
+- 오늘의 $100 > 내년의 $100 — 미래 현금을 현재가치로 환산
 
-### 할인율 20%에서 비교
-초기 투자금은 모두 **1,000달러**입니다.
+**강의자 설명(t≈0:40–1:36):** 회수 시점이 가치를 바꾼다고 강조
 
+### 현재가치
+PV = CFₜ ÷ (1 + r)ᵗ — 변수: CFₜ 미래 현금흐름, r 할인율 · 조건: 연 복리
+
+## 2 구간 · 세 투자안 비교 평가 ⭐
 | 투자안 | NPV | IRR |
 | --- | ---: | ---: |
-| A | 약 $35 | 약 22% |
-| **B** | **약 $117** | **약 27%** |
-| C | 약 −$46 | 약 18% |
+| A | $35 | 22% |
+| **B** | **$117** | **27%** |
+| C | −$46 | 18% |
 
-### 기억할 판단 기준
-1. 금액뿐 아니라 **현금이 들어오는 시점**을 함께 비교합니다.
-2. 규모가 다른 상호배타적 대안은 수익률만으로 고르지 않습니다.
-3. NPV가 보여주는 **가치 증가**와 판단 근거를 확인합니다.
+**강의자 설명(t≈1:37–4:02):** 앞쪽 회수가 몰린 B안이 NPV 최대
 
----
+## 복습 질문
+- [ ] 총유입액이 같아도 B안과 C안의 NPV가 다른 이유를 회수 시점으로 설명하시오.
+- [ ] 상호배타적 대안을 IRR만으로 고르지 못하는 이유를 설명하시오.
+- [ ] 할인율이 올라갈 때 NPV가 어떻게 변하는지 설명하시오.`;
 
-### 복습 질문
-- [ ] 총유입액이 같아도 B안과 C안의 NPV가 다른 이유를 설명할 수 있나요?`;
-
-    const CAPTURE_SECONDS = 14.4;
-    const NOTE_HOLD_MS = 4200;
+    const CAPTURE_SECONDS = 8;
+    const NOTE_HOLD_MS = 2000;
+    const SHARE_SECONDS = 2.8;
+    const TABLET_SECONDS = 6.4;
     let stage = 'live';
     let elapsed = 0;
     let voice = 0;
@@ -64,6 +69,9 @@
     let captureTimer;
     let noteTimer;
     let loopTimer;
+    let phaseTimer;
+    let phaseElapsed = 0;
+    let hlGeom;
     let generationCursor = 0;
     let generating = false;
     let userPaused = false;
@@ -87,7 +95,11 @@
         tiltFrame.style.removeProperty('transform');
         return;
       }
-      const progress = clamp(window.scrollY / 400, 0, 1);
+      // 목업 상단이 뷰포트의 40% 지점에 도달하면 평면 완료 — 스크롤 px 고정값 대신 요소 위치 기준.
+      // 단 히어로 전체가 한 화면에 들어가는 큰 뷰포트에서도 틸트가 보이도록 최소 이동 거리(18vh)를 둔다.
+      const endScroll = Math.max(window.innerHeight * .18,
+        mock.getBoundingClientRect().top + window.scrollY - window.innerHeight * .4);
+      const progress = clamp(window.scrollY / endScroll, 0, 1);
       const rotation = 12 * (1 - progress);
       const scale = .78 + .22 * progress;
       tiltFrame.style.transform = `perspective(1200px) rotateX(${rotation}deg) scale(${scale})`;
@@ -154,22 +166,25 @@
       clearTimeout(loopTimer);
       if (!reducedMotion.matches && canPlay()) loopTimer = setTimeout(() => {
         loopTimer = undefined;
-        startCapture();
+        startShare();
       }, NOTE_HOLD_MS);
     }
 
     function updatePlayback() {
       clearInterval(captureTimer);
       clearInterval(noteTimer);
+      clearInterval(phaseTimer);
       clearTimeout(loopTimer);
       cancelAnimationFrame(inkFrame);
       inkLastTime = undefined;
       loopTimer = undefined;
+      phaseTimer = undefined;
       const playing = canPlay() && !reducedMotion.matches;
       if (playing && stage === 'live') captureTimer = setInterval(captureTick, 400);
       if (playing && stage === 'live') inkFrame = requestAnimationFrame(writeInk);
       if (playing && stage === 'done' && generating) noteTimer = setInterval(generateNoteTick, 24);
       if (playing && stage === 'done' && !generating && !loopTimer) queueLoop();
+      if (playing && (stage === 'share' || stage === 'tablet')) phaseTimer = setInterval(phaseTick, 50);
       mock.classList.toggle('is-paused', !playing);
       const pulse = panel.querySelector('.pulse');
       if (pulse) pulse.style.animationPlayState = playing ? 'running' : 'paused';
@@ -182,7 +197,7 @@
       mock.querySelector('#lectureTime').textContent = formatTime(727 + elapsed);
       mock.style.setProperty('--lecture-progress', `${Math.min(99, (727 + elapsed) / 1340 * 100)}%`);
       if (elapsed + .001 >= CAPTURE_SECONDS) return finishCapture();
-      const event = Math.floor((elapsed + .001) / 2.4);
+      const event = Math.floor((elapsed + .001) / 1.6);
       if (event !== lastEvent) {
         lastEvent = event;
         voice += 1;
@@ -214,7 +229,7 @@
     }
 
     function generateNoteTick() {
-      generationCursor += 6;
+      generationCursor += 10;
       noteViewer.show(note.slice(0, generationCursor), { generating: true });
       if (generationCursor >= note.length) completeNote();
     }
@@ -225,9 +240,153 @@
       noteViewer.show(note);
       lockDemoEditing();
       $('copyBtn').disabled = false;
+      $('exportRow').hidden = false;
+      $('pdfBtn').disabled = false;
       $('donePill').textContent = '노트 완성';
       announcement.textContent = '예시 노트가 완성되었습니다. 일시정지하면 내용을 읽거나 복사할 수 있습니다.';
+      if (reducedMotion.matches) return staticTabletSequence();
       queueLoop();
+    }
+
+    // ── 노트 완성 → PDF 출력 → AirDrop → 태블릿 필기 시연 ──
+    function phaseTick() {
+      phaseElapsed += .05;
+      if (stage === 'share') shareTick();
+      else tabletTick();
+    }
+
+    function startShare() {
+      clearTimeout(loopTimer);
+      loopTimer = undefined;
+      stage = 'share';
+      phaseElapsed = 0;
+      $('pdfBtn').classList.add('is-pressed');
+      mock.querySelector('#lectureCaption').textContent = '노트를 PDF로 저장해 iPad로 보냅니다.';
+      announcement.textContent = '노트를 PDF로 저장해 태블릿으로 보내는 예시입니다.';
+      shareTick();
+      updatePlayback();
+    }
+
+    function shareTick() {
+      const t = phaseElapsed;
+      const sheet = mock.querySelector('.share-sheet');
+      if (t >= .45 && mock.dataset.state !== 'share') {
+        $('pdfBtn').classList.remove('is-pressed');
+        mock.dataset.state = 'share';
+      }
+      if (t >= .7) sheet.querySelector('.share-airdrop').classList.add('is-selected');
+      const progress = clamp((t - .85) / 1.2, 0, 1);
+      sheet.querySelector('.ring-fg').style.strokeDashoffset = String(1 - progress);
+      if (t >= 2.3) {
+        sheet.classList.add('is-sent');
+        sheet.querySelector('.share-status').textContent = '보냄';
+      } else {
+        sheet.querySelector('.share-status').textContent = progress > 0 ? '전송 중…' : '대기 중';
+      }
+      if (t >= SHARE_SECONDS) {
+        clearInterval(phaseTimer);
+        phaseTimer = undefined;
+        startTablet();
+      }
+    }
+
+    function startTablet() {
+      stage = 'tablet';
+      phaseElapsed = 0;
+      mock.dataset.state = 'tablet';
+      // 스크롤 가능한 노트 영역이 포커스 가능하므로 보이는 동안 aria-hidden을 해제한다.
+      mock.querySelector('.tablet-scene').setAttribute('aria-hidden', 'false');
+      measureTablet();
+      announcement.textContent = '노트앱에서 핵심 문장을 표시하는 예시입니다.';
+      tabletTick();
+      updatePlayback();
+    }
+
+    // hl-target은 한 줄로 고정해 두었으므로 offset 좌표로 형광펜·밑줄·펜 위치를 계산한다.
+    // offsetTop은 offsetParent(.pdf-wrap) 기준이라 스크롤 위치와 무관하다.
+    // 모바일에서는 workspace가 스크롤되므로 매 장면 시작 시 스크롤을 맨 위로 되돌린다.
+    function measureTablet() {
+      const target = mock.querySelector('.hl-target');
+      if (!target) return;
+      mock.querySelector('.tablet-workspace').scrollTop = 0;
+      const x = target.offsetLeft - 3;
+      const y = target.offsetTop - 1;
+      const w = target.offsetWidth + 6;
+      const h = target.offsetHeight + 2;
+      hlGeom = { x, y, w, h };
+      const hl = mock.querySelector('.tablet-ink .hl');
+      hl.setAttribute('x', x);
+      hl.setAttribute('y', y);
+      hl.setAttribute('height', h);
+      hl.setAttribute('width', '0');
+      const uy = y + h + 2;
+      mock.querySelector('.tablet-ink .ul').setAttribute('d',
+        `M ${x} ${uy} Q ${x + w * .28} ${uy + 3.5} ${x + w * .55} ${uy + 1} T ${x + w} ${uy + 2}`);
+    }
+
+    function paintTablet(sweep, underline) {
+      if (!hlGeom) return;
+      const { x, y, w, h } = hlGeom;
+      const hl = mock.querySelector('.tablet-ink .hl');
+      const ul = mock.querySelector('.tablet-ink .ul');
+      const pen = mock.querySelector('.tablet-pen');
+      hl.setAttribute('width', String(w * sweep));
+      ul.style.strokeDashoffset = String(1 - underline);
+      mock.querySelectorAll('.gn-tool[data-tool]').forEach((el) => {
+        el.classList.toggle('is-active', el.dataset.tool === (underline > 0 ? 'pen' : 'marker'));
+      });
+      if (sweep > 0 && sweep < 1) {
+        pen.setAttribute('transform', `translate(${x + w * sweep} ${y + h - 1}) rotate(-25) scale(.8)`);
+        pen.style.opacity = '1';
+      } else if (underline > 0 && underline < 1) {
+        const tip = ul.getPointAtLength(underline * ul.getTotalLength());
+        pen.setAttribute('transform', `translate(${tip.x} ${tip.y}) rotate(-25) scale(.8)`);
+        pen.style.opacity = '1';
+      } else {
+        pen.style.opacity = '0';
+      }
+    }
+
+    function tabletTick() {
+      paintTablet(clamp((phaseElapsed - .7) / 2.2, 0, 1), clamp((phaseElapsed - 3.1) / 1, 0, 1));
+      if (phaseElapsed >= TABLET_SECONDS) {
+        clearInterval(phaseTimer);
+        phaseTimer = undefined;
+        startCapture();
+      }
+    }
+
+    // reduced-motion에서는 연출 없이 각 장면의 완료 상태를 잠시 보여 준다.
+    function staticTabletSequence() {
+      const sheet = mock.querySelector('.share-sheet');
+      setTimeout(() => {
+        sheet.querySelector('.share-airdrop').classList.add('is-selected');
+        sheet.querySelector('.ring-fg').style.strokeDashoffset = '0';
+        sheet.classList.add('is-sent');
+        sheet.querySelector('.share-status').textContent = '보냄';
+        mock.dataset.state = 'share';
+      }, 1400);
+      setTimeout(() => {
+        mock.querySelector('.tablet-scene').setAttribute('aria-hidden', 'false');
+        measureTablet();
+        paintTablet(1, 1);
+        mock.dataset.state = 'tablet';
+      }, 3200);
+    }
+
+    function resetOverlays() {
+      const sheet = mock.querySelector('.share-sheet');
+      mock.querySelector('.tablet-scene').setAttribute('aria-hidden', 'true');
+      sheet.classList.remove('is-sent');
+      sheet.querySelector('.share-airdrop').classList.remove('is-selected');
+      sheet.querySelector('.ring-fg').style.strokeDashoffset = '1';
+      sheet.querySelector('.share-status').textContent = '대기 중';
+      $('exportRow').hidden = true;
+      $('pdfBtn').disabled = true;
+      $('pdfBtn').classList.remove('is-pressed');
+      paintTablet(0, 0);
+      const pen = mock.querySelector('.tablet-pen');
+      if (pen) pen.style.opacity = '0';
     }
 
     function finishCapture() {
@@ -268,6 +427,7 @@
       noteViewer.show('');
       lockDemoEditing();
       $('copyBtn').disabled = true;
+      resetOverlays();
       mock.style.removeProperty('--lecture-progress');
       mock.querySelector('#lectureTime').textContent = '12:07';
       mock.querySelector('#lectureCaption').textContent = '화면과 음성을 읽는 중입니다.';
@@ -316,9 +476,10 @@
       updatePlayback();
     });
     window.addEventListener('scroll', updateTilt, { passive: true });
-    window.addEventListener('resize', updateTilt);
+    // 회전·폭 변경으로 문서가 리플로우되면 태블릿 장면의 필기 좌표를 다시 잰다.
+    window.addEventListener('resize', () => { updateTilt(); if (mock.dataset.state === 'tablet') measureTablet(); });
     window.addEventListener('pageshow', () => { updateTilt(); updatePlayback(); });
-    window.addEventListener('pagehide', () => { clearInterval(captureTimer); clearInterval(noteTimer); clearTimeout(loopTimer); cancelAnimationFrame(inkFrame); });
+    window.addEventListener('pagehide', () => { clearInterval(captureTimer); clearInterval(noteTimer); clearInterval(phaseTimer); clearTimeout(loopTimer); cancelAnimationFrame(inkFrame); });
     updateTilt();
     startCapture();
   }

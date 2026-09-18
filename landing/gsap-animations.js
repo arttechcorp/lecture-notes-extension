@@ -1,7 +1,7 @@
 /* GSAP을 쓰는 곳은 이 파일뿐이다. 의존성을 유지하는 이유를 남겨둔다.
    1) 히어로 진입 타임라인 - eyebrow → h1 → lead → hero-actions → .mock 순서 연출.
       순서가 있는 stagger라 CSS transition으로는 지연값을 손으로 계산해야 한다.
-   2) ScrollTrigger 1회 등장 - .value-strip / .source-panel / .plan-grid / .steps / .faq-list / .demo-note.
+   2) ScrollTrigger 1회 등장 - .connect-section / .plan-grid / .faq-list.
       `animation-timeline: view()`는 Safari 미지원이라 아직 대체하지 않는다.
    위 두 가지를 쓰지 않게 되면 index.html의 CDN 두 줄과 함께 통째로 지운다.
    진입 애니메이션의 초기 상태(opacity 0)는 landing.css의 `html.gsap-enter`가 갖고 있다.
@@ -47,21 +47,8 @@
     }, vars));
   }
 
-  revealOnScroll('.value-strip', 'span', { y: 16 });
-  revealOnScroll('.source-panel', '.transcript-line');
+  revealOnScroll('.connect-section', '.connect-flow > *', { y: 16 });
   revealOnScroll('.plan-grid', '.plan');
-  revealOnScroll('.steps', ':scope > div');
   revealOnScroll('.faq-list', 'details');
 
-  const demoNote = document.querySelector('.demo-note');
-  if (demoNote) {
-    gsap.from(demoNote, {
-      opacity: 0,
-      y: 20,
-      duration: 0.6,
-      ease: 'power2.out',
-      clearProps: 'all',
-      scrollTrigger: { trigger: demoNote, start: 'top 85%', once: true },
-    });
-  }
 })();

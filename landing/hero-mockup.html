@@ -6,15 +6,15 @@
 <meta name="robots" content="noindex">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Hedvig+Letters+Serif:opsz@12..24&family=Geist+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="landing.css?v=20260912-mobile-1">
-<link rel="stylesheet" href="hero-mockup.css?v=20260912-mobile-1">
+<link rel="stylesheet" href="landing.css?v=20260918-mobile-1">
+<link rel="stylesheet" href="hero-mockup.css?v=20260918-mobile-1">
 </head>
 <body>
 <p class="mock-preview-note">히어로 목업 미리보기 · <a href="index.html">전체 랜딩페이지 보기 ↗</a></p>
 
 <header class="site-header wrap">
   <a class="brand" href="index.html" aria-label="Summrizei 홈">Summr<span>i</span>zei<span class="brand-dot">.</span></a>
-  <nav aria-label="주 메뉴"><a href="index.html#preview">노트 미리보기</a><a href="index.html#plans">플랜</a><button class="small-button" type="button">무료로 시작 <span aria-hidden="true">↗</span></button></nav>
+  <nav aria-label="주 메뉴"><button class="small-button" type="button">무료로 시작 <span aria-hidden="true">↗</span></button></nav>
 </header>
 
 <main>
@@ -22,7 +22,7 @@
   <div class="hero-copy">
     <p class="eyebrow">LESS TRANSCRIBING. MORE UNDERSTANDING.</p>
     <h1>온라인 강의 딸깍.</h1>
-    <p class="lead">놓치기 쉬운 설명부터 중요한 슬라이드까지. 강의의 화면과 말소리를 모아, 다시 읽고 싶은 학습 노트로 만드세요.</p>
+    <p class="lead">영상 다운로드 없이<br>동영상/실시간 강의의 요약 노트를 내가 쓰던 노트앱으로.</p>
     <div class="hero-actions"><button class="button dark" type="button">Summrizei 무료로 시작 <span aria-hidden="true">↗</span></button></div>
   </div>
 
@@ -146,7 +146,99 @@
             <span class="lec-rate" aria-hidden="true">1×</span>
           </div>
         </div>
-        <iframe class="demo-panel" src="demo-panel.html?v=20260912-mobile-1" title="Summrizei 캡처와 노트 만들기 자동 체험" sandbox="allow-same-origin" loading="eager"></iframe>
+        <iframe class="demo-panel" src="demo-panel.html?v=20260917-share-1" title="Summrizei 캡처와 노트 만들기 자동 체험" sandbox="allow-same-origin" loading="eager"></iframe>
+      </div>
+      <!-- PDF 내보내기 → AirDrop → 태블릿 필기 시연 오버레이 -->
+      <div class="share-sheet" aria-hidden="true">
+        <div class="share-panel">
+          <div class="share-doc"><span class="share-doc-icon">PDF</span><span class="share-doc-meta"><b>요약 노트.pdf</b><i>PDF 문서 · 1페이지</i></span></div>
+          <div class="share-apps">
+            <span class="share-app"><i class="app-icon app-airdrop"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="13.5" r="1.8"/><path d="M5.4 10.4a6.4 6.4 0 0 1 9.2 0M7.4 12.4a3.6 3.6 0 0 1 5.2 0"/></svg></i>AirDrop</span>
+            <span class="share-app"><i class="app-icon"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4c-3.6 0-6.5 2.4-6.5 5.4 0 1.7.9 3.2 2.4 4.2l-.7 2.9 3-1.6c.6.1 1.2.2 1.8.2 3.6 0 6.5-2.4 6.5-5.4S13.6 4 10 4z"/></svg></i>메시지</span>
+            <span class="share-app"><i class="app-icon"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="5" width="14" height="10" rx="1.5"/><path d="M3.8 6.2l6.2 4.8 6.2-4.8"/></svg></i>메일</span>
+            <span class="share-app"><i class="app-icon"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="3.5" width="12" height="13" rx="1.5"/><path d="M6.5 7h7M6.5 10h7M6.5 13h4.5"/></svg></i>메모</span>
+          </div>
+          <div class="share-airdrop">
+            <span class="share-recv">
+              <svg class="share-ring" viewBox="0 0 46 46" aria-hidden="true"><circle class="ring-bg" cx="23" cy="23" r="20" pathLength="1"/><circle class="ring-fg" cx="23" cy="23" r="20" pathLength="1"/></svg>
+              <i class="share-ipad-icon"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4.5" y="2.5" width="11" height="15" rx="2"/><circle cx="10" cy="15" r=".9"/></svg></i>
+              <svg class="share-check" viewBox="0 0 46 46" aria-hidden="true"><circle cx="23" cy="23" r="20"/><path d="M15.5 23.5l5 5L31 18.5"/></svg>
+            </span>
+            <b class="share-recv-name">iPad</b>
+            <span class="share-status">대기 중</span>
+          </div>
+        </div>
+      </div>
+      <div class="tablet-scene" aria-hidden="true">
+        <div class="tablet-bezel">
+          <div class="tablet-screen">
+            <div class="tablet-toolbar">
+              <div class="gn-top">
+                <span class="gn-cluster">
+                  <i class="gn-ic"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5.5 5.5l9 9M14.5 5.5l-9 9"/></svg></i>
+                  <i class="gn-ic"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3.5" y="3.5" width="5.5" height="5.5" rx="1"/><rect x="11" y="3.5" width="5.5" height="5.5" rx="1"/><rect x="3.5" y="11" width="5.5" height="5.5" rx="1"/><rect x="11" y="11" width="5.5" height="5.5" rx="1"/></svg></i>
+                  <i class="gn-ic"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5"/><path d="M12.8 12.8L16.2 16.2"/></svg></i>
+                </span>
+                <b class="gn-title">요약 노트<i class="gn-caret">⌄</i></b>
+                <span class="gn-cluster">
+                  <i class="gn-ic gn-pencircle"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 12.5l.7-2.4 4.3-4.3 1.7 1.7-4.3 4.3z"/></svg></i>
+                  <i class="gn-ic"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="5.5" width="14" height="9" rx="1.5"/><path d="M6 8.5h1M9.5 8.5h1M13 8.5h1M6.5 11.5h7"/></svg></i>
+                  <i class="gn-ic"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3.5a2 2 0 0 1 2 2v4a2 2 0 0 1-4 0v-4a2 2 0 0 1 2-2z"/><path d="M6.5 9.5a3.5 3.5 0 0 0 7 0M10 13v3"/></svg></i>
+                </span>
+                <span class="gn-cluster">
+                  <i class="gn-ic"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="5" y="3.5" width="10" height="13" rx="1.5"/><path d="M10 7.5v5M7.5 10h5"/></svg></i>
+                  <i class="gn-ic"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6.5 3.5h7v13l-3.5-2.6-3.5 2.6z"/></svg></i>
+                  <i class="gn-ic"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v8M10 3L7 6M10 3l3 3"/><path d="M5 11.5V16h10v-4.5"/></svg></i>
+                  <i class="gn-ic"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="5" cy="10" r="1.3"/><circle cx="10" cy="10" r="1.3"/><circle cx="15" cy="10" r="1.3"/></svg></i>
+                </span>
+              </div>
+              <div class="gn-tools">
+                <span class="gn-undos">
+                  <i class="gn-tool"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5.5L3.5 9 7 12.5"/><path d="M4.5 9h8a3.8 3.8 0 0 1 0 7.6H8"/></svg></i>
+                  <i class="gn-tool"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M13 5.5L16.5 9 13 12.5"/><path d="M15.5 9h-8a3.8 3.8 0 0 0 0 7.6H12"/></svg></i>
+                </span>
+                <span class="gn-toolset">
+                  <i class="gn-tool" data-tool="pen"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 16l.9-3.4L12 5.6l2.4 2.4-7.1 7.1L4 16z"/></svg></i>
+                  <i class="gn-tool is-active" data-tool="marker"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 12.5L11 6l3 3-6.5 6.5H4.5v-3z"/><path d="M13 4.5l2.5 2.5"/></svg></i>
+                  <i class="gn-tool"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 12.5L10.5 7l3 3L8 15.5H6l-1-1z"/><path d="M11.5 15.5H16"/></svg></i>
+                  <i class="gn-tool"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="4.5" width="12" height="11" rx="5.5" stroke-dasharray="2.5 2"/></svg></i>
+                  <i class="gn-tool"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="6"/></svg></i>
+                  <i class="gn-tool"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5.5 5.5h9M10 5.5V15"/></svg></i>
+                </span>
+                <span class="gn-strokes"><i></i><i></i><i class="on"></i></span>
+                <span class="gn-colors"><i class="c1 on"></i><i class="c2"></i><i class="c3"></i></span>
+              </div>
+            </div>
+            <div class="tablet-workspace" tabindex="0" role="region" aria-label="요약 노트 · 스크롤 가능">
+              <div class="pdf-wrap">
+                <article class="pdf-doc">
+                  <p class="pdf-eyebrow">SUMMRIZEI · 요약 노트</p>
+                  <p class="pdf-doc-title">NPV and IRR explained</p>
+                  <p class="pdf-warn">⚠ 노트가 다루지 못한 근거가 1건 있습니다 — 05:47</p>
+                  <p class="pdf-h">핵심 결론</p>
+                  <p class="pdf-key">같은 금액이라도<br><span class="hl-target">언제 받는지에 따라 가치가 달라집니다.</span></p>
+                  <ul class="pdf-list">
+                    <li><b>NPV(순현재가치)</b>: 투자 가치를 현재 금액으로 환산</li>
+                    <li><b>IRR(내부수익률)</b>: NPV를 0으로 만드는 할인율 — 규모가 다른 대안 비교엔 부적합</li>
+                    <li>할인율 20% 기준 <b>B안 NPV $117</b> 최대 → 상호배타적 대안은 NPV 우선</li>
+                  </ul>
+                  <p class="pdf-h">1 구간 · 현재가치 개념 도입 ⭐</p>
+                  <p class="pdf-meta"><b>슬라이드 제목:</b> Time Value of Money — 오늘의 $100 &gt; 내년의 $100</p>
+                  <p class="pdf-concept"><b>현재가치</b> PV = CFₜ ÷ (1 + r)ᵗ <span>변수: CFₜ 미래 현금흐름, r 할인율 · 조건: 연 복리</span></p>
+                  <p class="pdf-h">2 구간 · 세 투자안 비교 평가 ⭐</p>
+                  <table class="pdf-table"><thead><tr><th>투자안</th><th>NPV</th><th>IRR</th></tr></thead><tbody><tr><td>A</td><td>$35</td><td>22%</td></tr><tr class="best"><td>B</td><td>$117</td><td>27%</td></tr><tr><td>C</td><td>−$46</td><td>18%</td></tr></tbody></table>
+                  <p class="pdf-meta"><b>강의자 설명(t≈1:37–4:02):</b> 앞쪽 회수가 몰린 B안이 NPV 최대</p>
+                  <p class="pdf-h">복습 질문</p>
+                  <ul class="pdf-list pdf-qs">
+                    <li>총유입액이 같아도 B안과 C안의 NPV가 다른 이유를 회수 시점으로 설명하시오.</li>
+                    <li>상호배타적 대안을 IRR만으로 고르지 못하는 이유를 설명하시오.</li>
+                  </ul>
+                </article>
+                <svg class="tablet-ink" aria-hidden="true"><rect class="hl" rx="3"/><path class="ul" pathLength="1" fill="none"/><path class="tablet-pen" d="M0 0 3 25 9 18 17 30 22 27 14 15 25 14Z"/></svg>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
       </div>
       <button class="lec-play-toggle" type="button" aria-label="체험 일시정지" aria-pressed="false"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 3v10M12 3v10"/></svg></button>
@@ -159,6 +251,6 @@
 
 <script src="vendor/markdown-it.min.js"></script>
 <script src="note-viewer.js?v=20260911-4"></script>
-<script src="hero-mockup.js?v=20260912-mobile-1"></script>
+<script src="hero-mockup.js?v=20260918-mobile-1"></script>
 </body>
 </html>

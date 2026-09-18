@@ -5,36 +5,12 @@
     essential: { name: 'Essential', type: '핵심 요약', example: 'basic' },
     professional: { name: 'Professional', type: '상세 노트', example: 'premium' },
   };
-  // 발췌는 examples.js의 전체 예시 앞부분에서 파생한다. 같은 내용을 손으로 두 번 쓰지 않는다.
-  // #demoOutput은 h3를 제목, h4를 소제목으로 스타일링하므로 첫 제목만 h3로 내린다.
-  function excerpt(id) {
-    const plan = plans[id];
-    if (!plan) return '';
-    const source = window.SUMMRIZEI_EXAMPLES?.[plan.example]?.html;
-    if (!source) return '';
-    const holder = document.createElement('div');
-    holder.innerHTML = source;
-    const parts = [`<p class="eyebrow">${plan.type}</p>`];
-    let headings = 0;
-    for (const block of holder.children) {
-      if (block.tagName === 'HR') continue;
-      if (/^H[1-4]$/.test(block.tagName)) {
-        const level = headings++ === 0 ? 'h3' : 'h4';
-        parts.push(`<${level}>${block.innerHTML}</${level}>`);
-      } else parts.push(block.outerHTML);
-      if (parts.length > 8) break;
-    }
-    return parts.join('');
-  }
-
   const studentToggle = document.getElementById('studentToggle');
   const sample = document.getElementById('sampleDialog');
-  const checkout = document.getElementById('checkout');
-  const install = document.getElementById('installDialog');
-  const full = document.getElementById('demoFull');
-  function httpsUrl(value) {
-    try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password ? url : null; } catch { return null; }
-  }
+  const reserve = document.getElementById('reserveDialog');
+  const reserveForm = document.getElementById('reserveForm');
+  // CSS의 @media(max-width:760px)와 같은 기준으로 모바일 동작을 가른다.
+  const mobileTap = matchMedia('(max-width: 760px)');
   function showExample(id) {
     const plan = plans[id];
     const result = plan && window.SUMMRIZEI_EXAMPLES?.[plan.example];
@@ -50,24 +26,14 @@
     sample.showModal();
     sample.scrollTop = 0;
   }
-  function showPlan(id) {
-    const plan = plans[id];
-    if (!plan || id === 'free') return;
-    document.getElementById('checkoutTitle').textContent = plan.name + ' 플랜';
-    // 카드에 지금 표시 중인 금액을 그대로 읽어 학생 요금 토글과 어긋나지 않게 한다.
-    const price = document.querySelector(`[data-card="${id}"] .price`);
-    const student = studentToggle?.getAttribute('aria-pressed') === 'true' && price.dataset.student;
-    document.getElementById('checkoutDescription').textContent =
-      price.textContent.replace(/\s+/g, ' ').trim() + (student ? ' · 학생 요금' : '');
-    const link = document.getElementById('checkoutLink');
-    const url = httpsUrl(window.SUMMRIZEI_CHECKOUT?.[id]);
-    link.hidden = !url;
-    if (url) link.href = url.href;
-    else link.removeAttribute('href');
-    document.getElementById('checkoutStatus').textContent = url
-      ? '결제 페이지에서 최종 금액과 구독 조건을 확인해 주세요.'
-      : '유료 플랜은 출시 준비 중입니다. 지금은 결제가 진행되지 않습니다.';
-    checkout.showModal();
+  function showReserve(planId) {
+    const plan = plans[planId];
+    const label = document.getElementById('reservePlan');
+    label.hidden = !plan;
+    if (plan) label.textContent = plan.name + ' 플랜으로 예약';
+    reserveForm.dataset.plan = plan?.name ?? '';
+    document.getElementById('reserveStatus').textContent = '';
+    reserve.showModal();
   }
   function wrapTables(root) {
     for (const table of root.querySelectorAll('table')) {
@@ -80,48 +46,78 @@
       scroll.append(table);
     }
   }
-  function showInstall() {
-    const url = httpsUrl(window.SUMMRIZEI_INSTALL_URL);
-    const mobile = /Android|iPhone|iPad|iPod|KAKAOTALK|Instagram/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    document.getElementById('mobileInstall').hidden = !mobile;
-    document.getElementById('installAddress').value = new URL('.', location.href).href;
-    if (!mobile && url && url.hostname === 'chromewebstore.google.com') window.location.assign(url.href);
-    else install.showModal();
+  const reserveInputs = {
+    email: [document.getElementById('reserveEmail'), document.getElementById('reserveEmailError')],
+    phone: [document.getElementById('reservePhone'), document.getElementById('reservePhoneError')],
+    consent: [document.getElementById('reserveConsent'), document.getElementById('reserveConsentError')],
+  };
+  function reserveValid(key) {
+    const [input, error] = reserveInputs[key];
+    const ok = input.checkValidity();
+    error.hidden = ok;
+    input.setAttribute('aria-invalid', String(!ok));
+    return ok;
   }
+  reserveForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const status = document.getElementById('reserveStatus');
+    const submit = document.getElementById('reserveSubmit');
+    // 전송 중에는 재진입을 막아 중복 제출을 방지한다.
+    if (submit.disabled) return;
+    const ok = ['email', 'phone', 'consent'].map(reserveValid).every(Boolean);
+    if (!ok) {
+      status.textContent = '';
+      reserveInputs[['email', 'phone', 'consent'].find(key => !reserveInputs[key][0].checkValidity())][0].focus();
+      return;
+    }
+    const conf = window.SUMMRIZEI_WAITLIST;
+    if (!conf?.url || !conf?.anonKey) {
+      status.textContent = '예약 접수를 준비하고 있습니다. 잠시 후 다시 시도해 주세요.';
+      return;
+    }
+    submit.disabled = true;
+    status.textContent = '예약을 보내고 있습니다…';
+    try {
+      const res = await fetch(conf.url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          apikey: conf.anonKey,
+          authorization: 'Bearer ' + conf.anonKey,
+          prefer: 'return=minimal',
+        },
+        body: JSON.stringify({
+          email: reserveInputs.email[0].value.trim(),
+          phone: reserveInputs.phone[0].value.replace(/\D/g, ''),
+          plan: reserveForm.dataset.plan || null,
+        }),
+      });
+      if (res.status === 409) {
+        status.textContent = '이미 사전 예약된 이메일이에요.';
+      } else if (!res.ok) {
+        status.textContent = '예약을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+      } else {
+        sessionStorage.setItem('summrizei.reserved', JSON.stringify({
+          email: reserveInputs.email[0].value.trim(),
+          plan: reserveForm.dataset.plan || '',
+        }));
+        location.assign('thanks.html');
+        return;
+      }
+    } catch {
+      status.textContent = '네트워크 오류로 예약을 보내지 못했습니다. 연결을 확인해 주세요.';
+    }
+    submit.disabled = false;
+  });
   document.querySelectorAll('[data-example]').forEach(button => button.addEventListener('click', () => showExample(button.dataset.example)));
-  document.querySelectorAll('[data-plan]').forEach(button => button.addEventListener('click', () => showPlan(button.dataset.plan)));
-  document.querySelectorAll('[data-install]').forEach(button => button.addEventListener('click', showInstall));
+  document.querySelectorAll('[data-reserve]').forEach(button => button.addEventListener('click', () => showReserve(button.dataset.reserve)));
+  // 모바일에서는 카드 빈 곳 탭으로 예약창이 뜨지 않게 한다(docs/mobile-web-principles.md §4).
   document.querySelectorAll('[data-card]').forEach(card => {
     card.addEventListener('click', event => {
       // 카드 안의 예시 보기와 선택 버튼은 각각 자신의 동작을 유지한다.
       if (event.target.closest('button,a,details') || window.getSelection()?.toString()) return;
-      card.dataset.card === 'free' ? showInstall() : showPlan(card.dataset.card);
-    });
-  });
-  const tabs = [...document.querySelectorAll('[data-demo]')];
-  function selectDemo(id, focus = false) {
-    for (const tab of tabs) {
-      const selected = tab.dataset.demo === id;
-      tab.setAttribute('aria-selected', String(selected));
-      tab.tabIndex = selected ? 0 : -1;
-      if (selected && focus) tab.focus();
-    }
-    const output = document.getElementById('demoOutput');
-    output.innerHTML = excerpt(id);
-    wrapTables(output);
-    output.setAttribute('aria-labelledby', 'tab-' + id);
-    document.getElementById('demoModel').textContent = plans[id].type + ' · 편집된 발췌';
-    full.dataset.example = id;
-  }
-  tabs.forEach((tab,index) => {
-    tab.addEventListener('click', () => selectDemo(tab.dataset.demo));
-    tab.addEventListener('keydown', event => {
-      let next;
-      if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
-      if (event.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length;
-      if (event.key === 'Home') next = 0;
-      if (event.key === 'End') next = tabs.length - 1;
-      if (next !== undefined) { event.preventDefault(); selectDemo(tabs[next].dataset.demo, true); }
+      if (mobileTap.matches) return;
+      showReserve(card.dataset.card);
     });
   });
   studentToggle?.addEventListener('click', () => {
@@ -139,36 +135,131 @@
   const reviews = document.querySelector('.reviews');
   if (reviews) {
     const reviewMotion = matchMedia('(prefers-reduced-motion: reduce)');
-    const reviewControl = reviews.querySelector('.reviews-control');
-    let reviewsPaused = false;
-    for (const track of reviews.querySelectorAll('.reviews-track')) {
-      const group = track.querySelector('.reviews-group');
-      if (!group) continue;
-      for (let i = 0; i < 3; i++) {
-        const copy = group.cloneNode(true);
-        copy.setAttribute('aria-hidden', 'true');
-        copy.inert = true;
-        track.append(copy);
+    // ≤760px 모바일에서는 자동 마퀴 대신 스와이프 카드 목록을 쓴다(docs/mobile-web-principles.md §4).
+    const tracks = [...reviews.querySelectorAll('.reviews-track')];
+    const copies = [];
+    function enableMarquee() {
+      for (const track of tracks) {
+        const group = track.querySelector('.reviews-group');
+        if (!group) continue;
+        for (let i = 0; i < 3; i++) {
+          const copy = group.cloneNode(true);
+          copy.setAttribute('aria-hidden', 'true');
+          copy.inert = true;
+          track.append(copy);
+          copies.push(copy);
+        }
+        requestAnimationFrame(() => { if (!mobileTap.matches) track.classList.add('is-ready'); });
       }
-      requestAnimationFrame(() => track.classList.add('is-ready'));
+      reviews.classList.add('is-ready');
     }
-    reviews.classList.add('is-ready');
+    function disableMarquee() {
+      for (const copy of copies.splice(0)) copy.remove();
+      for (const track of tracks) track.classList.remove('is-ready');
+      reviews.classList.remove('is-ready', 'is-paused');
+    }
     function syncReviews() {
-      const paused = reviewsPaused || document.hidden || reviewMotion.matches;
-      reviews.classList.toggle('is-paused', paused);
-      if (!reviewControl) return;
-      reviewControl.hidden = reviewMotion.matches;
-      reviewControl.setAttribute('aria-pressed', String(paused));
-      reviewControl.textContent = paused ? '후기 흐름 재생' : '후기 흐름 일시정지';
+      reviews.classList.toggle('is-paused', document.hidden || reviewMotion.matches);
     }
-    reviewControl?.addEventListener('click', () => { reviewsPaused = !reviewsPaused; syncReviews(); });
+    function applyReviewMode() {
+      if (mobileTap.matches) disableMarquee(); else enableMarquee();
+      syncReviews();
+    }
+    mobileTap.addEventListener('change', applyReviewMode);
     reviewMotion.addEventListener('change', syncReviews);
     document.addEventListener('visibilitychange', syncReviews);
-    syncReviews();
+    applyReviewMode();
   }
-  selectDemo('professional');
   if (window.location.hash.startsWith('#example-')) {
     const ex = window.location.hash.slice(9);
     if (plans[ex]) showExample(ex);
+  }
+})();
+
+// Six-second, silent sample scene on a loop; independent of the real lecture capture and hero demo.
+(() => {
+  const player = document.getElementById('lecturePlayer');
+  const caption = document.getElementById('lectureSceneCaption');
+  if (!player || !caption) return;
+
+  const DURATION = 6000;
+  const HOLD = 1600;
+  const LOOP = DURATION + HOLD;
+  const FULL_CAPTION = caption.textContent;
+  const STAGES = [
+    { max: 1500, scene: 'points', text: '훈련 데이터 세 점을 놓고' },
+    { max: 3000, scene: 'boundary', text: '이 경계로 분류한다고 하면' },
+    { max: 4500, scene: 'miss', text: '왼쪽 점 하나가 반대편에 있죠.' },
+    { max: 6000, scene: 'loss', text: '그래서 평균 손실이 0.33입니다.' }
+  ];
+
+  let elapsed = 0;
+  let rafId = null;
+  let lastTime = 0;
+  let inView = false;
+
+  const mm = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+  function render(ms) {
+    if (ms >= DURATION) {
+      player.dataset.scene = 'complete';
+      caption.textContent = FULL_CAPTION;
+      return;
+    }
+    const stage = STAGES.find(s => ms < s.max) || STAGES[STAGES.length - 1];
+    if (player.dataset.scene !== stage.scene) {
+      player.dataset.scene = stage.scene;
+      caption.textContent = stage.text;
+    }
+  }
+
+  function tick(now) {
+    elapsed += now - lastTime;
+    lastTime = now;
+    if (elapsed >= LOOP) elapsed -= LOOP;
+    render(Math.min(elapsed, DURATION));
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function play() {
+    if (rafId !== null || mm.matches || document.hidden || !inView) return;
+    player.dataset.playing = 'true';
+    lastTime = performance.now();
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function pause() {
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+    player.dataset.playing = 'false';
+  }
+
+  function handleMotion() {
+    if (mm.matches) {
+      pause();
+      elapsed = 0;
+      render(DURATION);
+    } else {
+      play();
+    }
+  }
+  player.dataset.playing = 'false';
+  mm.addEventListener('change', handleMotion);
+
+  document.addEventListener('visibilitychange', () => { document.hidden ? pause() : play(); });
+  window.addEventListener('pagehide', pause);
+
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        inView = entry.isIntersecting;
+        inView ? play() : pause();
+      }
+    }, { threshold: 0 }).observe(player);
+  } else {
+    inView = true;
+    play();
   }
 })();
