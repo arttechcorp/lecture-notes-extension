@@ -67,9 +67,9 @@
 }
 .hero-stacked .hero-actions .button {
   border-radius: 9999px;
-  padding: 13px 26px;
-  min-height: 46px;
-  font-size: 13.5px;
+  padding: 16px 32px;
+  min-height: 54px;
+  font-size: 15.5px;
 }
 .mock {
   --mock-scale: 1;
