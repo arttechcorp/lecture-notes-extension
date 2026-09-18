@@ -44,6 +44,8 @@
 - `measureTablet()`이 `offsetLeft/Top/Width/Height`를 읽어 `.tablet-ink` SVG의 `.hl`(rect), `.ul`(path), `.tablet-pen` 위치를 계산
 - `.tablet-ink`는 viewBox 없이 inset:0이라 사용자 단위 = px = offset 좌표계
 - `.pdf-wrap`이 `position:relative`라 hl-target의 offsetParent 역할
+- `.pdf-doc`은 `width:100%; min-height:100%`(최대 640px)로 워크스페이스를 채우는 한 페이지. 내용이 아래로 잘리는 건 의도 — 실제 노트앱처럼 문서가 이어지는 연출. 표 3행까지는 반드시 보이도록 세로 간격을 조여 둠(복습 질문은 아래로 잘림)
+- 모바일(≤760px)에서는 `.tablet-workspace`가 `overflow-y:auto`의 스크롤 영역(`tabindex=0`, `role=region`, "요약 노트 · 스크롤 가능")이라 전체 문서에 접근 가능. `.pdf-wrap`은 `height:auto`로 문서 높이를 따라가 `.tablet-ink`가 전체 문서를 같은 좌표계로 덮고, `measureTablet()` 진입 시 `scrollTop=0`으로 리셋 — 스크롤 중에는 사용자가 문서를 읽는 상태라 잉크 좌표 보정 불필요
 
 ## 제어
 

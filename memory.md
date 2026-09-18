@@ -17,6 +17,13 @@
 
 왼쪽 슬라이드는 사용자 제공 금융 슬라이드 레퍼런스를 바탕으로 재구성한 작성 HTML이다. 실제 녹화·강의 캡처는 추가하지 않는다.
 
+## 사전 예약 웨이트리스트
+
+- 예약 버튼은 `data-reserve`(히어로)와 `data-reserve="<plan-id>"`(플랜 카드·카드 본문 클릭)로 표시하고 `landing.js`가 `#reserveDialog`를 연다. plan id는 `plans` 객체의 키여야 라벨·payload에 이름이 붙는다.
+- 제출은 `waitlist-config.js`의 `window.SUMMRIZEI_WAITLIST`(Supabase PostgREST URL + anon key)로 POST한다. 값이 비어 있으면 다이얼로그는 열리지만 전송은 안내 문구로 막는다. anon key는 RLS INSERT 전용이라 공개 가능 — 테이블·정책은 `docs/waitlist-supabase.sql`.
+- 성공 시 `sessionStorage('summrizei.reserved')`에 `{email, plan}`을 넣고 `thanks.html`로 이동한다. 완료 페이지는 이 값이 있으면 이메일·플랜을 되보여 주고 즉시 지운다.
+- 전화번호는 digits만 저장한다(폼 `pattern`이 한국 휴대폰 형식을 검증). `[필수]` 수집·이용 동의 체크박스는 전화번호 수집의 법적 요건이라 제거하지 않는다.
+
 ## GSAP 의존성
 
 - GSAP + ScrollTrigger는 `landing/gsap-animations.js` 한 파일에서만 쓴다. 사용처와 유지 이유는 그 파일 머리말에 적어뒀다. 두 연출(히어로 진입 타임라인, ScrollTrigger 1회 등장)을 쓰지 않게 되면 `landing/index.html`의 CDN `<script>` 두 줄과 함께 통째로 지운다.

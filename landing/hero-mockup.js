@@ -294,6 +294,8 @@ PV = CFₜ ÷ (1 + r)ᵗ — 변수: CFₜ 미래 현금흐름, r 할인율 · �
       stage = 'tablet';
       phaseElapsed = 0;
       mock.dataset.state = 'tablet';
+      // 스크롤 가능한 노트 영역이 포커스 가능하므로 보이는 동안 aria-hidden을 해제한다.
+      mock.querySelector('.tablet-scene').setAttribute('aria-hidden', 'false');
       measureTablet();
       announcement.textContent = '노트앱에서 핵심 문장을 표시하는 예시입니다.';
       tabletTick();
@@ -301,9 +303,12 @@ PV = CFₜ ÷ (1 + r)ᵗ — 변수: CFₜ 미래 현금흐름, r 할인율 · �
     }
 
     // hl-target은 한 줄로 고정해 두었으므로 offset 좌표로 형광펜·밑줄·펜 위치를 계산한다.
+    // offsetTop은 offsetParent(.pdf-wrap) 기준이라 스크롤 위치와 무관하다.
+    // 모바일에서는 workspace가 스크롤되므로 매 장면 시작 시 스크롤을 맨 위로 되돌린다.
     function measureTablet() {
       const target = mock.querySelector('.hl-target');
       if (!target) return;
+      mock.querySelector('.tablet-workspace').scrollTop = 0;
       const x = target.offsetLeft - 3;
       const y = target.offsetTop - 1;
       const w = target.offsetWidth + 6;
@@ -362,6 +367,7 @@ PV = CFₜ ÷ (1 + r)ᵗ — 변수: CFₜ 미래 현금흐름, r 할인율 · �
         mock.dataset.state = 'share';
       }, 1400);
       setTimeout(() => {
+        mock.querySelector('.tablet-scene').setAttribute('aria-hidden', 'false');
         measureTablet();
         paintTablet(1, 1);
         mock.dataset.state = 'tablet';
@@ -370,6 +376,7 @@ PV = CFₜ ÷ (1 + r)ᵗ — 변수: CFₜ 미래 현금흐름, r 할인율 · �
 
     function resetOverlays() {
       const sheet = mock.querySelector('.share-sheet');
+      mock.querySelector('.tablet-scene').setAttribute('aria-hidden', 'true');
       sheet.classList.remove('is-sent');
       sheet.querySelector('.share-airdrop').classList.remove('is-selected');
       sheet.querySelector('.ring-fg').style.strokeDashoffset = '1';
@@ -469,7 +476,8 @@ PV = CFₜ ÷ (1 + r)ᵗ — 변수: CFₜ 미래 현금흐름, r 할인율 · �
       updatePlayback();
     });
     window.addEventListener('scroll', updateTilt, { passive: true });
-    window.addEventListener('resize', updateTilt);
+    // 회전·폭 변경으로 문서가 리플로우되면 태블릿 장면의 필기 좌표를 다시 잰다.
+    window.addEventListener('resize', () => { updateTilt(); if (mock.dataset.state === 'tablet') measureTablet(); });
     window.addEventListener('pageshow', () => { updateTilt(); updatePlayback(); });
     window.addEventListener('pagehide', () => { clearInterval(captureTimer); clearInterval(noteTimer); clearInterval(phaseTimer); clearTimeout(loopTimer); cancelAnimationFrame(inkFrame); });
     updateTilt();

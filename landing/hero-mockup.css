@@ -313,7 +313,7 @@
   color: #1c1c1a;
 }
 .pdf-eyebrow { margin: 0 0 6px; font: 500 9.5px/1 var(--mono); letter-spacing: .08em; color: #8a8a82; }
-.pdf-doc h3 { margin: 0 0 6px; font-size: 17px; font-weight: 700; letter-spacing: -.02em; }
+.pdf-doc .pdf-doc-title { margin: 0 0 6px; font-size: 17px; font-weight: 700; letter-spacing: -.02em; }
 .pdf-warn { margin: 0 0 7px; padding: 4px 8px; font-size: 10.5px; color: #8a6d3b; background: #fdf6e7; border: 1px solid #f0e3c0; border-radius: 6px; }
 .pdf-h { margin: 9px 0 4px; font-size: 11px; font-weight: 600; color: #8a8a82; }
 .pdf-warn + .pdf-h { margin-top: 0; }
@@ -397,10 +397,10 @@
   .lec-course { overflow: visible; }
   .lec-chapter { margin-left: auto; font-size: 9.5px; }
   .lec-stage { padding: 4px 8px 2px; }
-  .lecture-caption { margin-top: 4px; min-height: 24px; padding: 0 8px; font-size: 11px; line-height: 1.4; }
+  .lecture-caption { margin-top: 4px; min-height: 24px; padding: 0 8px; font-size: 12px; line-height: 1.45; }
   .lec-controls { gap: 8px; padding: 6px 12px; }
   .lec-wave { height: 18px; }
-  .demo-panel { height: 310px; border-left: 0; border-top: 1px solid var(--m-rule); }
+  .demo-panel { height: clamp(320px, 52vh, 380px); border-left: 0; border-top: 1px solid var(--m-rule); }
   .lec-play-toggle { width: 44px; height: 44px; right: 8px; bottom: 8px; }
   .share-panel { width: min(316px, 88%); }
   .tablet-scene { padding: 8px; }
@@ -415,15 +415,26 @@
   .gn-strokes, .gn-colors { padding-inline: 6px; gap: 4px; }
   .gn-strokes i { width: 11px; }
   .gn-colors i { width: 10px; height: 10px; }
-  .tablet-workspace { padding: 8px; }
+  /* 문서가 잘리지 않도록 워크스페이스 자체를 세로 스크롤 영역으로 만든다.
+     .pdf-wrap은 hl-target의 offsetParent이므로 스크롤 컨테이너 안에서 position:relative를 유지하고,
+     height:auto로 문서 높이를 따라가게 해 잉크 오버레이가 문서와 같은 좌표계를 공유하게 한다. */
+  .tablet-workspace {
+    padding: 8px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    align-items: start;
+  }
+  .pdf-wrap { height: auto; }
   .pdf-doc { padding: 14px 16px 12px; }
-  .pdf-doc h3 { font-size: 15.5px; margin-bottom: 6px; }
-  .pdf-warn { font-size: 9px; margin-bottom: 8px; }
-  .pdf-h { font-size: 9.5px; margin-top: 10px; }
-  .pdf-key { font-size: 12.5px; margin-bottom: 8px; }
-  .pdf-list { font-size: 10.5px; }
-  .pdf-meta { font-size: 9.5px; margin-bottom: 6px; }
-  .pdf-concept { font-size: 10px; padding: 6px 9px; }
-  .pdf-concept span { font-size: 8.5px; }
-  .pdf-table { font-size: 10.5px; margin-bottom: 8px; }
+  .pdf-eyebrow { font-size: 11px; }
+  .pdf-doc .pdf-doc-title { font-size: 16px; margin-bottom: 6px; }
+  .pdf-warn { font-size: 11px; margin-bottom: 8px; }
+  .pdf-h { font-size: 11px; margin-top: 10px; }
+  .pdf-key { font-size: 13px; margin-bottom: 8px; }
+  .pdf-list { font-size: 11.5px; }
+  .pdf-meta { font-size: 11px; margin-bottom: 6px; }
+  .pdf-concept { font-size: 11px; padding: 6px 9px; }
+  .pdf-concept span { font-size: 11px; }
+  .pdf-table { font-size: 11.5px; margin-bottom: 8px; }
 }

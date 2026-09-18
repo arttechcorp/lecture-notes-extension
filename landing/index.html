@@ -3,38 +3,41 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>온라인 강의 자동 필기·요약 — Summrizei 크롬 확장</title>
-<meta name="description" content="Summrizei는 온라인 강의의 화면 글자와 말소리를 함께 인식해 시간순 노트와 요약으로 정리하는 크롬 확장 프로그램입니다.">
+<meta name="description" content="Summrizei는 대학 강의 플랫폼, Zoom·Google Meet·YouTube 등 크롬 탭의 동영상·실시간 강의 화면과 음성을 함께 인식해 요약 노트로 정리합니다. PDF로 내보내 Goodnotes·Notability 등 쓰던 노트앱에서 바로 복습하세요.">
+<meta name="robots" content="index,follow,max-image-preview:large">
 <meta name="theme-color" content="#F7F7F4">
 <link rel="canonical" href="https://summrizei.vercel.app/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Summrizei">
 <meta property="og:url" content="https://summrizei.vercel.app/">
 <meta property="og:title" content="온라인 강의 자동 필기·요약 — Summrizei 크롬 확장">
-<meta property="og:description" content="Summrizei는 온라인 강의의 화면 글자와 말소리를 함께 인식해 시간순 노트와 요약으로 정리하는 크롬 확장 프로그램입니다.">
+<meta property="og:description" content="Summrizei는 대학 강의 플랫폼, Zoom·Google Meet·YouTube 등 크롬 탭의 동영상·실시간 강의 화면과 음성을 함께 인식해 요약 노트로 정리합니다. PDF로 내보내 Goodnotes·Notability 등 쓰던 노트앱에서 바로 복습하세요.">
 <meta property="og:locale" content="ko_KR">
 <meta property="og:image" content="https://summrizei.vercel.app/images/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Summrizei — 강의 화면과 음성을 요약 노트로, PDF로 노트앱에서 복습">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="온라인 강의 자동 필기·요약 — Summrizei 크롬 확장">
-<meta name="twitter:description" content="Summrizei는 온라인 강의의 화면 글자와 말소리를 함께 인식해 시간순 노트와 요약으로 정리하는 크롬 확장 프로그램입니다.">
+<meta name="twitter:description" content="Summrizei는 대학 강의 플랫폼, Zoom·Google Meet·YouTube 등 크롬 탭의 동영상·실시간 강의 화면과 음성을 함께 인식해 요약 노트로 정리합니다. PDF로 내보내 Goodnotes·Notability 등 쓰던 노트앱에서 바로 복습하세요.">
 <meta name="twitter:image" content="https://summrizei.vercel.app/images/og.png">
+<meta name="twitter:image:alt" content="Summrizei — 강의 화면과 음성을 요약 노트로, PDF로 노트앱에서 복습">
 <link rel="icon" href="/images/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/images/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://cdnjs.cloudflare.com">
 <link href="https://fonts.googleapis.com/css2?family=Hedvig+Letters+Serif:opsz@12..24&family=Geist+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script>if(!matchMedia('(prefers-reduced-motion: reduce), (max-width: 760px)').matches){var h=document.documentElement;h.classList.add('gsap-enter');setTimeout(function(){h.classList.remove('gsap-enter')},2000)}</script>
-<link rel="stylesheet" href="landing.css?v=20260914-player-1">
-<link rel="stylesheet" href="hero-mockup.css?v=20260918-note-1">
+<link rel="stylesheet" href="landing.css?v=20260918-mobile-1">
+<link rel="stylesheet" href="hero-mockup.css?v=20260918-mobile-1">
 <script type="application/ld+json">
-{"@context":"https://schema.org","@graph":[{"@type":"SoftwareApplication","name":"Summrizei","applicationCategory":"BrowserApplication","operatingSystem":"Chrome","url":"https://summrizei.vercel.app/","description":"Summrizei는 동영상·실시간 강의의 화면과 음성을 함께 인식해 요약 노트로 정리하고, PDF로 내보내 쓰던 노트앱에서 이어서 쓸 수 있는 크롬 확장 프로그램입니다.","offers":[{"@type":"Offer","name":"Free","price":"0","priceCurrency":"USD"},{"@type":"Offer","name":"Essential","price":"9","priceCurrency":"USD"},{"@type":"Offer","name":"Professional","price":"14","priceCurrency":"USD"}]},{"@type":"Organization","name":"Summrizei","url":"https://summrizei.vercel.app/","email":"jihwanbu26@gmail.com"}]}
+{"@context":"https://schema.org","@graph":[{"@type":"SoftwareApplication","name":"Summrizei","applicationCategory":"BrowserApplication","operatingSystem":"Any","browserRequirements":"Requires Chrome","url":"https://summrizei.vercel.app/","description":"Summrizei는 대학 강의 플랫폼, Zoom·Google Meet·YouTube 등 크롬 탭의 동영상·실시간 강의 화면과 음성을 함께 인식해 요약 노트로 정리합니다. PDF로 내보내 Goodnotes·Notability 등 쓰던 노트앱에서 바로 복습하세요.","screenshot":"https://summrizei.vercel.app/images/og.png","featureList":"동영상·실시간 강의 화면+음성 인식, 개념별 요약 노트, PDF 내보내기, 노트앱에서 복습","author":{"@id":"https://summrizei.vercel.app/#org"},"offers":[{"@type":"Offer","name":"Free","price":"0","priceCurrency":"USD"},{"@type":"Offer","name":"Essential","price":"9","priceCurrency":"USD"},{"@type":"Offer","name":"Professional","price":"14","priceCurrency":"USD"}]},{"@type":"Organization","@id":"https://summrizei.vercel.app/#org","name":"Summrizei","url":"https://summrizei.vercel.app/","email":"jihwanbu26@gmail.com","logo":"https://summrizei.vercel.app/images/apple-touch-icon.png"}]}
 </script>
 </head>
 <body>
 <a class="skip" href="#main">본문으로 이동</a>
 <header class="site-header wrap">
   <a class="brand" href="/" aria-label="Summrizei 홈">Summr<span>i</span>zei<span class="brand-dot">.</span></a>
-  <nav aria-label="주 메뉴"><button class="small-button" data-install>무료로 시작 <span aria-hidden="true">↗</span></button></nav>
 </header>
 <main id="main">
 <section class="hero hero-stacked wrap">
@@ -42,7 +45,7 @@
     <p class="eyebrow">LESS TRANSCRIBING. MORE UNDERSTANDING.</p>
     <h1>온라인 강의 딸깍.</h1>
     <p class="lead">영상 다운로드 없이<br>동영상/실시간 강의의 요약 노트를 내가 쓰던 노트앱으로.</p>
-    <div class="hero-actions"><button class="button dark" data-install>Summrizei 무료로 시작 <span aria-hidden="true">↗</span></button></div>
+    <div class="hero-actions"><button class="button dark" data-reserve>사전 예약하기</button><p class="micro">PC용 Chrome 확장 프로그램입니다 — 설치는 PC의 Chrome에서 가능합니다.</p></div>
   </div>
   <!-- 시연 전용 2단계 데이터. 제품과 같은 product-panel.css를 사용하며 실제 캡처·녹음은 실행하지 않는다. -->
   <figure class="mock" id="heroDemo" aria-label="Summrizei 체험 시연" data-state="ready">
@@ -227,11 +230,11 @@
                 <span class="gn-colors"><i class="c1 on"></i><i class="c2"></i><i class="c3"></i></span>
               </div>
             </div>
-            <div class="tablet-workspace">
+            <div class="tablet-workspace" tabindex="0" role="region" aria-label="요약 노트 · 스크롤 가능">
               <div class="pdf-wrap">
                 <article class="pdf-doc">
                   <p class="pdf-eyebrow">SUMMRIZEI · 요약 노트</p>
-                  <h3>NPV and IRR explained</h3>
+                  <p class="pdf-doc-title">NPV and IRR explained</p>
                   <p class="pdf-warn">⚠ 노트가 다루지 못한 근거가 1건 있습니다 — 05:47</p>
                   <p class="pdf-h">핵심 결론</p>
                   <p class="pdf-key">같은 금액이라도<br><span class="hl-target">언제 받는지에 따라 가치가 달라집니다.</span></p>
@@ -386,20 +389,19 @@
   <div class="section-head"><div><p class="eyebrow">CHOOSE YOUR DEPTH</p><h2>필기부터 깊이 있는 복습까지.</h2></div><p>강의를 어느 깊이까지 정리하고 싶은지에 맞춰 나에게 맞는 플랜을 선택하세요.</p></div>
   <p class="student-row"><button class="student-toggle" id="studentToggle" type="button" aria-pressed="false">학생이신가요?</button></p>
   <div class="plan-grid">
-    <article class="plan" data-card="free"><div class="plan-heading"><h3>Free</h3><span class="tag">바로 시작</span></div><p class="plan-for">다시 볼 장면을 찾고 싶다면</p><p class="price">$0</p><div class="plan-actions"><button class="button quiet" data-install>무료로 시작</button><button class="sample-button" data-example="free">타임라인 예시 보기 <span>↗</span></button></div><p class="plan-outcome">강의 화면과 음성을 요약 정리한 노트.</p><p class="benefits-label">포함:</p><ul class="benefits"><li>시각이 표시된 인식 원문</li><li>로컬 화면·음성 인식</li><li>개념별로 묶은 핵심 요약</li><li>복사와 Markdown 저장</li><li>API 키 없이 시작</li><li>월 100분 제한</li></ul></article>
-    <article class="plan recommended" data-card="essential"><div class="plan-heading"><h3>Essential</h3><span class="tag solid" data-label="추천" data-student-label="EDU 학생가">추천</span></div><p class="plan-for">많은 강의를 빠르게 훑고 싶다면</p><p class="price" data-price="9" data-student="7">$9<span> / 월</span></p><div class="plan-actions"><button class="button dark" data-plan="essential" data-label="시작하기" data-student-label="학생 요금으로 시작하기">시작하기</button><button class="sample-button" data-example="essential">요약 예시 보기 <span>↗</span></button></div><p class="plan-outcome">온라인 강의 요약을 내가 쓰던 노트앱으로.</p><p class="benefits-label">포함:</p><ul class="benefits"><li class="carry">Free의 모든 기능</li><li>PDF로 변환해 노트앱에서 이어서 사용</li></ul></article>
-    <article class="plan professional" data-card="professional"><div class="plan-heading"><h3>Professional</h3></div><p class="plan-for">중요한 강의를 깊이 이해한다면</p><p class="price">$14<span> / 월</span></p><div class="plan-actions"><button class="button quiet" data-plan="professional">시작하기</button><button class="sample-button" data-example="professional">상세 노트 예시 보기 <span>↗</span></button></div><p class="plan-outcome">개념의 연결과 판단 근거를 차근차근 풀어낸 상세 노트.</p><p class="benefits-label">포함:</p><ul class="benefits"><li class="carry">Essential의 모든 기능</li><li>더 많은 사용량</li></ul></article>
+    <article class="plan" data-card="free"><div class="plan-heading"><h3>Free</h3><span class="tag">바로 시작</span></div><p class="plan-for">다시 볼 장면을 찾고 싶다면</p><p class="price">$0</p><div class="plan-actions"><button class="button quiet" data-reserve="free">사전 예약하기</button><button class="sample-button" data-example="free">타임라인 예시 보기 <span>↗</span></button></div><p class="plan-outcome">강의 화면과 음성을 요약 정리한 노트.</p><p class="benefits-label">포함:</p><ul class="benefits"><li>시각이 표시된 인식 원문</li><li>로컬 화면·음성 인식</li><li>개념별로 묶은 핵심 요약</li><li>복사와 Markdown 저장</li><li>API 키 없이 시작</li><li>월 100분 제한</li></ul></article>
+    <article class="plan recommended" data-card="essential"><div class="plan-heading"><h3>Essential</h3><span class="tag solid" data-label="추천" data-student-label="EDU 학생가">추천</span></div><p class="plan-for">많은 강의를 빠르게 훑고 싶다면</p><p class="price" data-price="9" data-student="7">$9<span> / 월</span></p><div class="plan-actions"><button class="button dark" data-reserve="essential">사전 예약하기</button><button class="sample-button" data-example="essential">요약 예시 보기 <span>↗</span></button></div><p class="plan-outcome">온라인 강의 요약을 내가 쓰던 노트앱으로.</p><p class="benefits-label">포함:</p><ul class="benefits"><li class="carry">Free의 모든 기능</li><li>PDF로 변환해 노트앱에서 이어서 사용</li></ul></article>
+    <article class="plan professional" data-card="professional"><div class="plan-heading"><h3>Professional</h3></div><p class="plan-for">중요한 강의를 깊이 이해한다면</p><p class="price">$14<span> / 월</span></p><div class="plan-actions"><button class="button quiet" data-reserve="professional">사전 예약하기</button><button class="sample-button" data-example="professional">상세 노트 예시 보기 <span>↗</span></button></div><p class="plan-outcome">개념의 연결과 판단 근거를 차근차근 풀어낸 상세 노트.</p><p class="benefits-label">포함:</p><ul class="benefits"><li class="carry">Essential의 모든 기능</li><li>더 많은 사용량</li></ul></article>
   </div>
 </section>
 <section class="section wrap faq"><div><p class="eyebrow">GOOD TO KNOW</p><h2>시작하기 전에.</h2></div><div class="faq-list"><details><summary>Free도 API 키가 필요한가요?</summary><p>아니요. Free의 화면·음성 인식과 원문 타임라인은 기기 안에서 동작합니다. 현재 AI 요약을 사용하려면 개인 API 키가 필요하며, 키 없이 사용하는 유료 구독은 준비 중입니다.</p></details><details><summary>플랜마다 결과가 얼마나 다른가요?</summary><p>위의 예시 보기에서 같은 입력으로 생성한 결과를 비교할 수 있습니다. 한 번의 비교 결과가 모든 강의에서 같은 품질 차이를 보장하지는 않습니다. 요약의 분량보다 자신에게 편한 정리 방식을 기준으로 골라 주세요.</p></details><details><summary>패널을 닫아도 노트가 남나요?</summary><p>패널을 닫으면 수집한 텍스트와 노트가 사라집니다. 필요한 결과는 닫기 전에 복사하거나 Markdown 파일로 저장해 주세요.</p></details><details><summary>강의 자료는 어떻게 처리되나요?</summary><p>처리 방식과 전송 범위는 <a href="policies/copyright">저작권 방침</a>과 <a href="policies/privacy">개인정보처리방침</a>에서 확인할 수 있습니다.</p></details></div></section>
 </main>
 <footer class="site-footer"><div class="wrap"><div class="footer-top"><div><a class="brand" href="/">Summr<span>i</span>zei.</a><p>듣는 시간은 온전히.<br>배운 내용은 또렷하게.</p></div><nav aria-label="약관 및 방침"><a href="policies/copyright">저작권 방침</a><a href="policies/privacy">개인정보처리방침</a><a href="policies/terms">이용약관</a><a href="policies/refund">결제 및 환불 정책</a><a href="policies/licenses">오픈소스 라이선스</a></nav><div><p class="eyebrow">CONTACT</p><a href="mailto:jihwanbu26@gmail.com">jihwanbu26@gmail.com</a></div></div><div class="footer-bottom"><span>© 2026 Summrizei</span><span>개인 학습용 도구</span><!-- TODO: 결제 개시 전 전자상거래법상 사업자 정보(상호·대표자·사업자등록번호·주소·통신판매업 신고번호) 표기 필요 --></div></div></footer>
 <dialog id="sampleDialog" aria-labelledby="sampleTitle"><div class="dialog-head"><div><p class="eyebrow" id="sampleLabel"></p><h2 id="sampleTitle">노트 예시</h2></div><form method="dialog"><button class="close-button" aria-label="예시 닫기">닫기 ×</button></form></div><p class="sample-origin" id="sampleOrigin"></p><article class="sample-body" id="sampleBody"></article></dialog>
-<dialog id="checkout" class="compact-dialog" aria-labelledby="checkoutTitle"><div class="dialog-head"><h2 id="checkoutTitle">플랜 선택</h2><form method="dialog"><button class="close-button">닫기 ×</button></form></div><p class="checkout-price" id="checkoutDescription"></p><p id="checkoutStatus" role="status"></p><a id="checkoutLink" class="button dark" hidden>결제 페이지로 이동 ↗</a><a class="policy-link" href="policies/refund">결제 및 환불 정책</a></dialog>
-<dialog id="installDialog" class="compact-dialog" aria-labelledby="installTitle"><div class="dialog-head"><h2 id="installTitle">Summrizei 시작하기</h2><form method="dialog"><button class="close-button">닫기 ×</button></form></div><div id="mobileInstall" hidden><p>Summrizei 설치와 강의 인식은 PC의 Chrome에서 이용해 주세요. 이 페이지의 체험과 노트 예시는 모바일에서도 볼 수 있습니다.</p><p class="micro">카카오톡·인스타그램에서 페이지 이용이 제한되면 앱 메뉴의 외부 브라우저 열기를 이용하거나 아래 주소를 복사해 주세요.</p><label for="installAddress">PC에서 열 주소</label><input id="installAddress" class="install-address" readonly aria-label="PC에서 열 주소" onclick="this.select()"></div><p>Chrome 웹 스토어 등록을 준비하고 있습니다. 등록이 완료되면 이곳에서 설치할 수 있습니다.</p><p class="micro">이미 설치한 경우 Chrome 도구 모음의 Summrizei 아이콘을 눌러 패널을 여세요.</p></dialog>
+<dialog id="reserveDialog" class="compact-dialog" aria-labelledby="reserveTitle"><div class="dialog-head"><h2 id="reserveTitle">사전 예약</h2><form method="dialog"><button class="close-button">닫기 ×</button></form></div><p id="reservePlan" class="reserve-plan" hidden></p><p>출시되면 가장 먼저 알려드릴게요. 스팸은 보내지 않습니다.</p><form id="reserveForm" novalidate><div class="field"><label for="reserveEmail">이메일</label><input id="reserveEmail" name="email" type="email" required autocomplete="email" placeholder="you@example.com"><p class="field-error" id="reserveEmailError" hidden>올바른 이메일 주소를 입력해 주세요.</p></div><div class="field"><label for="reservePhone">전화번호</label><input id="reservePhone" name="phone" type="tel" required autocomplete="tel" inputmode="tel" placeholder="010-0000-0000" pattern="01[0-9]-?[0-9]{3,4}-?[0-9]{4}"><p class="field-error" id="reservePhoneError" hidden>휴대폰 번호를 확인해 주세요. (예: 010-1234-5678)</p></div><label class="reserve-consent"><input id="reserveConsent" type="checkbox" required> <span><b>[필수]</b> 출시 알림을 위한 이메일·전화번호 수집·이용에 동의합니다. 수집된 정보는 출시 안내 후 파기되며 <a href="policies/privacy">개인정보처리방침</a>을 따릅니다.</span></label><p class="field-error" id="reserveConsentError" hidden>수집·이용 동의가 필요합니다.</p><p id="reserveStatus" role="status"></p><button class="button dark" type="submit" id="reserveSubmit">예약하기</button></form></dialog>
 <!-- 시연은 장식용 CDN의 다운로드를 기다리지 않고 바로 연결한다. -->
 <script src="vendor/markdown-it.min.js"></script>
 <script src="note-viewer.js?v=20260911-7"></script>
-<script src="hero-mockup.js?v=20260918-note-1"></script>
-<script src="checkout-config.js?v=20260911-7"></script><script src="examples.js?v=20260911-7"></script><script src="landing.js?v=20260914-player-1"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.15.0/gsap.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.15.0/ScrollTrigger.min.js"></script><script src="gsap-animations.js?v=20260914-comparison-1"></script>
+<script src="hero-mockup.js?v=20260918-mobile-1"></script>
+<script src="waitlist-config.js?v=20260918-reserve-1"></script><script src="examples.js?v=20260911-7"></script><script src="landing.js?v=20260918-mobile-1"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.15.0/gsap.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.15.0/ScrollTrigger.min.js"></script><script src="gsap-animations.js?v=20260914-comparison-1"></script>
 </body></html>

@@ -11,17 +11,21 @@ const assert=require('node:assert/strict');
  const page=await context.newPage(); const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.route('https://cdnjs.cloudflare.com/**',route=>route.abort());
  await page.goto(process.env.LANDING_URL || 'http://127.0.0.1:8765/landing/');
- await page.waitForSelector('#heroDemo[data-state="done"]');
- // reduced-motion이면 정적 시퀀스가 ~3.2s 뒤 .tablet-scene으로 패널을 덮으므로 복사 확인은 done 상태에서 바로 한다.
+ // reduced-motion 정적 시퀀스는 done→share를 지나 tablet에서 정지하므로 최종 상태를 기다린다.
+ await page.waitForSelector('#heroDemo[data-state="tablet"]');
  const frame=page.frameLocator('.demo-panel');
  await page.evaluate(()=>Object.defineProperty(navigator,'clipboard',{value:{writeText:()=>Promise.reject(new Error('denied'))},configurable:true}));
- await frame.locator('#copyBtn').click();assert(await frame.locator('#result').isVisible());
+ // .tablet-scene이 패널을 덮어 실제 클릭은 불가 — JS click으로 복사 fallback 동작만 검증한다.
+ await frame.locator('#copyBtn').evaluate(e=>e.click());assert(await frame.locator('#result').isVisible());
  assert.equal(await frame.locator('#result').evaluate(e=>e.selectionEnd-e.selectionStart),await frame.locator('#result').evaluate(e=>e.value.length));
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`overflow ${width}`);
- await page.locator('[data-install]').first().click();
- assert(await page.locator('#installDialog').isVisible());
- if(width<900)assert(await page.locator('#mobileInstall').isVisible());
- await page.locator('#installDialog .close-button').click();
+ await page.locator('[data-reserve]').first().click();
+ assert(await page.locator('#reserveDialog').isVisible());
+ // 빈 폼 제출은 이동하지 않고 필드 오류를 표시한다.
+ await page.locator('#reserveSubmit').click();
+ assert(await page.locator('#reserveEmailError').isVisible());
+ assert.equal(await page.locator('#reserveDialog').isVisible(),true);
+ await page.locator('#reserveDialog .close-button').click();
  await page.locator('#studentToggle').click();
  assert.equal(await page.locator('#studentToggle').getAttribute('aria-pressed'),'true');
  // The comparison section shows evidence highlights by default.
@@ -50,7 +54,7 @@ const assert=require('node:assert/strict');
  const box=await page.locator('#sampleDialog').boundingBox();assert(box.x>=0 && box.x+box.width<=width+1);
  await page.locator('#sampleDialog .close-button').click();
  }
- await page.locator('[data-plan="essential"]').click();assert(await page.locator('#checkout').isVisible());await page.locator('#checkout .close-button').click();
+ await page.locator('[data-reserve="essential"]').click();assert(await page.locator('#reserveDialog').isVisible());assert((await page.locator('#reservePlan').textContent()).includes('Essential'));await page.locator('#reserveDialog .close-button').click();
  await page.locator('.faq details').first().locator('summary').click();assert(await page.locator('.faq details').first().getAttribute('open')!==null);
  await page.locator('#heroDemo').scrollIntoViewIfNeeded();
  if(width<=760){assert.equal(await frame.locator('html').getAttribute('class'),'mobile-demo');const b=await page.locator('.lec-play-toggle').boundingBox();assert(b.width>=44);}

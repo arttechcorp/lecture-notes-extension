@@ -7,11 +7,10 @@
   };
   const studentToggle = document.getElementById('studentToggle');
   const sample = document.getElementById('sampleDialog');
-  const checkout = document.getElementById('checkout');
-  const install = document.getElementById('installDialog');
-  function httpsUrl(value) {
-    try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password ? url : null; } catch { return null; }
-  }
+  const reserve = document.getElementById('reserveDialog');
+  const reserveForm = document.getElementById('reserveForm');
+  // CSS의 @media(max-width:760px)와 같은 기준으로 모바일 동작을 가른다.
+  const mobileTap = matchMedia('(max-width: 760px)');
   function showExample(id) {
     const plan = plans[id];
     const result = plan && window.SUMMRIZEI_EXAMPLES?.[plan.example];
@@ -27,24 +26,14 @@
     sample.showModal();
     sample.scrollTop = 0;
   }
-  function showPlan(id) {
-    const plan = plans[id];
-    if (!plan || id === 'free') return;
-    document.getElementById('checkoutTitle').textContent = plan.name + ' 플랜';
-    // 카드에 지금 표시 중인 금액을 그대로 읽어 학생 요금 토글과 어긋나지 않게 한다.
-    const price = document.querySelector(`[data-card="${id}"] .price`);
-    const student = studentToggle?.getAttribute('aria-pressed') === 'true' && price.dataset.student;
-    document.getElementById('checkoutDescription').textContent =
-      price.textContent.replace(/\s+/g, ' ').trim() + (student ? ' · 학생 요금' : '');
-    const link = document.getElementById('checkoutLink');
-    const url = httpsUrl(window.SUMMRIZEI_CHECKOUT?.[id]);
-    link.hidden = !url;
-    if (url) link.href = url.href;
-    else link.removeAttribute('href');
-    document.getElementById('checkoutStatus').textContent = url
-      ? '결제 페이지에서 최종 금액과 구독 조건을 확인해 주세요.'
-      : '유료 플랜은 출시 준비 중입니다. 지금은 결제가 진행되지 않습니다.';
-    checkout.showModal();
+  function showReserve(planId) {
+    const plan = plans[planId];
+    const label = document.getElementById('reservePlan');
+    label.hidden = !plan;
+    if (plan) label.textContent = plan.name + ' 플랜으로 예약';
+    reserveForm.dataset.plan = plan?.name ?? '';
+    document.getElementById('reserveStatus').textContent = '';
+    reserve.showModal();
   }
   function wrapTables(root) {
     for (const table of root.querySelectorAll('table')) {
@@ -57,22 +46,78 @@
       scroll.append(table);
     }
   }
-  function showInstall() {
-    const url = httpsUrl(window.SUMMRIZEI_INSTALL_URL);
-    const mobile = /Android|iPhone|iPad|iPod|KAKAOTALK|Instagram/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    document.getElementById('mobileInstall').hidden = !mobile;
-    document.getElementById('installAddress').value = new URL('.', location.href).href;
-    if (!mobile && url && url.hostname === 'chromewebstore.google.com') window.location.assign(url.href);
-    else install.showModal();
+  const reserveInputs = {
+    email: [document.getElementById('reserveEmail'), document.getElementById('reserveEmailError')],
+    phone: [document.getElementById('reservePhone'), document.getElementById('reservePhoneError')],
+    consent: [document.getElementById('reserveConsent'), document.getElementById('reserveConsentError')],
+  };
+  function reserveValid(key) {
+    const [input, error] = reserveInputs[key];
+    const ok = input.checkValidity();
+    error.hidden = ok;
+    input.setAttribute('aria-invalid', String(!ok));
+    return ok;
   }
+  reserveForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const status = document.getElementById('reserveStatus');
+    const submit = document.getElementById('reserveSubmit');
+    // 전송 중에는 재진입을 막아 중복 제출을 방지한다.
+    if (submit.disabled) return;
+    const ok = ['email', 'phone', 'consent'].map(reserveValid).every(Boolean);
+    if (!ok) {
+      status.textContent = '';
+      reserveInputs[['email', 'phone', 'consent'].find(key => !reserveInputs[key][0].checkValidity())][0].focus();
+      return;
+    }
+    const conf = window.SUMMRIZEI_WAITLIST;
+    if (!conf?.url || !conf?.anonKey) {
+      status.textContent = '예약 접수를 준비하고 있습니다. 잠시 후 다시 시도해 주세요.';
+      return;
+    }
+    submit.disabled = true;
+    status.textContent = '예약을 보내고 있습니다…';
+    try {
+      const res = await fetch(conf.url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          apikey: conf.anonKey,
+          authorization: 'Bearer ' + conf.anonKey,
+          prefer: 'return=minimal',
+        },
+        body: JSON.stringify({
+          email: reserveInputs.email[0].value.trim(),
+          phone: reserveInputs.phone[0].value.replace(/\D/g, ''),
+          plan: reserveForm.dataset.plan || null,
+        }),
+      });
+      if (res.status === 409) {
+        status.textContent = '이미 사전 예약된 이메일이에요.';
+      } else if (!res.ok) {
+        status.textContent = '예약을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+      } else {
+        sessionStorage.setItem('summrizei.reserved', JSON.stringify({
+          email: reserveInputs.email[0].value.trim(),
+          plan: reserveForm.dataset.plan || '',
+        }));
+        location.assign('thanks.html');
+        return;
+      }
+    } catch {
+      status.textContent = '네트워크 오류로 예약을 보내지 못했습니다. 연결을 확인해 주세요.';
+    }
+    submit.disabled = false;
+  });
   document.querySelectorAll('[data-example]').forEach(button => button.addEventListener('click', () => showExample(button.dataset.example)));
-  document.querySelectorAll('[data-plan]').forEach(button => button.addEventListener('click', () => showPlan(button.dataset.plan)));
-  document.querySelectorAll('[data-install]').forEach(button => button.addEventListener('click', showInstall));
+  document.querySelectorAll('[data-reserve]').forEach(button => button.addEventListener('click', () => showReserve(button.dataset.reserve)));
+  // 모바일에서는 카드 빈 곳 탭으로 예약창이 뜨지 않게 한다(docs/mobile-web-principles.md §4).
   document.querySelectorAll('[data-card]').forEach(card => {
     card.addEventListener('click', event => {
       // 카드 안의 예시 보기와 선택 버튼은 각각 자신의 동작을 유지한다.
       if (event.target.closest('button,a,details') || window.getSelection()?.toString()) return;
-      card.dataset.card === 'free' ? showInstall() : showPlan(card.dataset.card);
+      if (mobileTap.matches) return;
+      showReserve(card.dataset.card);
     });
   });
   studentToggle?.addEventListener('click', () => {
@@ -90,24 +135,40 @@
   const reviews = document.querySelector('.reviews');
   if (reviews) {
     const reviewMotion = matchMedia('(prefers-reduced-motion: reduce)');
-    for (const track of reviews.querySelectorAll('.reviews-track')) {
-      const group = track.querySelector('.reviews-group');
-      if (!group) continue;
-      for (let i = 0; i < 3; i++) {
-        const copy = group.cloneNode(true);
-        copy.setAttribute('aria-hidden', 'true');
-        copy.inert = true;
-        track.append(copy);
+    // ≤760px 모바일에서는 자동 마퀴 대신 스와이프 카드 목록을 쓴다(docs/mobile-web-principles.md §4).
+    const tracks = [...reviews.querySelectorAll('.reviews-track')];
+    const copies = [];
+    function enableMarquee() {
+      for (const track of tracks) {
+        const group = track.querySelector('.reviews-group');
+        if (!group) continue;
+        for (let i = 0; i < 3; i++) {
+          const copy = group.cloneNode(true);
+          copy.setAttribute('aria-hidden', 'true');
+          copy.inert = true;
+          track.append(copy);
+          copies.push(copy);
+        }
+        requestAnimationFrame(() => { if (!mobileTap.matches) track.classList.add('is-ready'); });
       }
-      requestAnimationFrame(() => track.classList.add('is-ready'));
+      reviews.classList.add('is-ready');
     }
-    reviews.classList.add('is-ready');
+    function disableMarquee() {
+      for (const copy of copies.splice(0)) copy.remove();
+      for (const track of tracks) track.classList.remove('is-ready');
+      reviews.classList.remove('is-ready', 'is-paused');
+    }
     function syncReviews() {
       reviews.classList.toggle('is-paused', document.hidden || reviewMotion.matches);
     }
+    function applyReviewMode() {
+      if (mobileTap.matches) disableMarquee(); else enableMarquee();
+      syncReviews();
+    }
+    mobileTap.addEventListener('change', applyReviewMode);
     reviewMotion.addEventListener('change', syncReviews);
     document.addEventListener('visibilitychange', syncReviews);
-    syncReviews();
+    applyReviewMode();
   }
   if (window.location.hash.startsWith('#example-')) {
     const ex = window.location.hash.slice(9);
