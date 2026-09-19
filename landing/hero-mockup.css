@@ -387,20 +387,28 @@
   .mock-tab { width: auto; flex: 1; min-width: 0; padding: 0 10px; font-size: 10px; }
   .mock-favicon { width: 15px; height: 15px; font-size: 10px; }
   .mock-new-tab { font-size: 15px; padding-bottom: 6px; }
-  .mock-urlbar { height: 32px; gap: 8px; padding: 4px 12px; }
+  /* 모바일에서는 장식용 주소창을 생략해 목업 높이를 줄인다(장면 집중형). */
+  .mock-urlbar { display: none; }
   .mock-navigation { gap: 10px; font-size: 13px; }
   .mock-url { padding: 3px 8px; font-size: 10px; }
   .mock-extension { font-size: 15px; }
-  .lecture { min-width: 0; }
-  .lec-topbar { flex-wrap: wrap; gap: 6px; padding: 8px 12px; font-size: 10.5px; white-space: normal; }
-  .lec-platform { font-size: 12.5px; }
-  .lec-course { overflow: visible; }
-  .lec-chapter { margin-left: auto; font-size: 9.5px; }
+  .lecture { min-width: 0; flex: 0 1 auto; min-height: 0; overflow: hidden; }
+  /* 강의 플레이어 상단바·재생 막대는 장식 요소 — 모바일에서는 숨겨 높이를 확보한다.
+     강의명은 브라우저 탭에 남고, 재생 상태는 캡처 프레임과 캡션 문구가 전달한다. */
+  .lec-topbar, .lec-controls { display: none; }
   .lec-stage { padding: 4px 8px 2px; }
+  /* 넓은 모바일(태블릿 크기)에서 슬라이드가 세로를 과하게 먹지 않도록 폭을 제한한다. */
+  .lecture-screen { width: min(100%, 460px); margin-inline: auto; }
   .lecture-caption { margin-top: 4px; min-height: 24px; padding: 0 8px; font-size: 12px; line-height: 1.45; }
-  .lec-controls { gap: 8px; padding: 6px 12px; }
-  .lec-wave { height: 18px; }
-  .demo-panel { height: clamp(320px, 52vh, 380px); border-left: 0; border-top: 1px solid var(--m-rule); }
+  /* 본문 높이를 고정해 장면 전환 시 아래 섹션이 밀리지 않게 한다.
+     제품 패널은 남는 높이를 채우고, 노트 영역은 패널 내부에서 스크롤된다. */
+  /* 데스크톱의 flex:1을 해제해야 height가 적용된다(열 방향 flex 아이템은 flex-basis가 height를 덮음). */
+  .mock-body { flex: none; height: clamp(430px, 58vh, 500px); }
+  .demo-panel { flex: 1 1 auto; height: auto; min-height: 0; border-left: 0; border-top: 1px solid var(--m-rule); }
+  /* 요약·공유·태블릿 장면에서는 노트가 주인공 — 강의 화면을 접어 패널을 키운다(캡션 문구는 유지). */
+  .mock[data-state="done"] .lecture-screen,
+  .mock[data-state="share"] .lecture-screen,
+  .mock[data-state="tablet"] .lecture-screen { display: none; }
   .lec-play-toggle { width: 44px; height: 44px; right: 8px; bottom: 8px; }
   .share-panel { width: min(316px, 88%); }
   .tablet-scene { padding: 8px; }

@@ -187,10 +187,10 @@
   const LOOP = DURATION + HOLD;
   const FULL_CAPTION = caption.textContent;
   const STAGES = [
-    { max: 1500, scene: 'points', text: '훈련 데이터 세 점을 놓고' },
-    { max: 3000, scene: 'boundary', text: '이 경계로 분류한다고 하면' },
-    { max: 4500, scene: 'miss', text: '왼쪽 점 하나가 반대편에 있죠.' },
-    { max: 6000, scene: 'loss', text: '그래서 평균 손실이 0.33입니다.' }
+    { max: 1500, scene: 'points', text: 'training data 세 점을 놓고' },
+    { max: 3000, scene: 'boundary', text: '이 decision boundary로 분류한다고 하면' },
+    { max: 4500, scene: 'miss', text: '왼쪽 점 하나가 decision boundary 반대편에 있죠.' },
+    { max: 6000, scene: 'loss', text: '그래서 TrainLoss가 0.33입니다.' }
   ];
 
   let elapsed = 0;
