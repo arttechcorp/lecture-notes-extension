@@ -262,4 +262,13 @@
     inView = true;
     play();
   }
+
+  // 모바일에서는 참여자 타일이 3명 + "+3"으로 접혀 있다 (줌 방식). 탭하면 전체를 펼친다.
+  const zoomTiles = player.querySelector('.zoom-tiles');
+  const zoomMore = zoomTiles?.querySelector('.zoom-more');
+  zoomMore?.addEventListener('click', () => {
+    const expanded = zoomTiles.classList.toggle('is-expanded');
+    zoomMore.setAttribute('aria-expanded', String(expanded));
+    zoomMore.textContent = expanded ? '−3' : '+3';
+  });
 })();

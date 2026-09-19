@@ -156,7 +156,7 @@ PV = CFₜ ÷ (1 + r)ᵗ — 변수: CFₜ 미래 현금흐름, r 할인율 · �
     function canPlay() { return !userPaused && inView && !document.hidden; }
 
     function updatePauseButton() {
-      const paused = reducedMotion.matches || userPaused || !inView || document.hidden;
+      const paused = userPaused || !inView || document.hidden;
       pauseButton.setAttribute('aria-label', paused ? '체험 재생' : '체험 일시정지');
       pauseButton.setAttribute('aria-pressed', String(userPaused));
       pauseButton.querySelector('path').setAttribute('d', paused ? 'M4 3l8 5-8 5Z' : 'M4 3v10M12 3v10');
@@ -164,7 +164,7 @@ PV = CFₜ ÷ (1 + r)ᵗ — 변수: CFₜ 미래 현금흐름, r 할인율 · �
 
     function queueLoop() {
       clearTimeout(loopTimer);
-      if (!reducedMotion.matches && canPlay()) loopTimer = setTimeout(() => {
+      if (canPlay()) loopTimer = setTimeout(() => {
         loopTimer = undefined;
         startShare();
       }, NOTE_HOLD_MS);
@@ -179,9 +179,9 @@ PV = CFₜ ÷ (1 + r)ᵗ — 변수: CFₜ 미래 현금흐름, r 할인율 · �
       inkLastTime = undefined;
       loopTimer = undefined;
       phaseTimer = undefined;
-      const playing = canPlay() && !reducedMotion.matches;
+      const playing = canPlay();
       if (playing && stage === 'live') captureTimer = setInterval(captureTick, 400);
-      if (playing && stage === 'live') inkFrame = requestAnimationFrame(writeInk);
+      if (playing && stage === 'live' && !reducedMotion.matches) inkFrame = requestAnimationFrame(writeInk);
       if (playing && stage === 'done' && generating) noteTimer = setInterval(generateNoteTick, 24);
       if (playing && stage === 'done' && !generating && !loopTimer) queueLoop();
       if (playing && (stage === 'share' || stage === 'tablet')) phaseTimer = setInterval(phaseTick, 50);
@@ -244,7 +244,6 @@ PV = CFₜ ÷ (1 + r)ᵗ — 변수: CFₜ 미래 현금흐름, r 할인율 · �
       $('pdfBtn').disabled = false;
       $('donePill').textContent = '노트 완성';
       announcement.textContent = '예시 노트가 완성되었습니다. 일시정지하면 내용을 읽거나 복사할 수 있습니다.';
-      if (reducedMotion.matches) return staticTabletSequence();
       queueLoop();
     }
 
@@ -270,6 +269,21 @@ PV = CFₜ ÷ (1 + r)ᵗ — 변수: CFₜ 미래 현금흐름, r 할인율 · �
     function shareTick() {
       const t = phaseElapsed;
       const sheet = mock.querySelector('.share-sheet');
+      // 모션 감소에서는 전송 진행 연출 없이 완료 상태를 그대로 유지한다.
+      if (reducedMotion.matches) {
+        $('pdfBtn').classList.remove('is-pressed');
+        mock.dataset.state = 'share';
+        sheet.querySelector('.share-airdrop').classList.add('is-selected');
+        sheet.querySelector('.ring-fg').style.strokeDashoffset = '0';
+        sheet.classList.add('is-sent');
+        sheet.querySelector('.share-status').textContent = '보냄';
+        if (t >= SHARE_SECONDS) {
+          clearInterval(phaseTimer);
+          phaseTimer = undefined;
+          startTablet();
+        }
+        return;
+      }
       if (t >= .45 && mock.dataset.state !== 'share') {
         $('pdfBtn').classList.remove('is-pressed');
         mock.dataset.state = 'share';
@@ -348,30 +362,13 @@ PV = CFₜ ÷ (1 + r)ᵗ — 변수: CFₜ 미래 현금흐름, r 할인율 · �
     }
 
     function tabletTick() {
-      paintTablet(clamp((phaseElapsed - .7) / 2.2, 0, 1), clamp((phaseElapsed - 3.1) / 1, 0, 1));
+      const rm = reducedMotion.matches;
+      paintTablet(rm ? 1 : clamp((phaseElapsed - .7) / 2.2, 0, 1), rm ? 1 : clamp((phaseElapsed - 3.1) / 1, 0, 1));
       if (phaseElapsed >= TABLET_SECONDS) {
         clearInterval(phaseTimer);
         phaseTimer = undefined;
         startCapture();
       }
-    }
-
-    // reduced-motion에서는 연출 없이 각 장면의 완료 상태를 잠시 보여 준다.
-    function staticTabletSequence() {
-      const sheet = mock.querySelector('.share-sheet');
-      setTimeout(() => {
-        sheet.querySelector('.share-airdrop').classList.add('is-selected');
-        sheet.querySelector('.ring-fg').style.strokeDashoffset = '0';
-        sheet.classList.add('is-sent');
-        sheet.querySelector('.share-status').textContent = '보냄';
-        mock.dataset.state = 'share';
-      }, 1400);
-      setTimeout(() => {
-        mock.querySelector('.tablet-scene').setAttribute('aria-hidden', 'false');
-        measureTablet();
-        paintTablet(1, 1);
-        mock.dataset.state = 'tablet';
-      }, 3200);
     }
 
     function resetOverlays() {
@@ -434,11 +431,6 @@ PV = CFₜ ÷ (1 + r)ᵗ — 변수: CFₜ 미래 현금흐름, r 할인율 · �
       showSlide(0);
       showStage('live');
       announcement.textContent = '화면과 음성을 인식하는 예시를 재생하고 있습니다.';
-      if (reducedMotion.matches) {
-        finishCapture();
-        updatePlayback();
-        return;
-      }
       updatePlayback();
     }
 

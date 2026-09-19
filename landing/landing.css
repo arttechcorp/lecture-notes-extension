@@ -210,6 +210,8 @@ dialog { overscroll-behavior: contain; overflow: auto; padding-bottom: env(safe-
 #preview .zoom-tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-content:start}
 #preview .zoom-tile{position:relative;aspect-ratio:4/3;border-radius:8px;background:#2b2e33;overflow:hidden}
 #preview .zoom-tile.is-speaker{outline:2px solid #3f9e4d;outline-offset:-2px}
+/* 모바일 전용: 줌처럼 나머지 참여자를 "+N" 타일로 접어 둔다. */
+#preview .zoom-more{display:none}
 #preview .zoom-avatar{position:absolute;inset:0;display:grid;place-items:center;color:#c9ccd1;font:600 20px var(--sans);letter-spacing:.02em}
 #preview .zoom-name{position:absolute;left:6px;bottom:5px;color:#fff;font-size:9.5px;line-height:1;text-shadow:0 1px 2px #0009}
 #preview .zoom-mic{position:absolute;right:5px;bottom:5px;width:11px;height:11px;color:#e05b5b}
@@ -294,8 +296,10 @@ dialog { overscroll-behavior: contain; overflow: auto; padding-bottom: env(safe-
   #preview .lecture-player-bar{padding-inline:14px;font-size:11px}
   #preview .lecture-player-course{display:none}
   #preview .share-stage{grid-template-columns:1fr;gap:8px;margin:12px}
-  #preview .zoom-tiles{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;width:min(100%,432px);margin-inline:auto}
+  #preview .zoom-tiles{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;width:min(100%,432px);margin-inline:auto}
   #preview .zoom-tile{aspect-ratio:16/9}
+  #preview .zoom-tiles:not(.is-expanded) .zoom-tile:nth-child(n+4){display:none}
+  #preview .zoom-more{display:grid;place-items:center;aspect-ratio:16/9;padding:0;border:0;border-radius:8px;background:#2b2e33;color:#c9ccd1;font:600 14px var(--sans);cursor:pointer;-webkit-tap-highlight-color:transparent}
   #preview .zoom-avatar{font-size:15px}
   #preview .zoom-name{left:5px;bottom:4px;font-size:8px}
   #preview .zoom-mic{right:4px;bottom:4px;width:9px;height:9px}
