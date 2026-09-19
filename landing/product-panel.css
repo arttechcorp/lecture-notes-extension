@@ -20,6 +20,7 @@
     /* Brand Accent */
     --brand: #FF5600;
     --brand-subtle: rgba(255, 86, 0, 0.08);
+    --brand-highlight: rgba(255, 86, 0, 0.18);   /* 형광펜 — subtle 보다 진해야 칠한 자리가 보인다 */
     --brand-glow: rgba(255, 86, 0, 0.35);
 
     /* Radii */
@@ -65,6 +66,7 @@
     /* Brand Accent in Dark */
     --brand: #FF5600;
     --brand-subtle: rgba(255, 86, 0, 0.15);
+    --brand-highlight: rgba(255, 86, 0, 0.28);
     --brand-glow: rgba(255, 86, 0, 0.5);
 
     /* Dark Elevations */
@@ -791,6 +793,13 @@
     padding: 0.1em 0 0.1em 1em;
     border-left: 2px solid var(--brand);
     color: var(--ash);
+  }
+  /* 형광펜. 노트에서 critical 로 표시된 곳에만 붙는다(sidepanel.js noteText). */
+  #stageDone .note-document mark {
+    padding: 0.1em 0.25em;
+    border-radius: var(--r-sm);
+    background: var(--brand-highlight);
+    color: inherit;
   }
   #stageDone .note-document hr {
     margin: 1.7em 0;
