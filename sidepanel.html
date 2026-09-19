@@ -1,31 +1,8 @@
 <!doctype html>
 <html lang="ko">
 <head>
+<script src="lib/dev-chrome-mock.js"></script>
 <script src="lib/theme.js"></script>
-<script>
-if (typeof chrome === "undefined" || !chrome.storage) {
-  window.localAvailability = async () => "available";
-  window.chrome = {
-    storage: {
-      local: {
-        get: async () => ({ consentAccepted: true, whisperEnabled: true, whisperModel: "tiny", ocrEnabled: true, ocrEngine: "nano" }),
-        set: async () => {},
-      },
-      sync: { get: async () => ({}), set: async () => {}, remove: async () => {} },
-    },
-    tabs: {
-      query: async () => [
-        { id: 1, active: true, title: "NPV and IRR explained", url: "https://youtube.com/watch?v=123" },
-        { id: 2, active: false, title: "Machine Learning Lecture 01", url: "https://coursera.org/learn/ml" },
-      ],
-      get: async (id) => ({ id, title: "NPV and IRR explained", url: "https://youtube.com/watch?v=123" }),
-      connect: () => ({ onMessage: { addListener: () => {} }, onDisconnect: { addListener: () => {} }, postMessage: () => {} }),
-    },
-    runtime: { openOptionsPage: () => window.open("options.html", "_blank") },
-    permissions: { request: async () => true },
-  };
-}
-</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Hedvig+Letters+Serif:opsz@12..24&family=Geist+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -193,7 +170,29 @@ if (typeof chrome === "undefined" || !chrome.storage) {
   .note-view-tabs { display: flex; gap: 6px; background: var(--sunk); padding: 3px; border-radius: var(--r-md); border: 1px solid var(--rule); margin-bottom: 2px; }
   .tab-pill { flex: 1; border: none; background: transparent; padding: 7px 10px; font-size: 12px; font-weight: 500; cursor: pointer; border-radius: 6px; color: var(--ash); transition: all 120ms; }
   .preview-frame { width: 100%; height: 220px; min-height: 140px; max-height: 70vh; border: 1px solid var(--rule); border-radius: var(--r-md); background: var(--paper); box-shadow: var(--lift-1); display: block; transition: height 120ms ease; }
-  .export-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+  .export-section { margin: 8px 0; display: flex; flex-direction: column; gap: 6px; }
+  .pdf-ratio-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--sunk); padding: 4px 6px; border-radius: var(--r-md);
+    border: 1px solid var(--rule);
+  }
+  .pdf-ratio-bar .ratio-label {
+    font-size: 11px; font-weight: 600; color: var(--ash); margin-left: 4px;
+  }
+  .pdf-ratio-bar .ratio-pills {
+    display: flex; gap: 4px;
+  }
+  .ratio-pill {
+    border: 1px solid transparent; background: transparent; padding: 4px 8px;
+    font-size: 11px; font-weight: 500; cursor: pointer; border-radius: 5px;
+    color: var(--ash); transition: all 120ms ease;
+  }
+  .ratio-pill:hover { background: rgba(0,0,0,0.04); color: var(--ink); }
+  .ratio-pill.active {
+    background: var(--paper); color: var(--ink); border-color: var(--rule);
+    font-weight: 600; box-shadow: var(--lift-1);
+  }
+  .export-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0; }
   .export-row button {
     display: inline-flex; align-items: center; justify-content: center; gap: 5px;
     padding: 8px 10px; font-size: 12px; font-weight: 600; border-radius: var(--r-md);
@@ -214,8 +213,15 @@ if (typeof chrome === "undefined" || !chrome.storage) {
   footer { border-top: 1px solid var(--rule); padding-top: 16px; display: flex; flex-direction: column; gap: 8px; }
   footer p { margin: 0; }
   a { color: var(--ink); text-underline-offset: 3px; }
+  .working { display: flex; align-items: center; gap: 10px; margin: 10px 0 0; font-size: 12.5px; line-height: 1.45; }
+  .working-ring { width: 16px; height: 16px; flex: none; border-radius: 50%; border: 2px solid currentColor; border-top-color: transparent; opacity: .75; animation: working-spin .9s linear infinite; }
+  @keyframes working-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .working-ring { animation-duration: 3s; } }
   #status:empty { display: none; }
   .legal { font-size: 11.5px; color: var(--faint); line-height: 1.45; }
+  @media (prefers-color-scheme: dark) {
+    #cropBox { border-color: #fff !important; background: rgba(255,255,255,.18) !important; box-shadow: 0 0 0 9999px rgba(0,0,0,.55) !important; }
+  }
 
   #onboard {
     display: flex; flex-direction: column; gap: 13px;
@@ -363,7 +369,9 @@ if (typeof chrome === "undefined" || !chrome.storage) {
     <button class="link" id="settingsToggle" type="button" aria-controls="settingsDrawer">변경</button>
   </div>
 
-  <button class="primary" id="startBtn" type="button">캡처 시작</button>
+  <div class="alert warn" id="readyAlert" role="alert" hidden></div>
+  <button class="primary" id="startBtn" type="button" aria-describedby="capturePermissionHint" disabled>캡처 시작</button>
+  <p class="detail" id="capturePermissionHint">일반 탭은 확장 아이콘으로 여세요. LearnUs 팝업은 강의 창을 클릭한 뒤 <b>Alt+Shift+S</b>를 누르면 해당 강의를 선택한 캡처 창이 열립니다.</p>
   <p class="detail">화면 인식과 원문 타임라인은 기기 안에서 무료로 동작합니다.<br>AI 요약은 설정에서 요약 서비스를 연결해야 사용할 수 있어요.</p>
 </div>
 
@@ -385,19 +393,27 @@ if (typeof chrome === "undefined" || !chrome.storage) {
     <p class="detail" style="margin: 4px 0 0;">끄면 화면 캡처 없이 음성(Whisper)만으로 깨끗하게 노트를 만듭니다.</p>
   </div>
 
-  <div class="field">
+  <div class="field" id="cropField">
     <label for="modeSelect">캡처 영역</label>
     <select id="modeSelect">
-      <option value="slide">전체 화면</option>
+      <option value="region">영역 지정 (권장 — 슬라이드만)</option>
+      <option value="slide">영상 전체</option>
       <option value="caption">하단 자막 띠</option>
     </select>
-    <p class="detail" style="margin-top:5px;">화면 안 영역을 직접 드래그로 지정하는 기능은 아직 준비 중입니다.</p>
+    <div id="cropRow" style="display:flex; flex-direction:column; gap:6px; margin-top:8px;">
+      <button id="previewBtn" type="button" aria-describedby="cropHint" style="width:100%; font-size:12px; padding:7px 10px; cursor:pointer;">📸 현재 화면 불러오기</button>
+      <p class="detail" id="cropHint" style="margin:2px 0 0;">화면을 불러온 뒤 마우스로 슬라이드 영역을 드래그하세요.</p>
+    </div>
+    <div id="cropWrap" style="position:relative; display:none; margin-top:8px; user-select:none; border-radius:var(--r-md); overflow:hidden; border:1px solid var(--rule); cursor:crosshair;">
+      <img id="cropImg" alt="강의 화면 미리보기" style="width:100%; display:block;" />
+      <div id="cropBox" style="position:absolute; border:2px solid var(--ink); background:rgba(0,0,0,.15); display:none; box-shadow:0 0 0 9999px rgba(0,0,0,.35);"></div>
+    </div>
   </div>
 
   <div class="field">
     <label for="langSelect">음성 인식 언어</label>
     <select id="langSelect">
-      <option value="auto">자동 감지</option>
+      <option value="auto">자동 감지(한국어 우선)</option>
       <option value="ko">한국어</option>
       <option value="en">영어</option>
     </select>
@@ -447,12 +463,21 @@ if (typeof chrome === "undefined" || !chrome.storage) {
   <iframe id="renderFrame" src="sandbox.html" class="preview-frame" title="노트 서식 미리보기" sandbox="allow-scripts allow-forms allow-popups allow-modals"></iframe>
   <textarea id="result" aria-label="강의 노트 내용" placeholder="노트가 여기 표시됩니다. 인식된 내용을 직접 검토해 주세요." hidden></textarea>
   <p class="detail result-help" id="resultHint">서식 보기에서는 수식과 다이어그램이 렌더링되며, 마크다운 편집 탭에서 원문을 직접 수정할 수 있습니다.</p>
-  <div class="export-row" id="exportRow" hidden>
-    <button id="pdfBtn" type="button" title="현재 노트를 고화질 PDF로 인쇄 또는 저장합니다">📄 PDF 출력</button>
-    <button id="notionBtn" type="button" title="노션(Notion)에 붙여넣기 위한 형식으로 복사합니다">📝 노션으로 복사</button>
+  <div class="export-section" id="exportRow" hidden>
+    <div class="pdf-ratio-bar">
+      <span class="ratio-label">PDF 용지 비율:</span>
+      <div class="ratio-pills" role="radiogroup" aria-label="PDF 용지 비율 선택">
+        <button type="button" class="ratio-pill active" id="pdfRatioA4" data-ratio="a4" title="기본 A4 세로 문서 규격">A4 (세로)</button>
+        <button type="button" class="ratio-pill" id="pdfRatio169" data-ratio="16:9" title="PPT 슬라이드 및 굿노트 가로 최적화 규격 (16:9)">16:9 (PPT·굿노트)</button>
+      </div>
+    </div>
+    <div class="export-row">
+      <button id="pdfBtn" type="button" title="선택한 비율로 노트를 고화질 PDF로 인쇄 또는 저장합니다">📄 PDF 출력</button>
+      <button id="notionBtn" type="button" title="노션(Notion)에 붙여넣기 위한 형식으로 복사합니다">📝 노션으로 복사</button>
+    </div>
   </div>
 
-  <details class="optional-api"><summary>AI 요약 연결하기 · 선택</summary><p class="detail">승인된 요약 서비스 URL과 앱 세션 토큰을 설정하고 외부 전송에 동의한 뒤 ‘다시 만들기’를 누르세요. 소비자 AI API 키는 이 확장에 저장되지 않습니다.</p><button id="summarySettingsBtn" type="button">연결 설정</button></details>
+  <details class="optional-api"><summary>OpenRouter 요약 연결하기 · 선택</summary><p class="detail">OpenRouter API 키를 설정하고 외부 전송에 동의한 뒤 ‘다시 만들기’를 누르세요. 이미지와 오디오는 전송하지 않습니다.</p><button id="summarySettingsBtn" type="button">연결 설정</button></details>
 
   <div class="btnrow">
     <button id="notesBtn" type="button" disabled title="재캡처 없이 선택한 형태로 다시 만듭니다">다시 만들기</button>
@@ -471,13 +496,14 @@ if (typeof chrome === "undefined" || !chrome.storage) {
 </div>
 
 <!-- ── 공통 ────────────────────────────────────────────────── -->
+<div id="working" class="working" hidden role="status" aria-live="polite"><span class="working-ring" aria-hidden="true"></span><span>노트 필기중. 만약 노트가 생성되지 않았으면 다시 생성해주세요</span></div>
 <div id="status" class="detail" role="status" aria-live="polite" style="min-height:1.4em; white-space:pre-wrap;"></div>
 
 <details id="rawEvidence" hidden>
   <summary>인식된 텍스트 전체 (메모리에만 존재)</summary>
   <pre id="rawScript"></pre>
 </details>
-<details hidden>
+<details id="debugDetails">
   <summary>디버그 로그</summary>
   <pre id="debugLog"></pre>
 </details>

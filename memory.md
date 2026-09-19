@@ -32,6 +32,19 @@
 - 검은 화면·캡처 차단 판정은 `content.js`의 `drawImage` 사전검사가 아니라 `session.js`의 크롭 픽셀 검사(32×18, 연속 3회)가 담당한다. cross-origin mp4의 CORS taint 오탐을 피하기 위한 이동이며, iframe 내부 EME는 여전히 content.js의 `mediaKeys`/`encrypted`로 감지한다.
 - 중첩 iframe(깊이≥2)은 상위 프레임이 직계 iframe만 probe하므로 `FRAME_BOX`가 오지 않고, `session.js`가 2.5초 유예 뒤 "중첩된 iframe 안의 영상은 아직 지원하지 않습니다"로 중단한다.
 
+## 캡처 권한과 별도 제어 창
+
+- `openPanelOnActionClick: true`는 tabCapture에 필요한 action 권한 부여 경로를 건너뛴다. 기존 브라우저에 저장된 값도 바꾸도록 `setup()`에서 명시적으로 `false`로 설정하고, `action.onClicked`에서 패널을 연다.
+- LearnUs 팝업용 `open-capture-panel` 명령은 호출 시점의 `tab.id`를 `sidepanel.html?tabId=…`로 전달한다. 제어 창이 포커스를 가져간 뒤 활성 탭을 다시 선택하면 원래 강의 탭과 달라질 수 있으므로 이 대상 ID를 유지해야 한다. ID는 권한을 만들어 주지 않으며 캡처 권한 판정은 Chrome이 한다.
+
+## 음성 진단 로그
+
+- `lib/session.js`의 `CaptureSession`이 ASR 진단 로그를 메모리에서만 소유하고 `SESSION_STATE`에 최근 100줄을 실어 보낸다. `sidepanel.js`는 `#debugLog`에 표시만 하며 강의 발화 텍스트는 로그에 넣지 않는다.
+- 로그는 모델 준비, AudioContext, 청크 길이/RMS, 백로그, 처리 시간, 빈 결과와 오류만 기록하고 세션 폐기 시 지운다. 음성 실패 시 `#debugDetails`를 자동으로 연다.
+- 모델 준비 로그는 Worker가 보고한 모델·device·dtype와 선택 언어·OCR 사용 여부를 포함한다. 화면의 Small 표시만으로 실제 로드된 Worker 모델을 판정하지 않는다.
+- Transformers.js의 다국어 Whisper는 언어를 생략하면 영어 토큰을 기본 선택한다. 따라서 설정의 `auto`는 현재 한국어 강의 우선(`korean`)으로 보정하고, 영어 강의는 `en`을 명시한다.
+- 일반 무음 경계에서는 최소 10초를 모으고 최대 20초에서 분할한다. 정지·탐색·배속 변경의 명시적 flush는 짧은 꼬리도 보존한다. 20초 고정 음원을 Worker에 직접 보내는 벤치마크는 이 실제 분할 경로 및 OCR 경쟁을 검증하지 않는다.
+
 ## GSAP 의존성
 
 - GSAP + ScrollTrigger는 `landing/gsap-animations.js` 한 파일에서만 쓴다. 사용처와 유지 이유는 그 파일 머리말에 적어뒀다. 두 연출(히어로 진입 타임라인, ScrollTrigger 1회 등장)을 쓰지 않게 되면 `landing/index.html`의 CDN `<script>` 두 줄과 함께 통째로 지운다.

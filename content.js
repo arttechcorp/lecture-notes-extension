@@ -1,7 +1,9 @@
 // Metadata/preflight only. No frames, audio, credentials or lecture text cross this boundary.
+// The one page mutation is preservesPitch, and only when the user turns on 배속 인식 보정: Chrome's pitch-preserving
+// time stretch cannot be undone by resampling, so it is switched off for the capture and restored when it ends.
 (() => {
-  // Pure: find the largest visible video in this document, including shadow roots.
-  const findVideo = () => {
+  // Pure: collect visible videos in this document, including shadow roots; prefer the playing one, else largest.
+  const findVideos = () => {
     let list = [...document.querySelectorAll("video")];
     if (!list.length) {
       const walk = (node, d) => {
@@ -13,8 +15,12 @@
       };
       walk(document.documentElement, 0);
     }
-    return list.filter(v => v.videoWidth && v.getBoundingClientRect().width > 0)
-      .sort((a, b) => b.videoWidth * b.videoHeight - a.videoWidth * a.videoHeight)[0];
+    return list.filter(v => v.videoWidth && v.getBoundingClientRect().width > 0);
+  };
+  const findVideo = () => {
+    const videos = findVideos();
+    return videos.find(v => !v.paused && v.currentTime > 0 && !v.ended)
+      || videos.sort((a, b) => b.videoWidth * b.videoHeight - a.videoWidth * a.videoHeight)[0];
   };
   // Announces run before the inject guard so a stale instance still reports after a service-worker restart.
   const announce = () => {
@@ -32,6 +38,7 @@
   window.__summrizeiMetadata = true;
   const isTop = window === window.top;
   let timer, boxTimer, watchdog, video, epoch = 0, sessionId, failures = 0, blocked = false, watchedEl, ackBound = false;
+  let pitchWas = null;
   const onSeek = () => { epoch++; };
   const onEncrypted = () => { blocked = true; };
   function locate() {
@@ -47,9 +54,11 @@
     const v = locate();
     if (!v) return { ended: true, epoch };
     const r = v.getBoundingClientRect();
+    const x = r.x / innerWidth, y = r.y / innerHeight;
+    const w = r.width / innerWidth, h = r.height / innerHeight;
     return { time: v.currentTime, rate: v.playbackRate, paused: v.paused, ended: v.ended, epoch,
       blocked: blocked || !!v.mediaKeys,
-      box: { x: r.x / innerWidth, y: r.y / innerHeight, w: r.width / innerWidth, h: r.height / innerHeight },
+      box: { x, y, w, h },
       videoAspect: v.videoWidth / v.videoHeight };
   }
   // Late-mounting players: re-announce when video presence changes for a few seconds.
@@ -85,28 +94,49 @@
         box: { x: r.x / innerWidth, y: r.y / innerHeight, w: r.width / innerWidth, h: r.height / innerHeight } }).catch(() => {});
     }, 250);
   }
+  function preview() {
+    const v = locate();
+    if (!v || !v.videoWidth) throw new Error("영상을 찾지 못했거나 아직 재생되지 않았습니다. 영상을 먼저 재생해 주세요.");
+    if (blocked || v.mediaKeys) throw new Error("보호된 강의는 미리보기를 지원하지 않습니다.");
+    const scale = Math.min(1, 640 / v.videoWidth);
+    const w = Math.round(v.videoWidth * scale), h = Math.round(v.videoHeight * scale);
+    const canvas = document.createElement("canvas"); canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    try {
+      ctx.drawImage(v, 0, 0, w, h);
+      return canvas.toDataURL("image/jpeg", 0.65);
+    } catch (e) {
+      if (e.name === "SecurityError") throw new Error("보안 정책으로 영상 미리보기가 차단되었습니다.");
+      throw e;
+    }
+  }
+  // Black-frame judgement moved to the tab-capture crop in lib/session.js — a cross-origin video
+  // taints page canvases and threw SecurityError here even when capture was fine.
+  function preflight() {
+    const v = locate();
+    if (!v) throw new Error("이 페이지의 영상을 찾지 못했습니다.");
+    if (blocked || v.mediaKeys) throw new Error("보호된 강의는 캡처하지 않습니다.");
+    return metadata();
+  }
+  function setPitchPreservation(on) {
+    const v = locate();
+    if (!v) return;
+    const key = "preservesPitch" in v ? "preservesPitch" : "webkitPreservesPitch" in v ? "webkitPreservesPitch" : null;
+    if (!key) return;
+    if (!on) { if (pitchWas === null) pitchWas = v[key]; v[key] = false; }
+    else if (pitchWas !== null) { v[key] = pitchWas; pitchWas = null; }
+  }
   chrome.runtime.onMessage.addListener((message, sender, reply) => {
     if (sender.id !== chrome.runtime.id) return;
     if (message.type === "PREFLIGHT") {
-      try {
-        const v = locate();
-        if (!v) throw new Error("이 페이지의 영상을 찾지 못했습니다.");
-        if (blocked || v.mediaKeys) throw new Error("보호된 강의는 캡처하지 않습니다.");
-        reply({ ok: true, metadata: metadata() });
-      } catch (error) { reply({ ok: false, error: error.message }); }
+      try { reply({ ok: true, metadata: preflight() }); } catch (error) { reply({ ok: false, error: error.message }); }
     }
     if (message.type === "PREVIEW") {
-      try {
-        const v = locate();
-        if (!v) throw new Error("영상을 찾지 못했습니다.");
-        const c = document.createElement("canvas");
-        c.width = v.videoWidth; c.height = v.videoHeight;
-        c.getContext("2d").drawImage(v, 0, 0);
-        reply({ ok: true, dataUrl: c.toDataURL("image/jpeg", .8) });
-      } catch (error) { reply({ ok: false, error: error.message }); }
+      try { reply({ ok: true, dataUrl: preview() }); } catch (error) { reply({ ok: false, error: error.message }); }
     }
     if (message.type === "WATCH_MEDIA") {
       clearInterval(timer); sessionId = message.sessionId; failures = 0;
+      if (message.speedCorrection === true) setPitchPreservation(false);
       timer = setInterval(() => {
         chrome.runtime.sendMessage({ target: "session", type: "MEDIA_METADATA", sessionId, metadata: metadata() }).then(r => {
           if (!r?.ok && ++failures > 3) clearInterval(timer);
@@ -115,7 +145,7 @@
       reply({ ok: true });
     }
     if (message.type === "FRAME_WATCH") { if (isTop) frameWatch(message.sessionId); reply({ ok: true }); }
-    if (message.type === "STOP_WATCH") { clearInterval(timer); clearInterval(boxTimer); sessionId = undefined; watchedEl = null; reply({ ok: true }); }
+    if (message.type === "STOP_WATCH") { clearInterval(timer); clearInterval(boxTimer); sessionId = undefined; watchedEl = null; setPitchPreservation(true); reply({ ok: true }); }
   });
-  addEventListener("pagehide", () => { clearInterval(timer); clearInterval(boxTimer); clearInterval(watchdog); }, { once: true });
+  addEventListener("pagehide", () => { clearInterval(timer); clearInterval(boxTimer); clearInterval(watchdog); setPitchPreservation(true); }, { once: true });
 })();

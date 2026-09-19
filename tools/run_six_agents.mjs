@@ -515,7 +515,11 @@ async function main() {
           <h1 id="pageTitle">종합 비교 개요</h1>
           <div id="pageSubtitle" style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">6개 모델의 응답 속도, 토큰 소모량, 수식 유도 충실도 분석</div>
         </div>
-        <div class="actions-bar">
+        <div class="actions-bar" style="display: flex; align-items: center; gap: 8px;">
+          <div class="ratio-switch" style="display: flex; gap: 4px; background: var(--code-bg); padding: 3px; border-radius: 6px; border: 1px solid var(--card-border);">
+            <button type="button" class="btn" id="ratioA4Btn" style="padding: 4px 10px; font-size: 0.8rem;" onclick="setReportRatio('a4')">A4 (세로)</button>
+            <button type="button" class="btn" id="ratio169Btn" style="padding: 4px 10px; font-size: 0.8rem;" onclick="setReportRatio('16:9')">16:9 (PPT·굿노트)</button>
+          </div>
           <button class="btn btn-primary" onclick="window.print()">🖨️ PDF 저장 / 인쇄</button>
         </div>
       </div>
@@ -526,7 +530,52 @@ async function main() {
   </div>
 
   <script>
-    const models = ${modelDataJson};
+    let reportRatio = 'a4';
+    function setReportRatio(r) {
+      reportRatio = r;
+      let styleEl = document.getElementById('print-ratio-style');
+      if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = 'print-ratio-style';
+        document.head.appendChild(styleEl);
+      }
+      const is169 = r === '16:9';
+      const a4Btn = document.getElementById('ratioA4Btn');
+      const p169Btn = document.getElementById('ratio169Btn');
+      if (a4Btn) a4Btn.style.background = !is169 ? 'var(--primary)' : 'transparent';
+      if (a4Btn) a4Btn.style.color = !is169 ? '#0f172a' : 'var(--text)';
+      if (p169Btn) p169Btn.style.background = is169 ? 'var(--primary)' : 'transparent';
+      if (p169Btn) p169Btn.style.color = is169 ? '#0f172a' : 'var(--text)';
+      if (is169) {
+        styleEl.textContent = \`
+          @page {
+            size: 297mm 167.06mm;
+            margin: 10mm 14mm;
+          }
+          @media print {
+            body { font-size: 10pt !important; line-height: 1.55 !important; }
+            h1 { font-size: 16pt !important; }
+            h2 { font-size: 13pt !important; }
+            table { font-size: 9.5pt !important; }
+          }
+        \`;
+      } else {
+        styleEl.textContent = \`
+          @page {
+            size: A4 portrait;
+            margin: 12mm 15mm;
+          }
+          @media print {
+            body { font-size: 11pt !important; line-height: 1.6 !important; }
+            h1 { font-size: 18pt !important; }
+            h2 { font-size: 14pt !important; }
+            table { font-size: 10pt !important; }
+          }
+        \`;
+      }
+    }
+    setReportRatio('a4');
+    const models = \${modelDataJson};
 
     function renderMath(element) {
       if (window.renderMathInElement) {

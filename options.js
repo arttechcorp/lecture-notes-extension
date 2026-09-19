@@ -1,15 +1,31 @@
 const $=id=>document.getElementById(id);
 // Explicit-save fields: gathered by the API section's own Save/Test buttons.
-const fields=['serviceUrl','appSessionToken','summaryModel','remoteSummaryConsent'];
+const fields=['openRouterApiKey','serviceUrl','appSessionToken','summaryModel','remoteSummaryConsent'];
 // Auto-save fields: each persists immediately on change (elements below carry the "자동 저장" badge).
 const AUTO=[['themeSelect','theme'],['ocrEnabledCb','ocrEnabled'],['whisperCb','whisperEnabled'],['whisperModel','whisperModel'],['whisperLang','whisperLang']];
 const BOOL_FIELDS=new Set(['remoteSummaryConsent']);
+// Speed correction is the one auto-saved toggle that is NOT wired through AUTO: turning it on changes what the
+// listener hears, so it is only persisted after the warning dialog is acknowledged.
+function wireSpeedCorrection(initial){
+  const box=$('speedCorrectionCb'),modal=$('speedWarn');
+  if(!box)return;
+  box.checked=initial;
+  const persist=async value=>{try{await saveSettings({speedCorrection:value});notice(value?'배속 인식 보정을 켰습니다. 다음 캡처부터 적용됩니다.':'배속 인식 보정을 껐습니다.');}catch(error){box.checked=!value;notice(error.message);}};
+  box.addEventListener('change',()=>{
+    if(!box.checked)return persist(false);
+    if(modal?.showModal)modal.showModal();else persist(true);
+  });
+  $('speedWarnOk')?.addEventListener('click',()=>{modal.close();persist(true);});
+  $('speedWarnCancel')?.addEventListener('click',()=>{modal.close();box.checked=false;});
+  modal?.addEventListener('cancel',()=>{box.checked=false;});
+}
 function notice(message){$('saved').hidden=false;$('saved').textContent=message;}
 function values(){return Object.fromEntries(fields.map(id=>[id,BOOL_FIELDS.has(id)?$(id).checked:$(id).value]));}
 (async()=>{try{
   const s=await loadSettings();
   for(const id of fields)if(BOOL_FIELDS.has(id))$(id).checked=s[id];else $(id).value=s[id];
   for(const [id,key] of AUTO){const el=$(id);if(!el)continue;if(el.type==='checkbox')el.checked=s[key];else el.value=s[key];}
+  wireSpeedCorrection(s.speedCorrection===true);
 }catch(error){notice(error.message);}})();
 for(const [id,key] of AUTO){
   const el=$(id);
@@ -17,4 +33,4 @@ for(const [id,key] of AUTO){
   el.addEventListener('change',async()=>{try{await saveSettings({[key]:el.type==='checkbox'?el.checked:el.value});notice('설정이 저장되었습니다');}catch(error){notice(error.message);}});
 }
 $('saveBtn').addEventListener('click',async()=>{try{await saveSettings(values());notice('설정을 저장했습니다. 열려 있는 강의 패널로 돌아갈 수 있습니다.');}catch(error){notice(error.message);}});
-$('testBtn').addEventListener('click',async()=>{const button=$('testBtn');button.disabled=true;try{const s=validateSettings(values());const result=await ServiceClient.me({baseUrl:s.serviceUrl,token:s.appSessionToken,timeoutMs:15000});if(typeof result.accountId!=='string'||!Array.isArray(result.models))throw new Error('계정 정보를 확인하지 못했습니다.');notice(result.models.includes(s.summaryModel)?'연결됨 · 선택한 요약 모델을 사용할 수 있습니다.':'연결됨 · 선택한 모델이 계정에 허용되지 않았습니다. 다른 모델을 선택하세요.');}catch(error){notice(error.message);}finally{button.disabled=false;}});
+$('testBtn').addEventListener('click',async()=>{const button=$('testBtn');button.disabled=true;try{const s=validateSettings(values());await saveSettings(s);if(s.openRouterApiKey){await OpenRouterClient.check({apiKey:s.openRouterApiKey,timeoutMs:15000});notice('연결됨 · OpenRouter API 키를 확인했습니다.');}else{const result=await ServiceClient.me({baseUrl:s.serviceUrl,token:s.appSessionToken,timeoutMs:15000});if(typeof result.accountId!=='string'||!Array.isArray(result.models))throw new Error('계정 정보를 확인하지 못했습니다.');notice(result.models.includes(s.summaryModel)?'연결됨 · 선택한 요약 모델을 사용할 수 있습니다.':'연결됨 · 선택한 모델이 계정에 허용되지 않았습니다. 다른 모델을 선택하세요.');}}catch(error){notice(error.message);}finally{button.disabled=false;}});

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "Summrizei — 강의 인식 아키텍처 제안",
+    "title": "Summrizei — 강의 인식·노트 아키텍처",
     "output": "architecture-proposal.html",
     "quality_profile": "showcase"
   },
@@ -123,13 +123,43 @@
       "tag": "텍스트만 RAM 보관"
     },
     {
+      "id": "preprocess",
+      "type": "backend",
+      "label": "맥락 기반 전처리",
+      "sublabel": "included · filtered · uncertain",
+      "pos": [
+        1080,
+        600
+      ],
+      "size": [
+        200,
+        80
+      ],
+      "tag": "원본 근거는 삭제하지 않음"
+    },
+    {
+      "id": "segments",
+      "type": "messagebus",
+      "label": "구간화",
+      "sublabel": "슬라이드 · 주제 · 토큰 예산",
+      "pos": [
+        815,
+        700
+      ],
+      "size": [
+        200,
+        80
+      ],
+      "tag": "모든 구간 coverage"
+    },
+    {
       "id": "llm",
       "type": "external",
       "label": "선택한 요약 API",
-      "sublabel": "OpenRouter · 청크별 구조화",
+      "sublabel": "구간별 구조화 · 전체 합성",
       "pos": [
-        1080,
-        650
+        550,
+        700
       ],
       "size": [
         200,
@@ -140,11 +170,11 @@
     {
       "id": "notes",
       "type": "frontend",
-      "label": "사이드패널",
-      "sublabel": "요약 · 개념 · 질문 · 근거 시각",
+      "label": "학습 노트",
+      "sublabel": "핵심 결론 · 수식 · 시각 자료",
       "pos": [
-        815,
-        650
+        285,
+        700
       ],
       "size": [
         200,
@@ -165,6 +195,15 @@
         "evidence"
       ],
       "pad": 28
+    },
+    {
+      "kind": "region",
+      "label": "로컬 요약 준비 — 맥락 선별과 구간화",
+      "wraps": [
+        "preprocess",
+        "segments"
+      ],
+      "pad": 24
     }
   ],
   "connections": [
@@ -213,44 +252,58 @@
       "to": "evidence"
     },
     {
-      "id": "summarize",
+      "id": "prepare",
       "from": "evidence",
+      "to": "preprocess",
+      "label": "시간순 정렬 · 문맥 연결",
+      "labelDy": 24
+    },
+    {
+      "id": "divide",
+      "from": "preprocess",
+      "to": "segments",
+      "label": "비파괴적 선별 결과",
+      "labelDy": 14
+    },
+    {
+      "id": "summarize",
+      "from": "segments",
       "to": "llm",
       "label": "동의한 텍스트만",
       "variant": "dashed",
-      "labelDy": 130
+      "labelDy": -34
     },
     {
       "id": "render",
       "from": "llm",
       "to": "notes",
-      "label": "근거 포함 요약",
+      "label": "구간 요약 → 전체 합성",
       "labelDy": -34
     }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "화면은 선택적으로",
+      "title": "비파괴 전처리",
       "items": [
-        "가벼운 감시는 자주, OCR은 변화 시",
-        "이미지 큐는 바이트와 개수로 제한"
+        "인사·진행 안내·잡음은 요약 입력에서만 제외",
+        "정정·예외·부정·숫자·단위·수식은 우선 보존"
       ]
     },
     {
       "dot": "emerald",
-      "title": "정보 손실은 드러나게",
+      "title": "요약 순서",
       "items": [
-        "ASR 겹침은 시간 구간으로 제거",
-        "정정·부정·수식은 그대로 보존"
+        "전처리 후 모든 텍스트를 기존 방식으로 구간화",
+        "각 구간 요약을 유지하며 전체 학습 노트 합성"
       ]
     },
     {
-      "dot": "rose",
-      "title": "지원 범위를 명확하게",
+      "dot": "violet",
+      "title": "학습 노트 출력",
       "items": [
-        "구독 연결은 공식 허용 범위 확인",
-        "로컬 보조 앱은 품질 검증 후 선택"
+        "핵심 결론을 앞에 두고 중요도를 색상 토큰으로 강조",
+        "수식은 KaTeX, 관계·흐름은 표와 Mermaid로 표현"
       ]
     }
   ]

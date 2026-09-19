@@ -2,12 +2,12 @@ const test=require("node:test"),assert=require("node:assert/strict"),fs=require(
 const {createServer,readState}=require("./index"),Vault=require("../lib/vault");
 const token="test-token-A-".padEnd(40,"a"),tokenB="test-token-B-".padEnd(40,"b"),origin="chrome-extension://"+"a".repeat(32),model="google/gemini-2.5-flash-lite";
 function config(root){return {APP_TOKENS_JSON:JSON.stringify({A:token,B:tokenB}),EXTENSION_ORIGIN:origin,OPENROUTER_API_KEY:"mock-operator-key",OPENROUTER_PROVIDERS_JSON:JSON.stringify({[model]:["test-provider"]}),VAULT_DIR:root};}
-function provider(){return {ok:true,json:async()=>({choices:[{finish_reason:"stop",message:{content:JSON.stringify({title:"노트",sections:[{heading:"비교",content:"서로 다른 조건을 비교하는 학습 설명입니다.",evidenceIds:["ev-1"]}],questions:["무엇이 다른가요?"]})}}],usage:{prompt_tokens:100,completion_tokens:20,cost:.001}})};}
+function provider(){const ids=["ev-1"],item={content:"서로 다른 조건을 비교하는 학습 설명입니다.",importance:"important",evidenceIds:ids},summary={title:"노트",keyConclusions:[item],concepts:[],corrections:[],openQuestions:[],sections:[{heading:"비교",...item}],formulas:[],visuals:[],reviewQuestions:[{question:"무엇이 다른가요?",evidenceIds:ids}],evidenceIds:ids};return {ok:true,json:async()=>({choices:[{finish_reason:"stop",message:{content:JSON.stringify(summary)}}],usage:{prompt_tokens:100,completion_tokens:20,cost:.001}})};}
 async function listen(root,fetcher){const s=createServer(config(root),{fetch:fetcher});await new Promise(r=>s.listen(0,"127.0.0.1",r));return {server:s,url:"http://127.0.0.1:"+s.address().port};}
 const close=s=>new Promise(r=>s.close(r));
 const removeTemp=root=>{const target=path.resolve(root);assert.ok(target.startsWith(path.join(path.resolve(os.tmpdir()),'summrizei-service-test-')));fs.rmSync(target,{recursive:true,force:true});};
 const req=(url,route,method="GET",body,auth=token,site=origin)=>fetch(url+route,{method,headers:{authorization:"Bearer "+auth,origin:site,"content-type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)});
-const input={model,stage:"chunk",requestId:"request-one",evidence:[{id:"ev-1",source:"ocr",text:"synthetic lecture",t0:0,t1:1}]};
+const input={model,stage:"chunk",requestId:"request-one",evidence:[{id:"ev-1",source:"ocr",text:"synthetic lecture",t0:0,t1:1,selection:"included",selectionReason:"학습 근거로 보존"}]};
 test("auth, strict ciphertext, account isolation, delete and durable idempotency",async()=>{const root=fs.mkdtempSync(path.join(os.tmpdir(),"summrizei-service-test-"));let calls=0;let {server,url}=await listen(root,async()=>{calls++;return provider();});try{
 assert.equal((await req(url,"/v1/me","GET",undefined,"bad")).status,401);assert.equal((await req(url,"/v1/me","GET",undefined,token,"https://evil.example")).status,403);
 const ctx={accountId:"A",objectId:"object-one",kind:"session"},envelope=await Vault.encrypt({evidence:"private synthetic",summary:null},"testing-password-123",ctx);
@@ -65,3 +65,20 @@ test("transport failures do not retry or release an unknown charge reservation",
   }finally{await close(server);removeTemp(root);}
 });
 
+
+test("끊긴 구간은 받아들이되 모양을 검사한다",async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),"summrizei-service-test-"));
+  let body=null;let {server,url}=await listen(root,async(_route,options)=>{body=JSON.parse(options.body);return provider();});
+  try{
+    const gaps=[{reason:"audio-capacity",t0:750,t1:770}];
+    // 서버는 최상위 필드를 화이트리스트로 막는다. 여기 빠지면 클라이언트가 400 을 받는다.
+    assert.equal((await req(url,"/v1/summary","POST",{...input,requestId:"gap-ok",gaps})).status,200);
+    assert.deepEqual(JSON.parse(body.messages[1].content).gaps,gaps,"끊긴 구간이 모델 요청에 실리지 않는다");
+    // 강의 내용이 아니라 메타데이터다 — 근거로 섞여 들어가면 안 된다.
+    assert.ok(JSON.parse(body.messages[1].content).evidence.every(e=>e.source!=="gap"));
+    assert.equal((await req(url,"/v1/summary","POST",{...input,requestId:"gap-none"})).status,200);
+    assert.equal(JSON.parse(body.messages[1].content).gaps,undefined,"끊긴 곳이 없는데 빈 배열을 보낸다");
+    for(const bad of [{reason:"x",t0:5,t1:1},{reason:"",t0:0,t1:1},{t0:0,t1:1},{reason:"x",t0:0,t1:1,extra:1}])
+      assert.equal((await req(url,"/v1/summary","POST",{...input,requestId:"gap-bad-"+JSON.stringify(bad).length,gaps:[bad]})).status,400,JSON.stringify(bad));
+  }finally{await close(server);removeTemp(root);}
+});

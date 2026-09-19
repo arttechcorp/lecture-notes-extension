@@ -462,6 +462,11 @@
     text-underline-offset: 3px;
   }
   .key-link svg { flex-shrink: 0; }
+  .warn-modal { max-width: 420px; border: 1px solid var(--line, #d7dbe2); border-radius: 12px; padding: 20px; background: Canvas; color: CanvasText; }
+  .warn-modal::backdrop { background: rgba(15, 18, 24, .45); }
+  .warn-modal h2 { margin: 0 0 10px; font-size: 15px; }
+  .warn-modal p { margin: 0 0 10px; font-size: 13px; line-height: 1.55; }
+  .warn-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
   .checklist {
     display: grid;
     gap: 10px;
@@ -698,30 +703,50 @@
       <label for="whisperModel" class="field-label">인식 모델 크기</label>
       <div class="select-wrap">
         <select id="whisperModel">
-          <option value="tiny">Tiny · 빠른 시작 (권장)</option>
-          <option value="base">Base · 더 큰 모델, 처리 시간 증가</option>
+          <option value="small-webgpu">Small q8/q4 · WebGPU (실시간 권장)</option>
+          <option value="base-wasm">Base · WASM (저사양)</option>
         </select>
       </div>
+      <p class="note">WebGPU를 쓸 수 없으면 자동 전환하지 않고 중단합니다. 그런 기기에서는 Base 저사양 모드를 직접 선택하세요.</p>
     </div>
 
     <div class="form-field">
       <label for="whisperLang" class="field-label">음성 인식 언어</label>
       <div class="select-wrap">
         <select id="whisperLang">
-          <option value="auto">자동 감지</option>
+          <option value="auto">자동 감지(한국어 우선)</option>
           <option value="ko">한국어</option>
           <option value="en">영어</option>
         </select>
       </div>
       <p class="note" id="voiceSaved" role="status" aria-live="polite">변경 사항은 다음 캡처부터 적용됩니다.</p>
     </div>
+
+    <div class="form-field">
+      <label class="check-label">
+        <input type="checkbox" id="speedCorrectionCb" class="check-input">
+        <span>배속 인식 보정 <span class="badge">자동 저장</span></span>
+      </label>
+      <p class="note">2배속 이상으로 듣는 경우에만 켜세요. 캡처 중 강의 영상의 음정 보정을 끄고 인식 직전에 원래 속도로 되돌립니다. <strong>재생 중 목소리가 높게 들립니다.</strong></p>
+    </div>
   </section>
+
+  <dialog id="speedWarn" class="warn-modal" aria-labelledby="speedWarnTitle">
+    <h2 id="speedWarnTitle">배속 인식 보정을 켤까요?</h2>
+    <p>켜는 동안 <strong>강의 소리가 평소보다 높은 음정으로 들립니다.</strong> 크롬의 음정 보정을 꺼야 배속 음성을 원래 속도로 되돌릴 수 있기 때문입니다.</p>
+    <p>기기와 강의에 따라 <strong>2배속에서는 음성이 깨지거나 인식이 부정확할 수 있습니다.</strong> 노트가 이상하면 1배속으로 다시 캡처해 주세요.</p>
+    <p class="note">캡처를 마치면 원래 재생 설정으로 되돌립니다.</p>
+    <div class="warn-actions">
+      <button type="button" id="speedWarnCancel">취소</button>
+      <button type="button" id="speedWarnOk" class="primary">이해했고 켜기</button>
+    </div>
+  </dialog>
 
   <section class="card" aria-labelledby="apiHeading">
     <details>
       <summary class="api-summary">
         <div class="api-summary-main">
-          <h2 id="apiHeading">외부 API 키 연결 (선택 사항)</h2>
+          <h2 id="apiHeading">OpenRouter API 키 연결 (선택 사항)</h2>
           <span class="badge">클라우드 AI</span>
         </div>
         <span class="chevron" aria-hidden="true">
@@ -730,10 +755,16 @@
       </summary>
 
       <div class="api-content">
-        <p class="note" style="margin-top: 0; margin-bottom: 16px;">로컬 인식 결과를 승인된 요약 서비스로 보낼 때만 연결하세요. 서비스가 제공자 키를 보관하므로 소비자 AI API 키는 저장하지 않습니다.</p>
+        <p class="note" style="margin-top: 0; margin-bottom: 16px;">로컬 인식 결과의 텍스트만 OpenRouter로 보내 요약합니다. 이미지와 오디오는 전송하지 않으며, 키는 이 기기의 확장 설정에만 저장합니다.</p>
+
+        <div class="form-field">
+          <label for="openRouterApiKey" class="field-label">OpenRouter API 키</label>
+          <input id="openRouterApiKey" type="password" placeholder="sk-or-v1-…" autocomplete="off" spellcheck="false" class="mono-input" />
+          <p class="note">키는 <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">OpenRouter 키 페이지</a>에서 발급합니다. 이 채팅이나 로그에 키를 붙여 넣지 마세요.</p>
+        </div>
         
         <div class="form-field">
-          <label for="serviceUrl" class="field-label">서비스 URL</label>
+          <label for="serviceUrl" class="field-label">보관 서비스 URL (선택)</label>
           <div class="select-wrap">
             <input id="serviceUrl" type="url" placeholder="https://service.example" autocomplete="url" />
           </div>
@@ -741,7 +772,7 @@
 
         <div class="form-field">
           <div class="label-row">
-            <label for="appSessionToken" class="field-label">앱 세션 토큰</label>
+            <label for="appSessionToken" class="field-label">보관 서비스 앱 세션 토큰</label>
           </div>
           <input id="appSessionToken" type="password" placeholder="발급받은 앱 세션 토큰" autocomplete="off" spellcheck="false" aria-describedby="apiHelp" class="mono-input" />
         </div>
@@ -752,8 +783,9 @@
             <select id="summaryModel">
               <option value="google/gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite · 비용 우선</option>
               <option value="google/gemini-3.8-flash">Gemini 3.8 Flash · 기본 추천</option>
+              <option value="google/gemini-2.5-pro">Gemini 2.5 Pro · 플래그십 심층 분석</option>
               <option value="anthropic/claude-haiku-4.5">Claude Haiku 4.5</option>
-              <option value="anthropic/claude-sonnet-5">Claude Sonnet 5 · 상세 노트</option>
+              <option value="anthropic/claude-sonnet-4.6">Claude Sonnet 4.6 · 상세 노트</option>
             </select>
           </div>
         </div>
@@ -770,7 +802,7 @@
           <button id="saveBtn" type="button">연결 설정 저장</button>
         </div>
 
-        <p class="note setting-note" id="apiHelp">연결하지 않으면 모든 인식은 로컬에서 진행됩니다. 외부 요약은 위 동의 항목을 켠 경우에만 실행됩니다.</p>
+        <p class="note setting-note" id="apiHelp">OpenRouter 키를 입력하지 않으면 인식만 로컬에서 완료됩니다. 외부 요약은 위 동의 항목을 켠 경우에만 실행됩니다.</p>
       </div>
     </details>
   </section>
@@ -789,6 +821,7 @@
 
   <script src="lib/settings.js"></script>
   <script src="lib/service-client.js"></script>
+  <script src="lib/openrouter-client.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

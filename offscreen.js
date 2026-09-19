@@ -2,7 +2,7 @@
 let session=null,generation=0,starting=false,summaryController=null,archiveBusy=false;
 const emit=state=>chrome.runtime.sendMessage({target:"panel",type:"SESSION_STATE",state}).catch(()=>{});
 const trusted=sender=>{try{const url=new URL(sender.url),base=new URL(chrome.runtime.getURL(""));return sender.id===chrome.runtime.id&&url.protocol===base.protocol&&url.host===base.host&&["/background.js","/sidepanel.html","/options.html"].includes(url.pathname);}catch{return false;}};
-const settingsOf=s=>({serviceUrl:String(s?.serviceUrl||""),appSessionToken:String(s?.appSessionToken||""),summaryModel:String(s?.summaryModel||""),remoteSummaryConsent:s?.remoteSummaryConsent===true});
+const settingsOf=s=>({openRouterApiKey:String(s?.openRouterApiKey||""),serviceUrl:String(s?.serviceUrl||""),appSessionToken:String(s?.appSessionToken||""),summaryModel:String(s?.summaryModel||""),remoteSummaryConsent:s?.remoteSummaryConsent===true});
 async function archive(message){
   if(archiveBusy||summaryController||session&&!["completed","failed","disposed"].includes(session.status))throw new Error("현재 처리를 먼저 마쳐 주세요.");
   archiveBusy=true;const config=settingsOf(message.settings),client={baseUrl:config.serviceUrl,token:config.appSessionToken};
@@ -14,7 +14,9 @@ async function archive(message){
     const context={accountId:me.accountId,objectId,kind:"session"};
     if(message.type==="SAVE_VAULT"){
       if(!session?.store.items.length)throw new Error("보관할 인식 자료가 없습니다.");
-      const envelope=await LectureVault.encrypt({version:1,evidence:session.store.snapshot(),summary:session.summary||null,gaps:session.gaps},message.passphrase,context);
+      const decisions=new Map((session.summary?.preprocessing?.decisions||[]).map(item=>[item.id,item]));
+      const evidence=session.store.snapshot().map(item=>({...item,...(decisions.get(item.id)||{})}));
+      const envelope=await LectureVault.encrypt({version:1,evidence,summary:session.summary||null,gaps:session.gaps},message.passphrase,context);
       await ServiceClient.saveEncrypted({...client,objectId,envelope});
       return {ok:true,objectId,state:session.state()};
     }
@@ -24,11 +26,9 @@ async function archive(message){
     const restored=new EvidenceStore();restored.restore(value.evidence);
     const note=value.summary;
     if(note?.sections?.length){
-      if(!Array.isArray(note.questions))throw new Error("보관 노트의 형식을 확인할 수 없습니다.");
-      for(let i=0;i<note.sections.length;i+=80)SummaryPipeline.validateSummary({...note,sections:note.sections.slice(i,i+80),questions:[]},restored.snapshot());
-      for(let i=0;i<note.questions.length;i+=30)SummaryPipeline.validateSummary({...note,sections:note.sections.slice(0,1),questions:note.questions.slice(i,i+30)},restored.snapshot());
-      if(note.overview)SummaryPipeline.validateSummary(note.overview,restored.snapshot());
-      note.evidenceRefs=restored.items.map(({id,t0,t1,source})=>({id,t0,t1,source}));
+      const summaryEvidence=restored.snapshot().filter(item=>item.selection!=="filtered"&&item.status!=="superseded");
+      Object.assign(note,SummaryPipeline.validateSummary(note,summaryEvidence,{requireCoverage:note.status!=="partial",maxItems:2000,maxSections:2000,maxQuestions:2000}));
+      note.evidenceRefs=restored.items.map(({id,t0,t1,source,selection,selectionReason,relatedEvidenceIds})=>({id,t0,t1,source,selection,selectionReason,relatedEvidenceIds}));
     }
     else if(note&&note.status!=="recognition-only")throw new Error("보관 노트의 형식을 확인할 수 없습니다.");
     await session?.dispose();
@@ -86,7 +86,9 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
       const current=session;summaryController=new AbortController();current.status="summarizing";current.error=null;current.publish();
       current.summaryCache||=new Map();current.summaryAttempt=(current.summaryAttempt||0)+1;
       try{
-        current.summary=await SummaryPipeline.generate(current.store.snapshot(),{sessionId:current.id,settings:settingsOf(message.settings),signal:summaryController.signal,cache:current.summaryCache,attempt:current.summaryAttempt,onProgress:progress=>{current.progress=progress;current.publish();}});
+        const config=settingsOf(message.settings),summaryService=config.openRouterApiKey?OpenRouterClient:ServiceClient;
+        current.log(`[요약] 연결 확인 · ${config.openRouterApiKey?"OpenRouter API 키 입력됨":config.serviceUrl&&config.appSessionToken?"보관 서비스 설정됨":"연결 설정 없음"} · 동의 ${config.remoteSummaryConsent?"완료":"미확인"} · 모델 ${config.summaryModel||"기본"}`);
+        current.summary=await SummaryPipeline.generate(current.store.snapshot(),{sessionId:current.id,gaps:current.gaps,settings:config,service:summaryService,signal:summaryController.signal,cache:current.summaryCache,attempt:current.summaryAttempt,onProgress:progress=>{current.progress=progress;current.publish();}});
       }catch(error){if(error.partial?.sections.length)current.summary=error.partial;current.error=error.name==="AbortError"?"요약을 취소했습니다. 완료한 구간은 유지됩니다.":error.message;}
       finally{summaryController=null;current.status="completed";current.progress=null;current.publish();}
       return {ok:!current.error,state:current.state(),error:current.error};
