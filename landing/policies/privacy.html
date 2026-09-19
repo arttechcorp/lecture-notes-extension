@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Summrizei 개인정보처리방침 초안. 현재 데이터 흐름과 운영자가 작성할 항목을 안내합니다.">
+  <meta name="description" content="Summrizei 개인정보처리방침. 강의 화면과 음성을 기기 안에서 처리하는 방식과 외부 전송 항목을 안내합니다.">
   <title>개인정보처리방침 — Summrizei</title>
   <link rel="canonical" href="https://summrizei.vercel.app/policies/privacy">
   <link rel="stylesheet" href="../legal.css">
@@ -21,44 +21,50 @@
       <p class="eyebrow">SUMMRIZEI / PRIVACY</p>
       <h1>개인정보처리방침</h1>
       <p class="page-description">어떤 정보가 기기에 남고, 어떤 정보가 외부로 전달되는지 안내합니다.</p>
-      <aside class="draft-notice"><strong>정책 초안 · 시행일 미정</strong><p>현재 프로그램의 처리 흐름을 바탕으로 만든 작성용 문서입니다. ‘작성 필요’ 항목과 실제 운영 내용을 확정한 뒤 최종 방침을 게시합니다.</p></aside>
     </div>
-    <article class="policy-paper" aria-label="개인정보처리방침 초안">
-      <!-- EDIT: 시행일과 운영자 정보를 확정한 뒤 작성 필요 표시를 교체하세요. -->
+    <article class="policy-paper" aria-label="개인정보처리방침">
       <section id="operator"><h2>01. 운영자와 적용 범위</h2>
-        <p>이 문서는 Summrizei 웹사이트와 Chrome 확장 프로그램의 정보 처리에 관한 안내 초안입니다.</p>
-        <dl class="facts"><div><dt>운영자</dt><dd><span class="placeholder">작성 필요: 상호 / 대표자</span></dd></div><div><dt>개인정보 담당</dt><dd><span class="placeholder">작성 필요: 담당자 / 연락처 / 이메일</span></dd></div><div><dt>시행일</dt><dd><span class="placeholder">작성 필요: YYYY.MM.DD</span></dd></div></dl>
+        <p>이 방침은 Summrizei 웹사이트(<span lang="en">summrizei.vercel.app</span>)와 Chrome 확장 프로그램 <b>Summrizei — 강의 노트</b>에 적용합니다.</p>
+        <dl class="facts"><div><dt>운영자</dt><dd>wab · 이기욱</dd></div><div><dt>개인정보 담당</dt><dd>부지환 · <a href="mailto:jihwanbu26@gmail.com">jihwanbu26@gmail.com</a></dd></div><div><dt>시행일</dt><dd>2026.09.19</dd></div></dl>
       </section>
-      <section id="processing"><h2>02. 현재 처리하는 정보</h2>
+      <section id="processing"><h2>02. 처리하는 정보</h2>
         <dl class="facts">
-          <div><dt>강의 화면</dt><dd>선택한 영상의 화면과 재생 시각을 읽습니다. 기본 화면 글자 인식은 기기 안에서 Tesseract로 처리합니다.</dd></div>
-          <div><dt>강의 음성</dt><dd>음성 인식을 켠 경우 Whisper가 기기 안에서 말소리를 텍스트로 바꿉니다. 현재 코드에는 원본 음성을 원격 인식 API로 업로드하는 경로가 없습니다.</dd></div>
-          <div><dt>AI 요약</dt><dd>요약을 요청하면 영상 제목, 재생 시각이 포함된 화면·음성 인식 텍스트, 사용자가 입력한 요약 조건을 선택한 AI 제공자에게 전송합니다.</dd></div>
-          <div><dt>설정</dt><dd>AI 제공자, API 키, 음성 인식·출력 설정, 동의 상태와 마지막으로 선택한 사이트의 출처(origin)를 브라우저 확장 저장소에 보관합니다.</dd></div>
+          <div><dt>강의 화면</dt><dd>사용자가 <b>캡처 시작</b>을 누른 탭의 화면 프레임과 재생 시각을 읽습니다. 화면 글자 인식은 기기 안에서 <span lang="en">PP-OCRv5(WebAssembly)</span>로 처리하며, 캡처한 이미지 자체는 외부로 전송하지 않습니다.</dd></div>
+          <div><dt>강의 음성</dt><dd>음성 인식을 켜면 해당 탭의 오디오를 기기 안에서 <span lang="en">Whisper</span> 모델(<span lang="en">WebGPU</span> 또는 <span lang="en">WebAssembly</span>)로 텍스트로 바꿉니다. 원본 음성을 외부 인식 서비스로 업로드하는 경로는 없습니다.</dd></div>
+          <div><dt>기기 내 요약</dt><dd><span lang="en">Chrome</span> 내장 온디바이스 AI(<span lang="en">Gemini Nano</span>)를 사용할 수 있는 환경에서는 요약도 기기 안에서 수행하며, 이 경우 강의 내용이 외부로 나가지 않습니다.</dd></div>
+          <div><dt>원격 AI 요약 (선택)</dt><dd>사용자가 원격 요약에 동의한 경우에만, 기기에서 인식한 <b>텍스트</b>와 재생 시각·영상 제목·요약 조건을 요약 제공자에게 전송합니다. 화면 이미지와 원본 오디오는 어떤 경우에도 전송하지 않습니다.</dd></div>
+          <div><dt>설정</dt><dd>요약 모델, 원격 요약 동의 여부, 화면 글자 인식·음성 인식 사용 여부와 언어, 재생 속도 보정, 테마, 약관 동의 여부, 사용자가 입력한 <span lang="en">OpenRouter API</span> 키, 보관 서비스 주소와 앱 세션 토큰을 확장 프로그램의 로컬 저장소에 보관합니다.</dd></div>
+          <div><dt>사전 예약 (웹사이트)</dt><dd>사전 예약 신청 시 이메일 주소, 휴대전화번호, 관심 요금제를 수집합니다. 출시·혜택 안내 목적으로만 사용하며, 입력은 사용자의 선택입니다.</dd></div>
         </dl>
+        <p class="note">위치정보, 결제정보, 브라우징 기록, 키 입력은 수집하지 않습니다. 캡처는 사용자가 직접 시작한 탭에서만 동작하며, 다른 탭이나 백그라운드에서 화면·음성을 읽지 않습니다.</p>
       </section>
       <section id="storage"><h2>03. 기기 내 보관과 내보내기</h2>
-        <p>강의 캡처 이미지, 인식 텍스트와 생성한 노트는 패널 세션의 메모리에서 처리하며 확장 프로그램의 설정 저장소에 저장하지 않습니다. 패널이 종료되면 세션 내용은 유지되지 않습니다.</p>
-        <p>설정과 API 키는 <span lang="en">Chrome</span>의 로컬 확장 저장소에 저장합니다. API 키 동기화 옵션을 켜면 키를 Chrome 동기화 저장소에도 저장합니다.</p>
-        <p>사용자가 직접 복사하거나 내려받은 노트는 클립보드 또는 저장한 파일에 남습니다. 이 파일은 사용자가 별도로 관리합니다.</p>
-        <p class="note">로컬 처리와 외부 제공자의 데이터 보관은 서로 다른 항목입니다. 원격 API 요청 이후의 처리·보관 조건은 아래 항목에 따로 기재해야 합니다.</p>
+        <p>캡처한 화면 이미지, 인식 텍스트, 생성한 노트는 확장 프로그램의 오프스크린 세션 <b>메모리에서만</b> 처리합니다. 확장 저장소·캐시·파일에 평문으로 저장하지 않으며, 세션이 끝나면 남지 않습니다.</p>
+        <p>설정과 키는 <span lang="en">Chrome</span>의 <b>로컬</b> 확장 저장소에만 저장하며, 계정 동기화 저장소는 사용하지 않습니다. 이전 버전이 동기화 저장소에 남긴 키는 확장 실행 시 삭제합니다. 저장소 접근은 확장 자신의 화면으로 제한합니다.</p>
+        <p>사용자가 직접 복사하거나 인쇄·저장한 노트는 클립보드와 사용자의 파일에 남으며, 이후 관리는 사용자에게 있습니다.</p>
+        <p>보관 기능을 사용하는 경우, 노트는 <b>기기 안에서</b> 사용자의 보관 암호로 암호화(<span lang="en">AES-256-GCM</span>, <span lang="en">PBKDF2-SHA256</span> 600,000회)한 뒤 암호문만 보관 서비스로 전송합니다. 서버는 암호와 복호화 키를 받지 않으므로 암호를 분실하면 복구할 수 없습니다.</p>
       </section>
-      <!-- EDIT: 실제 계약, API 계정 유형, 배포 및 로그 설정에 맞춰 세부 항목을 채우세요. -->
       <section id="external"><h2>04. 외부 서비스와 정보 전송</h2>
         <dl class="facts">
-          <div><dt>AI 제공자</dt><dd>현재 API 연결은 Google Gemini 또는 Anthropic Claude를 사용합니다. 원격 OCR 옵션을 켠 경우 캡처 이미지도 선택한 제공자에게 전송합니다.</dd></div>
-          <div><dt>모델 다운로드</dt><dd>Whisper를 준비할 때 Hugging Face에서 모델 파일을 내려받고 브라우저 캐시를 사용합니다. 다운로드는 음성 파일 업로드와 별개의 요청입니다.</dd></div>
-          <div><dt>수탁·이전 상세</dt><dd><span class="placeholder">작성 필요: 제공자별 법인명, 전송 항목, 목적, 처리 국가, 시점·방법, 보관기간, 거부 방법 및 영향</span></dd></div>
-          <div><dt>웹사이트 운영</dt><dd><span class="placeholder">작성 필요: 호스팅·폰트·분석 서비스, 접속 기록과 쿠키의 처리 여부 및 보관기간</span></dd></div>
-          <div><dt>결제 서비스</dt><dd>Paddle 연결 예정입니다. <span class="placeholder">작성 필요: 실제 결제 연결 후 전달 정보, 거래 기록과 보관 기준</span></dd></div>
+          <div><dt>AI 요약 제공자</dt><dd>원격 요약은 <span lang="en">OpenRouter</span>(<span lang="en">OpenRouter, Inc.</span>)를 거쳐 사용자가 선택한 모델(<span lang="en">Google Gemini</span> 계열 또는 <span lang="en">Anthropic Claude</span> 계열)로 전달합니다. 사용자가 자신의 <span lang="en">API</span> 키를 입력한 경우 기기에서 직접 호출하고, 운영자 보관 서비스를 연결한 경우 서비스가 운영자 키로 호출합니다. 공급자를 고정하고 임의 대체(<span lang="en">fallback</span>)를 금지하며, 학습 사용 거부와 무보존(<span lang="en">ZDR</span>) 처리를 요청합니다.</dd></div>
+          <div><dt>전송 항목</dt><dd>전송: 인식 텍스트, 타임스탬프, 영상 제목, 사용자가 입력한 요약 조건. 미전송: 화면 이미지, 원본 오디오, 브라우징 기록, 계정 식별정보.</dd></div>
+          <div><dt>모델 파일 내려받기</dt><dd>음성 인식을 처음 준비할 때 <span lang="en">Hugging Face</span>에서 <span lang="en">Whisper</span> 모델 파일을 내려받아 브라우저 캐시에 둡니다. 이 요청에는 강의 화면·음성·텍스트가 포함되지 않습니다.</dd></div>
+          <div><dt>웹사이트 운영</dt><dd>웹사이트는 <span lang="en">Vercel</span>에 호스팅하며 접속 기록은 호스팅 사업자가 처리합니다. 사전 예약 정보는 <span lang="en">Supabase</span>에 저장합니다. 글꼴은 <span lang="en">Google Fonts</span>에서, 애니메이션 라이브러리는 <span lang="en">cdnjs</span>에서 불러오므로 접속 시 IP 주소가 해당 서비스에 전달됩니다. 분석 도구, 광고 추적기, 쿠키는 사용하지 않습니다.</dd></div>
+          <div><dt>결제 서비스</dt><dd>현재 확장 프로그램과 웹사이트에서 결제를 받지 않으며 결제·금융 정보를 수집하지 않습니다. 결제를 도입하는 시점에 전달 항목과 보관 기준을 이 방침에 반영한 뒤 시행합니다.</dd></div>
         </dl>
+        <p class="note">전송 구간은 <span lang="en">HTTPS</span>로 보호하지만, 요약 제공자는 추론을 수행하기 위해 전송한 텍스트를 일시적으로 평문으로 처리합니다. 원격 요약은 종단간 암호화가 아닙니다. 외부 전송 없이 사용하려면 원격 요약에 동의하지 않은 상태로 기기 내 인식 기능만 사용하면 됩니다.</p>
         <p>강의 내용의 외부 전송에 관한 설명은 <a href="copyright.html#external">저작권 방침</a>에서도 확인할 수 있습니다.</p>
       </section>
       <section id="rights"><h2>05. 보관기간·삭제·문의</h2>
-        <dl class="facts"><div><dt>운영 기록</dt><dd><span class="placeholder">작성 필요: 항목별 보관기간, 보관 근거와 파기 방법</span></dd></div><div><dt>요청 절차</dt><dd><span class="placeholder">작성 필요: 열람·정정·삭제·동의 철회 요청 방법과 본인 확인 절차</span></dd></div><div><dt>보호 조치</dt><dd><span class="placeholder">작성 필요: 실제 적용하는 접근 통제, 키 관리, 보호 조치</span></dd></div><div><dt>변경 안내</dt><dd><span class="placeholder">작성 필요: 방침 변경 공지 방법과 이전 버전 확인 경로</span></dd></div></dl>
+        <dl class="facts">
+          <div><dt>보관기간</dt><dd>강의 화면·음성·인식 텍스트·노트는 저장하지 않으므로 보관기간이 없습니다. 설정과 키는 사용자가 삭제하거나 확장 프로그램을 제거할 때까지, 암호화 보관 항목은 사용자가 삭제할 때까지 보관합니다. 사전 예약 정보는 수집일로부터 1년 또는 철회 요청 시까지 보관한 뒤 파기합니다.</dd></div>
+          <div><dt>요청 절차</dt><dd>열람·정정·삭제·처리정지와 동의 철회는 개인정보 담당 이메일(<a href="mailto:jihwanbu26@gmail.com">jihwanbu26@gmail.com</a>)로 요청할 수 있습니다. 신청하신 이메일 주소로 본인 확인 후 처리하며, 확장 프로그램 안의 설정과 키는 설정 화면에서 사용자가 직접 삭제할 수 있습니다.</dd></div>
+          <div><dt>보호 조치</dt><dd>외부 통신은 <span lang="en">HTTPS</span>만 허용하고, 보관 서비스는 요청·응답 본문과 인증 헤더를 기록하지 않습니다. 보관함은 기기에서 암호화한 암호문만 받으며 서버는 키를 보관하지 않습니다. 사전 예약 테이블은 삽입만 허용하고 조회·수정·삭제를 차단합니다.</dd></div>
+          <div><dt>변경 안내</dt><dd>이 방침을 변경하면 시행일을 갱신해 이 페이지에 게시하며, 이용자에게 불리한 변경은 시행 7일 전에 안내합니다.</dd></div>
+        </dl>
       </section>
     </article>
-    <footer class="legal-footer"><a href="/">← Summrizei로 돌아가기</a><span>정책 초안 / 2026.09.10</span></footer>
+    <footer class="legal-footer"><a href="/">← Summrizei로 돌아가기</a><span>시행일 2026.09.19</span></footer>
   </main>
 </body>
 </html>
