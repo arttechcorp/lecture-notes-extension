@@ -53,7 +53,7 @@ Summrizei는 강의 영상을 시청하는 동안 화면의 슬라이드와 강�
 - 제3자에게 데이터를 판매하거나 광고 목적으로 수집하지 않습니다.
 - 패널을 닫으면 캡처 원본 데이터는 메모리에서 완전히 소멸합니다.
 
-문의 및 피드백: support@summrizei.com
+문의 및 피드백: jihwanbu26@gmail.com
 ```
 
 **Category** [REQUIRED]  
@@ -72,10 +72,10 @@ Summrizei는 강의 영상을 시청하는 동안 화면의 슬라이드와 강�
 | 자산 항목 | 권장/필수 규격 | 파일 위치 / 상태 | 설명 |
 |---|---|---|---|
 | **스토어 아이콘 [필수]** | 128×128 PNG | `icons/icon128.png` ✅ | 투명 배경 없는 고해상도 앱 아이콘 |
-| **스크린샷 1 [필수]** | 1280×800 (또는 640×400) PNG | `store-assets/screenshot-1-live.png` ⬜ | 영상 옆 사이드패널에서 실시간 캡처 중인 모습 |
-| **스크린샷 2 [권장]** | 1280×800 PNG | `store-assets/screenshot-2-note.png` ⬜ | 완성된 노트 (구조화된 요약, 표, 수식 렌더링) |
-| **스크린샷 3 [권장]** | 1280×800 PNG | `store-assets/screenshot-3-notion-pdf.png` ⬜ | 원클릭 노션 복사 및 PDF 인쇄 기능 |
-| **스크린샷 4 [권장]** | 1280×800 PNG | `store-assets/screenshot-4-privacy-nano.png` ⬜ | 온디바이스 Gemini Nano 100% 무료/로컬 처리 안내 |
+| **스크린샷 1 [필수]** | 1280×800 PNG | `store-assets/screenshot-1-live.png` ✅ | 강의 영상 옆 사이드패널에서 실시간 인식 중 (강의 내용은 모자이크) |
+| **스크린샷 2 [권장]** | 1280×800 PNG | `store-assets/screenshot-2-capture.png` ✅ | 캡처 중 — 슬라이드·음성 인식 실시간 누적 |
+| **스크린샷 3 [권장]** | 1280×800 PNG | `store-assets/screenshot-3-formula.png` ✅ | 노트 서식 — LaTeX 수식과 비교 표 렌더링 |
+| **스크린샷 4 [권장]** | 1280×800 PNG | `store-assets/screenshot-4-note.png` ✅ | 완성 노트 — 구조화된 요약 본문 |
 | **소형 프로모션 타일 [권장]** | 440×280 PNG | `store-assets/promo-small-440x280.png` ⬜ | 스토어 추천 탭 노출용 그래픽 배너 |
 | **대형 프로모션 타일 [선택]** | 1400×560 PNG | `store-assets/promo-marquee-1400x560.png` ⬜ | 스토어 메인 상단 마키 배너 |
 
@@ -115,7 +115,7 @@ Summrizei는 강의 영상을 시청하는 동안 화면의 슬라이드와 강�
 - [x] 신용 평가 또는 대출 목적으로 데이터를 사용하지 않음
 
 ### Privacy Policy URL (개인정보처리방침)
-`https://<도메인 또는 GitHub Pages 주소>/landing/policies/privacy.html`
+`https://summrizei.vercel.app/policies/privacy`
 
 ---
 
@@ -125,5 +125,5 @@ Summrizei는 강의 영상을 시청하는 동안 화면의 슬라이드와 강�
 - [ ] **무결성 체크섬 확인**: `dist/summrizei-v1.0.0-cws.sha256` 및 `dist/build-provenance.json` 생성 확인.
 - [ ] **`apikey.env.local` 배제**: 개발용 로컬 키 파일이 ZIP에 절대 포함되지 않았는지 2차 확인.
 - [ ] **테스트 파일 제외**: `lib/*.test.js`, `server/`, `tools/`, `docs/`, `.worktrees/` 배제 확인.
-- [ ] **버전 번호 점검**: `manifest.json` 내 `"version": "1.0.0"` 확정.
+- [x] **버전 번호 점검**: `manifest.json` 내 `"version": "1.0.0"` 확정 (2026-09-19).
 - [ ] **심사관용 시연 동영상 준비**: `<all_urls>` 권한 소명을 위해 30초 분량의 사용 시연 영상(Unlisted YouTube) 링크 준비.
