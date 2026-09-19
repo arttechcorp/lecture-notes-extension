@@ -24,6 +24,15 @@
 - 성공 시 `sessionStorage('summrizei.reserved')`에 `{email, plan}`을 넣고 `thanks.html`로 이동한다. 완료 페이지는 이 값이 있으면 이메일·플랜을 되보여 주고 즉시 지운다.
 - 전화번호는 digits만 저장한다(폼 `pattern`이 한국 휴대폰 형식을 검증). `[필수]` 수집·이용 동의 체크박스는 전화번호 수집의 법적 요건이라 제거하지 않는다.
 
+## 랜딩 모바일·인앱 브라우저 결합
+
+- `.sr-only`는 `position:absolute`다. 조상에 positioned 요소가 없으면 containing block이 뷰포트라 `overflow:hidden` 조상도 무시하고 문서 `scrollWidth`를 넓힌다 — 카드 안 `sr-only`가 문서를 1301px로 만들어 모바일 브라우저가 페이지를 축소 렌더링했던 실제 사고. `.review-card`의 `position:relative`는 이를 막는 장치이니 제거 금지.
+- 마퀴 트랙(`.school-marquee-track`, `.reviews-track`)에 `will-change:transform`를 붙이지 않는다. 트랙이 수천 px라 iOS 합성 레이어 한도를 넘어 애니메이션이 조용히 죽는다.
+- 터치 기기에서 `tabindex` 영역은 탭하면 `:focus-within`이 고정돼 마퀴 정지 선택자가 영구 발동한다. `:hover`/`:focus-within` 정지 규칙은 `@media(hover:hover)` 안에만 두고, 터치 정지는 `:active`로만 처리한다.
+- 모바일 리뷰는 자동 마퀴가 아니라 스와이프 카드 목록이 설계(docs/mobile-web-principles.md §4). `.reviews-viewport`의 `scroll-snap-type:x mandatory` 아래 카드에 `scroll-snap-align`이 없으면 iOS에서 스크롤이 튕겨 돌아오므로 카드의 `scroll-snap-align:start`는 필수다.
+- 히어로 목업은 IntersectionObserver `threshold:.35`로 "실제로 보일 때"만 재생하고, 재진입 시 `startCapture()`로 처음부터 다시 시작한다(`userPaused`면 재시작 안 함 — 일시정지해 읽던 노트를 지키기 위함).
+- `#preview` 강의 화면은 `aspect-ratio:16/9` + `container-type:inline-size` 프레임이고 내부 크기는 전부 `cqw`다. 프레임 안 요소를 px로 고치면 폭마다 깨진다. 자동 루프는 `data-scene`/`data-evidence` 선택자에 의존하므로 이름을 바꾸면 안 된다.
+
 ## 프레임 감시 구조 (iframe 지원)
 
 - `content.js`는 `allFrames` 주사로 모든 프레임에 들어가며, 시작 직후 `FRAME_READY`를 자진 보고한다(재주입·서비스 워커 재시작 시에도). `background.js`는 약 1.4초 announce를 모아 `watchFrameId`를 고른다: 0=상위 프레임 영상, >0=iframe, null=video 없음(경과시간 모드 — 탭 뷰포트 전체가 ROI, `timeKind:"elapsed"`).

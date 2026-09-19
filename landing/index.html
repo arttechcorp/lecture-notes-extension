@@ -338,34 +338,31 @@
           <div class="comparison-slide">
             <header class="comparison-slide-head"><div><p class="comparison-slide-kicker">Linear Classification · Loss function</p><h3 id="comparisonGraphTitle">Loss function: how good is a classifier?</h3></div><span class="comparison-slide-page">Slide 14</span></header>
             <div class="comparison-slide-body">
-              <div class="loss-main">
-                <div class="loss-formulas">
-                  <p class="loss-score">f<sub>w</sub>(x) = <b>w</b> · φ(x)</p>
-                  <p class="loss-params"><b>w</b> = [0.5, 1]<br>φ(x) = [x<sub>1</sub>, x<sub>2</sub>]</p>
-                  <table class="loss-data"><caption>training data</caption><thead><tr><th>x<sub>1</sub></th><th>x<sub>2</sub></th><th>y</th></tr></thead><tbody><tr><td>0</td><td>2</td><td class="y-pos">1</td></tr><tr data-evidence="miss" class="is-highlighted"><td>−2</td><td>0</td><td class="y-pos">1</td></tr><tr><td>1</td><td>−1</td><td class="y-neg">−1</td></tr></tbody></table>
-                  <p class="loss-zero">Loss<sub>0-1</sub>(x, y, <b>w</b>) = 1[f<sub>w</sub>(x) ≠ y]</p>
-                </div>
-                <div class="loss-right">
-                  <svg class="loss-plot" viewBox="0 0 300 230" role="img" aria-labelledby="lossPlotTitle lossPlotDesc" preserveAspectRatio="xMidYMid meet">
-                    <title id="lossPlotTitle">결정 경계와 훈련 데이터 세 점</title><desc id="lossPlotDesc">x1-x2 평면에 y가 1인 점 (0,2)와 (-2,0), y가 -1인 점 (1,-1). w=[0.5,1]의 결정 경계 아래쪽에 (-2,0)이 있어 이 점이 오분류된다.</desc>
-                    <g class="plot-grid" aria-hidden="true"><path d="M70 20V200M110 20V200M190 20V200M230 20V200"/><path d="M30 50H270M30 80H270M30 140H270M30 170H270"/></g>
-                    <g class="plot-axis" aria-hidden="true"><path d="M30 200V20M30 200H270"/><text x="262" y="215">x₁</text><text x="18" y="16">x₂</text><text x="141" y="214">0</text></g>
-                    <g data-evidence="boundary" class="is-highlighted"><path class="loss-boundary" d="M30 65L270 155"/><path class="loss-w" d="M150 110L170 80"/><path class="loss-w-head" d="M162 83l8-3M169 88l1-8"/></g>
-                    <circle class="plot-pos" cx="150" cy="50" r="7"/><circle class="plot-pos" cx="70" cy="110" r="7"/><circle class="plot-neg" cx="190" cy="140" r="7"/>
-                    <g data-evidence="miss" class="is-highlighted"><circle class="loss-miss-ring" cx="70" cy="110" r="14"/></g>
-                    <g class="lecture-pointer" aria-hidden="true"><path d="M-2 -16 L15 11 L4 8 L-3 19 L-9 15 L-2 4 L-13 5 Z"/><circle cx="0" cy="0" r="4"/></g>
-                  </svg>
-                  <ul class="loss-lines">
-                    <li>Loss([0, 2], 1) = 0</li>
-                    <li data-evidence="miss" class="is-highlighted">Loss([−2, 0], 1) = <b>1</b></li>
-                    <li>Loss([1, −1], −1) = 0</li>
-                    <li class="loss-total">TrainLoss(<b>w</b>) = <b>0.33</b></li>
-                  </ul>
-                </div>
+              <div class="loss-formulas">
+                <p class="loss-score">f<sub>w</sub>(x) = <b>w</b> · φ(x)</p>
+                <p class="loss-params"><b>w</b> = [0.5, 1]<br>φ(x) = [x<sub>1</sub>, x<sub>2</sub>]</p>
+                <table class="loss-data"><caption>training data</caption><thead><tr><th>x<sub>1</sub></th><th>x<sub>2</sub></th><th>y</th></tr></thead><tbody><tr><td>0</td><td>2</td><td class="y-pos">1</td></tr><tr data-evidence="miss" class="is-highlighted"><td>−2</td><td>0</td><td class="y-pos">1</td></tr><tr><td>1</td><td>−1</td><td class="y-neg">−1</td></tr></tbody></table>
+                <p class="loss-zero">Loss<sub>0-1</sub>(x, y, <b>w</b>) = 1[f<sub>w</sub>(x) ≠ y]</p>
               </div>
-              <aside class="comparison-margin-notes" aria-label="슬라이드 주요 수치"><p><strong>sign(w·x)</strong><span>부호가 예측 레이블</span><em>+이면 y = 1</em></p><p><strong>0.33</strong><span>3개 중 1개 오분류</span><em>TrainLoss</em></p></aside>
+              <div class="loss-right">
+                <svg class="loss-plot" viewBox="0 0 300 230" role="img" aria-labelledby="lossPlotTitle lossPlotDesc" preserveAspectRatio="xMidYMid meet">
+                  <title id="lossPlotTitle">decision boundary와 training data 세 점</title><desc id="lossPlotDesc">x1-x2 평면에 y가 1인 점 (0,2)와 (-2,0), y가 -1인 점 (1,-1). w=[0.5,1]의 decision boundary 아래쪽에 (-2,0)이 있어 이 점이 misclassified 된다.</desc>
+                  <g class="plot-grid" aria-hidden="true"><path d="M70 20V200M110 20V200M190 20V200M230 20V200"/><path d="M30 50H270M30 80H270M30 140H270M30 170H270"/></g>
+                  <g class="plot-axis" aria-hidden="true"><path d="M30 200V20M30 200H270"/><text x="262" y="215">x₁</text><text x="18" y="16">x₂</text><text x="141" y="214">0</text></g>
+                  <g data-evidence="boundary" class="is-highlighted"><path class="loss-boundary" d="M30 65L270 155"/><path class="loss-w" d="M150 110L170 80"/><path class="loss-w-head" d="M162 83l8-3M169 88l1-8"/></g>
+                  <circle class="plot-pos" cx="150" cy="50" r="7"/><circle class="plot-pos" cx="70" cy="110" r="7"/><circle class="plot-neg" cx="190" cy="140" r="7"/>
+                  <g data-evidence="miss" class="is-highlighted"><circle class="loss-miss-ring" cx="70" cy="110" r="14"/></g>
+                  <g class="lecture-pointer" aria-hidden="true"><path d="M-2 -16 L15 11 L4 8 L-3 19 L-9 15 L-2 4 L-13 5 Z"/><circle cx="0" cy="0" r="4"/></g>
+                </svg>
+              </div>
             </div>
-            <div class="comparison-slide-subtitle"><p id="lectureSceneCaption">“각 점의 부호를 확인하면 틀린 점은 하나뿐이죠. 그래서 평균 손실이 삼분의 일, 0.33이 됩니다.”</p></div>
+            <ul class="loss-lines">
+              <li>Loss([0, 2], 1) = 0</li>
+              <li data-evidence="miss" class="is-highlighted">Loss([−2, 0], 1) = <b>1</b></li>
+              <li>Loss([1, −1], −1) = 0</li>
+              <li class="loss-total">TrainLoss(<b>w</b>) = <b>0.33</b></li>
+            </ul>
+            <div class="comparison-slide-subtitle"><p id="lectureSceneCaption">“각 점의 부호를 확인하면 misclassified 점은 하나뿐이죠. 그래서 TrainLoss가 삼분의 일, 0.33이 됩니다.”</p></div>
           </div>
           <div class="zoom-tiles" aria-hidden="true">
             <div class="zoom-tile is-speaker"><span class="zoom-avatar">PL</span><span class="zoom-name">Percy Liang</span><svg class="zoom-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4l16 16M9 9v2a3 3 0 0 0 5.1 2.1M15 9.5V5a3 3 0 0 0-5.7-1.3"/></svg></div>
@@ -379,8 +376,8 @@
         <div class="lecture-player-controls"><div class="zoom-controls" aria-hidden="true"><span class="zoom-ctl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/></svg><i>음소거</i></span><span class="zoom-ctl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="12" height="10" rx="2"/><path d="M15 10.5 21 7v10l-6-3.5"/></svg><i>비디오</i></span><span class="zoom-ctl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5M16 4.6a3 3 0 0 1 0 6.8M18.8 14.4c1.5.9 2.2 2.4 2.2 4.6"/></svg><i>참가자</i></span><span class="zoom-ctl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg><i>채팅</i></span><span class="zoom-ctl is-share"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M12 15V9M9.5 11.5 12 9l2.5 2.5"/></svg><i>공유 중</i></span><span class="zoom-ctl zoom-leave"><i>나가기</i></span></div></div>
       </figure>
       <div class="comparison-grid" aria-label="타 서비스 요약과 Summrizei 요약 비교">
-        <article class="comparison-card audio-only"><header><p class="eyebrow">타 서비스</p><h3>강의 녹음 / PDF만 요약</h3><p>설명하는 맥락이 요약되지 않습니다.</p></header><div class="note-doc"><h4>손실 함수 정리</h4><blockquote><p>분류기가 얼마나 틀리는지 계산하는 부분.</p></blockquote><h5>들은 내용</h5><ul><li><strong>0-1 손실</strong> — 틀린 개수를 세는 방식이라고 설명</li><li>훈련 데이터 중 <strong>하나가 오분류</strong>라고 함</li><li>평균 손실 <strong>0.33</strong>이라고 언급</li></ul><h5>복습 질문</h5><ul><li class="note-task"><input type="checkbox" disabled aria-label="미완료">평균 손실 0.33이 어떻게 계산된 값인지 설명할 수 있나요?</li></ul></div></article>
-        <article class="comparison-card screen-audio"><header><p class="eyebrow">Summrizei</p><h3>실시간 강의 화면, 필기, 음성을 동시에 요약</h3><p>동영상 / 실시간 강의 전체 맥락을 담습니다.</p></header><div class="note-doc"><h4>0-1 손실로 분류기 평가</h4><blockquote><p>sign(w·φ(x))로 예측하고, 오분류 개수의 평균이 TrainLoss.</p></blockquote><h5>결정 경계</h5><ul><li data-evidence="boundary" class="is-highlighted"><strong>w = [0.5, 1]</strong> — 경계선 x₂ = −0.5x₁, 예측은 sign(w·φ(x))의 부호로 판별</li></ul><h5>점별 손실</h5><div class="note-table-scroll"><table><thead><tr><th>(x₁, x₂)</th><th>y</th><th>w·φ(x)</th><th>손실</th></tr></thead><tbody><tr><td>(0, 2)</td><td>1</td><td>+2</td><td>0</td></tr><tr data-evidence="miss" class="is-highlighted"><td><mark data-evidence="miss" class="is-highlighted"><strong>(−2, 0)</strong></mark></td><td>1</td><td>−1</td><td>1</td></tr><tr><td>(1, −1)</td><td>−1</td><td>−0.5</td><td>0</td></tr></tbody></table></div><p>TrainLoss(<b>w</b>) = 1 ÷ 3 ≈ <strong>0.33</strong> — <mark data-evidence="miss" class="is-highlighted">(−2, 0)</mark> 하나가 오분류</p><h5>복습 질문</h5><ul><li class="note-task"><input type="checkbox" disabled aria-label="미완료">(−2, 0)이 경계 아래쪽에 놓이는 이유를 w·φ(x)의 부호로 설명할 수 있나요?</li></ul></div></article>
+        <article class="comparison-card audio-only"><header><p class="eyebrow">타 서비스</p><h3>강의 녹음 / PDF만 요약</h3><p>설명하는 맥락이 요약되지 않습니다.</p></header><div class="note-doc"><h4>loss function 정리</h4><blockquote><p>classifier가 얼마나 틀리는지 계산하는 부분.</p></blockquote><h5>들은 내용</h5><ul><li><strong>0-1 loss</strong> — 틀린 개수를 세는 방식이라고 설명</li><li>training data 중 <strong>하나가 misclassified</strong>라고 함</li><li>TrainLoss <strong>0.33</strong>이라고 언급</li></ul><h5>복습 질문</h5><ul><li class="note-task"><input type="checkbox" disabled aria-label="미완료">TrainLoss 0.33이 어떻게 계산된 값인지 설명할 수 있나요?</li></ul></div></article>
+        <article class="comparison-card screen-audio"><header><p class="eyebrow">Summrizei</p><h3>실시간 강의 화면, 필기, 음성을 동시에 요약</h3><p>동영상 / 실시간 강의 전체 맥락을 담습니다.</p></header><div class="note-doc"><h4>0-1 loss로 classifier 평가</h4><blockquote><p>sign(w·φ(x))로 예측하고, misclassified 개수의 평균이 TrainLoss.</p></blockquote><h5>decision boundary</h5><ul><li data-evidence="boundary" class="is-highlighted"><strong>w = [0.5, 1]</strong> — decision boundary x₂ = −0.5x₁, 예측은 sign(w·φ(x))의 부호로 classify</li></ul><h5>점별 loss</h5><div class="note-table-scroll"><table><thead><tr><th>(x₁, x₂)</th><th>y</th><th>w·φ(x)</th><th>loss</th></tr></thead><tbody><tr><td>(0, 2)</td><td>1</td><td>+2</td><td>0</td></tr><tr data-evidence="miss" class="is-highlighted"><td><mark data-evidence="miss" class="is-highlighted"><strong>(−2, 0)</strong></mark></td><td>1</td><td>−1</td><td>1</td></tr><tr><td>(1, −1)</td><td>−1</td><td>−0.5</td><td>0</td></tr></tbody></table></div><p>TrainLoss(<b>w</b>) = 1 ÷ 3 ≈ <strong>0.33</strong> — <mark data-evidence="miss" class="is-highlighted">(−2, 0)</mark> 하나가 misclassified</p><h5>복습 질문</h5><ul><li class="note-task"><input type="checkbox" disabled aria-label="미완료">(−2, 0)이 decision boundary 아래쪽에 놓이는 이유를 w·φ(x)의 부호로 설명할 수 있나요?</li></ul></div></article>
       </div>
     </div>
   </div>

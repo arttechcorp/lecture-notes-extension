@@ -465,7 +465,15 @@ PV = CFₜ ÷ (1 + r)ᵗ — 변수: CFₜ 미래 현금흐름, r 할인율 · �
     });
     lockDemoEditing();
     document.addEventListener('visibilitychange', updatePlayback);
-    new IntersectionObserver(([entry]) => { inView = entry.isIntersecting; updatePlayback(); }).observe(mock);
+    // threshold 0.35: 목업의 3분의 1 이상이 실제로 보일 때만 재생한다.
+    // 1px만 걸쳐도 재생되던 기존 방식은 사용자가 스크롤로 도착했을 때 이미 루프 후반부를 보여 주는 문제가 있었다.
+    // 화면 밖 → 안으로 들어올 때는 처음부터 다시 재생하되, 사용자가 일시정지해 두었다면 그 상태를 존중한다.
+    new IntersectionObserver(([entry]) => {
+      const wasInView = inView;
+      inView = entry.isIntersecting;
+      if (inView && !wasInView && !userPaused) startCapture();
+      else updatePlayback();
+    }, { threshold: .35 }).observe(mock);
     reducedMotion.addEventListener('change', () => {
       updateTilt();
       if (reducedMotion.matches) {
