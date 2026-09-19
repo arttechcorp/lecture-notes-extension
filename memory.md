@@ -24,6 +24,14 @@
 - 성공 시 `sessionStorage('summrizei.reserved')`에 `{email, plan}`을 넣고 `thanks.html`로 이동한다. 완료 페이지는 이 값이 있으면 이메일·플랜을 되보여 주고 즉시 지운다.
 - 전화번호는 digits만 저장한다(폼 `pattern`이 한국 휴대폰 형식을 검증). `[필수]` 수집·이용 동의 체크박스는 전화번호 수집의 법적 요건이라 제거하지 않는다.
 
+## 프레임 감시 구조 (iframe 지원)
+
+- `content.js`는 `allFrames` 주사로 모든 프레임에 들어가며, 시작 직후 `FRAME_READY`를 자진 보고한다(재주입·서비스 워커 재시작 시에도). `background.js`는 약 1.4초 announce를 모아 `watchFrameId`를 고른다: 0=상위 프레임 영상, >0=iframe, null=video 없음(경과시간 모드 — 탭 뷰포트 전체가 ROI, `timeKind:"elapsed"`).
+- 프레임 역할은 둘이다. video가 있는 감시 프레임은 `MEDIA_METADATA`(자기 뷰포트 기준 box)를, 상위 프레임(frameId 0)은 `FRAME_WATCH`를 받아 watched `<iframe>` 요소의 `FRAME_BOX`를 보낸다. 상위 프레임은 어떤 iframe이 watched인지 postMessage probe(`srz:"probe"`/`"probe-ack"`, sessionId 일치 + `event.source` 비교)로 식별한다 — URL 매칭은 쓰지 않는다.
+- `offscreen.js`의 `MEDIA_METADATA` 송신자 검증은 `frameId===0`이 아니라 `options.watchFrameId`와 비교한다. `state().watchFrameId`로 재연결 라우팅하므로 state에 항상 포함돼야 한다.
+- 검은 화면·캡처 차단 판정은 `content.js`의 `drawImage` 사전검사가 아니라 `session.js`의 크롭 픽셀 검사(32×18, 연속 3회)가 담당한다. cross-origin mp4의 CORS taint 오탐을 피하기 위한 이동이며, iframe 내부 EME는 여전히 content.js의 `mediaKeys`/`encrypted`로 감지한다.
+- 중첩 iframe(깊이≥2)은 상위 프레임이 직계 iframe만 probe하므로 `FRAME_BOX`가 오지 않고, `session.js`가 2.5초 유예 뒤 "중첩된 iframe 안의 영상은 아직 지원하지 않습니다"로 중단한다.
+
 ## GSAP 의존성
 
 - GSAP + ScrollTrigger는 `landing/gsap-animations.js` 한 파일에서만 쓴다. 사용처와 유지 이유는 그 파일 머리말에 적어뒀다. 두 연출(히어로 진입 타임라인, ScrollTrigger 1회 등장)을 쓰지 않게 되면 `landing/index.html`의 CDN `<script>` 두 줄과 함께 통째로 지운다.

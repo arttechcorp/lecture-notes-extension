@@ -42,7 +42,12 @@ async function archive(message){
 chrome.runtime.onMessage.addListener((message,sender,reply)=>{
   if(message?.target!=="session")return;
   if(message.type==="MEDIA_METADATA"){
-    if(sender.id===chrome.runtime.id&&sender.tab?.id===session?.options.tabId&&sender.frameId===0&&message.sessionId===session.id&&!session.closed){session.updateMetadata(message.metadata);reply({ok:true});}
+    if(sender.id===chrome.runtime.id&&sender.tab?.id===session?.options.tabId&&sender.frameId===session?.options.watchFrameId&&message.sessionId===session.id&&!session.closed){session.updateMetadata(message.metadata);reply({ok:true});}
+    else reply({ok:false});
+    return;
+  }
+  if(message.type==="FRAME_BOX"){
+    if(sender.id===chrome.runtime.id&&sender.tab?.id===session?.options.tabId&&sender.frameId===0&&message.sessionId===session?.id&&!session.closed){session.updateFrameBox(message.box);reply({ok:true});}
     else reply({ok:false});
     return;
   }
@@ -62,7 +67,7 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
         const source={mandatory:{chromeMediaSource:"tab",chromeMediaSourceId:message.streamId}};
         const stream=await navigator.mediaDevices.getUserMedia({audio:source,video:source});
         await session?.dispose();
-        session=new CaptureSession({id:crypto.randomUUID(),generation:++generation,stream,options:message.options,emit});
+        session=new CaptureSession({id:message.options.sessionId||crypto.randomUUID(),generation:++generation,stream,options:message.options,emit});
         session.publish();await session.start();
         return {ok:true,state:session.state()};
       }finally{starting=false;}

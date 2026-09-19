@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>fixture frame</title>
+<style>
+  body { margin:0; background:#111; color:#fff; font-family:monospace; }
+  #label { position:fixed; top:4px; left:6px; color:#0f0; font-size:14px; z-index:2; }
+  video { display:block; width:640px; height:360px; background:#000; }
+  canvas { display:none; }
+</style>
+</head>
+<body>
+<div id="label">FIXTURE-FRAME</div>
+<video id="v" autoplay muted playsinline></video>
+<canvas id="c" width="640" height="360"></canvas>
+<script>
+// Self-generated stream: animate a canvas like lecture slides, capture as video.
+const ctx = document.getElementById('c').getContext('2d');
+let t = 0;
+function draw() {
+  t++;
+  ctx.fillStyle = '#182030'; ctx.fillRect(0, 0, 640, 360);
+  ctx.fillStyle = '#ffaa00'; ctx.fillRect((t * 3) % 600, 240, 44, 44); // moving rect
+  ctx.fillStyle = '#fff'; ctx.font = '28px monospace';
+  ctx.fillText('FIXTURE-FRAME slide', 40, 80);
+  ctx.font = '20px monospace';
+  // timestamp counter so OCR/change-detection always sees new pixels
+  ctx.fillText('frame=' + String(t).padStart(6, '0'), 40, 130);
+  ctx.fillText(new Date().toISOString().slice(11, 19) + '.' + (t % 10), 40, 165);
+  ctx.fillStyle = '#0f0';
+  ctx.fillText('captureStream(10) OK', 40, 320);
+}
+draw();
+const v = document.getElementById('v');
+v.srcObject = document.getElementById('c').captureStream(10);
+v.play().catch(() => {});
+setInterval(draw, 100);
+</script>
+</body>
+</html>

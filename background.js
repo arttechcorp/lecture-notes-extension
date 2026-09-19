@@ -10,11 +10,14 @@ const setup = () => {
 chrome.runtime.onInstalled.addListener(setup);
 chrome.runtime.onStartup.addListener(setup);
 async function stopForTab(tabId){
+  frameReports.delete(tabId);
   const contexts=await chrome.runtime.getContexts({contextTypes:["OFFSCREEN_DOCUMENT"],documentUrls:[chrome.runtime.getURL("offscreen.html")]});
   if(contexts.length)await chrome.runtime.sendMessage({target:"session",type:"TAB_GONE",tabId});
 }
 chrome.tabs.onRemoved.addListener(tabId=>stopForTab(tabId).catch(()=>{}));
 chrome.tabs.onUpdated.addListener((tabId,change)=>{if(change.status==="loading"||change.url)stopForTab(tabId).catch(()=>{});});
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+const frameReports = new Map();
 let creating = null, starting = false;
 async function ensureOffscreen() {
   const contexts = await chrome.runtime.getContexts({ contextTypes: ["OFFSCREEN_DOCUMENT"], documentUrls: [chrome.runtime.getURL("offscreen.html")] });
@@ -27,8 +30,25 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     const state=message.state,active=["preparing","running","paused","draining","summarizing"].includes(state.status);
     chrome.action.setBadgeText({text:active?"ON":""}).catch(()=>{});
     if(Number.isInteger(state.tabId)){
-      if(state.status==="preparing"&&!state.progress)chrome.tabs.sendMessage(state.tabId,{type:"WATCH_MEDIA",sessionId:state.sessionId},{frameId:0}).catch(()=>{});
-      else if(!active)chrome.tabs.sendMessage(state.tabId,{type:"STOP_WATCH"},{frameId:0}).catch(()=>{});
+      const wf=state.watchFrameId;
+      if(state.status==="preparing"&&!state.progress){
+        if(wf!=null)chrome.tabs.sendMessage(state.tabId,{type:"WATCH_MEDIA",sessionId:state.sessionId},{frameId:wf}).catch(()=>{});
+        if(wf>0)chrome.tabs.sendMessage(state.tabId,{type:"FRAME_WATCH",sessionId:state.sessionId},{frameId:0}).catch(()=>{});
+      }
+      else if(!active){
+        chrome.tabs.sendMessage(state.tabId,{type:"STOP_WATCH"},{frameId:0}).catch(()=>{});
+        if(wf>0)chrome.tabs.sendMessage(state.tabId,{type:"STOP_WATCH"},{frameId:wf}).catch(()=>{});
+      }
+    }
+    return;
+  }
+  if(message?.target==="background"&&message.type==="FRAME_READY"){
+    const tabId=sender.tab?.id;
+    if(sender.id===chrome.runtime.id&&Number.isInteger(tabId)){
+      let frames=frameReports.get(tabId);
+      if(!frames)frameReports.set(tabId,frames=new Map());
+      frames.set(sender.frameId,{frameId:sender.frameId,hasVideo:!!message.hasVideo,blocked:!!message.blocked,area:message.area||0,url:message.url,meta:message.meta||null});
+      reply({ok:true});
     }
     return;
   }
@@ -46,13 +66,21 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       if (!Number.isInteger(tabId)) throw new Error("캡처할 강의 탭을 선택하세요.");
       const tab = await chrome.tabs.get(tabId);
       if (!/^https?:/.test(tab.url || "")) throw new Error("일반 웹 강의 탭에서 시작하세요.");
-      await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
-      const probe = await chrome.tabs.sendMessage(tabId, { type: "PREFLIGHT" }, { frameId: 0 });
-      if (!probe?.ok) throw new Error(probe?.error || "이 영상은 캡처할 수 없습니다.");
-      const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
-      const response = await chrome.runtime.sendMessage({ target: "session", type: "START_SESSION", streamId, options: { ...message.options, tabId, metadata: probe.metadata } });
-      if (response.ok) await chrome.tabs.sendMessage(tabId, { type: "WATCH_MEDIA", sessionId: response.state.sessionId }, { frameId: 0 });
-      return response;
+      await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ["content.js"] });
+      await delay(1400);
+      const frames = [...(frameReports.get(tabId) || new Map()).values()];
+      frameReports.delete(tabId);
+      const picked = frames.filter(f => f.hasVideo && !f.blocked).sort((a, b) => b.area - a.area)[0];
+      if (!picked && frames.some(f => f.hasVideo && f.blocked)) throw new Error("보호된 강의는 캡처하지 않습니다.");
+      const watchFrameId = picked ? picked.frameId : null;
+      let streamId;
+      try { streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }); }
+      catch (error) { throw new Error(error?.message || "탭 캡처를 시작하지 못했습니다."); }
+      const sessionId = crypto.randomUUID();
+      const pending = chrome.runtime.sendMessage({ target: "session", type: "START_SESSION", streamId, options: { ...message.options, tabId, sessionId, watchFrameId, metadata: picked?.meta || {} } });
+      if (watchFrameId != null) chrome.tabs.sendMessage(tabId, { type: "WATCH_MEDIA", sessionId, speedCorrection: message.options?.speedCorrection === true }, { frameId: watchFrameId }).catch(() => {});
+      if (watchFrameId > 0) chrome.tabs.sendMessage(tabId, { type: "FRAME_WATCH", sessionId }, { frameId: 0 }).catch(() => {});
+      return await pending;
     } finally { starting = false; }
   })().then(reply).catch(error => reply({ ok: false, error: error.message || "요청을 처리하지 못했습니다." }));
   return true;

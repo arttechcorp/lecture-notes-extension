@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>fixture black</title>
+<style>body { font-family:monospace; background:#fdd; }</style>
+</head>
+<body>
+<h1>FIXTURE-BLACK</h1>
+<p>videoWidth&gt;0, playing, but every pixel is black — simulates a protected/blocked video.</p>
+<video id="v" autoplay muted playsinline style="width:640px;height:360px;background:#000"></video>
+<canvas id="c" width="640" height="360" style="display:none"></canvas>
+<script>
+// Paint black exactly once; never draw anything else.
+const ctx = document.getElementById('c').getContext('2d');
+ctx.fillStyle = '#000'; ctx.fillRect(0, 0, 640, 360);
+const v = document.getElementById('v');
+v.srcObject = document.getElementById('c').captureStream(10);
+v.play().catch(() => {});
+</script>
+</body>
+</html>
