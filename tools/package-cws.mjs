@@ -168,6 +168,20 @@ function resolveRuntimeClosure() {
         }
       }
 
+      // chrome.runtime.getURL(...) 인자에 등장하는 모든 확장 내부 경로.
+      // 위의 Worker/addModule/import 패턴은 인자가 문자열 리터럴로 "시작"할 때만 맞으므로,
+      // getURL(high ? "a.js" : "b.js") 같은 형태를 놓친다. 실제로 Whisper 워커 두 개가
+      // 이 구멍으로 ZIP에서 빠진 적이 있다. 인자 안의 리터럴을 전부 훑어 그 구멍을 막는다.
+      const getUrlMatches = content.matchAll(/chrome\.runtime\.getURL\(([^)]*)\)/g);
+      for (const match of getUrlMatches) {
+        for (const literal of match[1].matchAll(/["'`]([^"'`]+)["'`]/g)) {
+          const rel = literal[1].trim();
+          if (!rel || rel.startsWith("http") || !/\.(js|mjs|css|html|wasm|json)$/.test(rel)) continue;
+          const resolved = rel.startsWith(".") ? path.join(currentDir, rel).replace(/\\/g, "/") : rel;
+          enqueue(resolved);
+        }
+      }
+
       // audioWorklet.addModule('...')
       const workletMatches = content.matchAll(/addModule\s*\(\s*(?:chrome\.runtime\.getURL\()?\s*["']([^"']+)["']/g);
       for (const match of workletMatches) {
@@ -181,6 +195,13 @@ function resolveRuntimeClosure() {
   }
 
   // 4. KaTeX fonts 및 런타임 벤더 자산 추가 (sandbox / OCR / Whisper 가중치)
+  const bundledFontsDir = path.join(ROOT, "lib", "vendor", "fonts");
+  if (fs.existsSync(bundledFontsDir)) {
+    for (const font of fs.readdirSync(bundledFontsDir)) {
+      if (font.endsWith(".woff2")) closure.add(`lib/vendor/fonts/${font}`);
+    }
+  }
+
   const katexFontsDir = path.join(ROOT, "lib", "vendor", "katex", "fonts");
   if (fs.existsSync(katexFontsDir)) {
     for (const font of fs.readdirSync(katexFontsDir)) {
@@ -231,10 +252,28 @@ function resolveRuntimeClosure() {
   }
 
   finalFiles.sort();
+
+  // 필수 런타임 파일은 경고가 아니라 실패로 다룬다. 언팩 로드 개발 환경에서는 디스크에
+  // 파일이 있어 정상 동작하므로, 누락은 오직 배포 ZIP에서만 드러난다.
+  const REQUIRED_RUNTIME = [
+    "landing/product-panel.css",
+    "offscreen.html",
+    "lib/ppocr-runtime.mjs",
+    "lib/pcm-worklet.js",
+    "lib/whisper-worker.js",
+    "lib/whisper-webgpu-worker.js",
+    "lib/vendor/fonts/fonts.css",
+  ];
+  const missingRequired = REQUIRED_RUNTIME.filter(rel => !finalFiles.includes(rel));
+  if (missingRequired.length > 0) {
+    console.error("\n❌ [Step 2/5 실패] 필수 런타임 파일이 폐쇄 집합에서 누락되었습니다:");
+    for (const rel of missingRequired) console.error(`   - ${rel}`);
+    console.error("   의존성 탐색기가 참조를 놓쳤습니다. 배포 패키징을 중단합니다.");
+    process.exit(1);
+  }
+
   console.log(`✅ [Step 2/5 통과] 런타임 의존성 폐쇄 집합: 총 ${finalFiles.length}개 파일 식별.`);
-  console.log(`   - 필수 런타임 포함 확인: landing/product-panel.css: ${finalFiles.includes("landing/product-panel.css") ? "OK" : "MISSING"}`);
-  console.log(`   - 필수 런타임 포함 확인: offscreen.html: ${finalFiles.includes("offscreen.html") ? "OK" : "MISSING"}`);
-  console.log(`   - 필수 런타임 포함 확인: lib/ppocr-runtime.mjs: ${finalFiles.includes("lib/ppocr-runtime.mjs") ? "OK" : "MISSING"}\n`);
+  console.log(`   - 필수 런타임 ${REQUIRED_RUNTIME.length}개 포함 확인: OK\n`);
 
   return { manifest, files: finalFiles };
 }
