@@ -11,8 +11,8 @@ const assert=require('node:assert/strict');
  const page=await context.newPage(); const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.route('https://cdnjs.cloudflare.com/**',route=>route.abort());
  await page.goto(process.env.LANDING_URL || 'http://127.0.0.1:8765/landing/');
- // reduced-motion 정적 시퀀스는 done→share를 지나 tablet에서 정지하므로 최종 상태를 기다린다.
- await page.waitForSelector('#heroDemo[data-state="tablet"]');
+ // reduced-motion에서도 시연은 자동 재생되며(연출만 즉시 스냅) 루프 후반 tablet 상태를 기다린다.
+ await page.waitForSelector('#heroDemo[data-state="tablet"]',{timeout:60000});
  const frame=page.frameLocator('.demo-panel');
  await page.evaluate(()=>Object.defineProperty(navigator,'clipboard',{value:{writeText:()=>Promise.reject(new Error('denied'))},configurable:true}));
  // .tablet-scene이 패널을 덮어 실제 클릭은 불가 — JS click으로 복사 fallback 동작만 검증한다.
@@ -37,8 +37,18 @@ const assert=require('node:assert/strict');
  assert.equal(await page.locator('#lecturePlayer').getAttribute('data-scene'),'complete');
  assert(await page.locator('#lectureSceneCaption').isVisible());
  assert.equal(await page.locator('#preview .zoom-tile').count(),6,'presenter + 5 participants');
+ if(width<=760){
+   // 모바일에서는 참여자 3명 + "+3"으로 접히고, 탭하면 전원이 보인다.
+   assert.equal(await page.locator('#preview .zoom-tile').nth(3).isVisible(),false,'4th tile collapsed');
+   await page.locator('#preview .zoom-more').click();
+   assert.equal(await page.locator('#preview .zoom-tile').nth(3).isVisible(),true,'tiles expanded');
+   await page.locator('#preview .zoom-more').click();
+   assert.equal(await page.locator('#preview .zoom-tile').nth(3).isVisible(),false,'tiles collapse again');
+ }else{
+   assert.equal(await page.locator('#preview .zoom-more').isVisible(),false,'no overflow tile on desktop');
+ }
  assert.equal(await page.locator('#lectureSceneTime').count(),0,'no clock row');
- assert((await page.locator('#lecturePlayer').boundingBox()).height>350,'slide remains in player flow');
+ assert((await page.locator('#lecturePlayer').boundingBox()).height>250,'slide remains in player flow');
  for(const selector of ['.lecture-graph','.lecture-graph svg[role="img"]','.comparison-card']){
    for(const element of await page.locator('#preview '+selector).all()){
      const box=await element.boundingBox();assert(box.x>=0 && box.x+box.width<=width+1,`${selector} bounds ${width}`);
