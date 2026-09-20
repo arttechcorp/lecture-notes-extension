@@ -4,7 +4,7 @@ const fs=require("node:fs"),path=require("node:path"),http=require("node:http"),
 const Vault=require("../lib/vault.js"),{validateSummary}=require("../lib/summary.js");
 const RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"google/gemini-2.5-pro":[1.25,10],"anthropic/claude-haiku-4.5":[1,5],"anthropic/claude-sonnet-4.6":[3,15],"anthropic/claude-sonnet-5":[2,10]};
 // 이미지 입력은 텍스트와 단가가 다르고 출력도 훨씬 짧다. /v1/summary 와 예약 계산을 섞지 않는다.
-const VISION_RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5]};
+const VISION_RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"mistralai/ministral-8b-2512":[.15,.15],"qwen/qwen3-vl-8b-instruct":[.12,.45]};
 const VISION_MAX_TOKENS=4096;
 // 한 프레임을 읽는 지시. 요약이 아니라 "화면에 있는 것을 구조대로 옮겨 적기"다 —
 // 여기서 모델이 요약을 시작하면 뒤쪽 합성 단계가 두 번 요약한 글을 받는다.
