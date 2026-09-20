@@ -29,10 +29,11 @@
       </section>
       <section id="processing"><h2>02. 처리하는 정보</h2>
         <dl class="facts">
-          <div><dt>강의 화면</dt><dd>사용자가 <b>캡처 시작</b>을 누른 탭의 화면 프레임과 재생 시각을 읽습니다. 화면 글자 인식은 기기 안에서 <span lang="en">PP-OCRv5(WebAssembly)</span>로 처리하며, 캡처한 이미지 자체는 외부로 전송하지 않습니다.</dd></div>
+          <div><dt>강의 화면</dt><dd>사용자가 <b>캡처 시작</b>을 누른 탭의 화면 프레임과 재생 시각을 읽습니다. 화면 글자 인식은 기기 안에서 <span lang="en">PP-OCRv5(WebAssembly)</span>로 처리하며, 기본 설정에서는 캡처한 이미지 자체를 외부로 전송하지 않습니다. 사용자가 유료 <b>고화질 화면 인식</b>을 켜고 별도 전송 동의를 한 경우에만 슬라이드 프레임이 <span lang="en">HTTPS</span>로 운영 서비스를 거쳐 인식 모델에 전달되며, 인식 용도로만 쓰이고 어디에도 저장되지 않습니다. 이 때 사용 기록에는 계정과 비용만 남습니다.</dd></div>
           <div><dt>강의 음성</dt><dd>음성 인식을 켜면 해당 탭의 오디오를 기기 안에서 <span lang="en">Whisper</span> 모델(<span lang="en">WebGPU</span> 또는 <span lang="en">WebAssembly</span>)로 텍스트로 바꿉니다. 원본 음성을 외부 인식 서비스로 업로드하는 경로는 없습니다.</dd></div>
           <div><dt>기기 내 요약</dt><dd><span lang="en">Chrome</span> 내장 온디바이스 AI(<span lang="en">Gemini Nano</span>)를 사용할 수 있는 환경에서는 요약도 기기 안에서 수행하며, 이 경우 강의 내용이 외부로 나가지 않습니다.</dd></div>
           <div><dt>원격 AI 요약 (선택)</dt><dd>사용자가 원격 요약에 동의한 경우에만, 기기에서 인식한 <b>텍스트</b>와 재생 시각·영상 제목·요약 조건을 요약 제공자에게 전송합니다. 화면 이미지와 원본 오디오는 어떤 경우에도 전송하지 않습니다.</dd></div>
+          <div><dt>고화질 화면 인식 (선택·유료)</dt><dd>사용자가 이 옵션을 켜고 별도 동의를 한 경우에만, 슬라이드 프레임을 <span lang="en">HTTPS</span>로 운영 서비스를 거쳐 인식 모델로 보내 글자·수식·표를 읽습니다. 프레임은 서비스나 모델에 저장되지 않으며 사용 기록에는 계정과 비용만 남습니다. 음성은 이 설정과 무관하게 항상 기기 안에서만 처리합니다.</dd></div>
           <div><dt>설정</dt><dd>요약 모델, 원격 요약 동의 여부, 화면 글자 인식·음성 인식 사용 여부와 언어, 재생 속도 보정, 테마, 약관 동의 여부, 사용자가 입력한 <span lang="en">OpenRouter API</span> 키, 보관 서비스 주소와 앱 세션 토큰을 확장 프로그램의 로컬 저장소에 보관합니다.</dd></div>
           <div><dt>사전 예약 (웹사이트)</dt><dd>사전 예약 신청 시 이메일 주소, 휴대전화번호, 관심 요금제를 수집합니다. 출시·혜택 안내 목적으로만 사용하며, 입력은 사용자의 선택입니다.</dd></div>
         </dl>
@@ -47,7 +48,7 @@
       <section id="external"><h2>04. 외부 서비스와 정보 전송</h2>
         <dl class="facts">
           <div><dt>AI 요약 제공자</dt><dd>원격 요약은 <span lang="en">OpenRouter</span>(<span lang="en">OpenRouter, Inc.</span>)를 거쳐 사용자가 선택한 모델(<span lang="en">Google Gemini</span> 계열 또는 <span lang="en">Anthropic Claude</span> 계열)로 전달합니다. 사용자가 자신의 <span lang="en">API</span> 키를 입력한 경우 기기에서 직접 호출하고, 운영자 보관 서비스를 연결한 경우 서비스가 운영자 키로 호출합니다. 공급자를 고정하고 임의 대체(<span lang="en">fallback</span>)를 금지하며, 학습 사용 거부와 무보존(<span lang="en">ZDR</span>) 처리를 요청합니다.</dd></div>
-          <div><dt>전송 항목</dt><dd>전송: 인식 텍스트, 타임스탬프, 영상 제목, 사용자가 입력한 요약 조건. 미전송: 화면 이미지, 원본 오디오, 브라우징 기록, 계정 식별정보.</dd></div>
+          <div><dt>전송 항목</dt><dd>전송: 인식 텍스트, 타임스탬프, 영상 제목, 사용자가 입력한 요약 조건. 미전송: 원본 오디오, 브라우징 기록, 계정 식별정보. 화면 이미지는 기본 설정에서 전송하지 않으며, 고화질 화면 인식을 켠 경우에만 슬라이드 프레임이 인식 목적으로 서비스에 전달되고 저장되지 않습니다.</dd></div>
           <div><dt>모델 파일 내려받기</dt><dd>음성 인식을 처음 준비할 때 <span lang="en">Hugging Face</span>에서 <span lang="en">Whisper</span> 모델 파일을 내려받아 브라우저 캐시에 둡니다. 이 요청에는 강의 화면·음성·텍스트가 포함되지 않습니다.</dd></div>
           <div><dt>웹사이트 운영</dt><dd>웹사이트는 <span lang="en">Vercel</span>에 호스팅하며 접속 기록은 호스팅 사업자가 처리합니다. 사전 예약 정보는 <span lang="en">Supabase</span>에 저장합니다. 글꼴은 <span lang="en">Google Fonts</span>에서, 애니메이션 라이브러리는 <span lang="en">cdnjs</span>에서 불러오므로 접속 시 IP 주소가 해당 서비스에 전달됩니다. 분석 도구, 광고 추적기, 쿠키는 사용하지 않습니다.</dd></div>
           <div><dt>결제 서비스</dt><dd>현재 확장 프로그램과 웹사이트에서 결제를 받지 않으며 결제·금융 정보를 수집하지 않습니다. 결제를 도입하는 시점에 전달 항목과 보관 기준을 이 방침에 반영한 뒤 시행합니다.</dd></div>

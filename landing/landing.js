@@ -135,40 +135,24 @@
   const reviews = document.querySelector('.reviews');
   if (reviews) {
     const reviewMotion = matchMedia('(prefers-reduced-motion: reduce)');
-    // ≤760px 모바일에서는 자동 마퀴 대신 스와이프 카드 목록을 쓴다(docs/mobile-web-principles.md §4).
-    const tracks = [...reviews.querySelectorAll('.reviews-track')];
-    const copies = [];
-    function enableMarquee() {
-      for (const track of tracks) {
-        const group = track.querySelector('.reviews-group');
-        if (!group) continue;
-        for (let i = 0; i < 3; i++) {
-          const copy = group.cloneNode(true);
-          copy.setAttribute('aria-hidden', 'true');
-          copy.inert = true;
-          track.append(copy);
-          copies.push(copy);
-        }
-        requestAnimationFrame(() => { if (!mobileTap.matches) track.classList.add('is-ready'); });
+    for (const track of reviews.querySelectorAll('.reviews-track')) {
+      const group = track.querySelector('.reviews-group');
+      if (!group) continue;
+      for (let i = 0; i < 3; i++) {
+        const copy = group.cloneNode(true);
+        copy.setAttribute('aria-hidden', 'true');
+        copy.inert = true;
+        track.append(copy);
       }
-      reviews.classList.add('is-ready');
+      requestAnimationFrame(() => track.classList.add('is-ready'));
     }
-    function disableMarquee() {
-      for (const copy of copies.splice(0)) copy.remove();
-      for (const track of tracks) track.classList.remove('is-ready');
-      reviews.classList.remove('is-ready', 'is-paused');
-    }
+    reviews.classList.add('is-ready');
     function syncReviews() {
       reviews.classList.toggle('is-paused', document.hidden || reviewMotion.matches);
     }
-    function applyReviewMode() {
-      if (mobileTap.matches) disableMarquee(); else enableMarquee();
-      syncReviews();
-    }
-    mobileTap.addEventListener('change', applyReviewMode);
     reviewMotion.addEventListener('change', syncReviews);
     document.addEventListener('visibilitychange', syncReviews);
-    applyReviewMode();
+    syncReviews();
   }
   if (window.location.hash.startsWith('#example-')) {
     const ex = window.location.hash.slice(9);

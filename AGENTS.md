@@ -14,7 +14,8 @@ Rules for Codex, Claude Code, and Antigravity.
 
 ## 2. Invariants (Legal & Architecture)
 
-- Memory only: Process screen captures and audio strictly in memory. Never send raw inputs externally.
+- Memory only: Process screen captures and audio strictly in memory. Audio never leaves the device. Screen frames leave the device only when the user has explicitly enabled the paid vision engine and accepted the separate frame-transfer consent; they travel through the operator service to the model and are never persisted anywhere. Default is on-device.
+- No silent engine switching: Never fall back from the vision engine to local recognition, or the reverse, without telling the user. Halt and ask.
 - No auto cloud fallback: If local processing fails, halt and ask. Do not route data to external AI.
 - Storage limit: Never store plaintext transcripts, images, or notes in `chrome.storage`, caches, or files. Settings only (`lib/settings.js`). User-requested archives are encrypted/decrypted on the device; only authenticated ciphertext may be stored by the service.
 - Inference boundary: Operator API keys stay on the server. External text summarization requires explicit consent: HTTPS protects transport, but the service/model necessarily sees text transiently during inference. Never describe inference as end-to-end encrypted.

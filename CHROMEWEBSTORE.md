@@ -13,7 +13,7 @@
 *(영문 스토어: `Summrizei — AI Lecture Notes & Summarizer`)*
 
 **Short Description** [REQUIRED] (최대 132자)  
-`재생 중인 영상 화면과 음성에서 핵심 학습 노트를 생성합니다. 온디바이스 AI로 개인정보를 안전하게 보호합니다.`
+`재생 중인 영상 화면과 음성에서 핵심 학습 노트를 생성합니다. 기본 설정에서는 온디바이스 AI로 개인정보를 안전하게 보호합니다.`
 
 **Detailed Description** [REQUIRED] (스토어 본문 설명)  
 ```text
@@ -32,8 +32,9 @@ Summrizei는 강의 영상을 시청하는 동안 화면의 슬라이드와 강�
 - 단순 요약이 아닌 대제목, 소제목, 글머리 기호, 핵심 비교 표(Table)로 체계화된 노트를 만듭니다.
 - 공학/수학/경영 공식(LaTeX) 및 프로세스/의사결정 트리 다이어그램까지 지원합니다.
 
-3. 100% 무료 & 개인정보 보호 온디바이스 요약 (Gemini Nano & Local Whisper)
-- Chrome 내장 온디바이스 AI(Gemini Nano)와 로컬 Whisper 모델을 활용하여 외부 서버 전송 없이 기기 내부에서 완전 무료로 노트를 생성할 수 있습니다.
+3. 무료 & 개인정보 보호 온디바이스 인식 (기본 설정)
+- 기본 설정에서는 Chrome 내장 온디바이스 AI(Gemini Nano)와 로컬 Whisper·PP-OCR 모델을 활용하여 외부 서버 전송 없이 기기 내부에서 노트를 생성할 수 있습니다. 음성은 어떤 모드에서도 기기 안에서만 처리합니다.
+- 수식·표가 많은 강의를 위한 유료 '고화질 화면 인식' 옵션은 사용자가 켜고 별도 전송 동의를 한 경우에만 슬라이드 프레임을 운영 서비스(HTTPS)를 거쳐 인식 모델로 보냅니다. 프레임은 어디에도 저장되지 않습니다.
 - 민감한 사내 교육이나 비공개 강의도 안심하고 정리하세요.
 
 4. 클라우드 고품질 요약 지원 (명시적 동의 기반)
@@ -49,7 +50,7 @@ Summrizei는 강의 영상을 시청하는 동안 화면의 슬라이드와 강�
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔒 철저한 개인정보 보호 원칙 (AGENTS.md 준수)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- Memory Only: 캡처된 화면 프레임과 오디오는 브라우저 메모리 안에서만 일시적으로 처리되며 디스크나 외부 서버에 절대 저장되지 않습니다.
+- Memory Only: 기본 설정에서는 캡처된 화면 프레임과 오디오가 브라우저 메모리 안에서만 일시적으로 처리되며 디스크나 외부 서버에 절대 저장되지 않습니다. 유료 고화질 화면 인식을 켜고 동의한 경우에만 슬라이드 프레임이 인식을 위해 운영 서비스로 전달되며, 역시 어디에도 저장되지 않습니다.
 - 제3자에게 데이터를 판매하거나 광고 목적으로 수집하지 않습니다.
 - 패널을 닫으면 캡처 원본 데이터는 메모리에서 완전히 소멸합니다.
 
@@ -95,7 +96,7 @@ Summrizei는 강의 영상을 시청하는 동안 화면의 슬라이드와 강�
 | `activeTab` | permissions | 단축키(Alt+Shift+S) 또는 확장 프로그램 아이콘 클릭 시, 사용자가 현재 보고 있는 강의 탭에 대한 최소한의 임시 권한을 부여받아 즉각적인 캡처 패널을 활성화하기 위해 필요합니다. *(Granted temporarily when the user clicks the action icon or presses the shortcut (Alt+Shift+S) to interact with the active educational video tab.)* |
 | `<all_urls>` | host_permissions | 사용자는 YouTube, Coursera, 대학 온라인 LMS, 웨비나 등 다양한 웹사이트에서 강의를 수강합니다. Manifest V3 사이드패널 UI의 버튼 클릭은 브라우저 보안 규격상 `activeTab` 권한을 임시 승계받지 못하므로, 사용자가 선택한 임의의 강의 페이지에 캡처 스크립트를 주입하기 위해 광범위한 호스트 권한이 기술적으로 불가피합니다. 캡처는 사용자가 [캡처 시작]을 누른 탭에서만 동작합니다. *(Users attend lectures on various educational platforms (YouTube, Coursera, university LMS, webinars). Under Manifest V3, side panel interactions do not inherit activeTab privileges; hence host permissions are technically required to inject capture scripts into user-selected educational sites. Capture is strictly confined to user-initiated sessions.)* |
 | `https://huggingface.co/*`<br>`https://*.hf.co/*`<br>`https://cdn-lfs.huggingface.co/*` | host_permissions | 외부 서버로 음성을 유출하지 않고 기기 내부에서 100% 로컬로 음성을 인식하기 위해, 오픈소스 Whisper ONNX 모델 가중치 바이너리를 브라우저 캐시로 다운로드하는 데 사용됩니다. *(Required to download open-source Whisper ONNX speech recognition model weights to the browser cache for 100% local, privacy-safe on-device audio transcription.)* |
-| `https://openrouter.ai/*` | host_permissions | 사용자가 명시적으로 동의한 경우에만 로컬에서 인식한 구조화 텍스트를 OpenRouter 요약 API로 전송합니다. 화면 이미지·오디오는 전송하지 않으며, 사용자의 API 키로 직접 인증합니다. *(Used only after explicit consent to send locally recognized structured text to OpenRouter for summarization; screen images and audio are never sent.)* |
+| `https://openrouter.ai/*` | host_permissions | 사용자가 명시적으로 동의한 경우에만 로컬에서 인식한 구조화 텍스트를 OpenRouter 요약 API로 전송합니다. 이 경로로는 화면 이미지·오디오를 전송하지 않으며, 사용자의 API 키로 직접 인증합니다. *(Used only after explicit consent to send locally recognized structured text to OpenRouter for summarization; screen images and audio are never sent over this route.)* |
 
 ---
 
@@ -107,7 +108,7 @@ Summrizei는 강의 영상을 시청하는 동안 화면의 슬라이드와 강�
 - **금융 및 결제 정보**: 수집 안 함 (`No`)
 - **웹 브라우징 기록**: 수집 안 함 (`No`)
 - **사용자 활동(키 입력 등)**: 수집 안 함 (`No`)
-- **웹사이트 콘텐츠**: 사용자가 캡처를 승인한 비디오 탭의 화면/음성 텍스트만 메모리에서 처리함 (`Yes` - 처리 목적: 강의 노트 요약 생성, 외부 서버 영구 저장 없음)
+- **웹사이트 콘텐츠**: 사용자가 캡처를 승인한 비디오 탭의 화면/음성을 처리함 (`Yes` - 처리 목적: 강의 노트 요약 생성, 외부 서버 영구 저장 없음; 유료 고화질 화면 인식 동의 시 슬라이드 프레임을 인식 목적으로 운영 서비스에 전송·비저장)
 
 ### Data Use Certification (데이터 사용 보증 확인)
 - [x] 사용자 데이터를 제3자에게 판매하지 않음 (Not sold to third parties)

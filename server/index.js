@@ -3,6 +3,19 @@
 const fs=require("node:fs"),path=require("node:path"),http=require("node:http"),crypto=require("node:crypto");
 const Vault=require("../lib/vault.js"),{validateSummary}=require("../lib/summary.js");
 const RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"google/gemini-2.5-pro":[1.25,10],"anthropic/claude-haiku-4.5":[1,5],"anthropic/claude-sonnet-4.6":[3,15],"anthropic/claude-sonnet-5":[2,10]};
+// 이미지 입력은 텍스트와 단가가 다르고 출력도 훨씬 짧다. /v1/summary 와 예약 계산을 섞지 않는다.
+const VISION_RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"mistralai/ministral-8b-2512":[.15,.15],"qwen/qwen3-vl-8b-instruct":[.12,.45]};
+const VISION_MAX_TOKENS=4096;
+// 한 프레임을 읽는 지시. 요약이 아니라 "화면에 있는 것을 구조대로 옮겨 적기"다 —
+// 여기서 모델이 요약을 시작하면 뒤쪽 합성 단계가 두 번 요약한 글을 받는다.
+const VISION_PROMPT=[
+  "이미지는 강의 슬라이드 한 장이다. 화면에 실제로 보이는 내용만 옮겨 적는다.",
+  "수식은 LaTeX($...$ 또는 $$...$$), 표는 마크다운 표, 목록은 마크다운 목록으로 적는다.",
+  "그래프·도식은 축·계열·추세를 한두 문장으로 설명한다.",
+  "요약하거나 배경지식을 덧붙이지 않는다. 보이지 않는 것은 적지 않는다.",
+  "판서·강조 표시가 있으면 해당 줄 끝에 (판서)로 표시한다.",
+  "슬라이드가 비었거나 읽을 내용이 없으면 빈 문자열만 출력한다.",
+].join("\n");
 const {schema,systemFor,systemMessage,reasoningFor,maxTokensFor,parseNote}=require("../lib/openrouter-client.js");
 const safePart=x=>{if(typeof x!=="string"||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(x))throw new Error("invalid_id");return x;};
 const tokenEqual=(a,b)=>{const x=Buffer.from(String(a)),y=Buffer.from(String(b));return x.length===y.length&&crypto.timingSafeEqual(x,y);};
@@ -16,15 +29,21 @@ function config(env){
   if(!/^chrome-extension:\/\/[a-p]{32}$/.test(env.EXTENSION_ORIGIN||""))throw new Error("exact_extension_origin_required");
   const providers=JSON.parse(env.OPENROUTER_PROVIDERS_JSON||"{}");
   for(const m of allow)if(!Array.isArray(providers[m])||!providers[m].length||providers[m].some(p=>typeof p!=="string"||p.length>100))throw new Error("explicit_provider_allowlist_required");
+  const visionModels=JSON.parse(env.ALLOWED_VISION_MODELS||"[]");
+  if(!Array.isArray(visionModels)||visionModels.some(m=>!VISION_RATES[m]))throw new Error("invalid_vision_model_allowlist");
+  for(const m of visionModels)if(!Array.isArray(providers[m])||!providers[m].length)throw new Error("explicit_provider_allowlist_required");
   if(!env.OPENROUTER_API_KEY)throw new Error("OPENROUTER_API_KEY required");
   const accountLimits=JSON.parse(env.ACCOUNT_LIMITS_JSON||"{}");
   for(const [id,limit]of Object.entries(accountLimits)){
-    if(!Object.hasOwn(tokens,id)||!limit||Object.keys(limit).some(k=>!["models","maxRequests","maxCostCents"].includes(k)))throw new Error("invalid_account_limits");
+    if(!Object.hasOwn(tokens,id)||!limit||Object.keys(limit).some(k=>!["models","maxRequests","maxCostCents","features"].includes(k)))throw new Error("invalid_account_limits");
     if(!Array.isArray(limit.models)||!limit.models.length||limit.models.some(m=>!allow.includes(m)))throw new Error("invalid_account_models");
+    // 기능 이름은 열린 문자열이 아니다. 오타 난 플랜 설정이 조용히 "기능 없음"으로 읽히면
+    // 결제한 계정이 못 쓰고, 넓은 이름을 허용하면 권한이 새로 생겨도 아무도 모른다.
+    if(limit.features!==undefined&&(!Array.isArray(limit.features)||limit.features.some(f=>f!=="vision")))throw new Error("invalid_account_features");
     positive(limit.maxRequests);positive(limit.maxCostCents);
   }
   return {tokens,allow,providers,key:env.OPENROUTER_API_KEY,origin:env.EXTENSION_ORIGIN,root:path.resolve(env.VAULT_DIR||"server-data"),stateFile:env.USAGE_STATE_FILE?path.resolve(env.USAGE_STATE_FILE):null,
-    accountLimits,maxCents:positive(env.MAX_COST_CENTS,1500),maxRequests:positive(env.MAX_REQUESTS,500),globalCents:positive(env.GLOBAL_COST_CENTS,15000),timeout:Math.min(positive(env.OPENROUTER_TIMEOUT_MS,120000),120000),maxFiles:100,maxArchiveBytes:200*1024*1024};
+    accountLimits,visionModels,maxCents:positive(env.MAX_COST_CENTS,1500),maxRequests:positive(env.MAX_REQUESTS,500),globalCents:positive(env.GLOBAL_COST_CENTS,15000),timeout:Math.min(positive(env.OPENROUTER_TIMEOUT_MS,120000),120000),maxFiles:100,maxArchiveBytes:200*1024*1024};
 }
 function atomic(file,data){fs.mkdirSync(path.dirname(file),{recursive:true});const temp=file+"."+crypto.randomUUID()+".tmp";fs.writeFileSync(temp,JSON.stringify(data),{mode:0o600,flag:"wx"});fs.renameSync(temp,file);}
 function readState(file){
@@ -53,7 +72,7 @@ function createServer(env=process.env,deps={}){
     return r;
   };
   const save=()=>atomic(usageFile,state);
-  const limitFor=account=>Object.hasOwn(c.accountLimits,account)?c.accountLimits[account]:{models:c.allow,maxRequests:c.maxRequests,maxCostCents:c.maxCents};
+  const limitFor=account=>Object.hasOwn(c.accountLimits,account)?{features:[],...c.accountLimits[account]}:{models:c.allow,maxRequests:c.maxRequests,maxCostCents:c.maxCents,features:[]};
   const fail=(res,status,code)=>send(res,status,{error:code});
   function send(res,status,data){
     if(res.destroyed||res.writableEnded)return;
@@ -80,6 +99,30 @@ function createServer(env=process.env,deps={}){
     if(!file.startsWith(dir+path.sep)||fs.existsSync(file)&&fs.lstatSync(file).isSymbolicLink())throw new Error("invalid_path");
     return file;
   }
+  // /v1/summary 와 /v1/vision 이 같은 돈을 쓴다. 예약·멱등·락·정산을 한 군데 두지 않으면
+  // 두 라우트의 한도 계산이 조용히 어긋난다 — 어긋난 쪽이 무료로 돌아가는 실패 모드다.
+  async function withReservation({account,requestId,digest,reserve,res},run){
+    const limits=limitFor(account),rec=record(account);
+    const prior=Object.hasOwn(rec.jobs,requestId)?rec.jobs[requestId]:null;
+    if(prior)return fail(res,prior.digest===digest?409:400,prior.digest===digest?"request_already_reserved_or_processed":"idempotency_content_mismatch");
+    if(locks.has(account))return fail(res,429,"account_request_in_progress");
+    const globalSpent=Object.values(state.accounts).filter(r=>r.month===month()).reduce((sum,r)=>sum+r.spentCents,0);
+    if(rec.requests>=limits.maxRequests||rec.spentCents+reserve>limits.maxCostCents||globalSpent+reserve>c.globalCents)return fail(res,429,"quota_exceeded");
+    locks.add(account);rec.requests++;rec.spentCents+=reserve;rec.jobs[requestId]={digest,status:"reserved",reservedCents:reserve};
+    try{save();}catch{locks.delete(account);throw new Error("usage_store_failed");}
+    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),c.timeout);
+    const disconnect=()=>{if(!res.writableEnded)controller.abort();};res.on("close",disconnect);active.set(account,controller);
+    try{
+      const {amount,reported,payload}=await run(controller.signal);
+      // Unknown or failed requests keep the full reservation; never assume an unreported request was free.
+      if(reported)rec.spentCents=Math.max(0,rec.spentCents-reserve+Math.ceil(amount*1e6)/1e4);
+      rec.jobs[requestId].status="completed";save();
+      send(res,200,payload);
+    }catch{
+      rec.jobs[requestId].status="uncertain";save();
+      fail(res,controller.signal.aborted?504:502,controller.signal.aborted?"request_cancelled_or_timed_out":"provider_failed_or_invalid_output");
+    }finally{clearTimeout(timer);res.removeListener("close",disconnect);locks.delete(account);active.delete(account);}
+  }
   async function summary(input,account,req,res){
     const limits=limitFor(account);
     if(!c.allow.includes(input.model)||!["chunk","synthesis"].includes(input.stage))return fail(res,400,"invalid_model_or_stage");
@@ -93,22 +136,14 @@ function createServer(env=process.env,deps={}){
     if(!Array.isArray(gaps)||gaps.length>200||gaps.some(g=>!g||typeof g.reason!=="string"||!g.reason||g.reason.length>64||!Number.isFinite(g.t0)||!Number.isFinite(g.t1)||g.t1<g.t0||Object.keys(g).some(k=>!["reason","t0","t1"].includes(k))))return fail(res,400,"invalid_gaps");
     const text=JSON.stringify(items);
     if(Buffer.byteLength(text)>48000)return fail(res,413,"evidence_too_large");
-    const digest=crypto.createHash("sha256").update(JSON.stringify({model:input.model,stage:input.stage,evidence:items,gaps})).digest("hex"),rec=record(account),prior=Object.hasOwn(rec.jobs,input.requestId)?rec.jobs[input.requestId]:null;
-    if(prior)return fail(res,prior.digest===digest?409:400,prior.digest===digest?"request_already_reserved_or_processed":"idempotency_content_mismatch");
-    if(locks.has(account))return fail(res,429,"account_request_in_progress");
+    const digest=crypto.createHash("sha256").update(JSON.stringify({model:input.model,stage:input.stage,evidence:items,gaps})).digest("hex");
     const [pi,po]=RATES[input.model],maxOutput=maxTokensFor(input.model),attempts=2;
     // Reserve both attempts: a malformed structured response is retried once on the same fixed provider.
     const reserve=Math.ceil(((Buffer.byteLength(text)+Buffer.byteLength(systemFor(input.stage))+8192)*pi+maxOutput*po)/1e6*100*1.2*attempts);
-    const globalSpent=Object.values(state.accounts).filter(r=>r.month===month()).reduce((sum,r)=>sum+r.spentCents,0);
-    if(rec.requests>=limits.maxRequests||rec.spentCents+reserve>limits.maxCostCents||globalSpent+reserve>c.globalCents)return fail(res,429,"quota_exceeded");
-    locks.add(account);rec.requests++;rec.spentCents+=reserve;rec.jobs[input.requestId]={digest,status:"reserved",reservedCents:reserve};
-    try{save();}catch{locks.delete(account);throw new Error("usage_store_failed");}
-    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),c.timeout);
-    const disconnect=()=>{if(!res.writableEnded)controller.abort();};res.on("close",disconnect);active.set(account,controller);
-    try{
+    return await withReservation({account,requestId:input.requestId,digest,reserve,res},async signal=>{
       let parsed,usage={},amount=0,reported=true;
       for(let retry=0;retry<attempts;retry++){
-        const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal:controller.signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
+        const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
           model:input.model,max_tokens:maxOutput,reasoning:reasoningFor(input.model),
           messages:[systemMessage(input.model,input.stage),{role:"user",content:JSON.stringify({stage:input.stage,evidence:items,...(gaps.length?{gaps}:{})})}],
           response_format:{type:"json_schema",json_schema:{name:"lecture_summary",strict:true,schema}},
@@ -124,21 +159,45 @@ function createServer(env=process.env,deps={}){
           break;
         }catch(error){if(retry===attempts-1)throw error;}
       }
-      // Unknown or failed requests keep the full reservation; never assume an unreported request was free.
-      if(reported)rec.spentCents=Math.max(0,rec.spentCents-reserve+Math.ceil(amount*1e6)/1e4);
-      rec.jobs[input.requestId].status="completed";save();
-      send(res,200,{summary:parsed,usage:{...usage,costUsd:reported?amount:reserve/100}});
-    }catch{
-      rec.jobs[input.requestId].status="uncertain";save();
-      fail(res,controller.signal.aborted?504:502,controller.signal.aborted?"request_cancelled_or_timed_out":"provider_failed_or_invalid_output");
-    }finally{clearTimeout(timer);res.removeListener("close",disconnect);locks.delete(account);active.delete(account);}
+      return {amount,reported,payload:{summary:parsed,usage:{...usage,costUsd:reported?amount:reserve/100}}};
+    });
+  }
+  async function vision(input,account,res){
+    if(!(limitFor(account).features||[]).includes("vision"))return fail(res,403,"feature_not_in_account_plan");
+    if(!c.visionModels.includes(input.model))return fail(res,400,"invalid_model");
+    safePart(input.requestId);
+    if(Object.keys(input).some(k=>!["model","requestId","image"].includes(k)))return fail(res,400,"unexpected_field");
+    const match=/^data:image\/jpeg;base64,([A-Za-z0-9+/]+={0,2})$/.exec(String(input.image||""));
+    if(!match)return fail(res,400,"invalid_image");
+    const bytes=Buffer.from(match[1],"base64").byteLength;
+    if(!bytes||bytes>1536*1024)return fail(res,413,"image_too_large");
+    // digest 는 프레임 내용이 아니라 그 해시로 잡는다. 사용량 파일에 이미지가 남으면 안 된다.
+    const digest=crypto.createHash("sha256").update(JSON.stringify({model:input.model,image:crypto.createHash("sha256").update(match[1]).digest("hex")})).digest("hex");
+    const [pi,po]=VISION_RATES[input.model];
+    // 이미지 토큰 수는 사전에 알 수 없다. 해상도 상한에서 나오는 최악값을 잡고 정산에서 되돌린다.
+    const reserve=Math.ceil((8000*pi+VISION_MAX_TOKENS*po)/1e6*100*1.2);
+    return await withReservation({account,requestId:input.requestId,digest,reserve,res},async signal=>{
+      const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
+        model:input.model,max_tokens:VISION_MAX_TOKENS,
+        messages:[{role:"user",content:[{type:"text",text:VISION_PROMPT},{type:"image_url",image_url:{url:input.image}}]}],
+        provider:{only:c.providers[input.model],order:c.providers[input.model],require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}
+      })});
+      if(!response.ok)throw new Error("provider_failed");
+      const raw=await boundedResponse(response,1024*1024),u=raw.usage||{};
+      if(raw.choices?.[0]?.finish_reason!=="stop")throw new Error("provider_output_incomplete");
+      const reported=typeof u.cost==="number"&&Number.isFinite(u.cost)&&u.cost>=0;
+      return {amount:reported?u.cost:0,reported,payload:{
+        text:String(raw.choices[0].message.content||"").slice(0,20000),
+        usage:{promptTokens:Number(u.prompt_tokens)||0,completionTokens:Number(u.completion_tokens)||0,costUsd:reported?u.cost:reserve/100},
+      }};
+    });
   }
   const server=http.createServer(async(req,res)=>{
     try{
       if(req.headers.origin&&req.headers.origin!==c.origin)return fail(res,403,"origin_not_allowed");
       if(req.method==="OPTIONS")return send(res,204,{});
       const account=accountFor(req);if(!account)return fail(res,401,"unauthorized");
-      if(req.url==="/v1/me"&&req.method==="GET"){const r=record(account),limits=limitFor(account);return send(res,200,{accountId:account,models:limits.models,quota:{month:r.month,requests:r.requests,maxRequests:limits.maxRequests,spentCents:r.spentCents,maxCents:limits.maxCostCents}});}
+      if(req.url==="/v1/me"&&req.method==="GET"){const r=record(account),limits=limitFor(account);return send(res,200,{accountId:account,models:limits.models,features:limits.features,quota:{month:r.month,requests:r.requests,maxRequests:limits.maxRequests,spentCents:r.spentCents,maxCents:limits.maxCostCents}});}
       if(req.url==="/v1/vault"&&req.method==="GET")return send(res,200,{items:fs.readdirSync(accountDir(account)).filter(x=>/^[A-Za-z0-9][A-Za-z0-9_-]*\.json$/.test(x)).map(x=>({objectId:x.slice(0,-5)}))});
       const match=req.url?.match(/^\/v1\/vault\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/);
       if(match){
@@ -156,8 +215,9 @@ function createServer(env=process.env,deps={}){
         }
       }
       if(req.url==="/v1/summary"&&req.method==="POST")return await summary(await body(req,64000),account,req,res);
+      if(req.url==="/v1/vision"&&req.method==="POST")return await vision(await body(req,2200000),account,res);
       fail(res,404,"not_found");
-    }catch{fail(res,400,"request_rejected");}
+    }catch(e){fail(res,e&&e.message==="request_too_large"?413:400,"request_rejected");}
   });
   server.requestTimeout=30000;server.headersTimeout=15000;
   server.on("close",()=>{for(const controller of active.values())controller.abort();});
