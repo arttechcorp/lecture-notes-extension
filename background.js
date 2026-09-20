@@ -112,7 +112,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       try { streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }); }
       catch (error) { throw captureError(error); }
       const sessionId = crypto.randomUUID();
-      const pending = chrome.runtime.sendMessage({ target: "session", type: "START_SESSION", streamId, options: { ...message.options, tabId, sessionId, watchFrameId, metadata: picked?.meta || {} } });
+      const pending = chrome.runtime.sendMessage({ target: "session", type: "START_SESSION", streamId, settings: message.settings, options: { ...message.options, tabId, sessionId, watchFrameId, metadata: picked?.meta || {} } });
       if (watchFrameId != null) chrome.tabs.sendMessage(tabId, { type: "WATCH_MEDIA", sessionId, speedCorrection: message.options?.speedCorrection === true }, { frameId: watchFrameId }).catch(() => {});
       if (watchFrameId > 0) chrome.tabs.sendMessage(tabId, { type: "FRAME_WATCH", sessionId }, { frameId: 0 }).catch(() => {});
       return await pending;
