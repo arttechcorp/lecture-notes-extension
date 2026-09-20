@@ -168,6 +168,11 @@
         background-color: var(--brand-highlight) !important;
         color: var(--print-ink) !important;
       }
+      /* 콜아웃 바탕도 exact 없이는 통째로 빠진다. 형광펜과 같은 처리. */
+      #stageDone .note-document blockquote {
+        background-color: var(--brand-subtle) !important;
+        color: var(--print-ink) !important;
+      }
       .mermaid-box, pre, code {
         background: var(--print-box-bg) !important;
         border-color: var(--print-box-rule) !important;

@@ -21,8 +21,11 @@ function noteText(note){
   // 빈 줄이 든 내용은 문단이 갈려 ==가 짝을 잃고 원문에 그대로 남으므로 칠하지 않는다.
   const highlight=text=>`==${text}==`;
   const bullet=x=>`- ${x.importance==='critical'&&!/\n\s*\n/.test(x.content)?highlight(x.content):x.content}`;
-  // 핵심 결론은 거의 전부 critical이라 형광펜을 치면 섹션이 통째로 칠해진다. '## 핵심 결론' 제목이 이미 그 역할을 한다.
-  const plainBullet=x=>`- ${x.content}`;
+  // 핵심 결론은 거의 전부 critical이라 형광펜을 치면 섹션이 통째로 칠해진다. 대신 인용(>)으로 상자를 만들고
+  // 결론 문장은 굵게, 그 아래 detail(자세한 설명)을 붙인다 — 상자 바탕은 product-panel.css 의 blockquote 규칙이 칠한다.
+  // 빈 줄이 든 결론은 문단이 갈려 **가 짝을 잃으므로 굵게 하지 않는다(형광펜과 같은 이유).
+  const quote=text=>text.split('\n').map(line=>`> ${line}`).join('\n');
+  const conclusion=x=>quote(`${/\n\s*\n/.test(x.content)?x.content:`**${x.content}**`}${x.detail?`\n\n${x.detail}`:''}`);
   const heading=x=>`## ${x.heading||'핵심 내용'}${x.importance==='critical'?' ⭐':''}`;
   const formula=f=>`$$${f.latex}$$\n\n${f.explanation}${f.variables?`\n\n변수: ${f.variables}`:''}${f.units?`\n\n단위: ${f.units}`:''}${f.conditions?`\n\n조건: ${f.conditions}`:''}`;
   // 모델이 ```mermaid 펜스를 78% 확률로 빼먹는다 (측정치) — 펜스 없으면 sandbox.html이 도식을 그냥 문단으로 렌더링한다.
@@ -33,7 +36,7 @@ function noteText(note){
   const groups=[['concepts','개념'],['claims','주장'],['definitions','정의'],['relationships','관계'],['examples','예시'],['corrections','정정·예외·불확실'],['openQuestions','남은 질문']];
   const items=groups.flatMap(([field])=>note[field]||[]);
   const questions=(note.reviewQuestions||note.questions||[]).map(q=>`- [ ] ${typeof q==='string'?q:q.question}`);
-  if(note.keyConclusions?.length)lines.push('## 핵심 결론',...note.keyConclusions.map(plainBullet));
+  if(note.keyConclusions?.length)lines.push('## 핵심 결론',...note.keyConclusions.map(conclusion));
   const starts=new Map((note.evidenceRefs||[]).map(ref=>[ref.id,Number(ref.t0)||0]));
   const sections=note.sections||[];
   const at=x=>Math.min(...(x.evidenceIds||[]).map(id=>starts.has(id)?starts.get(id):Number.MAX_SAFE_INTEGER),Number.MAX_SAFE_INTEGER);

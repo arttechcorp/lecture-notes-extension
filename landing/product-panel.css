@@ -788,12 +788,16 @@
   #stageDone .note-document ol ol,
   #stageDone .note-document ul ol,
   #stageDone .note-document ol ul { margin-top: 0.25em; margin-bottom: 0.25em; }
+  /* 콜아웃 상자. 노트에서 인용(>)을 내는 건 핵심 결론(sidepanel.js noteText)과 ⚠ 경고(lib/summary.js) 둘뿐이다. */
   #stageDone .note-document blockquote {
     margin: 1.1em 0;
-    padding: 0.1em 0 0.1em 1em;
-    border-left: 2px solid var(--brand);
-    color: var(--ash);
+    padding: 0.8em 1.1em;
+    border-left: 3px solid var(--brand);
+    border-radius: 0 var(--r-md) var(--r-md) 0;
+    background: var(--brand-subtle);
+    color: var(--ink);
   }
+  #stageDone .note-document blockquote > :last-child { margin-bottom: 0; }
   /* 형광펜. 노트에서 critical 로 표시된 곳에만 붙는다(sidepanel.js noteText). */
   #stageDone .note-document mark {
     padding: 0.1em 0.25em;
