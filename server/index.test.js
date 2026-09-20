@@ -125,3 +125,37 @@ test("selectionReason 없는 근거를 받고 Anthropic 요청에만 캐시 중�
     assert.equal((await req(url,"/v1/summary","POST",{...input,requestId:"bad-reason",evidence:[{...lean,selectionReason:"x".repeat(301)}]})).status,400,"과한 selectionReason 이 통과한다");
   }finally{await close(server);removeTemp(root);}
 });
+
+const visionEnv = root => ({
+  ...config(root),
+  ALLOWED_VISION_MODELS: JSON.stringify(["google/gemini-2.5-flash-lite"]),
+  ACCOUNT_LIMITS_JSON: JSON.stringify({ A: { models: [model], maxRequests: 10, maxCostCents: 500, features: ["vision"] } }),
+});
+const jpeg = size => "data:image/jpeg;base64," + Buffer.alloc(size, 7).toString("base64");
+const visionProvider = text => ({ ok: true, json: async () => ({ choices: [{ finish_reason: "stop", message: { content: text } }], usage: { prompt_tokens: 900, completion_tokens: 120, cost: .002 } }) });
+
+test("vision route reads a slide, gates on the paid feature and caps image size", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  let sent = null;
+  const server = createServer(visionEnv(root), { fetch: async (_url, options) => { sent = JSON.parse(options.body); return visionProvider("## 키르히호프 법칙\n\n$\\sum i_k = 0$"); } });
+  await new Promise(r => server.listen(0, "127.0.0.1", r));
+  const url = "http://127.0.0.1:" + server.address().port;
+  try {
+    const ok = await req(url, "/v1/vision", "POST", { model, requestId: "vision-one", image: jpeg(2048) });
+    assert.equal(ok.status, 200);
+    assert.match((await ok.json()).text, /키르히호프/);
+    assert.equal(sent.provider.zdr, true, "프레임은 zdr provider 로만 나간다");
+    assert.equal(sent.provider.data_collection, "deny");
+
+    assert.equal((await req(url, "/v1/vision", "POST", { model, requestId: "vision-two", image: jpeg(2 * 1024 * 1024) })).status, 413);
+    assert.equal((await req(url, "/v1/vision", "POST", { model, requestId: "vision-three", image: "not-an-image" })).status, 400);
+    assert.equal((await req(url, "/v1/vision", "POST", { model, requestId: "vision-four", image: jpeg(2048), extra: 1 })).status, 400);
+    assert.equal((await req(url, "/v1/vision", "POST", { model, requestId: "vision-one", image: jpeg(2048) })).status, 409, "같은 요청 id 는 두 번 청구하지 않는다");
+
+    const free = await req(url, "/v1/vision", "POST", { model, requestId: "vision-five", image: jpeg(2048) }, tokenB);
+    assert.equal(free.status, 403, "유료 기능이 없는 계정은 UI 를 우회해도 막힌다");
+    assert.equal((await free.json()).error, "feature_not_in_account_plan");
+
+    assert.ok(!fs.readFileSync(path.join(root, "usage.json"), "utf8").includes("BwcH"), "프레임은 사용량 파일에 남지 않는다");
+  } finally { await close(server); removeTemp(root); }
+});
