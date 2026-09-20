@@ -83,6 +83,33 @@ test("끊긴 구간은 받아들이되 모양을 검사한다",async()=>{
   }finally{await close(server);removeTemp(root);}
 });
 
+test("account features gate paid capabilities and default to empty", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  const env = {
+    ...config(root),
+    ACCOUNT_LIMITS_JSON: JSON.stringify({ A: { models: [model], maxRequests: 10, maxCostCents: 100, features: ["vision"] } }),
+  };
+  const server = createServer(env, { fetch: async () => provider() });
+  await new Promise(r => server.listen(0, "127.0.0.1", r));
+  const url = "http://127.0.0.1:" + server.address().port;
+  try {
+    const paid = await (await req(url, "/v1/me")).json();
+    assert.deepEqual(paid.features, ["vision"], "설정된 계정은 기능을 그대로 돌려준다");
+    const free = await (await req(url, "/v1/me", "GET", undefined, tokenB)).json();
+    assert.deepEqual(free.features, [], "한도 설정이 없는 계정은 유료 기능이 없다");
+  } finally { await close(server); removeTemp(root); }
+});
+
+test("unknown feature names are rejected at boot", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  try {
+    assert.throws(() => createServer({
+      ...config(root),
+      ACCOUNT_LIMITS_JSON: JSON.stringify({ A: { models: [model], maxRequests: 1, maxCostCents: 1, features: ["admin"] } }),
+    }));
+  } finally { removeTemp(root); }
+});
+
 test("selectionReason 없는 근거를 받고 Anthropic 요청에만 캐시 중단점을 찍는다",async()=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),"summrizei-service-test-")),claude="anthropic/claude-haiku-4.5";
   const bodies=[];

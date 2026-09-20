@@ -19,8 +19,11 @@ function config(env){
   if(!env.OPENROUTER_API_KEY)throw new Error("OPENROUTER_API_KEY required");
   const accountLimits=JSON.parse(env.ACCOUNT_LIMITS_JSON||"{}");
   for(const [id,limit]of Object.entries(accountLimits)){
-    if(!Object.hasOwn(tokens,id)||!limit||Object.keys(limit).some(k=>!["models","maxRequests","maxCostCents"].includes(k)))throw new Error("invalid_account_limits");
+    if(!Object.hasOwn(tokens,id)||!limit||Object.keys(limit).some(k=>!["models","maxRequests","maxCostCents","features"].includes(k)))throw new Error("invalid_account_limits");
     if(!Array.isArray(limit.models)||!limit.models.length||limit.models.some(m=>!allow.includes(m)))throw new Error("invalid_account_models");
+    // 기능 이름은 열린 문자열이 아니다. 오타 난 플랜 설정이 조용히 "기능 없음"으로 읽히면
+    // 결제한 계정이 못 쓰고, 넓은 이름을 허용하면 권한이 새로 생겨도 아무도 모른다.
+    if(limit.features!==undefined&&(!Array.isArray(limit.features)||limit.features.some(f=>f!=="vision")))throw new Error("invalid_account_features");
     positive(limit.maxRequests);positive(limit.maxCostCents);
   }
   return {tokens,allow,providers,key:env.OPENROUTER_API_KEY,origin:env.EXTENSION_ORIGIN,root:path.resolve(env.VAULT_DIR||"server-data"),stateFile:env.USAGE_STATE_FILE?path.resolve(env.USAGE_STATE_FILE):null,
@@ -53,7 +56,7 @@ function createServer(env=process.env,deps={}){
     return r;
   };
   const save=()=>atomic(usageFile,state);
-  const limitFor=account=>Object.hasOwn(c.accountLimits,account)?c.accountLimits[account]:{models:c.allow,maxRequests:c.maxRequests,maxCostCents:c.maxCents};
+  const limitFor=account=>Object.hasOwn(c.accountLimits,account)?{features:[],...c.accountLimits[account]}:{models:c.allow,maxRequests:c.maxRequests,maxCostCents:c.maxCents,features:[]};
   const fail=(res,status,code)=>send(res,status,{error:code});
   function send(res,status,data){
     if(res.destroyed||res.writableEnded)return;
@@ -138,7 +141,7 @@ function createServer(env=process.env,deps={}){
       if(req.headers.origin&&req.headers.origin!==c.origin)return fail(res,403,"origin_not_allowed");
       if(req.method==="OPTIONS")return send(res,204,{});
       const account=accountFor(req);if(!account)return fail(res,401,"unauthorized");
-      if(req.url==="/v1/me"&&req.method==="GET"){const r=record(account),limits=limitFor(account);return send(res,200,{accountId:account,models:limits.models,quota:{month:r.month,requests:r.requests,maxRequests:limits.maxRequests,spentCents:r.spentCents,maxCents:limits.maxCostCents}});}
+      if(req.url==="/v1/me"&&req.method==="GET"){const r=record(account),limits=limitFor(account);return send(res,200,{accountId:account,models:limits.models,features:limits.features,quota:{month:r.month,requests:r.requests,maxRequests:limits.maxRequests,spentCents:r.spentCents,maxCents:limits.maxCostCents}});}
       if(req.url==="/v1/vault"&&req.method==="GET")return send(res,200,{items:fs.readdirSync(accountDir(account)).filter(x=>/^[A-Za-z0-9][A-Za-z0-9_-]*\.json$/.test(x)).map(x=>({objectId:x.slice(0,-5)}))});
       const match=req.url?.match(/^\/v1\/vault\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/);
       if(match){
