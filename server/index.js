@@ -83,6 +83,30 @@ function createServer(env=process.env,deps={}){
     if(!file.startsWith(dir+path.sep)||fs.existsSync(file)&&fs.lstatSync(file).isSymbolicLink())throw new Error("invalid_path");
     return file;
   }
+  // /v1/summary 와 /v1/vision 이 같은 돈을 쓴다. 예약·멱등·락·정산을 한 군데 두지 않으면
+  // 두 라우트의 한도 계산이 조용히 어긋난다 — 어긋난 쪽이 무료로 돌아가는 실패 모드다.
+  async function withReservation({account,requestId,digest,reserve,res},run){
+    const limits=limitFor(account),rec=record(account);
+    const prior=Object.hasOwn(rec.jobs,requestId)?rec.jobs[requestId]:null;
+    if(prior)return fail(res,prior.digest===digest?409:400,prior.digest===digest?"request_already_reserved_or_processed":"idempotency_content_mismatch");
+    if(locks.has(account))return fail(res,429,"account_request_in_progress");
+    const globalSpent=Object.values(state.accounts).filter(r=>r.month===month()).reduce((sum,r)=>sum+r.spentCents,0);
+    if(rec.requests>=limits.maxRequests||rec.spentCents+reserve>limits.maxCostCents||globalSpent+reserve>c.globalCents)return fail(res,429,"quota_exceeded");
+    locks.add(account);rec.requests++;rec.spentCents+=reserve;rec.jobs[requestId]={digest,status:"reserved",reservedCents:reserve};
+    try{save();}catch{locks.delete(account);throw new Error("usage_store_failed");}
+    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),c.timeout);
+    const disconnect=()=>{if(!res.writableEnded)controller.abort();};res.on("close",disconnect);active.set(account,controller);
+    try{
+      const {amount,reported,payload}=await run(controller.signal);
+      // Unknown or failed requests keep the full reservation; never assume an unreported request was free.
+      if(reported)rec.spentCents=Math.max(0,rec.spentCents-reserve+Math.ceil(amount*1e6)/1e4);
+      rec.jobs[requestId].status="completed";save();
+      send(res,200,payload);
+    }catch{
+      rec.jobs[requestId].status="uncertain";save();
+      fail(res,controller.signal.aborted?504:502,controller.signal.aborted?"request_cancelled_or_timed_out":"provider_failed_or_invalid_output");
+    }finally{clearTimeout(timer);res.removeListener("close",disconnect);locks.delete(account);active.delete(account);}
+  }
   async function summary(input,account,req,res){
     const limits=limitFor(account);
     if(!c.allow.includes(input.model)||!["chunk","synthesis"].includes(input.stage))return fail(res,400,"invalid_model_or_stage");
@@ -96,22 +120,14 @@ function createServer(env=process.env,deps={}){
     if(!Array.isArray(gaps)||gaps.length>200||gaps.some(g=>!g||typeof g.reason!=="string"||!g.reason||g.reason.length>64||!Number.isFinite(g.t0)||!Number.isFinite(g.t1)||g.t1<g.t0||Object.keys(g).some(k=>!["reason","t0","t1"].includes(k))))return fail(res,400,"invalid_gaps");
     const text=JSON.stringify(items);
     if(Buffer.byteLength(text)>48000)return fail(res,413,"evidence_too_large");
-    const digest=crypto.createHash("sha256").update(JSON.stringify({model:input.model,stage:input.stage,evidence:items,gaps})).digest("hex"),rec=record(account),prior=Object.hasOwn(rec.jobs,input.requestId)?rec.jobs[input.requestId]:null;
-    if(prior)return fail(res,prior.digest===digest?409:400,prior.digest===digest?"request_already_reserved_or_processed":"idempotency_content_mismatch");
-    if(locks.has(account))return fail(res,429,"account_request_in_progress");
+    const digest=crypto.createHash("sha256").update(JSON.stringify({model:input.model,stage:input.stage,evidence:items,gaps})).digest("hex");
     const [pi,po]=RATES[input.model],maxOutput=maxTokensFor(input.model),attempts=2;
     // Reserve both attempts: a malformed structured response is retried once on the same fixed provider.
     const reserve=Math.ceil(((Buffer.byteLength(text)+Buffer.byteLength(systemFor(input.stage))+8192)*pi+maxOutput*po)/1e6*100*1.2*attempts);
-    const globalSpent=Object.values(state.accounts).filter(r=>r.month===month()).reduce((sum,r)=>sum+r.spentCents,0);
-    if(rec.requests>=limits.maxRequests||rec.spentCents+reserve>limits.maxCostCents||globalSpent+reserve>c.globalCents)return fail(res,429,"quota_exceeded");
-    locks.add(account);rec.requests++;rec.spentCents+=reserve;rec.jobs[input.requestId]={digest,status:"reserved",reservedCents:reserve};
-    try{save();}catch{locks.delete(account);throw new Error("usage_store_failed");}
-    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),c.timeout);
-    const disconnect=()=>{if(!res.writableEnded)controller.abort();};res.on("close",disconnect);active.set(account,controller);
-    try{
+    return await withReservation({account,requestId:input.requestId,digest,reserve,res},async signal=>{
       let parsed,usage={},amount=0,reported=true;
       for(let retry=0;retry<attempts;retry++){
-        const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal:controller.signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
+        const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
           model:input.model,max_tokens:maxOutput,reasoning:reasoningFor(input.model),
           messages:[systemMessage(input.model,input.stage),{role:"user",content:JSON.stringify({stage:input.stage,evidence:items,...(gaps.length?{gaps}:{})})}],
           response_format:{type:"json_schema",json_schema:{name:"lecture_summary",strict:true,schema}},
@@ -127,14 +143,8 @@ function createServer(env=process.env,deps={}){
           break;
         }catch(error){if(retry===attempts-1)throw error;}
       }
-      // Unknown or failed requests keep the full reservation; never assume an unreported request was free.
-      if(reported)rec.spentCents=Math.max(0,rec.spentCents-reserve+Math.ceil(amount*1e6)/1e4);
-      rec.jobs[input.requestId].status="completed";save();
-      send(res,200,{summary:parsed,usage:{...usage,costUsd:reported?amount:reserve/100}});
-    }catch{
-      rec.jobs[input.requestId].status="uncertain";save();
-      fail(res,controller.signal.aborted?504:502,controller.signal.aborted?"request_cancelled_or_timed_out":"provider_failed_or_invalid_output");
-    }finally{clearTimeout(timer);res.removeListener("close",disconnect);locks.delete(account);active.delete(account);}
+      return {amount,reported,payload:{summary:parsed,usage:{...usage,costUsd:reported?amount:reserve/100}}};
+    });
   }
   const server=http.createServer(async(req,res)=>{
     try{
