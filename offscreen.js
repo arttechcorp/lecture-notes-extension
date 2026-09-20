@@ -67,7 +67,9 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
         const source={mandatory:{chromeMediaSource:"tab",chromeMediaSourceId:message.streamId}};
         const stream=await navigator.mediaDevices.getUserMedia({audio:source,video:source});
         await session?.dispose();
-        session=new CaptureSession({id:message.options.sessionId||crypto.randomUUID(),generation:++generation,stream,options:message.options,emit});
+        const config=settingsOf(message.settings);
+        const options={...message.options,serviceUrl:config.serviceUrl,appSessionToken:config.appSessionToken};
+        session=new CaptureSession({id:options.sessionId||crypto.randomUUID(),generation:++generation,stream,options,emit});
         session.publish();await session.start();
         return {ok:true,state:session.state()};
       }finally{starting=false;}
