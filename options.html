@@ -729,6 +729,15 @@
       </label>
       <p class="note">2배속 이상으로 듣는 경우에만 켜세요. 캡처 중 강의 영상의 음정 보정을 끄고 인식 직전에 원래 속도로 되돌립니다. <strong>재생 중 목소리가 높게 들립니다.</strong></p>
     </div>
+
+    <div class="form-field">
+      <label class="check-label">
+        <input type="checkbox" id="visionCb" class="check-input" disabled>
+        <span>고화질 화면 인식 <span class="badge">유료 플랜</span></span>
+      </label>
+      <p class="note" id="visionState" role="status" aria-live="polite">연결을 확인하면 사용 가능 여부를 알려드립니다.</p>
+      <p class="note">수식·표·그래프가 많은 강의에서 켜세요. 기기에서 인식 모델을 돌리지 않아 저사양 노트북에서도 느려지지 않습니다. <strong>켜는 동안 강의 화면이 자체 서비스를 거쳐 인식 모델로 전달됩니다.</strong></p>
+    </div>
   </section>
 
   <dialog id="speedWarn" class="warn-modal" aria-labelledby="speedWarnTitle">
@@ -739,6 +748,18 @@
     <div class="warn-actions">
       <button type="button" id="speedWarnCancel">취소</button>
       <button type="button" id="speedWarnOk" class="primary">이해했고 켜기</button>
+    </div>
+  </dialog>
+
+  <dialog id="visionWarn" class="warn-modal" aria-labelledby="visionWarnTitle">
+    <h2 id="visionWarnTitle">강의 화면을 인식 모델로 보낼까요?</h2>
+    <p>켜는 동안 <strong>강의 슬라이드 화면이 기기 밖으로 나갑니다.</strong> 자체 서비스를 거쳐 인식 모델에 전달되며, 전송 구간은 HTTPS로 보호되지만 모델은 인식하는 순간 화면을 봅니다.</p>
+    <p>화면은 어디에도 저장하지 않습니다. 인식이 끝나면 사라지고, 사용량 기록에는 계정과 비용만 남습니다.</p>
+    <p><strong>비공개 사내 교육 자료나 기밀 강의에는 켜지 마세요.</strong> 끄면 지금처럼 기기 안에서만 인식합니다.</p>
+    <p class="note">음성은 이 설정과 무관하게 항상 기기 안에서만 처리됩니다.</p>
+    <div class="warn-actions">
+      <button type="button" id="visionWarnCancel">취소</button>
+      <button type="button" id="visionWarnOk" class="primary">이해했고 켜기</button>
     </div>
   </dialog>
 

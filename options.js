@@ -19,6 +19,33 @@ function wireSpeedCorrection(initial){
   $('speedWarnCancel')?.addEventListener('click',()=>{modal.close();box.checked=false;});
   modal?.addEventListener('cancel',()=>{box.checked=false;});
 }
+// 유료 여부는 서버만 안다. chrome.storage 는 사용자가 고칠 수 있으므로 여기서 켜진 토글은
+// 의사 표시일 뿐이고, 실제 호출은 /v1/vision 이 계정 features 로 다시 막는다.
+async function wireVision(settings){
+  const box=$('visionCb'),state=$('visionState'),modal=$('visionWarn');
+  if(!box)return;
+  box.checked=settings.ocrEngine==='vision-cloud'&&settings.visionConsent===true;
+  const persist=async on=>{
+    try{await saveSettings({ocrEngine:on?'vision-cloud':'ppocr-v5-wasm',visionConsent:on});notice(on?'고화질 화면 인식을 켰습니다. 다음 캡처부터 적용됩니다.':'고화질 화면 인식을 껐습니다. 기기 안에서만 인식합니다.');}
+    catch(error){box.checked=!on;notice(error.message);}
+  };
+  box.addEventListener('change',()=>{
+    if(!box.checked)return persist(false);
+    if(modal?.showModal)modal.showModal();else persist(true);
+  });
+  $('visionWarnOk')?.addEventListener('click',()=>{modal.close();persist(true);});
+  $('visionWarnCancel')?.addEventListener('click',()=>{modal.close();box.checked=false;});
+  modal?.addEventListener('cancel',()=>{box.checked=false;});
+  if(!settings.serviceUrl||!settings.appSessionToken){state.textContent='서비스 연결을 먼저 설정하세요.';return;}
+  try{
+    const me=await ServiceClient.me({baseUrl:settings.serviceUrl,token:settings.appSessionToken,timeoutMs:15000});
+    const allowed=Array.isArray(me.features)&&me.features.includes('vision');
+    box.disabled=!allowed;
+    state.textContent=allowed?'사용 가능한 플랜입니다.':'유료 플랜에서 사용할 수 있습니다.';
+    // 플랜이 끝났는데 설정만 남아 있으면 세션 시작이 403 으로 죽는다. 조용히 로컬로 되돌린다.
+    if(!allowed&&box.checked){box.checked=false;await saveSettings({ocrEngine:'ppocr-v5-wasm',visionConsent:false});}
+  }catch(error){state.textContent='사용 가능 여부를 확인하지 못했습니다 · '+error.message;}
+}
 function notice(message){$('saved').hidden=false;$('saved').textContent=message;}
 function values(){return Object.fromEntries(fields.map(id=>[id,BOOL_FIELDS.has(id)?$(id).checked:$(id).value]));}
 (async()=>{try{
@@ -26,6 +53,7 @@ function values(){return Object.fromEntries(fields.map(id=>[id,BOOL_FIELDS.has(i
   for(const id of fields)if(BOOL_FIELDS.has(id))$(id).checked=s[id];else $(id).value=s[id];
   for(const [id,key] of AUTO){const el=$(id);if(!el)continue;if(el.type==='checkbox')el.checked=s[key];else el.value=s[key];}
   wireSpeedCorrection(s.speedCorrection===true);
+  await wireVision(s);
 }catch(error){notice(error.message);}})();
 for(const [id,key] of AUTO){
   const el=$(id);
