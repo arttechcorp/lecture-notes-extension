@@ -3,122 +3,51 @@
 <head>
   <meta charset="utf-8">
   <title>노트 서식 미리보기</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Hedvig+Letters+Serif:opsz@12..24&family=Geist+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="lib/vendor/katex/katex.min.css">
+  <!-- 노트 타이포그래피는 제품 패널과 같은 디자인 시스템(#stageDone .note-document)을 그대로 쓴다.
+       iframe이라 부모 CSS가 상속되지 않으므로 같은 파일을 여기서도 읽는다. 중복 정의하지 말 것. -->
+  <link rel="stylesheet" href="landing/product-panel.css">
   <style>
+    /* product-panel.css 가 주지 않는 것만 남긴다: 렌더러 전용 상자(수식·도식), iframe 본문 보정, 인쇄. */
     :root {
-      --bg: #ffffff;
-      --text: #1a1a1e;
-      --sub: #5f6368;
-      --border: #e2e8f0;
-      --code-bg: #f8fafc;
-      --accent: #2563eb;
-      --table-stripe: #f8fafc;
+      --bg: var(--paper);
+      --text: var(--ink);
+      --sub: var(--ash);
+      --border: var(--rule-solid);
+      --code-bg: var(--sunk);
+      --accent: var(--brand);
     }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #181818;
-        --text: #e2e8f0;
-        --sub: #94a3b8;
-        --border: #2e3846;
-        --code-bg: #1f2937;
-        --accent: #60a5fa;
-        --table-stripe: #1e2430;
-      }
-    }
-    * { box-sizing: border-box; }
-    html, body {
-      margin: 0;
-      padding: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans KR', sans-serif;
-      font-size: 13.5px;
-      line-height: 1.68;
+    /* 패널 본문용 body 규칙(flex·여백·배경)을 렌더러 문서에 맞게 되돌린다. */
+    body {
+      display: block;
+      padding: 12px 14px 20px;
+      background: var(--paper);
       word-break: break-word;
     }
-    body {
-      padding: 12px 14px 20px;
-    }
-    #content {
-      display: flow-root;
-    }
-    ::-webkit-scrollbar {
-      width: 6px;
-      height: 6px;
-    }
-    ::-webkit-scrollbar-track {
-      background: transparent;
-    }
-    ::-webkit-scrollbar-thumb {
-      background: var(--border);
-      border-radius: 4px;
-    }
-    ::-webkit-scrollbar-thumb:hover {
-      background: var(--sub);
-    }
-    h1, h2, h3, h4 {
-      color: var(--text);
-      margin-top: 1.25em;
-      margin-bottom: 0.45em;
-      font-weight: 700;
-      line-height: 1.35;
-    }
-    h1 { font-size: 1.38em; border-bottom: 2px solid var(--border); padding-bottom: 6px; }
-    h2 { font-size: 1.18em; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
-    h3 { font-size: 1.05em; }
-    h4 { font-size: 0.98em; }
-    p { margin: 0.6em 0; }
-    ul, ol { padding-left: 22px; margin: 0.6em 0; }
-    li { margin: 0.3em 0; }
-    hr { border: 0; border-top: 1px solid var(--border); margin: 18px 0; }
-    table {
-      border-collapse: collapse;
-      width: 100%;
-      margin: 14px 0;
-      font-size: 12.5px;
-      overflow-x: auto;
-      display: block;
-    }
-    th, td {
+    #stageDone { display: block; }
+    #content { display: flow-root; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--sub); }
+    #stageDone .note-document th,
+    #stageDone .note-document td {
       border: 1px solid var(--border);
-      padding: 7px 11px;
-      text-align: left;
+      text-align: center;
+      vertical-align: middle;
     }
-    th {
+    #stageDone .note-document th {
       background: var(--code-bg);
-      font-weight: 600;
-    }
-    tr:nth-child(even) td {
-      background: var(--table-stripe);
-    }
-    blockquote {
-      margin: 10px 0;
-      padding: 6px 14px;
-      border-left: 3.5px solid var(--accent);
-      background: var(--code-bg);
-      color: var(--sub);
-      border-radius: 0 4px 4px 0;
-    }
-    code {
-      background: var(--code-bg);
-      padding: 2px 5px;
-      border-radius: 4px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: var(--ink);
       font-size: 12px;
-      border: 1px solid var(--border);
+      text-transform: none;
+      letter-spacing: 0;
     }
-    pre {
-      background: var(--code-bg);
-      padding: 10px 12px;
-      border-radius: 6px;
-      overflow-x: auto;
-      border: 1px solid var(--border);
-    }
-    pre code {
-      border: none;
-      padding: 0;
-      background: none;
-    }
+    /* marked 의 GFM 체크박스 항목 — 랜딩 예시의 복습 질문과 같은 모양. */
+    #stageDone .note-document li:has(> input[type="checkbox"]) { list-style: none; }
     .katex-display {
       margin: 14px 0;
       overflow-x: auto;
@@ -130,7 +59,7 @@
       padding: 14px 10px;
       background: var(--code-bg);
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: var(--r-md);
       overflow-x: auto;
       text-align: center;
     }
@@ -150,16 +79,12 @@
       padding: 14px 16px;
       background: var(--code-bg);
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: var(--r-md);
       font-size: 12.5px;
       text-align: left;
     }
-    .workflow-group {
-      margin-bottom: 12px;
-    }
-    .workflow-group:last-child {
-      margin-bottom: 0;
-    }
+    .workflow-group { margin-bottom: 12px; }
+    .workflow-group:last-child { margin-bottom: 0; }
     .workflow-title {
       font-weight: 600;
       color: var(--accent);
@@ -173,50 +98,84 @@
       gap: 8px;
     }
     .workflow-step {
-      background: var(--bg);
+      background: var(--paper);
       border: 1px solid var(--border);
-      border-radius: 6px;
+      border-radius: var(--r-sm);
       padding: 6px 12px;
       font-weight: 500;
       color: var(--text);
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
     }
     .workflow-arrow {
       color: var(--sub);
       font-weight: bold;
       user-select: none;
     }
+    /* 인쇄. 색은 토큰으로만 두고 다크 여부에 따라 값만 갈아끼운다 — 규칙을 두 벌 쓰지 않기 위해서.
+       @page 여백과 본문 여백은 CSS 조건으로 못 나눠서 applyPrintRatio() 가 테마를 보고 만든다. */
     @media print {
-      body {
-        padding: 0 !important;
+      :root {
+        --print-bg: #ffffff;
+        --print-ink: #111827;
+        --print-head: #000000;
+        --print-rule: #999999;
+        --print-th-bg: #f3f4f6;
+        --print-box-bg: #ffffff;
+        --print-box-rule: #dddddd;
+      }
+      :root[data-theme="dark"] {
+        --print-bg: #18181B;
+        --print-ink: #F4F4F5;
+        --print-head: #ffffff;
+        --print-rule: #52525B;
+        --print-th-bg: #27272A;
+        --print-box-bg: #1F1F23;
+        --print-box-rule: #3F3F46;
+      }
+      /* 배경을 실제로 찍으려면 exact 가 필요하다. 없으면 브라우저가 형광펜·표머리 배경을 통째로 빼버린다. */
+      html, body {
         margin: 0 !important;
-        background: #ffffff !important;
-        color: #111827 !important;
+        background: var(--print-bg) !important;
+        color: var(--print-ink) !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
       }
       h1, h2, h3, h4 {
-        color: #000000 !important;
+        color: var(--print-head) !important;
         page-break-after: avoid;
       }
       table, pre, blockquote, .mermaid-box {
         page-break-inside: avoid !important;
       }
-      table {
+      /* 화면에선 표만 가로로 스크롤시키는 래퍼가, 종이에선 넘친 열을 잘라먹는다. */
+      #stageDone .note-document .note-table-scroll { overflow: visible !important; }
+      #stageDone .note-document table {
         border-collapse: collapse !important;
         width: 100% !important;
+        min-width: 0 !important;
         display: table !important;
       }
-      th, td {
-        border: 1px solid #999 !important;
+      /* 화면용 칸 최소 너비(96px)를 그대로 두면 열이 많은 표가 종이 밖으로 나간다. 종이에선 줄바꿈으로 맞춘다. */
+      #stageDone .note-document th,
+      #stageDone .note-document td {
+        min-width: 0 !important;
+        border: 1px solid var(--print-rule) !important;
         padding: 6px 10px !important;
       }
-      th {
-        background-color: #f3f4f6 !important;
-        -webkit-print-color-adjust: exact !important;
-        print-color-adjust: exact !important;
+      #stageDone .note-document th {
+        background-color: var(--print-th-bg) !important;
       }
-      .mermaid-box {
-        background: #ffffff !important;
-        border: 1px solid #ddd !important;
+      #stageDone .note-document mark {
+        background-color: var(--brand-highlight) !important;
+        color: var(--print-ink) !important;
+      }
+      /* 콜아웃 바탕도 exact 없이는 통째로 빠진다. 형광펜과 같은 처리. */
+      #stageDone .note-document blockquote {
+        background-color: var(--brand-subtle) !important;
+        color: var(--print-ink) !important;
+      }
+      .mermaid-box, pre, code {
+        background: var(--print-box-bg) !important;
+        border-color: var(--print-box-rule) !important;
       }
     }
   </style>
@@ -225,16 +184,49 @@
   <script src="lib/vendor/mermaid/mermaid.min.js"></script>
 </head>
 <body>
-  <div id="content"><div class="empty-notice">노트가 완성되면 서식·수식·다이어그램이 여기에 렌더링됩니다.</div></div>
+  <div id="stageDone"><div id="content" class="note-document"><div class="empty-notice">노트가 완성되면 서식·수식·다이어그램이 여기에 렌더링됩니다.</div></div></div>
   <script>
-    if (typeof mermaid !== 'undefined') {
-      mermaid.initialize({
-        startOnLoad: false,
-        theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default',
-        securityLevel: 'loose',
-        fontFamily: 'inherit'
-      });
+    // ==형광펜== — 노트에서 critical 로 표시된 곳(sidepanel.js noteText)만 이 문법으로 온다.
+    // marked 인라인 확장으로 넣어야 코드 펜스 안의 == 를 건드리지 않고, 강조 안의 **굵게** 도 같이 렌더된다.
+    // 여는 == 뒤와 닫는 == 앞의 공백을 막아 `a == b == c` 같은 비교 연산자는 걸리지 않는다.
+    if (typeof marked !== 'undefined' && typeof marked.use === 'function') {
+      marked.use({ extensions: [{
+        name: 'highlight',
+        level: 'inline',
+        start(src) { const i = src.indexOf('=='); return i < 0 ? undefined : i; },
+        tokenizer(src) {
+          const m = /^==(?!\s)([\s\S]+?)(?<!\s)==/.exec(src);
+          if (!m) return;
+          return { type: 'highlight', raw: m[0], tokens: this.lexer.inlineTokens(m[1]) };
+        },
+        renderer(token) { return '<mark>' + this.parser.parseInline(token.tokens) + '</mark>'; }
+      }] });
     }
+
+    // 용지 비율과 테마는 같은 인쇄 스타일을 만든다. 라이트는 @page 여백을, 다크는 본문 여백을 쓴다 —
+    // 다크에서 @page 여백을 남기면 종이 가장자리가 흰 테두리로 남는다(브라우저는 여백에 배경을 찍지 않는다).
+    const PRINT_PAGE = {
+      'a4': { size: 'A4 portrait', margin: '12mm 15mm', body: '11pt', line: '1.6', h1: '18pt', h2: '14pt', h3: '12pt', table: '10pt', cell: '6px 10px' },
+      '16:9': { size: '297mm 167.06mm', margin: '10mm 14mm', body: '10pt', line: '1.55', h1: '16pt', h2: '13pt', h3: '11pt', table: '9.5pt', cell: '5px 8px' },
+    };
+
+    let lastPrintRatio = 'a4';
+
+    // 샌드박스 iframe 은 chrome.storage 를 못 읽는다. 테마는 부모가 메시지에 실어 보낸다(lib/theme.js 의 결과값).
+    function applyTheme(theme) {
+      const dark = theme === 'dark';
+      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      if (typeof mermaid !== 'undefined') {
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: dark ? 'dark' : 'default',
+          securityLevel: 'loose',
+          fontFamily: 'inherit'
+        });
+      }
+      applyPrintRatio(lastPrintRatio); // 인쇄 여백이 테마에 따라 갈린다
+    }
+    applyTheme(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
 
     let renderSeq = 0;
 
@@ -299,6 +291,15 @@
       html = html.replace(/@@MATH_INLINE_(\d+)@@/g, (_, idx) => renderMathSafe(inlineMath[idx] || '', false));
 
       target.innerHTML = html;
+
+      // 좁은 패널에서 표가 넘치면 문서가 아니라 표만 가로로 스크롤되게 한다.
+      // product-panel.css 가 기대하는 래퍼이며, 랜딩 뷰어(note-viewer.js)도 같은 마크업을 만든다.
+      for (const table of target.querySelectorAll('table')) {
+        const wrap = document.createElement('div');
+        wrap.className = 'note-table-scroll';
+        table.replaceWith(wrap);
+        wrap.append(table);
+      }
 
       function escapeHtml(str) {
         return String(str || '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
@@ -447,104 +448,73 @@
     }
 
     function applyPrintRatio(ratio) {
+      lastPrintRatio = ratio === '16:9' ? '16:9' : 'a4';
+      const page = PRINT_PAGE[lastPrintRatio];
+      const dark = document.documentElement.dataset.theme === 'dark';
       let styleEl = document.getElementById('print-ratio-style');
       if (!styleEl) {
         styleEl = document.createElement('style');
         styleEl.id = 'print-ratio-style';
         document.head.appendChild(styleEl);
       }
-      if (ratio === '16:9') {
-        document.documentElement.setAttribute('data-print-ratio', '16-9');
-        styleEl.textContent = `
-          @page {
-            size: 297mm 167.06mm;
-            margin: 10mm 14mm;
+      document.documentElement.setAttribute('data-print-ratio', lastPrintRatio === '16:9' ? '16-9' : 'a4');
+      const wide = lastPrintRatio === '16:9';
+      styleEl.textContent = `
+        @page {
+          size: ${page.size};
+          margin: ${dark ? '0' : page.margin};
+        }
+        @media print {
+          body {
+            padding: ${dark ? page.margin : '0'} !important;
+            font-size: ${page.body} !important;
+            line-height: ${page.line} !important;
           }
-          @media print {
-            body {
-              font-size: 10pt !important;
-              line-height: 1.55 !important;
-            }
-            h1 {
-              font-size: 16pt !important;
-              border-bottom: 2px solid #000 !important;
-              margin-top: 0 !important;
-              padding-bottom: 4px !important;
-            }
-            h2 {
-              font-size: 13pt !important;
-              border-bottom: 1px solid #666 !important;
-              margin-top: 14px !important;
-              padding-bottom: 3px !important;
-            }
-            h3 {
-              font-size: 11pt !important;
-              margin-top: 10px !important;
-            }
-            table {
-              font-size: 9.5pt !important;
-              margin: 8px 0 !important;
-            }
-            th, td {
-              padding: 5px 8px !important;
-            }
-            .katex-display {
-              margin: 8px 0 !important;
-            }
-            .mermaid-box {
-              margin: 10px auto !important;
-              padding: 8px !important;
-              max-height: 105mm !important;
-            }
-            .mermaid-box svg {
-              max-height: 100mm !important;
-              width: auto !important;
-            }
-            pre {
-              font-size: 9pt !important;
-              padding: 6px 10px !important;
-              margin: 8px 0 !important;
-            }
+          h1 {
+            font-size: ${page.h1} !important;
+            border-bottom: 2px solid var(--print-head) !important;
+            margin-top: 0 !important;
+            ${wide ? 'padding-bottom: 4px !important;' : ''}
           }
-        `;
-      } else {
-        document.documentElement.setAttribute('data-print-ratio', 'a4');
-        styleEl.textContent = `
-          @page {
-            size: A4 portrait;
-            margin: 12mm 15mm;
+          h2 {
+            font-size: ${page.h2} !important;
+            border-bottom: 1px solid var(--print-rule) !important;
+            ${wide ? 'margin-top: 14px !important; padding-bottom: 3px !important;' : ''}
           }
-          @media print {
-            body {
-              font-size: 11pt !important;
-              line-height: 1.6 !important;
-            }
-            h1 {
-              font-size: 18pt !important;
-              border-bottom: 2px solid #000 !important;
-              margin-top: 0 !important;
-            }
-            h2 {
-              font-size: 14pt !important;
-              border-bottom: 1px solid #666 !important;
-            }
-            h3 {
-              font-size: 12pt !important;
-            }
-            table {
-              font-size: 10pt !important;
-            }
-            th, td {
-              padding: 6px 10px !important;
-            }
+          h3 {
+            font-size: ${page.h3} !important;
+            ${wide ? 'margin-top: 10px !important;' : ''}
           }
-        `;
-      }
+          table {
+            font-size: ${page.table} !important;
+            ${wide ? 'margin: 8px 0 !important;' : ''}
+          }
+          th, td { padding: ${page.cell} !important; }
+          ${wide ? `
+          .katex-display { margin: 8px 0 !important; }
+          .mermaid-box {
+            margin: 10px auto !important;
+            padding: 8px !important;
+            max-height: 105mm !important;
+          }
+          .mermaid-box svg {
+            max-height: 100mm !important;
+            width: auto !important;
+          }
+          pre {
+            font-size: 9pt !important;
+            padding: 6px 10px !important;
+            margin: 8px 0 !important;
+          }` : ''}
+        }
+      `;
     }
     applyPrintRatio('a4');
 
     window.addEventListener('message', (event) => {
       if (event.data) {
+        if (event.data.theme) applyTheme(event.data.theme);
+        if (event.data.type === 'THEME') return;
         if (event.data.type === 'RENDER') {
           renderMarkdown(event.data.markdown || '');
         } else if (event.data.type === 'PRINT') {

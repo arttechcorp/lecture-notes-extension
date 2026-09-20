@@ -82,3 +82,19 @@ test("끊긴 구간은 받아들이되 모양을 검사한다",async()=>{
       assert.equal((await req(url,"/v1/summary","POST",{...input,requestId:"gap-bad-"+JSON.stringify(bad).length,gaps:[bad]})).status,400,JSON.stringify(bad));
   }finally{await close(server);removeTemp(root);}
 });
+
+test("selectionReason 없는 근거를 받고 Anthropic 요청에만 캐시 중단점을 찍는다",async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),"summrizei-service-test-")),claude="anthropic/claude-haiku-4.5";
+  const bodies=[];
+  const env={...config(root),ALLOWED_MODELS:JSON.stringify([model,claude]),OPENROUTER_PROVIDERS_JSON:JSON.stringify({[model]:["provider-a"],[claude]:["provider-b"]})};
+  const server=createServer(env,{fetch:async(_url,options)=>{bodies.push(JSON.parse(options.body));return provider();}});
+  await new Promise(r=>server.listen(0,"127.0.0.1",r));const url="http://127.0.0.1:"+server.address().port;
+  try{
+    const {selectionReason,...lean}=input.evidence[0];
+    assert.equal((await req(url,"/v1/summary","POST",{...input,requestId:"lean-one",evidence:[lean]})).status,200,"selectionReason 를 뺀 근거가 거절된다");
+    assert.equal(typeof bodies[0].messages[0].content,"string","암묵 캐시 모델의 system 본문이 바뀌었다");
+    assert.equal((await req(url,"/v1/summary","POST",{...input,requestId:"lean-two",model:claude,evidence:[lean]})).status,200);
+    assert.equal(bodies[1].messages[0].content[0].cache_control.type,"ephemeral","Anthropic 요청에 캐시 중단점이 없다");
+    assert.equal((await req(url,"/v1/summary","POST",{...input,requestId:"bad-reason",evidence:[{...lean,selectionReason:"x".repeat(301)}]})).status,400,"과한 selectionReason 이 통과한다");
+  }finally{await close(server);removeTemp(root);}
+});

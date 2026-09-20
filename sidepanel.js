@@ -16,8 +16,16 @@ function format(t){return `${Math.floor((t||0)/60)}:${String(Math.floor((t||0)%6
 function noteText(note){
   if(!note)return'';
   const lines=[`# ${note.title||'구조화 노트'}`,note.message||'',note.notice||''];
-  // importance는 ⭐(제목)로만 표시한다. 줄머리 [핵심] 배지는 사용자 요청으로 제거했다.
-  const bullet=x=>`- ${x.content}`;
+  // importance는 ⭐(제목)와 형광펜(==…==)으로만 표시한다. 줄머리 [핵심] 배지는 사용자 요청으로 제거했다.
+  // critical은 모델 지시상 드물게만 붙는다(openrouter-client.js "Keep critical rare") — 그래서 형광펜이 노트를 뒤덮지 않는다.
+  // 빈 줄이 든 내용은 문단이 갈려 ==가 짝을 잃고 원문에 그대로 남으므로 칠하지 않는다.
+  const highlight=text=>`==${text}==`;
+  const bullet=x=>`- ${x.importance==='critical'&&!/\n\s*\n/.test(x.content)?highlight(x.content):x.content}`;
+  // 핵심 결론은 거의 전부 critical이라 형광펜을 치면 섹션이 통째로 칠해진다. 대신 인용(>)으로 상자를 만들고
+  // 결론 문장은 굵게, 그 아래 detail(자세한 설명)을 붙인다 — 상자 바탕은 product-panel.css 의 blockquote 규칙이 칠한다.
+  // 빈 줄이 든 결론은 문단이 갈려 **가 짝을 잃으므로 굵게 하지 않는다(형광펜과 같은 이유).
+  const quote=text=>text.split('\n').map(line=>`> ${line}`).join('\n');
+  const conclusion=x=>quote(`${/\n\s*\n/.test(x.content)?x.content:`**${x.content}**`}${x.detail?`\n\n${x.detail}`:''}`);
   const heading=x=>`## ${x.heading||'핵심 내용'}${x.importance==='critical'?' ⭐':''}`;
   const formula=f=>`$$${f.latex}$$\n\n${f.explanation}${f.variables?`\n\n변수: ${f.variables}`:''}${f.units?`\n\n단위: ${f.units}`:''}${f.conditions?`\n\n조건: ${f.conditions}`:''}`;
   // 모델이 ```mermaid 펜스를 78% 확률로 빼먹는다 (측정치) — 펜스 없으면 sandbox.html이 도식을 그냥 문단으로 렌더링한다.
@@ -27,8 +35,8 @@ function noteText(note){
   const visual=v=>`### ${v.title}\n\n${v.description}${v.data?`\n\n${fenceIfBareDiagram(v.data)}`:''}`;
   const groups=[['concepts','개념'],['claims','주장'],['definitions','정의'],['relationships','관계'],['examples','예시'],['corrections','정정·예외·불확실'],['openQuestions','남은 질문']];
   const items=groups.flatMap(([field])=>note[field]||[]);
-  const questions=(note.reviewQuestions||note.questions||[]).map(q=>`- ${typeof q==='string'?q:q.question}`);
-  if(note.keyConclusions?.length)lines.push('## 핵심 결론',...note.keyConclusions.map(bullet));
+  const questions=(note.reviewQuestions||note.questions||[]).map(q=>`- [ ] ${typeof q==='string'?q:q.question}`);
+  if(note.keyConclusions?.length)lines.push('## 핵심 결론',...note.keyConclusions.map(conclusion));
   const starts=new Map((note.evidenceRefs||[]).map(ref=>[ref.id,Number(ref.t0)||0]));
   const sections=note.sections||[];
   const at=x=>Math.min(...(x.evidenceIds||[]).map(id=>starts.has(id)?starts.get(id):Number.MAX_SAFE_INTEGER),Number.MAX_SAFE_INTEGER);
@@ -50,7 +58,10 @@ function noteText(note){
   if(questions.length)lines.push('## 복습 질문',...questions);
   return lines.filter(Boolean).join('\n\n');
 }
-function renderNote(note){const text=noteText(note);els.result.value=text;els.result.hidden=true;els.renderFrame.hidden=false;els.renderFrame.contentWindow?.postMessage({type:'RENDER',markdown:text},'*');els.resultHint.textContent=text?'요약은 근거 시각을 포함한 구조화된 내용만 표시합니다.':'인식 결과를 모두 처리한 뒤 노트를 만들 수 있습니다.';if(els.exportRow)els.exportRow.hidden=!text;if(els.pdfBtn)els.pdfBtn.disabled=!text;if(els.notionBtn)els.notionBtn.disabled=!text;}
+// 샌드박스 iframe 은 chrome.storage 를 못 읽으므로 lib/theme.js 가 <html>에 푼 값을 같이 보낸다.
+const postToFrame=message=>els.renderFrame?.contentWindow?.postMessage({...message,theme:document.documentElement.dataset.theme},'*');
+globalThis.MutationObserver&&new MutationObserver(()=>postToFrame({type:'THEME'})).observe(document.documentElement,{attributeFilter:['data-theme']});
+function renderNote(note){const text=noteText(note);els.result.value=text;els.result.hidden=true;els.renderFrame.hidden=false;postToFrame({type:'RENDER',markdown:text});els.resultHint.textContent=text?'요약은 근거 시각을 포함한 구조화된 내용만 표시합니다.':'인식 결과를 모두 처리한 뒤 노트를 만들 수 있습니다.';if(els.exportRow)els.exportRow.hidden=!text;if(els.pdfBtn)els.pdfBtn.disabled=!text;if(els.notionBtn)els.notionBtn.disabled=!text;}
 function setRow(mark,val,kind,text){if(!mark||!val)return;mark.className='mark'+(kind==='off'?' off':kind==='warn'?' warn':'');mark.textContent=kind==='ok'?'✓':kind==='warn'?'!':'';val.textContent=text;}
 function updateReadyCard(){if(!settings)return;setRow(els.markEngine,els.engineBanner,els.ocrEnabledToggle?.checked===false?'off':'ok',els.ocrEnabledToggle?.checked===false?'꺼짐':'PP-OCRv5 한국어 (WASM)');setRow(els.markVoice,els.voiceState,settings.whisperEnabled?'ok':'off',settings.whisperEnabled?`Whisper ${settings.whisperModel==='base-wasm'?'Base 저사양 · WASM':'Small q8/q4 · WebGPU'} (로컬)`:'꺼짐');const tabOpt=els.tabSelect?.selectedOptions?.[0];setRow(els.markTab,els.tabState,tabOpt?'ok':'warn',tabOpt?tabOpt.textContent:'선택된 탭 없음');const isRegion=els.modeSelect.value==='region';if(els.cropRow)els.cropRow.style.display=isRegion?'flex':'none';if(!isRegion&&els.cropWrap)els.cropWrap.style.display='none';if(els.cropField)els.cropField.hidden=els.ocrEnabledToggle?.checked===false;let modeDesc='영상 전체';if(els.modeSelect.value==='caption')modeDesc='하단 자막 띠';else if(isRegion)modeDesc=cropRect?`영역 지정 (${Math.round(cropRect.w*100)}%×${Math.round(cropRect.h*100)}%)`:'영역 지정 (슬라이드)';if(els.settingsSummary)els.settingsSummary.textContent=`${modeDesc} · ${{auto:'자동 감지(한국어 우선)',ko:'한국어',en:'영어'}[settings.whisperLang]||'한국어'}`;}
 // One indicator for both waits the user actually has to sit through: summarising, and the recognition backlog
@@ -88,7 +99,7 @@ function updatePdfRatioUI() {
 $('pdfRatioA4')?.addEventListener('click', () => { currentPdfRatio = 'a4'; try { localStorage.setItem('lecture_notes_pdf_ratio', 'a4'); }catch(e){} updatePdfRatioUI(); });
 $('pdfRatio169')?.addEventListener('click', () => { currentPdfRatio = '16:9'; try { localStorage.setItem('lecture_notes_pdf_ratio', '16:9'); }catch(e){} updatePdfRatioUI(); });
 updatePdfRatioUI();
-if(els.pdfBtn)els.pdfBtn.addEventListener('click',()=>{if(!els.result.value)return;els.renderFrame.hidden=false;els.result.hidden=true;const ratioLabel=currentPdfRatio==='16:9'?'16:9 (PPT·굿노트)':'A4';setStatus(`${ratioLabel} 비율로 PDF 인쇄 대화상자를 준비하는 중입니다...`);els.renderFrame.contentWindow?.postMessage({type:'PRINT',markdown:els.result.value,ratio:currentPdfRatio},'*');});
+if(els.pdfBtn)els.pdfBtn.addEventListener('click',()=>{if(!els.result.value)return;els.renderFrame.hidden=false;els.result.hidden=true;const ratioLabel=currentPdfRatio==='16:9'?'16:9 (PPT·굿노트)':'A4';setStatus(`${ratioLabel} 비율로 PDF 인쇄 대화상자를 준비하는 중입니다...`);postToFrame({type:'PRINT',markdown:els.result.value,ratio:currentPdfRatio});});
 if(els.notionBtn)els.notionBtn.addEventListener('click',async()=>{const text=els.result.value;if(!text)return;try{await navigator.clipboard.writeText(text);}catch(error){setStatus(`복사 실패: ${error.message||error}`);return;}setStatus('복사 완료! 이제 노션에 붙여넣으세요.');if(els.notionModal?.showModal)els.notionModal.showModal();});
 if(els.notionModalClose)els.notionModalClose.addEventListener('click',()=>els.notionModal.close());
 if(els.notionModal)els.notionModal.addEventListener('click',event=>{if(event.target===els.notionModal)els.notionModal.close();});
