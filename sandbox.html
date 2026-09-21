@@ -143,7 +143,7 @@
         color: var(--print-head) !important;
         page-break-after: avoid;
       }
-      table, pre, blockquote, .mermaid-box {
+      table, pre, blockquote, .mermaid-box, .note-figure {
         page-break-inside: avoid !important;
       }
       /* 화면에선 표만 가로로 스크롤시키는 래퍼가, 종이에선 넘친 열을 잘라먹는다. */
@@ -182,6 +182,7 @@
   <script src="lib/vendor/marked.min.js"></script>
   <script src="lib/vendor/katex/katex.min.js"></script>
   <script src="lib/vendor/mermaid/mermaid.min.js"></script>
+  <script src="lib/svg-figure.js"></script>
 </head>
 <body>
   <div id="stageDone"><div id="content" class="note-document"><div class="empty-notice">노트가 완성되면 서식·수식·다이어그램이 여기에 렌더링됩니다.</div></div></div>
@@ -250,6 +251,21 @@
         return '<div class="mermaid-box" id="mermaid-wrap-' + idx + '"></div>';
       });
 
+      // 1.5 인라인 SVG 추출 — marked 가 보기 전에 떼어내 정화한 뒤 자리표시자로 바꾼다.
+      // 정화에 실패하면 그림을 버린다(설명 문단은 마크다운에 이미 들어 있다).
+      const figureBlocks = [];
+      sanitized = sanitized.replace(/<svg[\s\S]*?<\/svg>/gi, raw => {
+        const result = (typeof SvgFigure !== 'undefined') ? SvgFigure.sanitizeSvgFigure(raw) : { ok: false };
+        if (!result.ok) return '';
+        const idx = figureBlocks.length;
+        figureBlocks.push(result);
+        return '<div class="note-figure" data-bg="' + result.background + '" id="figure-wrap-' + idx + '"></div>';
+      });
+      // 짝이 맞지 않는 <svg (자체닫힘이거나 닫는 태그가 잘린 경우) 는 위 정규식이 못 잡는다.
+      // marked 는 HTML을 거르지 않으므로 그대로 두면 정화되지 않은 SVG가 innerHTML로 들어간다 —
+      // 파싱할 수 없는 조각은 그림을 버린 것으로 치고 통째로 지운다.
+      sanitized = sanitized.replace(/<svg[^]*/gi, '');
+
       // 2. Display Math ($$ ... $$) 플레이스홀더 변환
       const displayMath = [];
       const displayMathRegex = new RegExp('\\$\\$\\s*([\\s\\S]*?)\\s*\\$\\$', 'g');
@@ -291,6 +307,12 @@
       html = html.replace(/@@MATH_INLINE_(\d+)@@/g, (_, idx) => renderMathSafe(inlineMath[idx] || '', false));
 
       target.innerHTML = html;
+
+      // 정화된 SVG 를 자리표시자에 넣는다. sanitizeSvgFigure 가 이미 허용 목록으로 걸렀다.
+      for (let i = 0; i < figureBlocks.length; i++) {
+        const host = document.getElementById('figure-wrap-' + i);
+        if (host) host.innerHTML = figureBlocks[i].svg;
+      }
 
       // 좁은 패널에서 표가 넘치면 문서가 아니라 표만 가로로 스크롤되게 한다.
       // product-panel.css 가 기대하는 래퍼이며, 랜딩 뷰어(note-viewer.js)도 같은 마크업을 만든다.

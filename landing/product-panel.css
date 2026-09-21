@@ -805,6 +805,12 @@
     background: var(--brand-highlight);
     color: inherit;
   }
+  /* 모델이 그린 그림. 배경이 없는 SVG 에만 data-bg 로 카드를 깔고, 자체 배경이 있으면
+     (data-bg="own") 모델 팔레트를 그대로 둔다. */
+  .note-figure { margin: 16px 0; border-radius: var(--r-md); overflow: hidden; }
+  .note-figure[data-bg="dark"] { background: #09090B; padding: 12px; }
+  .note-figure[data-bg="light"] { background: #ffffff; padding: 12px; }
+  .note-figure svg { display: block; width: 100%; height: auto; }
   #stageDone .note-document hr {
     margin: 1.7em 0;
     border: 0;
