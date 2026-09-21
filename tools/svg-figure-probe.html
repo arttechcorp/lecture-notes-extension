@@ -10,7 +10,7 @@
     .fail { color: #b91c1c; font-weight: 700; }
     .box { padding: 12px; border-radius: 8px; }
     .box.dark { background: #09090B; }
-    .box.light, .box.own, .box.theme { background: #fff; }
+    .box.light, .box.own { background: #fff; }
     .box svg { max-width: 100%; height: auto; display: block; }
     #summary { position: sticky; top: 0; background: #FF5600; color: #fff; padding: 10px 14px; border-radius: 8px; font-weight: 700; }
   </style>
@@ -23,7 +23,7 @@
   <script>
     const out = document.getElementById("out");
     let ok = 0, failed = 0;
-    const counts = { own: 0, dark: 0, light: 0, theme: 0 };
+    const counts = { own: 0, dark: 0, light: 0 };
     for (const item of window.SVG_FIGURE_CASES) {
       const result = SvgFigure.sanitizeSvgFigure(item.svg);
       const card = document.createElement("div");
@@ -42,7 +42,7 @@
       out.append(card);
     }
     document.getElementById("summary").textContent =
-      `총 ${window.SVG_FIGURE_CASES.length} · 파싱성공 ${ok} · 실패 ${failed} · 배경(자체 ${counts.own} / 어두운카드 ${counts.dark} / 밝은카드 ${counts.light} / 테마 ${counts.theme})`;
+      `총 ${window.SVG_FIGURE_CASES.length} · 파싱성공 ${ok} · 실패 ${failed} · 배경(자체 ${counts.own} / 어두운카드 ${counts.dark} / 밝은카드 ${counts.light})`;
   </script>
 </body>
 </html>
