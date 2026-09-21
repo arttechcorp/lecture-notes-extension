@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>SVG figure 정화 프로브</title>
+  <style>
+    body { font: 14px/1.6 system-ui, sans-serif; margin: 24px; background: #F7F7F4; color: #18181B; }
+    .case { border: 1px solid #E4E4E7; border-radius: 10px; padding: 12px; margin: 16px 0; background: #fff; }
+    .meta { font: 12px ui-monospace, monospace; color: #71717A; margin-bottom: 8px; }
+    .fail { color: #b91c1c; font-weight: 700; }
+    .box { padding: 12px; border-radius: 8px; }
+    .box.dark { background: #09090B; }
+    .box.light, .box.own, .box.theme { background: #fff; }
+    .box svg { max-width: 100%; height: auto; display: block; }
+    #summary { position: sticky; top: 0; background: #FF5600; color: #fff; padding: 10px 14px; border-radius: 8px; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <div id="summary">실행 중…</div>
+  <div id="out"></div>
+  <script src="../lib/svg-figure.js"></script>
+  <script src="svg-figure-cases.js"></script>
+  <script>
+    const out = document.getElementById("out");
+    let ok = 0, failed = 0;
+    const counts = { own: 0, dark: 0, light: 0, theme: 0 };
+    for (const item of window.SVG_FIGURE_CASES) {
+      const result = SvgFigure.sanitizeSvgFigure(item.svg);
+      const card = document.createElement("div");
+      card.className = "case";
+      const meta = document.createElement("div");
+      meta.className = "meta" + (result.ok ? "" : " fail");
+      meta.textContent = `${item.name} · ${result.ok ? "OK" : "PARSE FAIL"} · 배경:${result.background} · 잘라냄:${result.dropped.join(",") || "없음"}`;
+      card.append(meta);
+      if (result.ok) {
+        ok++; counts[result.background]++;
+        const box = document.createElement("div");
+        box.className = "box " + result.background;
+        box.innerHTML = result.svg;
+        card.append(box);
+      } else failed++;
+      out.append(card);
+    }
+    document.getElementById("summary").textContent =
+      `총 ${window.SVG_FIGURE_CASES.length} · 파싱성공 ${ok} · 실패 ${failed} · 배경(자체 ${counts.own} / 어두운카드 ${counts.dark} / 밝은카드 ${counts.light} / 테마 ${counts.theme})`;
+  </script>
+</body>
+</html>
