@@ -32,7 +32,10 @@ function noteText(note){
   // gemini-2.5-flash-lite가 지시어 줄을 통째로 따옴표로 감싸 내보낸다("flowchart TD") — 앞의 " 또는 '는 무시하고 키워드를 찾는다.
   const diagramKeywordRe=/^["']?(flowchart|graph|sequenceDiagram|classDiagram|stateDiagram(-v2)?|erDiagram|mindmap|journey|gantt|pie)\b/;
   const fenceIfBareDiagram=d=>d&&!d.includes('```')&&diagramKeywordRe.test(d.trim())?`\`\`\`mermaid\n${d.trim()}\n\`\`\``:d;
-  const visual=v=>`### ${v.title}\n\n${v.description}${v.data?`\n\n${fenceIfBareDiagram(v.data)}`:''}`;
+  // figure 는 모델이 그린 인라인 SVG 다. 마크다운에는 원문 그대로 넣고, 정화는 sandbox.html 이
+  // lib/svg-figure.js 로 한다 — 편집 탭의 canonical 마크다운은 손대지 않은 원본을 유지한다.
+  const inferredNotice='*(강의 화면에 없던 연결은 표준 구성으로 채웠습니다)*';
+  const visual=v=>`### ${v.title}\n\n${v.inferred?`${inferredNotice}\n\n`:''}${v.description}${v.data?`\n\n${v.type==='figure'?v.data:fenceIfBareDiagram(v.data)}`:''}`;
   const groups=[['concepts','개념'],['claims','주장'],['definitions','정의'],['relationships','관계'],['examples','예시'],['corrections','정정·예외·불확실'],['openQuestions','남은 질문']];
   const items=groups.flatMap(([field])=>note[field]||[]);
   const questions=(note.reviewQuestions||note.questions||[]).map(q=>`- [ ] ${typeof q==='string'?q:q.question}`);
