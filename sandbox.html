@@ -251,19 +251,39 @@
         return '<div class="mermaid-box" id="mermaid-wrap-' + idx + '"></div>';
       });
 
+      // 1.4 나머지 코드펜스를 SVG 추출보다 먼저 자리표시자로 바꾼다. mermaid 펜스는 위에서
+      // 이미 소비됐으니 남은 건 전부 ```html 같은 코드 예시다 — 이걸 그대로 두면 예시 안의
+      // <svg>...</svg> 를 진짜 그림으로 오인해 뽑아버리고 marked 가 자리표시자를 이스케이프해
+      // 코드 블록이 깨진다. marked.parse 직전에 복원한다(아래 4단계 전).
+      const codeBlocks = [];
+      const fenceRegex = new RegExp(codeFence + '[\\s\\S]*?' + codeFence, 'g');
+      sanitized = sanitized.replace(fenceRegex, raw => {
+        const idx = codeBlocks.length;
+        codeBlocks.push(raw);
+        return '@@CODE_FENCE_' + idx + '@@';
+      });
+
       // 1.5 인라인 SVG 추출 — marked 가 보기 전에 떼어내 정화한 뒤 자리표시자로 바꾼다.
       // 정화에 실패하면 그림을 버린다(설명 문단은 마크다운에 이미 들어 있다).
       const figureBlocks = [];
-      sanitized = sanitized.replace(/<svg[\s\S]*?<\/svg>/gi, raw => {
+      const extractFigure = raw => {
         const result = (typeof SvgFigure !== 'undefined') ? SvgFigure.sanitizeSvgFigure(raw) : { ok: false };
         if (!result.ok) return '';
         const idx = figureBlocks.length;
         figureBlocks.push(result);
         return '<div class="note-figure" data-bg="' + result.background + '" id="figure-wrap-' + idx + '"></div>';
-      });
-      // 짝이 맞지 않는 <svg (자체닫힘이거나 닫는 태그가 잘린 경우) 는 위 정규식이 못 잡는다.
-      // marked 는 HTML을 거르지 않으므로 그대로 두면 정화되지 않은 SVG가 innerHTML로 들어간다 —
-      // 파싱할 수 없는 조각은 그림을 버린 것으로 치고 통째로 지운다.
+      };
+      sanitized = sanitized.replace(/<svg[\s\S]*?<\/svg>/gi, extractFigure);
+      // 자체닫힘 <svg .../> 는 유효한 XML 이라 sanitizeSvgFigure 가 그대로 파싱할 수 있다.
+      // 위 페어드 정규식은 </svg> 를 요구해 이 형태를 못 잡으므로 별도 패턴으로 같은 경로를 태운다 —
+      // 이걸 먼저 걷어가야 아래 해머에 걸리는 조각이 "정말로 망가진" 것만 남는다.
+      sanitized = sanitized.replace(/<svg\b[^>]*\/>/gi, extractFigure);
+      // 짝도 자체닫힘도 아닌 <svg (닫는 태그가 잘린 경우) 는 위 두 패턴이 다 못 잡는다.
+      // ponytail: 여기서부터 문서 끝까지 통째로 지운다 — blast radius 는 이 조각 뒤의 노트
+      // 전체다. <svg 여는 태그만 지우고 자식은 남기는 대안을 고려했지만, 그러면
+      // <svg><img src=x onerror=alert(1)> 같은 페이로드의 <img> 가 살아서 innerHTML 에
+      // 들어간다 — 보안이 반경보다 우선이라 좁히지 않는다. 위 두 패턴이 흔한 모양(페어드·
+      // 자체닫힘)을 먼저 걷어가므로, 실사용에서 여기 걸리는 빈도 자체가 낮아야 한다.
       sanitized = sanitized.replace(/<svg[^]*/gi, '');
 
       // 2. Display Math ($$ ... $$) 플레이스홀더 변환
@@ -288,6 +308,9 @@
         inlineMath.push(math.trim());
         return '@@MATH_INLINE_' + idx + '@@';
       });
+
+      // 3.5 코드펜스 복원 — 1.4 에서 SVG 추출을 피하려고 감춘 자리표시자를 marked 가 보기 직전에 되돌린다.
+      sanitized = sanitized.replace(/@@CODE_FENCE_(\d+)@@/g, (_, idx) => codeBlocks[idx] || '');
 
       // 4. Marked 마크다운 파싱
       let html = marked.parse(sanitized);
