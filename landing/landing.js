@@ -3,7 +3,7 @@
   const plans = {
     free: { name: 'Free', type: '원문 시각순 타임라인', example: 'free' },
     essential: { name: 'Essential', type: '핵심 요약', example: 'basic' },
-    professional: { name: 'Professional', type: '상세 노트', example: 'premium' },
+    professional: { name: 'Pro', type: '상세 노트', example: 'premium' },
   };
   const studentToggle = document.getElementById('studentToggle');
   const sample = document.getElementById('sampleDialog');
@@ -30,8 +30,9 @@
     const plan = plans[planId];
     const label = document.getElementById('reservePlan');
     label.hidden = !plan;
-    if (plan) label.textContent = plan.name + ' 플랜으로 예약';
-    reserveForm.dataset.plan = plan?.name ?? '';
+    const planName = planId === 'essential' && studentToggle?.getAttribute('aria-pressed') === 'true' ? 'Essential 학생가' : plan?.name;
+    if (plan) label.textContent = planName + ' 관심 플랜 · 첫 달 무료 혜택은 Essential에 적용';
+    reserveForm.dataset.plan = planName ?? '';
     document.getElementById('reserveStatus').textContent = '';
     reserve.showModal();
   }
@@ -125,7 +126,7 @@
     studentToggle.setAttribute('aria-pressed', String(on));
     studentToggle.textContent = on ? '일반 요금 보기' : '학생이신가요?';
     for (const price of document.querySelectorAll('.price[data-student]')) {
-      price.firstChild.textContent = '$' + price.dataset[on ? 'student' : 'price'];
+      price.firstChild.textContent = Number(price.dataset[on ? 'student' : 'price']).toLocaleString('ko-KR') + '원';
     }
     // 배지와 CTA 문구도 함께 바꿔 학생 요금이 적용된 상태를 카드에서 읽히게 한다.
     for (const label of document.querySelectorAll('[data-student-label]')) {
