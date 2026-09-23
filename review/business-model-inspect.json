@@ -1,0 +1,27 @@
+{
+  "recordCount": 31,
+  "truncated": false,
+  "metadata": {
+    "revision": "zfk63y",
+    "target": {
+      "id": "wb/5ezwqe",
+      "beforeLines": 0,
+      "afterLines": 0
+    },
+    "kind": {
+      "requested": "region,formula,drawing",
+      "tokens": [
+        "region",
+        "formula",
+        "drawing"
+      ]
+    },
+    "include": {
+      "tokens": []
+    },
+    "exclude": {
+      "tokens": []
+    },
+    "notices": []
+  }
+}

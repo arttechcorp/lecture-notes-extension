@@ -147,7 +147,7 @@ dialog { overscroll-behavior: contain; overflow: auto; padding-bottom: env(safe-
 
 /* 예약 완료 페이지 */
 .thanks-main { min-height: 100dvh; display: flex; flex-direction: column; }
-.thanks-body { flex: 1; display: flex; align-items: center; justify-content: center; padding: 48px 0 80px; }
+.thanks-body { flex: 1; display: flex; align-items: center; justify-content: center; padding: 48px 32px 80px; }
 .thanks-card { max-width: 560px; width: 100%; text-align: center; }
 .thanks-check { width: 56px; height: 56px; margin: 0 auto 24px; border-radius: 50%; background: var(--ink); color: var(--paper); display: flex; align-items: center; justify-content: center; font-size: 26px; }
 .thanks-card h1 { font-size: clamp(28px, 4vw, 40px); font-weight: 600; letter-spacing: -.02em; margin-bottom: 14px; }
@@ -160,7 +160,7 @@ dialog { overscroll-behavior: contain; overflow: auto; padding-bottom: env(safe-
 .thanks-actions .button { width: 100%; max-width: 320px; }
 .thanks-share-status { font-size: 12px; color: var(--muted); min-height: 1em; }
 @media (max-width: 760px) {
-  .thanks-body { padding: 32px 0 56px; }
+  .thanks-body { padding: 32px 20px 56px; }
 }
 @media (max-width: 760px) {
   .source-panel, .plan, .footer-top > * { min-width: 0; }
@@ -319,3 +319,22 @@ dialog { overscroll-behavior: contain; overflow: auto; padding-bottom: env(safe-
 @media(prefers-reduced-motion:reduce){
   #preview [data-evidence].is-highlighted,#preview .lecture-pointer,#preview .loss-boundary,#preview .loss-w,#preview .loss-w-head,#preview .loss-miss-ring{transition:none}
 }
+
+/* Launch offer: muted conditions retain readable contrast on the warm canvas. */
+.offer-terms{font-size:12px;line-height:1.75;color:#6b6b73;font-weight:400}
+.offer-headline{font-size:16px;line-height:1.6}.offer-headline strong{font-weight:600}
+.hero-actions.offer-hero{gap:12px}.offer-hero .offer-headline{padding:6px 12px;background:var(--accent-soft);border-radius:9999px}
+.plan-student-price{font-size:12px;color:var(--muted);margin-top:10px}.plan-student-price strong{color:var(--ink);font-weight:500}
+.plan-offer{font-size:13px;font-weight:500;margin-top:12px}.plan-offer-note{margin-top:10px}.pricing-terms{margin-top:20px;max-width:920px}
+.offer-grid{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--line);border-left:1px solid var(--line)}
+.offer-cell{padding:28px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);background:rgba(255,255,255,.3)}
+.offer-cell h3{font-size:23px;line-height:1.45;margin:12px 0 18px;font-weight:500}.offer-cell h3 strong{font-weight:600}
+.offer-cell>p:not(.eyebrow):not(.offer-terms){font-size:14px}.offer-cell .offer-terms{margin-top:16px}
+.invite-asset{display:block;width:100%;max-width:480px;height:auto;margin:16px 0 22px}
+.reserve-offer{border-block:1px solid var(--line);padding:16px 0;margin:12px 0 22px}.reserve-offer>p+p{margin-top:8px}
+.thanks-offer,.thanks-referral{text-align:left;border-top:1px solid var(--line);padding-top:24px;margin-top:24px}
+.thanks-offer h2,.thanks-referral h2{font-size:22px;line-height:1.45;margin:8px 0 12px;font-weight:600}
+.thanks-referral>p:not(.eyebrow):not(.offer-terms){font-size:14px}.thanks-referral .offer-terms{margin-top:12px}
+.referral-pending{margin-top:16px;font-weight:500}.thanks-actions>.offer-terms{flex-basis:100%}
+@media(max-width:760px){.offer-grid{grid-template-columns:1fr}.offer-cell{padding:24px 20px}.offer-headline{font-size:14px}.offer-hero .offer-headline{border-radius:10px}.offer-cell h3{font-size:21px}}
+.hero-stacked .hero-actions.offer-hero{flex-direction:column;gap:12px}
