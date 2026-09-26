@@ -161,6 +161,30 @@
   }
 })();
 
+// STUDY TOGETHER: coupon slides in, friends pop, +1개월 stamps — once, on view.
+(() => {
+  const grid = document.querySelector('#invite-benefits .offer-grid');
+  if (grid && 'IntersectionObserver' in window && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    grid.classList.add('inv-ready');
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) { grid.classList.add('inv-on'); io.disconnect(); }
+    }, { threshold: 0.4 });
+    io.observe(grid);
+  }
+})();
+
+// PDF mockup: pen marks draw once when the card scrolls into view.
+(() => {
+  const pdfCard = document.querySelector('.pdf-card');
+  if (pdfCard && 'IntersectionObserver' in window && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    pdfCard.classList.add('ink-ready');
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) { pdfCard.classList.add('is-inked'); io.disconnect(); }
+    }, { threshold: 0.6 });
+    io.observe(pdfCard);
+  }
+})();
+
 // Six-second, silent sample scene on a loop; independent of the real lecture capture and hero demo.
 (() => {
   const player = document.getElementById('lecturePlayer');

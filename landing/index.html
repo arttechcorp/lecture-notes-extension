@@ -28,8 +28,8 @@
 <link rel="preconnect" href="https://cdnjs.cloudflare.com">
 <link href="https://fonts.googleapis.com/css2?family=Hedvig+Letters+Serif:opsz@12..24&family=Geist+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script>if(!matchMedia('(prefers-reduced-motion: reduce), (max-width: 760px)').matches){var h=document.documentElement;h.classList.add('gsap-enter');setTimeout(function(){h.classList.remove('gsap-enter')},2000)}</script>
-<link rel="stylesheet" href="landing.css?v=20260923-offer">
-<link rel="stylesheet" href="hero-mockup.css?v=20260919-mobile-fix">
+<link rel="stylesheet" href="landing.css?v=20260926-ad2">
+<link rel="stylesheet" href="hero-mockup.css?v=20260926-rec">
 <script type="application/ld+json">
 {"@context":"https://schema.org","@graph":[{"@type":"SoftwareApplication","name":"Summrizei","applicationCategory":"BrowserApplication","operatingSystem":"Any","browserRequirements":"Requires Chrome","url":"https://summrizei.vercel.app/","description":"Summrizei는 대학 강의 플랫폼, Zoom·Google Meet·YouTube 등 크롬 탭의 동영상·실시간 강의 화면과 음성을 함께 인식해 요약 노트로 정리합니다. PDF로 내보내 Goodnotes·Notability 등 쓰던 노트앱에서 바로 복습하세요.","screenshot":"https://summrizei.vercel.app/images/og.png","featureList":"동영상·실시간 강의 화면+음성 인식, 개념별 요약 노트, PDF 내보내기, 노트앱에서 복습","author":{"@id":"https://summrizei.vercel.app/#org"},"offers":[{"@type":"Offer","name":"Free","price":"0","priceCurrency":"KRW"},{"@type":"Offer","name":"Essential","price":"21900","priceCurrency":"KRW"},{"@type":"Offer","name":"Pro","price":"28900","priceCurrency":"KRW"}]},{"@type":"Organization","@id":"https://summrizei.vercel.app/#org","name":"Summrizei","url":"https://summrizei.vercel.app/","email":"jihwanbu26@gmail.com","logo":"https://summrizei.vercel.app/images/apple-touch-icon.png"}]}
 </script>
@@ -42,12 +42,12 @@
 <main id="main">
 <section class="hero hero-stacked wrap">
   <div class="hero-copy">
-    <p class="eyebrow">LESS TRANSCRIBING. MORE UNDERSTANDING.</p>
+    <p class="hero-hook">다음주가 <mark>퀴즈</mark>인데<br class="hook-br"> 아직 <mark>동강</mark> 하나도 안 들었다면?</p>
     <h1>온라인 강의 딸깍.</h1>
     <p class="lead">영상 다운로드 없이<br>동영상/실시간 강의의 요약 노트를 내가 쓰던 노트앱으로.</p>
     <div class="hero-actions offer-hero">
-      <p class="offer-headline">사전예약하면, <strong>출시 후 첫 달 무료</strong></p>
-      <button class="button dark" data-reserve>첫 달 무료 혜택 예약하기</button>
+      <button class="button dark cta-reserve" data-reserve>사전예약하기<span class="cta-badge">출시 후 첫 달 무료</span></button>
+      <p class="micro hero-platform"><span>PC 크롬 확장 프로그램 ·</span> <span>모바일에서도 사전예약할 수 있어요</span></p>
     </div>
   </div>
   <!-- 시연 전용 2단계 데이터. 제품과 같은 product-panel.css를 사용하며 실제 캡처·녹음은 실행하지 않는다. -->
@@ -73,8 +73,8 @@
               <div class="lecture-slide" data-slide="0">
                 <div class="lecture-title">Comparing projects using NPV and IRR</div>
                 <p class="lecture-subtitle">Net Present Value (NPV) and Internal Rate of Return (IRR)</p>
-                <table class="lecture-table"><thead><tr><th></th><th>Year 0</th><th>Year 1</th><th>Year 2</th><th>Year 3</th><th>Year 4</th></tr></thead><tbody><tr><th>Project A</th><td>($1000)</td><td>$400</td><td>$400</td><td>$400</td><td>$400</td></tr><tr><th>Project B</th><td>($1000)</td><td>$600</td><td>$500</td><td>$300</td><td>$200</td></tr><tr><th>Project C</th><td>($1000)</td><td>$200</td><td>$300</td><td>$500</td><td>$600</td></tr></tbody></table>
-                <div class="lecture-equations"><div class="lecture-eq-title">NPV and IRR</div><p>Project A NPV @ 20% WACC = <b>$35</b> / IRR 22%</p><p>Project B NPV @ 20% WACC = <b>$117</b> / IRR 27%</p><p>Project C NPV @ 20% WACC = <b>($46)</b> / IRR 18%</p></div>
+                <table class="lecture-table" data-rec="표" style="--rd:.35s"><thead><tr><th></th><th>Year 0</th><th>Year 1</th><th>Year 2</th><th>Year 3</th><th>Year 4</th></tr></thead><tbody><tr><th>Project A</th><td>($1000)</td><td>$400</td><td>$400</td><td>$400</td><td>$400</td></tr><tr><th>Project B</th><td>($1000)</td><td>$600</td><td>$500</td><td>$300</td><td>$200</td></tr><tr><th>Project C</th><td>($1000)</td><td>$200</td><td>$300</td><td>$500</td><td>$600</td></tr></tbody></table>
+                <div class="lecture-equations" data-rec="수식" style="--rd:.55s"><div class="lecture-eq-title">NPV and IRR</div><p>Project A NPV @ 20% WACC = <b>$35</b> / IRR 22%</p><p>Project B NPV @ 20% WACC = <b data-rec="숫자" style="--rd:.75s">$117</b> / IRR 27%</p><p>Project C NPV @ 20% WACC = <b>($46)</b> / IRR 18%</p></div>
                 <span class="lecture-page">12</span>
                 <svg class="lecture-ink" viewBox="0 0 960 540" aria-hidden="true">
                   <title>NPV measures value in dollars; IRR measures a percentage return.</title>
@@ -103,8 +103,8 @@
               <div class="lecture-slide" data-slide="1" hidden>
                 <div class="lecture-title">Why the timing of cash flows matters</div>
                 <p class="lecture-subtitle">Same initial investment. Different timing. Different value.</p>
-                <table class="lecture-table"><thead><tr><th></th><th>Year 1</th><th>Year 2</th><th>Year 3</th><th>Year 4</th></tr></thead><tbody><tr class="lecture-highlight"><th>Project B</th><td>$600</td><td>$500</td><td>$300</td><td>$200</td></tr><tr><th>Project C</th><td>$200</td><td>$300</td><td>$500</td><td>$600</td></tr></tbody></table>
-                <div class="lecture-equations"><div class="lecture-eq-title">Present value at a 20% discount rate</div><p>Earlier cash flows have a higher present value.</p><p>NPV (B) = <b>$117</b> &gt; NPV (C) = <b>−$46</b></p></div>
+                <table class="lecture-table" data-rec="표" style="--rd:.35s"><thead><tr><th></th><th>Year 1</th><th>Year 2</th><th>Year 3</th><th>Year 4</th></tr></thead><tbody><tr class="lecture-highlight"><th>Project B</th><td>$600</td><td>$500</td><td>$300</td><td>$200</td></tr><tr><th>Project C</th><td>$200</td><td>$300</td><td>$500</td><td>$600</td></tr></tbody></table>
+                <div class="lecture-equations" data-rec="수식" style="--rd:.55s"><div class="lecture-eq-title">Present value at a 20% discount rate</div><p>Earlier cash flows have a higher present value.</p><p>NPV (B) = <b data-rec="숫자" style="--rd:.75s">$117</b> &gt; NPV (C) = <b>−$46</b></p></div>
                 <span class="lecture-page">13</span>
                 <svg class="lecture-ink" viewBox="0 0 960 540" aria-hidden="true">
                   <title>Earlier cash flows have more present value at a positive discount rate.</title>
@@ -136,8 +136,8 @@
               <div class="lecture-slide" data-slide="2" hidden>
                 <div class="lecture-title">Choosing between investment projects</div>
                 <p class="lecture-subtitle">Two measures. Two different questions.</p>
-                <div class="lecture-definitions"><p><b>NPV</b><span>How much value does the project create?</span></p><p><b>IRR</b><span>What rate of return does the project earn?</span></p></div>
-                <div class="lecture-equations"><div class="lecture-eq-title">Key takeaway</div><p>For mutually exclusive projects of different sizes,</p><p>compare the <b>value created</b>, not just the percentage return.</p></div>
+                <div class="lecture-definitions" data-rec="개념" style="--rd:.35s"><p><b>NPV</b><span>How much value does the project create?</span></p><p><b>IRR</b><span>What rate of return does the project earn?</span></p></div>
+                <div class="lecture-equations" data-rec="핵심" style="--rd:.55s"><div class="lecture-eq-title">Key takeaway</div><p>For mutually exclusive projects of different sizes,</p><p>compare the <b>value created</b>, not just the percentage return.</p></div>
                 <span class="lecture-page">14</span>
                 <svg class="lecture-ink" viewBox="0 0 960 540" aria-hidden="true">
                   <title>Compare the value created, not just the percentage return.</title>
@@ -159,7 +159,7 @@
                   <path class="lecture-pen" d="M0 0 3 25 9 18 17 30 22 27 14 15 25 14Z"/>
                 </svg>
               </div>
-              <div class="capture-frame"><span>화면 인식 중</span></div>
+              <div class="capture-frame"><i class="scan-bar"></i><span>화면 인식 중</span></div>
             </div>
             <div class="lecture-caption" id="lectureCaption">준비된 강의 화면을 읽는 예시입니다.</div>
           </div>
@@ -244,13 +244,13 @@
                   <ul class="pdf-list">
                     <li><b>NPV(순현재가치)</b>: 투자 가치를 현재 금액으로 환산</li>
                     <li><b>IRR(내부수익률)</b>: NPV를 0으로 만드는 할인율 — 규모가 다른 대안 비교엔 부적합</li>
-                    <li>할인율 20% 기준 <b>B안 NPV $117</b> 최대 → 상호배타적 대안은 NPV 우선</li>
+                    <li>할인율 20% 기준 <b class="circle-target">B안 NPV $117</b> 최대 → 상호배타적 대안은 NPV 우선</li>
                   </ul>
                   <p class="pdf-h">1 구간 · 현재가치 개념 도입 ⭐</p>
                   <p class="pdf-meta"><b>슬라이드 제목:</b> Time Value of Money — 오늘의 $100 &gt; 내년의 $100</p>
                   <p class="pdf-concept"><b>현재가치</b> PV = CFₜ ÷ (1 + r)ᵗ <span>변수: CFₜ 미래 현금흐름, r 할인율 · 조건: 연 복리</span></p>
                   <p class="pdf-h">2 구간 · 세 투자안 비교 평가 ⭐</p>
-                  <table class="pdf-table"><thead><tr><th>투자안</th><th>NPV</th><th>IRR</th></tr></thead><tbody><tr><td>A</td><td>$35</td><td>22%</td></tr><tr class="best"><td>B</td><td>$117</td><td>27%</td></tr><tr><td>C</td><td>−$46</td><td>18%</td></tr></tbody></table>
+                  <table class="pdf-table"><thead><tr><th>투자안</th><th>NPV</th><th>IRR</th></tr></thead><tbody><tr><td>A</td><td>$35</td><td>22%</td></tr><tr class="best check-target"><td>B</td><td>$117</td><td>27%</td></tr><tr><td>C</td><td>−$46</td><td>18%</td></tr></tbody></table>
                   <p class="pdf-meta"><b>강의자 설명(t≈1:37–4:02):</b> 앞쪽 회수가 몰린 B안이 NPV 최대</p>
                   <p class="pdf-h">복습 질문</p>
                   <ul class="pdf-list pdf-qs">
@@ -258,7 +258,7 @@
                     <li>상호배타적 대안을 IRR만으로 고르지 못하는 이유를 설명하시오.</li>
                   </ul>
                 </article>
-                <svg class="tablet-ink" aria-hidden="true"><rect class="hl" rx="3"/><path class="ul" pathLength="1" fill="none"/><path class="tablet-pen" d="M0 0 3 25 9 18 17 30 22 27 14 15 25 14Z"/></svg>
+                <svg class="tablet-ink" aria-hidden="true"><rect class="hl" rx="3"/><path class="ul" pathLength="1" fill="none"/><path class="ci" pathLength="1" fill="none"/><path class="ck" pathLength="1" fill="none"/><text class="memo">시험 나옴!</text><path class="tablet-pen" d="M0 0 3 25 9 18 17 30 22 27 14 15 25 14Z"/></svg>
               </div>
             </div>
           </div>
@@ -278,69 +278,9 @@
     <div class="school-marquee-track" aria-hidden="true"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/1.webp"><img width="89" height="72" alt="" class="school-logo" loading="lazy" src="images/school/2.webp"><img width="53" height="72" alt="" class="school-logo" loading="lazy" src="images/school/3.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/4.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/5.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/6.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/7.webp"><img width="73" height="72" alt="" class="school-logo" loading="lazy" src="images/school/8.webp"><img width="69" height="72" alt="" class="school-logo" loading="lazy" src="images/school/9.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/10.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/11.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/12.webp"><img width="71" height="72" alt="" class="school-logo" loading="lazy" src="images/school/13.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/14.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/15.webp"><img width="71" height="72" alt="" class="school-logo" loading="lazy" src="images/school/16.webp"><img width="77" height="72" alt="" class="school-logo" loading="lazy" src="images/school/17.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/18.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/19.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/20.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/21.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/22.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/1.webp"><img width="89" height="72" alt="" class="school-logo" loading="lazy" src="images/school/2.webp"><img width="53" height="72" alt="" class="school-logo" loading="lazy" src="images/school/3.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/4.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/5.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/6.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/7.webp"><img width="73" height="72" alt="" class="school-logo" loading="lazy" src="images/school/8.webp"><img width="69" height="72" alt="" class="school-logo" loading="lazy" src="images/school/9.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/10.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/11.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/12.webp"><img width="71" height="72" alt="" class="school-logo" loading="lazy" src="images/school/13.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/14.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/15.webp"><img width="71" height="72" alt="" class="school-logo" loading="lazy" src="images/school/16.webp"><img width="77" height="72" alt="" class="school-logo" loading="lazy" src="images/school/17.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/18.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/19.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/20.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/21.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/22.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/1.webp"><img width="89" height="72" alt="" class="school-logo" loading="lazy" src="images/school/2.webp"><img width="53" height="72" alt="" class="school-logo" loading="lazy" src="images/school/3.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/4.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/5.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/6.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/7.webp"><img width="73" height="72" alt="" class="school-logo" loading="lazy" src="images/school/8.webp"><img width="69" height="72" alt="" class="school-logo" loading="lazy" src="images/school/9.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/10.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/11.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/12.webp"><img width="71" height="72" alt="" class="school-logo" loading="lazy" src="images/school/13.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/14.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/15.webp"><img width="71" height="72" alt="" class="school-logo" loading="lazy" src="images/school/16.webp"><img width="77" height="72" alt="" class="school-logo" loading="lazy" src="images/school/17.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/18.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/19.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/20.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/21.webp"><img width="72" height="72" alt="" class="school-logo" loading="lazy" src="images/school/22.webp"></div>
   </div>
 </section>
-<section class="connect-section wrap" aria-labelledby="connectTitle">
-  <div class="connect-head">
-    <p class="eyebrow">FROM LECTURE TO NOTES</p>
-    <h2 id="connectTitle">강의는 듣던 곳에서.<br>복습은 쓰던 앱에서.</h2>
-    <p>강의의 핵심을 요약 PDF로 정리해, 익숙한 노트앱에서 이어서 복습하세요.</p>
-  </div>
-  <div class="connect-flow">
-    <div class="connect-group">
-      <h3 class="connect-label">듣던 강의</h3>
-      <p class="connect-sub">PC Chrome 탭에서</p>
-      <ul class="connect-list">
-        <li>
-          <svg class="connect-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="13" rx="2"/><path d="M10 8.5l4.5 2.75-4.5 2.75z"/><path d="M9 20.5h6"/></svg>
-          대학 강의 플랫폼
-        </li>
-        <li><img class="connect-icon" src="images/zoom.jpg" alt="" width="26" height="26" loading="lazy">Zoom</li>
-        <li><img class="connect-icon" src="images/google-meet.svg" alt="" width="26" height="26" loading="lazy">Google Meet</li>
-        <li><img class="connect-icon" src="images/youtube.png" alt="" width="26" height="26" loading="lazy">YouTube</li>
-      </ul>
-    </div>
-    <span class="connect-arrow" aria-hidden="true"></span>
-    <div class="connect-pdf">
-      <h3 class="connect-label">Summrizei</h3>
-      <div class="pdf-card">
-        <p class="pdf-file">
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 3H7a1.5 1.5 0 0 0-1.5 1.5v15A1.5 1.5 0 0 0 7 21h10a1.5 1.5 0 0 0 1.5-1.5V8.5z"/><path d="M13 3v5.5h5.5"/></svg>
-          요약 노트.pdf
-        </p>
-        <p class="pdf-title">투자안 평가 · 핵심 정리</p>
-        <div class="pdf-rows">
-          <p><b>핵심 개념</b><span>NPV는 현재가치로 대안을 비교한다</span></p>
-          <p><b>비교 정리</b><span>NPV와 IRR의 판단 기준</span></p>
-          <p><b>복습 질문</b><span>현금흐름의 시점은 왜 중요할까</span></p>
-        </div>
-        <p class="pdf-tag">요약 노트 예시</p>
-      </div>
-    </div>
-    <span class="connect-arrow" aria-hidden="true"></span>
-    <div class="connect-group">
-      <h3 class="connect-label">쓰던 노트앱</h3>
-      <p class="connect-sub">PDF로 저장한 뒤 앱에서 가져오기</p>
-      <ul class="connect-list">
-        <li><img class="connect-icon" src="images/goodnotes.svg" alt="" width="26" height="26" loading="lazy">Goodnotes</li>
-        <li><img class="connect-icon" src="images/notability.svg" alt="" width="26" height="26" loading="lazy">Notability</li>
-        <li class="connect-more">
-          <svg class="connect-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 3H7a1.5 1.5 0 0 0-1.5 1.5v15A1.5 1.5 0 0 0 7 21h10a1.5 1.5 0 0 0 1.5-1.5V8.5z"/><path d="M13 3v5.5h5.5"/><path d="M9 13h6M9 16.5h4"/></svg>
-          그 밖의 PDF 노트앱
-        </li>
-      </ul>
-    </div>
-  </div>
-</section>
-<section class="reviews" id="reviews" aria-labelledby="reviews-title"><div class="reviews-head wrap"><p class="eyebrow">CERTIFIED BY STUDENTS</p><h2 id="reviews-title">나만 빼고 다 받는 A+.</h2><p class="review-subtitle">Summrizei를 이용해주신 학생들의 후기입니다.</p></div><div class="reviews-viewport" tabindex="0" role="region" aria-label="학생 후기 첫째 줄"><div class="reviews-row"><div class="reviews-track"><div class="reviews-group" role="list"><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><span class="sr-only">5점 만점에 5점</span><h3>필기하다 놓치던 설명까지</h3><p>슬라이드 글자와 말소리를 함께 읽어 노트로 정리해주니, 받아 적느라 놓쳤던 개념을 복습할 때 짚어보기 좋았어요.</p></article><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><span class="sr-only">5점 만점에 5점</span><h3>교수님 설명까지 노트에</h3><p>슬라이드만 봐서는 이해가 안 되던 부분이 있었는데, 강의 음성도 함께 정리하니까 개념을 다시 연결해 보기 편해요.</p></article><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><span class="sr-only">5점 만점에 5점</span><h3>지금 잘 읽고 있는지 보여요</h3><p>인식된 내용이 수업 중에 차곡차곡 보여서 좋아요. 켜두고 기다리는 동안 어떤 내용을 읽고 있는지 확인할 수 있어요.</p></article><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><span class="sr-only">5점 만점에 5점</span><h3>이제 설명에 집중하게 돼요</h3><p>강의창이랑 메모장을 번갈아 보던 게 줄었어요. 우선 설명을 듣고, 끝난 뒤 노트에서 필요한 부분을 다듬으니 편해요.</p></article><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><span class="sr-only">5점 만점에 5점</span><h3>보던 강의에서 바로 시작</h3><p>크롬에서 강의를 열고 옆 패널에서 시작하면 되니까 간단해요. 다른 앱으로 강의 자료를 옮길 필요가 없어서 좋아요.</p></article></div></div></div></div><div class="reviews-viewport" tabindex="0" role="region" aria-label="학생 후기 둘째 줄"><div class="reviews-row"><div class="reviews-track" style="--review-direction:reverse;--review-delay:-15s"><div class="reviews-group" role="list"><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><span class="sr-only">5점 만점에 5점</span><h3>스크린샷 정리가 줄었어요</h3><p>슬라이드마다 찍어 둔 사진을 다시 정리하는 게 일이었는데, 화면의 글자를 노트로 모아 보니 복습 준비가 한결 가벼워요.</p></article><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><span class="sr-only">5점 만점에 5점</span><h3>말로 설명하는 수업에도</h3><p>화면 캡처는 끄고 음성 인식만 켤 수 있어서 좋았어요. 화면 자료가 적은 수업에서도 설명을 바탕으로 노트를 만들 수 있어요.</p></article><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><span class="sr-only">5점 만점에 5점</span><h3>긴 내용도 핵심부터 복습</h3><p>개인 API 키를 연결해 요약 노트를 만들어봤어요. 길게 들었던 내용을 핵심 개념부터 다시 읽을 수 있어서 편하네요.</p></article><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><span class="sr-only">5점 만점에 5점</span><h3>고치고 복사하면 정리 끝</h3><p>노트에서 필요한 문장을 제 표현으로 고치고 노션에 붙여 넣었어요. 쓰던 공부 노트에 바로 이어 붙일 수 있어 좋아요.</p></article><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><span class="sr-only">5점 만점에 5점</span><h3>복습 노트는 PDF로</h3><p>노트를 검토한 뒤 PDF로 저장해두니 복습할 때 다시 펼쳐 보기 편해요. 종이로 읽고 싶을 때는 바로 인쇄할 수도 있고요.</p></article></div></div></div></div></section>
-<section class="section wrap" id="invite-benefits" aria-labelledby="inviteTitle">
-  <div class="section-head"><div><p class="eyebrow">STUDY TOGETHER</p><h2 id="inviteTitle">친구에게는 2주,<br>나에게는 한 달 더.</h2></div><p>같은 강의를 듣는 친구와<br>요약 노트로 복습을 시작하세요.</p></div>
-  <div class="offer-grid">
-    <article class="offer-cell"><p class="eyebrow">친구가 받는 혜택</p><h3>Essential <strong>2주 무료체험</strong></h3><p>추천 링크 또는 코드로 가입하면<br>14일 동안 최대 200분, Essential의 모든 기능을 써볼 수 있어요.</p></article>
-    <article class="offer-cell"><p class="eyebrow">내가 받는 혜택</p><h3>친구 2명 초대하면 <strong>한 달 추가</strong></h3><img class="invite-asset" src="images/invite-reward.svg" width="480" height="136" alt="친구 두 명의 체험 시작으로 내 Essential 이용 기간 한 달 추가" loading="lazy"><p>친구 2명이 카드 등록 후 첫 요약 노트를 만들면 내 Essential 이용 기간이 한 달 늘어나요.</p></article>
-  </div>
-</section>
 <section class="demo-section comparison-section" id="preview">
   <div class="wrap">
-    <div class="section-head on-dark"><div><p class="eyebrow">WHY THE SCREEN MATTERS</p><h2>녹음만으로는 부족하니까.<br>강의 화면을 이해하는 AI.</h2></div><p>화면에 나온 수치와 조건을 설명의 흐름과 함께 정리합니다.</p></div>
+    <div class="section-head on-dark"><div><p class="eyebrow">WHY THE SCREEN MATTERS</p><h2>녹음만으로는 부족하니까.<br>강의 화면을 이해하는 AI.</h2></div><p>화면의 숫자와 교수님 설명을 한 노트에.</p></div>
     <div id="comparisonEvidence">
       <figure class="lecture-graph" id="lecturePlayer" data-scene="complete" aria-labelledby="comparisonGraphTitle">
         <div class="lecture-player-bar"><span class="lecture-player-brand">CS221 · Lecture 3</span><span class="lecture-player-course">/ Linear Classification</span><span class="lecture-player-live"><i class="zoom-dot" aria-hidden="true"></i>화면 공유 중</span></div>
@@ -393,6 +333,67 @@
     </div>
   </div>
 </section>
+<section class="connect-section wrap" aria-labelledby="connectTitle">
+  <div class="connect-head">
+    <p class="eyebrow">FROM LECTURE TO NOTES</p>
+    <h2 id="connectTitle">강의는 듣던 곳에서.<br>복습은 쓰던 앱에서.</h2>
+    <p>강의의 핵심을 요약 PDF로 정리해, 익숙한 노트앱에서 이어서 복습하세요.</p>
+  </div>
+  <div class="connect-flow">
+    <div class="connect-group">
+      <h3 class="connect-label">듣던 강의</h3>
+      <p class="connect-sub">PC Chrome 탭에서</p>
+      <ul class="connect-list">
+        <li>
+          <svg class="connect-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="13" rx="2"/><path d="M10 8.5l4.5 2.75-4.5 2.75z"/><path d="M9 20.5h6"/></svg>
+          대학 강의 플랫폼
+        </li>
+        <li><img class="connect-icon" src="images/zoom.jpg" alt="" width="26" height="26" loading="lazy">Zoom</li>
+        <li><img class="connect-icon" src="images/google-meet.svg" alt="" width="26" height="26" loading="lazy">Google Meet</li>
+        <li><img class="connect-icon" src="images/youtube.png" alt="" width="26" height="26" loading="lazy">YouTube</li>
+      </ul>
+    </div>
+    <span class="connect-arrow" aria-hidden="true"></span>
+    <div class="connect-pdf">
+      <h3 class="connect-label">Summrizei</h3>
+      <div class="pdf-card">
+        <p class="pdf-file">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 3H7a1.5 1.5 0 0 0-1.5 1.5v15A1.5 1.5 0 0 0 7 21h10a1.5 1.5 0 0 0 1.5-1.5V8.5z"/><path d="M13 3v5.5h5.5"/></svg>
+          요약 노트.pdf
+        </p>
+        <p class="pdf-title">투자안 평가 · 핵심 정리</p>
+        <span class="ink-memo" aria-hidden="true">시험 나옴!</span>
+        <div class="pdf-rows">
+          <p><b>핵심 개념</b><span class="ink-target">NPV는 현재가치로 대안을 비교한다<svg class="ink ink-circle" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="M6 21 C5 9 40 4 72 6 C94 8 99 18 93 28 C86 37 50 38 24 35 C9 33 3 26 9 15"/></svg></span></p>
+          <p><b>비교 정리</b><span class="ink-target">NPV와 IRR의 판단 기준<svg class="ink ink-under" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="M2 6 Q25 2 50 5 T98 4"/></svg></span></p>
+          <p class="ink-row"><svg class="ink ink-check" viewBox="0 0 16 16" aria-hidden="true"><path pathLength="1" d="M2 8.5 L6 12.5 L14 3"/></svg><b>복습 질문</b><span>현금흐름의 시점은 왜 중요할까</span></p>
+        </div>
+        <p class="pdf-tag">요약 노트 예시</p>
+      </div>
+    </div>
+    <span class="connect-arrow" aria-hidden="true"></span>
+    <div class="connect-group">
+      <h3 class="connect-label">쓰던 노트앱</h3>
+      <p class="connect-sub">PDF로 저장한 뒤 앱에서 가져오기</p>
+      <ul class="connect-list">
+        <li><img class="connect-icon" src="images/goodnotes.svg" alt="" width="26" height="26" loading="lazy">Goodnotes</li>
+        <li><img class="connect-icon" src="images/notability.svg" alt="" width="26" height="26" loading="lazy">Notability</li>
+        <li class="connect-more">
+          <svg class="connect-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 3H7a1.5 1.5 0 0 0-1.5 1.5v15A1.5 1.5 0 0 0 7 21h10a1.5 1.5 0 0 0 1.5-1.5V8.5z"/><path d="M13 3v5.5h5.5"/><path d="M9 13h6M9 16.5h4"/></svg>
+          그 밖의 PDF 노트앱
+        </li>
+      </ul>
+    </div>
+  </div>
+</section>
+<section class="reviews" id="reviews" aria-labelledby="reviews-title"><div class="reviews-head wrap"><p class="eyebrow">CERTIFIED BY STUDENTS</p><h2 id="reviews-title">나만 빼고 다 받는 A+.</h2><p class="review-subtitle">Summrizei를 이용해주신 학생들의 후기입니다.</p></div><div class="reviews-viewport" tabindex="0" role="region" aria-label="학생 후기 첫째 줄"><div class="reviews-row"><div class="reviews-track"><div class="reviews-group" role="list"><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><span class="sr-only">5점 만점에 5점</span><h3>긴 내용도 핵심부터 복습</h3><p>개인 API 키를 연결해 요약 노트를 만들어봤어요. 길게 들었던 내용을 핵심 개념부터 다시 읽을 수 있어서 편하네요.</p></article><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><span class="sr-only">5점 만점에 5점</span><h3>교수님 설명까지 노트에</h3><p>슬라이드만 봐서는 이해가 안 되던 부분이 있었는데, 강의 음성도 함께 정리하니까 개념을 다시 연결해 보기 편해요.</p></article><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><span class="sr-only">5점 만점에 5점</span><h3>지금 잘 읽고 있는지 보여요</h3><p>인식된 내용이 수업 중에 차곡차곡 보여서 좋아요. 켜두고 기다리는 동안 어떤 내용을 읽고 있는지 확인할 수 있어요.</p></article><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><span class="sr-only">5점 만점에 5점</span><h3>이제 설명에 집중하게 돼요</h3><p>강의창이랑 메모장을 번갈아 보던 게 줄었어요. 우선 설명을 듣고, 끝난 뒤 노트에서 필요한 부분을 다듬으니 편해요.</p></article><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><span class="sr-only">5점 만점에 5점</span><h3>보던 강의에서 바로 시작</h3><p>크롬에서 강의를 열고 옆 패널에서 시작하면 되니까 간단해요. 다른 앱으로 강의 자료를 옮길 필요가 없어서 좋아요.</p></article></div></div></div></div><div class="reviews-viewport" tabindex="0" role="region" aria-label="학생 후기 둘째 줄"><div class="reviews-row"><div class="reviews-track" style="--review-direction:reverse;--review-delay:-15s"><div class="reviews-group" role="list"><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><span class="sr-only">5점 만점에 5점</span><h3>스크린샷 정리가 줄었어요</h3><p>슬라이드마다 찍어 둔 사진을 다시 정리하는 게 일이었는데, 화면의 글자를 노트로 모아 보니 복습 준비가 한결 가벼워요.</p></article><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><span class="sr-only">5점 만점에 5점</span><h3>말로 설명하는 수업에도</h3><p>화면 캡처는 끄고 음성 인식만 켤 수 있어서 좋았어요. 화면 자료가 적은 수업에서도 설명을 바탕으로 노트를 만들 수 있어요.</p></article><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><span class="sr-only">5점 만점에 5점</span><h3>필기하다 놓치던 설명까지</h3><p>슬라이드 글자와 말소리를 함께 읽어 노트로 정리해주니, 받아 적느라 놓쳤던 개념을 복습할 때 짚어보기 좋았어요.</p></article><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><span class="sr-only">5점 만점에 5점</span><h3>고치고 복사하면 정리 끝</h3><p>노트에서 필요한 문장을 제 표현으로 고치고 노션에 붙여 넣었어요. 쓰던 공부 노트에 바로 이어 붙일 수 있어 좋아요.</p></article><article class="review-card" role="listitem"><span class="review-stars" aria-hidden="true">★★★★★</span><span class="sr-only">5점 만점에 5점</span><h3>복습 노트는 PDF로</h3><p>노트를 검토한 뒤 PDF로 저장해두니 복습할 때 다시 펼쳐 보기 편해요. 종이로 읽고 싶을 때는 바로 인쇄할 수도 있고요.</p></article></div></div></div></div></section>
+<section class="section wrap" id="invite-benefits" aria-labelledby="inviteTitle">
+  <div class="section-head"><div><p class="eyebrow">STUDY TOGETHER</p><h2 id="inviteTitle">친구에게는 2주,<br>나에게는 한 달 더.</h2></div><p>같은 강의를 듣는 친구와<br>요약 노트로 복습을 시작하세요.</p></div>
+  <div class="offer-grid">
+    <article class="offer-cell"><p class="eyebrow">친구가 받는 혜택</p><h3>Essential <strong>2주 무료체험</strong></h3><div class="inv-ticket" aria-hidden="true"><div class="inv-ticket-main"><span class="inv-kicker">친구 초대 쿠폰</span><b>2주 무료</b><span class="inv-sub">Essential · 최대 200분</span></div><div class="inv-ticket-stub"><strong>14</strong><i>DAYS</i></div></div><p>추천 링크 또는 코드로 가입하면<br>14일 동안 최대 200분, Essential의 모든 기능을 써볼 수 있어요.</p></article>
+    <article class="offer-cell"><p class="eyebrow">내가 받는 혜택</p><h3>친구 2명 초대하면 <strong>한 달 추가</strong></h3><div class="inv-progress" aria-hidden="true"><div class="inv-friend inv-f1"><i class="inv-av"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="4"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg></i><em>첫 노트 ✓</em></div><span class="inv-plus">+</span><div class="inv-friend inv-f2"><i class="inv-av"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="4"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg></i><em>첫 노트 ✓</em></div><span class="inv-arrow"></span><div class="inv-stamp"><svg class="inv-burst" viewBox="-50 -50 100 100"><line x1="30.0" y1="0.0" x2="46.0" y2="0.0"/><line x1="21.2" y1="21.2" x2="32.5" y2="32.5"/><line x1="0.0" y1="30.0" x2="0.0" y2="46.0"/><line x1="-21.2" y1="21.2" x2="-32.5" y2="32.5"/><line x1="-30.0" y1="0.0" x2="-46.0" y2="0.0"/><line x1="-21.2" y1="-21.2" x2="-32.5" y2="-32.5"/><line x1="-0.0" y1="-30.0" x2="-0.0" y2="-46.0"/><line x1="21.2" y1="-21.2" x2="32.5" y2="-32.5"/></svg><b>Essential</b><strong>+1개월</strong></div></div><p>친구 2명이 카드 등록 후 첫 요약 노트를 만들면 내 Essential 이용 기간이 한 달 늘어나요.</p></article>
+  </div>
+</section>
 <section class="section wrap" id="plans">
   <div class="section-head"><div><p class="eyebrow">CHOOSE YOUR DEPTH</p><h2>필기부터 깊이 있는 복습까지.</h2></div><p>강의를 어느 깊이까지 정리하고 싶은지에 맞춰 나에게 맞는 플랜을 선택하세요.</p></div>
   <p class="student-row"><button class="student-toggle" id="studentToggle" type="button" aria-pressed="false">학생이신가요?</button></p>
@@ -410,6 +411,6 @@
 <!-- 시연은 장식용 CDN의 다운로드를 기다리지 않고 바로 연결한다. -->
 <script src="vendor/markdown-it.min.js"></script>
 <script src="note-viewer.js?v=20260911-7"></script>
-<script src="hero-mockup.js?v=20260918-mobile-1"></script>
-<script src="waitlist-config.js?v=20260918-reserve-1"></script><script src="examples.js?v=20260911-7"></script><script src="landing.js?v=20260923-offer"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.15.0/gsap.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.15.0/ScrollTrigger.min.js"></script><script src="gsap-animations.js?v=20260914-comparison-1"></script>
+<script src="hero-mockup.js?v=20260926-rec"></script>
+<script src="waitlist-config.js?v=20260918-reserve-1"></script><script src="examples.js?v=20260911-7"></script><script src="landing.js?v=20260926-ad2"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.15.0/gsap.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.15.0/ScrollTrigger.min.js"></script><script src="gsap-animations.js?v=20260914-comparison-1"></script>
 </body></html>
