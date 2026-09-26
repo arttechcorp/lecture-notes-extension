@@ -221,6 +221,10 @@ PV = CFₜ ÷ (1 + r)ᵗ — 변수: CFₜ 미래 현금흐름, r 할인율 · �
           showSlide(Math.floor(event / 2) % 3);
           $('cntSlides').textContent = String(slides);
           mock.classList.add('is-scanning');
+          // Scan bar sweeps and this slide's recognised blocks lock on (they stay until the next slide).
+          mock.querySelectorAll('[data-slide]').forEach((s) => s.classList.toggle('is-reading', !s.hidden));
+          const bar = mock.querySelector('.scan-bar');
+          if (bar) { bar.style.animation = 'none'; void bar.offsetWidth; bar.style.animation = ''; bar.classList.add('is-on'); }
         }
       }
       const scanning = elapsed - lastCapture < 1.2;
@@ -336,16 +340,46 @@ PV = CFₜ ÷ (1 + r)ᵗ — 변수: CFₜ 미래 현금흐름, r 할인율 · �
       const uy = y + h + 2;
       mock.querySelector('.tablet-ink .ul').setAttribute('d',
         `M ${x} ${uy} Q ${x + w * .28} ${uy + 3.5} ${x + w * .55} ${uy + 1} T ${x + w} ${uy + 2}`);
+      // Then, like the launch video: circle the best NPV, scribble a memo, tick a review question.
+      const ct = mock.querySelector('.circle-target');
+      const ck = mock.querySelector('.check-target');
+      if (ct) {
+        const rx = ct.offsetWidth / 2 + 7, ry = ct.offsetHeight / 2 + 4;
+        const cx = ct.offsetLeft + ct.offsetWidth / 2, cy = ct.offsetTop + ct.offsetHeight / 2;
+        mock.querySelector('.tablet-ink .ci').setAttribute('d',
+          `M ${cx - rx} ${cy - 2} C ${cx - rx} ${cy - ry - 3} ${cx + rx * .6} ${cy - ry - 4} ${cx + rx} ${cy - 2} ` +
+          `C ${cx + rx + 2} ${cy + ry} ${cx - rx * .4} ${cy + ry + 3} ${cx - rx + 2} ${cy + 2} ` +
+          `C ${cx - rx + 4} ${cy - ry * .6} ${cx - rx * .2} ${cy - ry - 2} ${cx - rx * .1} ${cy - ry - 1}`);
+        // The memo sits just under the circle's right end, in the empty tail of the next line.
+        const memo = mock.querySelector('.tablet-ink .memo');
+        const doc = mock.querySelector('.pdf-doc');
+        const my = cy + ry + 14;
+        const mx = Math.min(cx + rx - 4, doc.offsetLeft + doc.offsetWidth - 80);
+        memo.setAttribute('x', mx);
+        memo.setAttribute('y', my);
+        memo.setAttribute('transform', `rotate(-8 ${mx} ${my})`);
+      }
+      if (ck) {
+        // A table row's offsetParent is its table, so add the table's own offset.
+        const table = ck.closest('table');
+        const kx = table.offsetLeft - 15, ky = table.offsetTop + ck.offsetTop + ck.offsetHeight / 2 - 3;
+        mock.querySelector('.tablet-ink .ck').setAttribute('d', `M ${kx} ${ky} l 3.5 4.5 l 7.5 -9`);
+      }
     }
 
-    function paintTablet(sweep, underline) {
+    function paintTablet(sweep, underline, circle = 0, memo = 0, check = 0) {
       if (!hlGeom) return;
       const { x, y, w, h } = hlGeom;
       const hl = mock.querySelector('.tablet-ink .hl');
       const ul = mock.querySelector('.tablet-ink .ul');
+      const ci = mock.querySelector('.tablet-ink .ci');
+      const ck = mock.querySelector('.tablet-ink .ck');
       const pen = mock.querySelector('.tablet-pen');
       hl.setAttribute('width', String(w * sweep));
       ul.style.strokeDashoffset = String(1 - underline);
+      ci.style.strokeDashoffset = String(1 - circle);
+      ck.style.strokeDashoffset = String(1 - check);
+      mock.querySelector('.tablet-ink .memo').style.opacity = String(memo);
       mock.querySelectorAll('.gn-tool[data-tool]').forEach((el) => {
         el.classList.toggle('is-active', el.dataset.tool === (underline > 0 ? 'pen' : 'marker'));
       });
@@ -356,6 +390,11 @@ PV = CFₜ ÷ (1 + r)ᵗ — 변수: CFₜ 미래 현금흐름, r 할인율 · �
         const tip = ul.getPointAtLength(underline * ul.getTotalLength());
         pen.setAttribute('transform', `translate(${tip.x} ${tip.y}) rotate(-25) scale(.8)`);
         pen.style.opacity = '1';
+      } else if ((circle > 0 && circle < 1) || (check > 0 && check < 1)) {
+        const [path, p] = circle < 1 ? [ci, circle] : [ck, check];
+        const tip = path.getPointAtLength(p * path.getTotalLength());
+        pen.setAttribute('transform', `translate(${tip.x} ${tip.y}) rotate(-25) scale(.8)`);
+        pen.style.opacity = '1';
       } else {
         pen.style.opacity = '0';
       }
@@ -363,7 +402,9 @@ PV = CFₜ ÷ (1 + r)ᵗ — 변수: CFₜ 미래 현금흐름, r 할인율 · �
 
     function tabletTick() {
       const rm = reducedMotion.matches;
-      paintTablet(rm ? 1 : clamp((phaseElapsed - .7) / 2.2, 0, 1), rm ? 1 : clamp((phaseElapsed - 3.1) / 1, 0, 1));
+      paintTablet(rm ? 1 : clamp((phaseElapsed - .7) / 2.2, 0, 1), rm ? 1 : clamp((phaseElapsed - 3.1) / 1, 0, 1),
+        rm ? 1 : clamp((phaseElapsed - 4.3) / .8, 0, 1), rm ? 1 : clamp((phaseElapsed - 5.1) / .2, 0, 1),
+        rm ? 1 : clamp((phaseElapsed - 5.35) / .3, 0, 1));
       if (phaseElapsed >= TABLET_SECONDS) {
         clearInterval(phaseTimer);
         phaseTimer = undefined;
@@ -382,6 +423,8 @@ PV = CFₜ ÷ (1 + r)ᵗ — 변수: CFₜ 미래 현금흐름, r 할인율 · �
       $('pdfBtn').disabled = true;
       $('pdfBtn').classList.remove('is-pressed');
       paintTablet(0, 0);
+      mock.querySelectorAll('.lecture-slide.is-reading').forEach((s) => s.classList.remove('is-reading'));
+      mock.querySelector('.scan-bar')?.classList.remove('is-on');
       const pen = mock.querySelector('.tablet-pen');
       if (pen) pen.style.opacity = '0';
     }

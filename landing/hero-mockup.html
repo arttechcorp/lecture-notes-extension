@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Hedvig+Letters+Serif:opsz@12..24&family=Geist+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="landing.css?v=20260919-mobile-fix">
-<link rel="stylesheet" href="hero-mockup.css?v=20260919-mobile-fix">
+<link rel="stylesheet" href="hero-mockup.css?v=20260926-rec">
 </head>
 <body>
 <p class="mock-preview-note">히어로 목업 미리보기 · <a href="index.html">전체 랜딩페이지 보기 ↗</a></p>
@@ -49,8 +49,8 @@
               <div class="lecture-slide" data-slide="0">
                 <div class="lecture-title">Comparing projects using NPV and IRR</div>
                 <p class="lecture-subtitle">Net Present Value (NPV) and Internal Rate of Return (IRR)</p>
-                <table class="lecture-table"><thead><tr><th></th><th>Year 0</th><th>Year 1</th><th>Year 2</th><th>Year 3</th><th>Year 4</th></tr></thead><tbody><tr><th>Project A</th><td>($1000)</td><td>$400</td><td>$400</td><td>$400</td><td>$400</td></tr><tr><th>Project B</th><td>($1000)</td><td>$600</td><td>$500</td><td>$300</td><td>$200</td></tr><tr><th>Project C</th><td>($1000)</td><td>$200</td><td>$300</td><td>$500</td><td>$600</td></tr></tbody></table>
-                <div class="lecture-equations"><div class="lecture-eq-title">NPV and IRR</div><p>Project A NPV @ 20% WACC = <b>$35</b> / IRR 22%</p><p>Project B NPV @ 20% WACC = <b>$117</b> / IRR 27%</p><p>Project C NPV @ 20% WACC = <b>($46)</b> / IRR 18%</p></div>
+                <table class="lecture-table" data-rec="표" style="--rd:0.35s"><thead><tr><th></th><th>Year 0</th><th>Year 1</th><th>Year 2</th><th>Year 3</th><th>Year 4</th></tr></thead><tbody><tr><th>Project A</th><td>($1000)</td><td>$400</td><td>$400</td><td>$400</td><td>$400</td></tr><tr><th>Project B</th><td>($1000)</td><td>$600</td><td>$500</td><td>$300</td><td>$200</td></tr><tr><th>Project C</th><td>($1000)</td><td>$200</td><td>$300</td><td>$500</td><td>$600</td></tr></tbody></table>
+                <div class="lecture-equations" data-rec="수식" style="--rd:0.55s"><div class="lecture-eq-title">NPV and IRR</div><p>Project A NPV @ 20% WACC = <b>$35</b> / IRR 22%</p><p>Project B NPV @ 20% WACC = <b data-rec="숫자" style="--rd:.75s">$117</b> / IRR 27%</p><p>Project C NPV @ 20% WACC = <b>($46)</b> / IRR 18%</p></div>
                 <span class="lecture-page">12</span>
                 <svg class="lecture-ink" viewBox="0 0 960 540" aria-hidden="true">
                   <title>NPV measures value in dollars; IRR measures a percentage return.</title>
@@ -79,8 +79,8 @@
               <div class="lecture-slide" data-slide="1" hidden>
                 <div class="lecture-title">Why the timing of cash flows matters</div>
                 <p class="lecture-subtitle">Same initial investment. Different timing. Different value.</p>
-                <table class="lecture-table"><thead><tr><th></th><th>Year 1</th><th>Year 2</th><th>Year 3</th><th>Year 4</th></tr></thead><tbody><tr class="lecture-highlight"><th>Project B</th><td>$600</td><td>$500</td><td>$300</td><td>$200</td></tr><tr><th>Project C</th><td>$200</td><td>$300</td><td>$500</td><td>$600</td></tr></tbody></table>
-                <div class="lecture-equations"><div class="lecture-eq-title">Present value at a 20% discount rate</div><p>Earlier cash flows have a higher present value.</p><p>NPV (B) = <b>$117</b> &gt; NPV (C) = <b>−$46</b></p></div>
+                <table class="lecture-table" data-rec="표" style="--rd:0.35s"><thead><tr><th></th><th>Year 1</th><th>Year 2</th><th>Year 3</th><th>Year 4</th></tr></thead><tbody><tr class="lecture-highlight"><th>Project B</th><td>$600</td><td>$500</td><td>$300</td><td>$200</td></tr><tr><th>Project C</th><td>$200</td><td>$300</td><td>$500</td><td>$600</td></tr></tbody></table>
+                <div class="lecture-equations" data-rec="수식" style="--rd:0.55s"><div class="lecture-eq-title">Present value at a 20% discount rate</div><p>Earlier cash flows have a higher present value.</p><p>NPV (B) = <b data-rec="숫자" style="--rd:.75s">$117</b> &gt; NPV (C) = <b>−$46</b></p></div>
                 <span class="lecture-page">13</span>
                 <svg class="lecture-ink" viewBox="0 0 960 540" aria-hidden="true">
                   <title>Earlier cash flows have more present value at a positive discount rate.</title>
@@ -112,8 +112,8 @@
               <div class="lecture-slide" data-slide="2" hidden>
                 <div class="lecture-title">Choosing between investment projects</div>
                 <p class="lecture-subtitle">Two measures. Two different questions.</p>
-                <div class="lecture-definitions"><p><b>NPV</b><span>How much value does the project create?</span></p><p><b>IRR</b><span>What rate of return does the project earn?</span></p></div>
-                <div class="lecture-equations"><div class="lecture-eq-title">Key takeaway</div><p>For mutually exclusive projects of different sizes,</p><p>compare the <b>value created</b>, not just the percentage return.</p></div>
+                <div class="lecture-definitions" data-rec="개념" style="--rd:0.35s"><p><b>NPV</b><span>How much value does the project create?</span></p><p><b>IRR</b><span>What rate of return does the project earn?</span></p></div>
+                <div class="lecture-equations" data-rec="핵심" style="--rd:0.55s"><div class="lecture-eq-title">Key takeaway</div><p>For mutually exclusive projects of different sizes,</p><p>compare the <b>value created</b>, not just the percentage return.</p></div>
                 <span class="lecture-page">14</span>
                 <svg class="lecture-ink" viewBox="0 0 960 540" aria-hidden="true">
                   <title>Compare the value created, not just the percentage return.</title>
@@ -135,7 +135,7 @@
                   <path class="lecture-pen" d="M0 0 3 25 9 18 17 30 22 27 14 15 25 14Z"/>
                 </svg>
               </div>
-              <div class="capture-frame"><span>화면 인식 중</span></div>
+              <div class="capture-frame"><i class="scan-bar"></i><span>화면 인식 중</span></div>
             </div>
             <div class="lecture-caption" id="lectureCaption">준비된 강의 화면을 읽는 예시입니다.</div>
           </div>
@@ -220,13 +220,13 @@
                   <ul class="pdf-list">
                     <li><b>NPV(순현재가치)</b>: 투자 가치를 현재 금액으로 환산</li>
                     <li><b>IRR(내부수익률)</b>: NPV를 0으로 만드는 할인율 — 규모가 다른 대안 비교엔 부적합</li>
-                    <li>할인율 20% 기준 <b>B안 NPV $117</b> 최대 → 상호배타적 대안은 NPV 우선</li>
+                    <li>할인율 20% 기준 <b class="circle-target">B안 NPV $117</b> 최대 → 상호배타적 대안은 NPV 우선</li>
                   </ul>
                   <p class="pdf-h">1 구간 · 현재가치 개념 도입 ⭐</p>
                   <p class="pdf-meta"><b>슬라이드 제목:</b> Time Value of Money — 오늘의 $100 &gt; 내년의 $100</p>
                   <p class="pdf-concept"><b>현재가치</b> PV = CFₜ ÷ (1 + r)ᵗ <span>변수: CFₜ 미래 현금흐름, r 할인율 · 조건: 연 복리</span></p>
                   <p class="pdf-h">2 구간 · 세 투자안 비교 평가 ⭐</p>
-                  <table class="pdf-table"><thead><tr><th>투자안</th><th>NPV</th><th>IRR</th></tr></thead><tbody><tr><td>A</td><td>$35</td><td>22%</td></tr><tr class="best"><td>B</td><td>$117</td><td>27%</td></tr><tr><td>C</td><td>−$46</td><td>18%</td></tr></tbody></table>
+                  <table class="pdf-table"><thead><tr><th>투자안</th><th>NPV</th><th>IRR</th></tr></thead><tbody><tr><td>A</td><td>$35</td><td>22%</td></tr><tr class="best check-target"><td>B</td><td>$117</td><td>27%</td></tr><tr><td>C</td><td>−$46</td><td>18%</td></tr></tbody></table>
                   <p class="pdf-meta"><b>강의자 설명(t≈1:37–4:02):</b> 앞쪽 회수가 몰린 B안이 NPV 최대</p>
                   <p class="pdf-h">복습 질문</p>
                   <ul class="pdf-list pdf-qs">
@@ -234,7 +234,7 @@
                     <li>상호배타적 대안을 IRR만으로 고르지 못하는 이유를 설명하시오.</li>
                   </ul>
                 </article>
-                <svg class="tablet-ink" aria-hidden="true"><rect class="hl" rx="3"/><path class="ul" pathLength="1" fill="none"/><path class="tablet-pen" d="M0 0 3 25 9 18 17 30 22 27 14 15 25 14Z"/></svg>
+                <svg class="tablet-ink" aria-hidden="true"><rect class="hl" rx="3"/><path class="ul" pathLength="1" fill="none"/><path class="ci" pathLength="1" fill="none"/><path class="ck" pathLength="1" fill="none"/><text class="memo">시험 나옴!</text><path class="tablet-pen" d="M0 0 3 25 9 18 17 30 22 27 14 15 25 14Z"/></svg>
               </div>
             </div>
           </div>
@@ -251,6 +251,6 @@
 
 <script src="vendor/markdown-it.min.js"></script>
 <script src="note-viewer.js?v=20260911-4"></script>
-<script src="hero-mockup.js?v=20260918-mobile-1"></script>
+<script src="hero-mockup.js?v=20260926-rec"></script>
 </body>
 </html>
