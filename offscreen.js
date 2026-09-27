@@ -2,7 +2,7 @@
 let session=null,generation=0,starting=false,summaryController=null,archiveBusy=false;
 const emit=state=>chrome.runtime.sendMessage({target:"panel",type:"SESSION_STATE",state}).catch(()=>{});
 const trusted=sender=>{try{const url=new URL(sender.url),base=new URL(chrome.runtime.getURL(""));return sender.id===chrome.runtime.id&&url.protocol===base.protocol&&url.host===base.host&&["/background.js","/sidepanel.html","/options.html"].includes(url.pathname);}catch{return false;}};
-const settingsOf=s=>({openRouterApiKey:String(s?.openRouterApiKey||""),serviceUrl:String(s?.serviceUrl||""),appSessionToken:String(s?.appSessionToken||""),summaryModel:String(s?.summaryModel||""),remoteSummaryConsent:s?.remoteSummaryConsent===true});
+const settingsOf=s=>({openRouterApiKey:String(s?.openRouterApiKey||""),serviceUrl:String(s?.serviceUrl||""),appSessionToken:String(s?.appSessionToken||""),summaryModel:String(s?.summaryModel||""),remoteSummaryConsent:s?.remoteSummaryConsent===true,jevEnabled:s?.jevEnabled===true});
 async function archive(message){
   if(archiveBusy||summaryController||session&&!["completed","failed","disposed"].includes(session.status))throw new Error("현재 처리를 먼저 마쳐 주세요.");
   archiveBusy=true;const config=settingsOf(message.settings),client={baseUrl:config.serviceUrl,token:config.appSessionToken};

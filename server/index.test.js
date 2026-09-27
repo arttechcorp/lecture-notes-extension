@@ -1,5 +1,6 @@
 const test=require("node:test"),assert=require("node:assert/strict"),fs=require("node:fs"),os=require("node:os"),path=require("node:path");
 const {createServer,readState}=require("./index"),Vault=require("../lib/vault");
+const Jev=require("../lib/jev.js");
 const token="test-token-A-".padEnd(40,"a"),tokenB="test-token-B-".padEnd(40,"b"),origin="chrome-extension://"+"a".repeat(32),model="google/gemini-2.5-flash-lite";
 function config(root){return {APP_TOKENS_JSON:JSON.stringify({A:token,B:tokenB}),EXTENSION_ORIGIN:origin,OPENROUTER_API_KEY:"mock-operator-key",OPENROUTER_PROVIDERS_JSON:JSON.stringify({[model]:["test-provider"]}),VAULT_DIR:root};}
 function provider(){const ids=["ev-1"],item={content:"서로 다른 조건을 비교하는 학습 설명입니다.",importance:"important",evidenceIds:ids},summary={title:"노트",keyConclusions:[item],concepts:[],corrections:[],openQuestions:[],sections:[{heading:"비교",...item}],formulas:[],visuals:[],reviewQuestions:[{question:"무엇이 다른가요?",evidenceIds:ids}],evidenceIds:ids};return {ok:true,json:async()=>({choices:[{finish_reason:"stop",message:{content:JSON.stringify(summary)}}],usage:{prompt_tokens:100,completion_tokens:20,cost:.001}})};}
@@ -96,5 +97,47 @@ test("selectionReason 없는 근거를 받고 Anthropic 요청에만 캐시 중�
     assert.equal((await req(url,"/v1/summary","POST",{...input,requestId:"lean-two",model:claude,evidence:[lean]})).status,200);
     assert.equal(bodies[1].messages[0].content[0].cache_control.type,"ephemeral","Anthropic 요청에 캐시 중단점이 없다");
     assert.equal((await req(url,"/v1/summary","POST",{...input,requestId:"bad-reason",evidence:[{...lean,selectionReason:"x".repeat(301)}]})).status,400,"과한 selectionReason 이 통과한다");
+    assert.equal((await req(url,"/v1/summary","POST",{...input,requestId:"bad-role",evidence:[{...lean,roleHint:["core"]}]})).status,400);
+  }finally{await close(server);removeTemp(root);}
+});
+
+test("operator Jev route authenticates, validates policy, charges quota, and stores no text",async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),"summrizei-service-test-"));
+  const request=Jev.buildRequest([{id:"ev-1",source:"ocr",t0:0,t1:1,text:"synthetic classroom idea"}],[]);
+  let calls=0;
+  const env={...config(root),ACCOUNT_LIMITS_JSON:JSON.stringify({A:{models:[model],maxRequests:1,maxCostCents:100}})};
+  const server=createServer(env,{fetch:async(url,options)=>{
+    calls++;assert.equal(url,"https://openrouter.ai/api/alpha/decisions");
+    assert.equal(options.headers.authorization,"Bearer mock-operator-key");
+    const body=JSON.parse(options.body);assert.deepEqual(body.provider,Jev.PROVIDER);
+    const answers={r0:{type:"choice",choice:"additional",confidence:.96,probabilities:{additional:.96}},
+      k0:{type:"choice",choice:"core",confidence:.95,probabilities:{core:.95}},
+      i0:{type:"score",score:1.92,confidence:.91,probabilities:{0:0,1:.08,2:.92}},t0:{type:"noul",noul:.11}};
+    return {ok:true,json:async()=>({answers,usage:{input_tokens:40,output_tokens:10,cost:.00002}})};
+  }});
+  await new Promise(r=>server.listen(0,"127.0.0.1",r));const url="http://127.0.0.1:"+server.address().port;
+  const input={state:request.state,questions:request.questions,requestId:"jev-one"};
+  try{
+    assert.equal((await req(url,"/v1/decisions","POST",input,"bad")).status,401);
+    assert.equal((await req(url,"/v1/decisions","POST",{...input,questions:{}})).status,400);
+    assert.equal((await req(url,"/v1/decisions","POST",{...input,state:{...input.state,extra:"synthetic classroom idea"}})).status,400);
+    const response=await req(url,"/v1/decisions","POST",input);assert.equal(response.status,200);
+    const data=await response.json();assert.equal(data.answers.i0.score,1.92);assert.equal(data.usage.promptTokens,40);
+    assert.equal((await req(url,"/v1/decisions","POST",input)).status,409);
+    assert.equal((await req(url,"/v1/decisions","POST",{...input,requestId:"jev-two"})).status,429);
+    assert.equal(calls,1);
+    const usage=readState(path.join(root,"usage.json"));assert.equal(usage.accounts.A.requests,1);
+    assert.ok(!fs.readFileSync(path.join(root,"usage.json"),"utf8").includes("synthetic classroom idea"));
+  }finally{await close(server);removeTemp(root);}
+});
+
+test("operator Jev failure keeps reservation and never retries on another provider",async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),"summrizei-service-test-"));let calls=0;
+  const {server,url}=await listen(root,async()=>{calls++;return {ok:false,json:async()=>({})};});
+  const request=Jev.buildRequest([{id:"ev-1",source:"ocr",t0:0,t1:1,text:"synthetic idea"}],[]);
+  try{
+    assert.equal((await req(url,"/v1/decisions","POST",{state:request.state,questions:request.questions,requestId:"jev-fail"})).status,502);
+    assert.equal(calls,1);
+    assert.ok(readState(path.join(root,"usage.json")).accounts.A.spentCents>0);
   }finally{await close(server);removeTemp(root);}
 });

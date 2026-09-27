@@ -2,6 +2,7 @@
 // Operator key server-only; archive contents are authenticated ciphertext.
 const fs=require("node:fs"),path=require("node:path"),http=require("node:http"),crypto=require("node:crypto");
 const Vault=require("../lib/vault.js"),{validateSummary}=require("../lib/summary.js");
+const Jev=require("../lib/jev.js");
 const RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"google/gemini-2.5-pro":[1.25,10],"anthropic/claude-haiku-4.5":[1,5],"anthropic/claude-sonnet-4.6":[3,15],"anthropic/claude-sonnet-5":[2,10]};
 const {schema,systemFor,systemMessage,reasoningFor,maxTokensFor,parseNote}=require("../lib/openrouter-client.js");
 const safePart=x=>{if(typeof x!=="string"||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(x))throw new Error("invalid_id");return x;};
@@ -87,7 +88,7 @@ function createServer(env=process.env,deps={}){
     safePart(input.requestId);
     if(Object.keys(input).some(k=>!["model","stage","requestId","evidence","gaps"].includes(k)))return fail(res,400,"unexpected_field");
     const items=input.evidence;
-    if(!Array.isArray(items)||!items.length||items.length>2000||items.some(e=>!e||typeof e.id!=="string"||!e.id||e.id.length>128||typeof e.text!=="string"||!e.text.trim()||!["ocr","asr"].includes(e.source)||!Number.isFinite(e.t0)||!Number.isFinite(e.t1)||!["included","uncertain"].includes(e.selection)||(e.selectionReason!==undefined&&(typeof e.selectionReason!=="string"||e.selectionReason.length>300))||Object.keys(e).some(k=>!["id","text","source","t0","t1","selection","selectionReason"].includes(k))))return fail(res,400,"invalid_evidence");
+    if(!Array.isArray(items)||!items.length||items.length>2000||items.some(e=>!e||typeof e.id!=="string"||!e.id||e.id.length>128||typeof e.text!=="string"||!e.text.trim()||!["ocr","asr"].includes(e.source)||!Number.isFinite(e.t0)||!Number.isFinite(e.t1)||!["included","uncertain"].includes(e.selection)||(e.selectionReason!==undefined&&(typeof e.selectionReason!=="string"||e.selectionReason.length>300))||(e.roleHint!==undefined&&(typeof e.roleHint!=="string"||!Object.hasOwn({core:1,condition:1,exception:1,correction:1,formula:1,example:1,chatter:1,repeat:1,other:1},e.roleHint)))||(e.importanceHint!==undefined&&(typeof e.importanceHint!=="string"||!['critical','important','reference'].includes(e.importanceHint)))||(e.topicStart!==undefined&&e.topicStart!==true)||Object.keys(e).some(k=>!["id","text","source","t0","t1","selection","selectionReason","roleHint","importanceHint","topicStart"].includes(k))))return fail(res,400,"invalid_evidence");
     // 캡처가 끊긴 구간. 강의 내용이 아니라 메타데이터라서 근거와 따로 싣고 따로 검사한다.
     const gaps=input.gaps===undefined?[]:input.gaps;
     if(!Array.isArray(gaps)||gaps.length>200||gaps.some(g=>!g||typeof g.reason!=="string"||!g.reason||g.reason.length>64||!Number.isFinite(g.t0)||!Number.isFinite(g.t1)||g.t1<g.t0||Object.keys(g).some(k=>!["reason","t0","t1"].includes(k))))return fail(res,400,"invalid_gaps");
@@ -133,6 +134,46 @@ function createServer(env=process.env,deps={}){
       fail(res,controller.signal.aborted?504:502,controller.signal.aborted?"request_cancelled_or_timed_out":"provider_failed_or_invalid_output");
     }finally{clearTimeout(timer);res.removeListener("close",disconnect);locks.delete(account);active.delete(account);}
   }
+  async function decisions(input,account,req,res){
+    if(!input||Object.keys(input).some(k=>!["requestId","state","questions"].includes(k)))return fail(res,400,"invalid_decisions");
+    safePart(input.requestId);
+    const items=input.state?.items,n=input.state?.contextCount;
+    if(!input.state||Array.isArray(input.state)||Object.keys(input.state).length!==2||Object.keys(input.state).some(k=>!["contextCount","items"].includes(k))||
+      !Array.isArray(items)||!Number.isInteger(n)||n<0||n>3||items.length-n<1||items.length-n>4||items.length>7||
+      items.some(e=>!e||typeof e.id!=="string"||!/^[\w-]{1,128}$/.test(e.id)||typeof e.text!=="string"||!e.text||e.text.length>1400||
+        !["ocr","asr"].includes(e.source)||!Number.isFinite(e.t0)||!Number.isFinite(e.t1)||e.t1<e.t0||
+        Object.keys(e).some(k=>!["id","text","source","t0","t1"].includes(k)))||new Set(items.map(e=>e.id)).size!==items.length||
+      items.some((e,i)=>i>0&&e.t0<items[i-1].t0))return fail(res,400,"invalid_decisions");
+    const expected=Jev.buildRequest(items.slice(n),items.slice(0,n));
+    if(JSON.stringify(input.questions)!==JSON.stringify(expected.questions))return fail(res,400,"invalid_decisions");
+    const payload=expected;
+    const bytes=Buffer.byteLength(JSON.stringify(payload));
+    if(bytes>24000)return fail(res,413,"decisions_too_large");
+    const digest=crypto.createHash("sha256").update(JSON.stringify(payload)).digest("hex"),rec=record(account),prior=Object.hasOwn(rec.jobs,input.requestId)?rec.jobs[input.requestId]:null;
+    if(prior)return fail(res,prior.digest===digest?409:400,prior.digest===digest?"request_already_reserved_or_processed":"idempotency_content_mismatch");
+    if(locks.has(account))return fail(res,429,"account_request_in_progress");
+    const limits=limitFor(account),reserve=Math.max(1,Math.ceil((bytes+4096)*.042/1e6*100*1.2));
+    const globalSpent=Object.values(state.accounts).filter(r=>r.month===month()).reduce((sum,r)=>sum+r.spentCents,0);
+    if(rec.requests>=limits.maxRequests||rec.spentCents+reserve>limits.maxCostCents||globalSpent+reserve>c.globalCents)return fail(res,429,"quota_exceeded");
+    locks.add(account);rec.requests++;rec.spentCents+=reserve;rec.jobs[input.requestId]={digest,status:"reserved",reservedCents:reserve};
+    try{save();}catch{locks.delete(account);throw new Error("usage_store_failed");}
+    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),c.timeout);
+    const disconnect=()=>{if(!res.writableEnded)controller.abort();};res.on("close",disconnect);active.set(account,controller);
+    try{
+      const response=await fetcher("https://openrouter.ai/api/alpha/decisions",{method:"POST",redirect:"error",signal:controller.signal,
+        headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify(payload)});
+      if(!response.ok)throw new Error("provider_failed");
+      const raw=await boundedResponse(response,128*1024);
+      Jev.validateAnswers(expected.questions,raw.answers);
+      const u=raw.usage||{},cost=u.cost,reported=typeof cost==="number"&&Number.isFinite(cost)&&cost>=0;
+      if(reported)rec.spentCents=Math.max(0,rec.spentCents-reserve+Math.ceil(cost*1e6)/1e4);
+      rec.jobs[input.requestId].status="completed";save();
+      send(res,200,{answers:raw.answers,usage:{promptTokens:Number(u.input_tokens)||0,completionTokens:Number(u.output_tokens)||0,costUsd:reported?cost:reserve/100}});
+    }catch{
+      rec.jobs[input.requestId].status="uncertain";save();
+      fail(res,controller.signal.aborted?504:502,controller.signal.aborted?"request_cancelled_or_timed_out":"jev_provider_failed");
+    }finally{clearTimeout(timer);res.removeListener("close",disconnect);locks.delete(account);active.delete(account);}
+  }
   const server=http.createServer(async(req,res)=>{
     try{
       if(req.headers.origin&&req.headers.origin!==c.origin)return fail(res,403,"origin_not_allowed");
@@ -156,6 +197,7 @@ function createServer(env=process.env,deps={}){
         }
       }
       if(req.url==="/v1/summary"&&req.method==="POST")return await summary(await body(req,64000),account,req,res);
+      if(req.url==="/v1/decisions"&&req.method==="POST")return await decisions(await body(req,32000),account,req,res);
       fail(res,404,"not_found");
     }catch{fail(res,400,"request_rejected");}
   });

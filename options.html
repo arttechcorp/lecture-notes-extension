@@ -795,6 +795,10 @@
             <input type="checkbox" id="remoteSummaryConsent" class="check-input">
             <span>인식된 텍스트가 위 요약 서비스로 전송되며, 처리 중 모델이 이를 일시적으로 볼 수 있다는 점에 동의합니다. 종단간 암호화가 아닙니다.</span>
           </label>
+          <label class="check-label">
+            <input type="checkbox" id="jevEnabled" class="check-input">
+            <span>Jev 사전 판단 사용 (선택): 요약 전에 인식된 텍스트를 OpenRouter와 TypeSafe Jev로 보내 중복·중요도·주제 전환을 판단합니다. 추가 호출 비용이 발생할 수 있습니다. 이미지와 오디오는 보내지 않습니다.</span>
+          </label>
         </div>
 
         <div class="save-row">

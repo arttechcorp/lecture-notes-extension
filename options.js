@@ -1,9 +1,9 @@
 const $=id=>document.getElementById(id);
 // Explicit-save fields: gathered by the API section's own Save/Test buttons.
-const fields=['openRouterApiKey','serviceUrl','appSessionToken','summaryModel','remoteSummaryConsent'];
+const fields=['openRouterApiKey','serviceUrl','appSessionToken','summaryModel','remoteSummaryConsent','jevEnabled'];
 // Auto-save fields: each persists immediately on change (elements below carry the "자동 저장" badge).
 const AUTO=[['themeSelect','theme'],['ocrEnabledCb','ocrEnabled'],['whisperCb','whisperEnabled'],['whisperModel','whisperModel'],['whisperLang','whisperLang']];
-const BOOL_FIELDS=new Set(['remoteSummaryConsent']);
+const BOOL_FIELDS=new Set(['remoteSummaryConsent','jevEnabled']);
 // Speed correction is the one auto-saved toggle that is NOT wired through AUTO: turning it on changes what the
 // listener hears, so it is only persisted after the warning dialog is acknowledged.
 function wireSpeedCorrection(initial){
