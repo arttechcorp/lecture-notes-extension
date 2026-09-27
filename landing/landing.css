@@ -235,7 +235,7 @@ dialog { overscroll-behavior: contain; overflow: auto; padding-bottom: env(safe-
 #preview .comparison-slide{margin:0;aspect-ratio:16/9;container-type:inline-size;display:flex;flex-direction:column;background:#fbfaf6;color:#20252a;border-radius:9px;box-shadow:0 1px 0 rgba(255,255,255,.15);overflow:hidden}
 #preview .comparison-slide-head{flex:none;display:flex;align-items:flex-start;justify-content:space-between;gap:2.4cqw;padding:2.5cqw 3.4cqw 1cqw}
 #preview .comparison-slide-kicker{margin-bottom:.7cqw;color:#71808c;font-family:var(--mono);font-weight:500;font-size:11px;font-size:1.55cqw;line-height:1.4;letter-spacing:.04em}
-#preview .comparison-slide h3{margin:0;font-size:23px;font-size:3.05cqw;line-height:1.28;letter-spacing:-.04em}
+#preview .comparison-slide-title{margin:0;font-weight:700;font-size:23px;font-size:3.05cqw;line-height:1.28;letter-spacing:-.04em}
 #preview .comparison-slide-page{flex:none;padding-top:.3cqw;color:#7d858c;font-family:var(--mono);font-size:12px;font-size:1.7cqw;line-height:1.4}
 #preview .comparison-slide-body{flex:1;min-height:0;overflow:hidden;display:grid;grid-template-columns:minmax(0,1.02fr) minmax(0,1fr);gap:3cqw;padding:.5cqw 3.4cqw}
 #preview .loss-formulas{min-width:0;display:flex;flex-direction:column;justify-content:center;font-family:var(--serif)}
