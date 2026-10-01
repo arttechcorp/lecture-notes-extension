@@ -1,5 +1,5 @@
 const test=require("node:test"),assert=require("node:assert/strict"),fs=require("node:fs"),os=require("node:os"),path=require("node:path"),crypto=require("node:crypto");
-const {createServer,readState,toTranscript,toSlideDoc,VISION_SCHEMA}=require("./index"),Vault=require("../lib/vault"),Contracts=require("../lib/contracts.js");
+const {createServer,config:serverConfig,readState,toTranscript,toSlideDoc,VISION_SCHEMA}=require("./index"),Vault=require("../lib/vault"),Contracts=require("../lib/contracts.js");
 const token="test-token-A-".padEnd(40,"a"),tokenB="test-token-B-".padEnd(40,"b"),origin="chrome-extension://"+"a".repeat(32),model="google/gemini-2.5-flash-lite";
 function config(root){return {APP_TOKENS_JSON:JSON.stringify({A:token,B:tokenB}),EXTENSION_ORIGIN:origin,OPENROUTER_API_KEY:"mock-operator-key",OPENROUTER_PROVIDERS_JSON:JSON.stringify({[model]:["test-provider"]}),VAULT_DIR:root};}
 function provider(){const ids=["ev-1"],item={content:"서로 다른 조건을 비교하는 학습 설명입니다.",importance:"important",evidenceIds:ids},summary={title:"노트",keyConclusions:[item],concepts:[],corrections:[],openQuestions:[],sections:[{heading:"비교",...item}],formulas:[],visuals:[],reviewQuestions:[{question:"무엇이 다른가요?",evidenceIds:ids}],evidenceIds:ids};return {ok:true,json:async()=>({choices:[{finish_reason:"stop",message:{content:JSON.stringify(summary)}}],usage:{prompt_tokens:100,completion_tokens:20,cost:.001}})};}
@@ -794,5 +794,22 @@ test("ServiceClient.vision round-trips a structured slideDoc", async () => {
     try { await ServiceClient.vision({ baseUrl: url, token, model: "not-allowed", requestId: "cv-bad", slideId: "x", t0: 0, t1: 1, image: jpeg(512) }); } catch (e) { err = e; }
     assert.ok(err instanceof Error);
     assert.equal(err.code, "invalid_model");
+  } finally { await close(server); removeTemp(root); }
+});
+
+test("request-count and rate defaults are generous so the cost caps stay the real guard", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  const { server, url } = await listen(root, async () => provider());
+  try {
+    const c = serverConfig(config(root));
+    assert.equal(c.maxRequests, 10000, "월 요청 수 기본값");
+    assert.equal(c.ratePerMin, 300, "분당 POST 기본값");
+    assert.equal(c.maxCents, 1500, "비용 캡은 그대로다");
+    assert.equal(c.globalCents, 15000);
+    const me = await (await req(url, "/v1/me")).json();
+    assert.equal(me.quota.maxRequests, 10000, "한도 설정이 없는 계정은 새 기본값을 상속한다");
+    assert.equal(me.quota.maxCents, 1500);
+    assert.equal(serverConfig({ ...config(root), MAX_REQUESTS: "7", ACCOUNT_RATE_PER_MIN: "9" }).maxRequests, 7, "환경 변수가 기본값을 덮어쓴다");
+    assert.equal(serverConfig({ ...config(root), MAX_REQUESTS: "7", ACCOUNT_RATE_PER_MIN: "9" }).ratePerMin, 9);
   } finally { await close(server); removeTemp(root); }
 });

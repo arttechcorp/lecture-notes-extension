@@ -18,7 +18,7 @@ GROQ_API_KEY=<운영자 Groq 키 — ALLOWED_STT_MODELS가 비어 있지 않으�
 ALLOWED_STT_MODELS=["whisper-large-v3-turbo"]
 VAULT_DIR=<서비스 전용 영속 볼륨의 절대 경로>
 USAGE_STATE_FILE=<같은 영속 볼륨>/usage.json
-MAX_REQUESTS=500
+MAX_REQUESTS=10000
 MAX_COST_CENTS=1500
 GLOBAL_COST_CENTS=15000
 PORT=8788
@@ -27,12 +27,12 @@ REMOTE_CONFIG_JSON={"minClientVersion":"0.0.0"}
 ACCOUNT_CONCURRENCY=12
 PROVIDER_CONCURRENCY_JSON={"google/gemini-2.5-flash-lite":16}
 PROVIDER_QUEUE_MS=10000
-ACCOUNT_RATE_PER_MIN=120
+ACCOUNT_RATE_PER_MIN=300
 ```
 
 `OPENROUTER_PROVIDERS_JSON`은 필수다. 값은 공급사 이름이 아니라 **모델별 엔드포인트 태그**이며 모델마다 다르다(`google/gemini-2.5-flash-lite`는 `google-vertex`, `google/gemini-3.8-flash`는 `google-vertex/global`). `https://openrouter.ai/api/v1/models/<model>/endpoints`로 태그·ZDR·구조화 출력 지원을 확인하고 넣는다. 없는 태그를 넣으면 요약 요청이 400으로 실패한다. 임의 공급자 fallback을 허용하지 않는다. 공급자가 없거나 필수 파라미터를 지원하지 않으면 요청이 실패하는 것이 정상이다.
 
-`MAX_REQUESTS`는 기본 계정의 UTC 달력 월 요청 수이고 강의 편수가 아니다. `MAX_COST_CENTS`는 계정당 월 USD 센트, `GLOBAL_COST_CENTS`는 전체 계정 월 USD 센트다. 500센트는 $5다. 각 계정별 모델과 상한을 좁히려면 다음을 추가한다.
+`MAX_REQUESTS`는 기본 계정의 UTC 달력 월 요청 수(기본 10000)이고 강의 편수가 아니다. 요청 수는 거친 안전망일 뿐 진짜 상한은 아래 비용 캡이다(유료 강의 1시간이 150회 안팎을 부른다). `MAX_COST_CENTS`는 계정당 월 USD 센트, `GLOBAL_COST_CENTS`는 전체 계정 월 USD 센트다. 500센트는 $5다. 각 계정별 모델과 상한을 좁히려면 다음을 추가한다.
 
 ```json
 {
@@ -48,7 +48,7 @@ ACCOUNT_RATE_PER_MIN=120
 
 현재 RATES는 2026-09-11 확인한 후보 단가다. 제공자 요금이 바뀌면 예약 계산을 갱신해야 한다. OpenRouter 키 자체에도 비용 한도를 설정해 이중으로 제한한다. 비용 상한은 결제 및 소매 단위 차감 시스템을 대신하지 않는다.
 
-`FEATURE_FLAGS_JSON`은 기능별 전역 스위치다. `false`로 지정한 기능은 계정 권한과 무관하게 `/v1/me` 목록과 라우트에서 꺼진다(기본 `{}` = 모두 켬). `REMOTE_CONFIG_JSON`은 클라이언트에 내려가는 원격 설정으로 기본값 `{concurrency:{download:4,decode:1,stt:4,vision:8,judge:2,write:8},throughputMbps:50,minClientVersion:"0.0.0",promptVersion:"v1",schemaVersion:1}` 위에 병합된다. 알 수 없는 키나 0 이하 수치는 기동을 거부한다. `minClientVersion`보다 낮은 `x-client-version` 헤더의 클라이언트는 426을 받는다. `ACCOUNT_CONCURRENCY`는 계정당 동시 진행 요청 상한(기본 12), `PROVIDER_CONCURRENCY_JSON`은 모델별 제공자 동시 슬롯(기본 16), `PROVIDER_QUEUE_MS`는 슬롯 대기 상한(기본 10000, 넘으면 `provider_busy`), `ACCOUNT_RATE_PER_MIN`은 계정당 분당 POST 상한(기본 120)이다.
+`FEATURE_FLAGS_JSON`은 기능별 전역 스위치다. `false`로 지정한 기능은 계정 권한과 무관하게 `/v1/me` 목록과 라우트에서 꺼진다(기본 `{}` = 모두 켬). `REMOTE_CONFIG_JSON`은 클라이언트에 내려가는 원격 설정으로 기본값 `{concurrency:{download:4,decode:1,stt:4,vision:8,judge:2,write:8},throughputMbps:50,minClientVersion:"0.0.0",promptVersion:"v1",schemaVersion:1}` 위에 병합된다. 알 수 없는 키나 0 이하 수치는 기동을 거부한다. `minClientVersion`보다 낮은 `x-client-version` 헤더의 클라이언트는 426을 받는다. `ACCOUNT_CONCURRENCY`는 계정당 동시 진행 요청 상한(기본 12), `PROVIDER_CONCURRENCY_JSON`은 모델별 제공자 동시 슬롯(기본 16), `PROVIDER_QUEUE_MS`는 슬롯 대기 상한(기본 10000, 넘으면 `provider_busy`), `ACCOUNT_RATE_PER_MIN`은 계정당 분당 POST 상한(기본 300)이다.
 
 ## 데이터와 운영 경계
 

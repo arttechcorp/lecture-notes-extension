@@ -124,8 +124,10 @@ function config(env){
   if(remoteIn.promptVersion!==undefined){if(typeof remoteIn.promptVersion!=="string"||!remoteIn.promptVersion)throw new Error("invalid_remote_config");remoteConfig.promptVersion=remoteIn.promptVersion;}
   const providerConcurrency=JSON.parse(env.PROVIDER_CONCURRENCY_JSON||"{}");
   if(!plain(providerConcurrency)||Object.values(providerConcurrency).some(v=>!Number.isInteger(v)||v<=0))throw new Error("invalid_provider_concurrency");
+  // 요청 수·분당 호출 수는 거친 안전망이다. 진짜 상한은 비용 캡(MAX_COST_CENTS, GLOBAL_COST_CENTS)이다 —
+  // v2 유료 작업은 강의 1시간에 150회 안팎을 부르고 비전 8레인만으로도 분당 120회에 닿아서 예전 기본값이 정상 작업을 막았다.
   return {tokens,allow,providers,key:env.OPENROUTER_API_KEY,groqKey:env.GROQ_API_KEY,origin:env.EXTENSION_ORIGIN,root:path.resolve(env.VAULT_DIR||"server-data"),stateFile:env.USAGE_STATE_FILE?path.resolve(env.USAGE_STATE_FILE):null,
-    accountLimits,visionModels,sttModels,featureFlags,remoteConfig,providerConcurrency,maxCents:positive(env.MAX_COST_CENTS,1500),maxRequests:positive(env.MAX_REQUESTS,500),globalCents:positive(env.GLOBAL_COST_CENTS,15000),timeout:Math.min(positive(env.OPENROUTER_TIMEOUT_MS,120000),120000),accountConcurrency:positive(env.ACCOUNT_CONCURRENCY,12),providerQueueMs:positive(env.PROVIDER_QUEUE_MS,10000),ratePerMin:positive(env.ACCOUNT_RATE_PER_MIN,120),maxFiles:100,maxArchiveBytes:200*1024*1024};
+    accountLimits,visionModels,sttModels,featureFlags,remoteConfig,providerConcurrency,maxCents:positive(env.MAX_COST_CENTS,1500),maxRequests:positive(env.MAX_REQUESTS,10000),globalCents:positive(env.GLOBAL_COST_CENTS,15000),timeout:Math.min(positive(env.OPENROUTER_TIMEOUT_MS,120000),120000),accountConcurrency:positive(env.ACCOUNT_CONCURRENCY,12),providerQueueMs:positive(env.PROVIDER_QUEUE_MS,10000),ratePerMin:positive(env.ACCOUNT_RATE_PER_MIN,300),maxFiles:100,maxArchiveBytes:200*1024*1024};
 }
 function atomic(file,data){fs.mkdirSync(path.dirname(file),{recursive:true});const temp=file+"."+crypto.randomUUID()+".tmp";fs.writeFileSync(temp,JSON.stringify(data),{mode:0o600,flag:"wx"});fs.renameSync(temp,file);}
 function readState(file){
