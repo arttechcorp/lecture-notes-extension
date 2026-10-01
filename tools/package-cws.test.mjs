@@ -8,6 +8,7 @@ import path from "node:path";
 import zlib from "node:zlib";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { resolveRuntimeClosure, auditSecurityAndInvariants } from "./package-cws.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -186,4 +187,25 @@ test("3. 결정론적 ZIP 생성(Deterministic Archiving) 무결성 테스트", 
   // 압축 풀기 및 내용 검증
   const decompressedA = zlib.inflateRawSync(zip1.subarray(30 + 5, 30 + 5 + 13)); // a.txt compressed chunk
   assert.equal(decompressedA.toString(), "Hello World");
+});
+
+test("4. 런타임 클로저가 개발 전용 어드민 파일을 포함하지 않음", () => {
+  const { files } = resolveRuntimeClosure();
+  assert.ok(!files.includes("admin.html"), "admin.html은 패키지 대상이 아니어야 함");
+  assert.ok(!files.includes("admin.js"), "admin.js는 패키지 대상이 아니어야 함");
+});
+
+test("5. 감사기가 개발 전용 파일 포함을 오류로 반환", () => {
+  // admin.html은 실제로 존재하지 않아도 된다 — 읽기 전에 차단되는지가 검증 대상
+  const errors = auditSecurityAndInvariants(["admin.html"]);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /admin\.html/);
+  const jsErrors = auditSecurityAndInvariants(["admin.js"]);
+  assert.equal(jsErrors.length, 1);
+  assert.match(jsErrors[0], /admin\.js/);
+});
+
+test("6. 현재 저장소의 클로저는 보안 감사를 무위반으로 통과", () => {
+  const { files } = resolveRuntimeClosure();
+  assert.deepEqual(auditSecurityAndInvariants(files), []);
 });

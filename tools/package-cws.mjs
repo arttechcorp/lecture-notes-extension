@@ -11,7 +11,7 @@ import path from "node:path";
 import zlib from "node:zlib";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -21,11 +21,17 @@ const args = process.argv.slice(2);
 const IS_DRY_RUN = args.includes("--dry-run");
 const SKIP_TESTS = args.includes("--skip-tests");
 
-console.log("\n============================================================");
-console.log("🔒 Summrizei — Chrome Web Store 배포 보안 패키징 파이프라인");
-console.log(`   모드: ${IS_DRY_RUN ? "🔍 DRY-RUN (검사만 수행)" : "📦 PRODUCTION PACKAGING"}`);
-console.log(`   테스트 게이트: ${SKIP_TESTS ? "⚠️ 건너뜀 (UNVERIFIED)" : "✅ 필수 실행"}`);
-console.log("============================================================\n");
+// 테스트에서 import 해도 파이프라인이 돌지 않도록 직접 실행 여부를 구분한다.
+// Node는 진입 모듈의 심볼릭 링크를 풀어 import.meta.url을 만들므로 realpath로 비교해야 한다 — 아니면 링크 경로로 실행할 때 감사가 조용히 건너뛰어진다.
+const isMain = (() => { try { return import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1])).href; } catch { return false; } })();
+
+if (isMain) {
+  console.log("\n============================================================");
+  console.log("🔒 Summrizei — Chrome Web Store 배포 보안 패키징 파이프라인");
+  console.log(`   모드: ${IS_DRY_RUN ? "🔍 DRY-RUN (검사만 수행)" : "📦 PRODUCTION PACKAGING"}`);
+  console.log(`   테스트 게이트: ${SKIP_TESTS ? "⚠️ 건너뜀 (UNVERIFIED)" : "✅ 필수 실행"}`);
+  console.log("============================================================\n");
+}
 
 // --------------------------------------------------------------------------
 // Step 1: 교차 플랫폼 사전 테스트 게이트 (Cross-Platform Pre-flight Gate)
@@ -63,7 +69,7 @@ function runPreflightTests() {
 // --------------------------------------------------------------------------
 // Step 2: 런타임 의존성 폐쇄 수집 엔진 (Runtime Dependency Closure)
 // --------------------------------------------------------------------------
-function resolveRuntimeClosure() {
+export function resolveRuntimeClosure() {
   console.log("▶ [Step 2/5] 런타임 의존성 폐쇄(Closure) 집합 계산 중...");
   const manifestPath = path.join(ROOT, "manifest.json");
   if (!fs.existsSync(manifestPath)) {
@@ -242,7 +248,7 @@ function resolveRuntimeClosure() {
 // --------------------------------------------------------------------------
 // Step 3: 정적 보안 휴리스틱 및 아키텍처 불변식 감사기 (Security Auditor)
 // --------------------------------------------------------------------------
-function auditSecurityAndInvariants(files) {
+export function auditSecurityAndInvariants(files) {
   console.log("▶ [Step 3/5] 정적 보안 휴리스틱 및 아키텍처 불변식 감사 중...");
   const errors = [];
 
@@ -257,6 +263,11 @@ function auditSecurityAndInvariants(files) {
   ];
 
   for (const relPath of files) {
+    // 개발 전용 파일은 내용과 무관하게 패키지에 들어가면 안 되므로 읽기 전에 차단한다
+    if (/^admin\.(html|js)$/.test(relPath)) {
+      errors.push(`[개발 전용 파일 포함] ${relPath} - 어드민 페이지는 웹스토어 패키지에 들어가면 안 됩니다`);
+      continue;
+    }
     const absPath = path.join(ROOT, relPath);
     // 텍스트 파일만 내용 스캔
     if (!/\.(js|mjs|html|css|json|txt|yml|yaml)$/i.test(relPath)) continue;
@@ -318,19 +329,14 @@ function auditSecurityAndInvariants(files) {
   // 5. sandbox.html 격리 규약 점검 (chrome.* API 접근 부재 및 postMessage origin/스키마 검증)
   if (files.includes("sandbox.html")) {
     const sandboxContent = fs.readFileSync(path.join(ROOT, "sandbox.html"), "utf8");
-    if (/\bchrome\.(runtime|storage|tabs)\b/.test(sandboxContent)) {
+    // 라인 주석 속 언급("chrome.storage 를 못 읽는다" 등)은 API 접근이 아니므로 검사 대상에서 제외
+    const sandboxCode = sandboxContent.split("\n").filter(line => !line.trimStart().startsWith("//")).join("\n");
+    if (/\bchrome\.(runtime|storage|tabs)\b/.test(sandboxCode)) {
       errors.push("[격리 위반] sandbox.html 내부에서 직접 chrome.* 확장 API 접근 감지");
     }
   }
 
-  if (errors.length > 0) {
-    console.error("\n❌ [Step 3/5 실패] 보안 감사에서 다음 위반 사항이 발견되었습니다:");
-    for (const err of errors) console.error(`   - ${err}`);
-    console.error("\n보안 위험으로 인해 패키징을 강제 중단합니다.");
-    process.exit(1);
-  }
-
-  console.log("✅ [Step 3/5 통과] 시크릿 스캔, MV3 정책 및 아키텍처 불변식 정적 감사 완료 (위반 0건).\n");
+  return errors;
 }
 
 // --------------------------------------------------------------------------
@@ -598,17 +604,26 @@ for (let i = 0; i < 256; i++) {
 // --------------------------------------------------------------------------
 // 파이프라인 진입점 (Main)
 // --------------------------------------------------------------------------
-try {
-  const testStatus = runPreflightTests();
-  const { manifest, files } = resolveRuntimeClosure();
-  auditSecurityAndInvariants(files);
-  const { zipBuffer, zipFilePath, fileManifest } = buildZipArchive(files, manifest.version);
-  verifyAndGenerateProvenance(zipBuffer, zipFilePath, fileManifest, manifest.version, testStatus);
+if (isMain) {
+  try {
+    const testStatus = runPreflightTests();
+    const { manifest, files } = resolveRuntimeClosure();
+    const auditErrors = auditSecurityAndInvariants(files);
+    if (auditErrors.length > 0) {
+      console.error("\n❌ [Step 3/5 실패] 보안 감사에서 다음 위반 사항이 발견되었습니다:");
+      for (const err of auditErrors) console.error(`   - ${err}`);
+      console.error("\n보안 위험으로 인해 패키징을 강제 중단합니다.");
+      process.exit(1);
+    }
+    console.log("✅ [Step 3/5 통과] 시크릿 스캔, MV3 정책 및 아키텍처 불변식 정적 감사 완료 (위반 0건).\n");
+    const { zipBuffer, zipFilePath, fileManifest } = buildZipArchive(files, manifest.version);
+    verifyAndGenerateProvenance(zipBuffer, zipFilePath, fileManifest, manifest.version, testStatus);
 
-  console.log("🎉 [완료] Chrome Web Store 제출 준비가 완벽하게 완료되었습니다!");
-  console.log(`   제출용 파일: ${zipFilePath}`);
-  console.log("============================================================\n");
-} catch (err) {
-  console.error(`\n❌ [오류 발생]: ${err.message}`);
-  process.exit(1);
+    console.log("🎉 [완료] Chrome Web Store 제출 준비가 완벽하게 완료되었습니다!");
+    console.log(`   제출용 파일: ${zipFilePath}`);
+    console.log("============================================================\n");
+  } catch (err) {
+    console.error(`\n❌ [오류 발생]: ${err.message}`);
+    process.exit(1);
+  }
 }
