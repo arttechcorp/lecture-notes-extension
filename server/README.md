@@ -20,6 +20,12 @@ MAX_REQUESTS=500
 MAX_COST_CENTS=1500
 GLOBAL_COST_CENTS=15000
 PORT=8788
+FEATURE_FLAGS_JSON={"vision":true}
+REMOTE_CONFIG_JSON={"minClientVersion":"0.0.0"}
+ACCOUNT_CONCURRENCY=12
+PROVIDER_CONCURRENCY_JSON={"google/gemini-2.5-flash-lite":16}
+PROVIDER_QUEUE_MS=10000
+ACCOUNT_RATE_PER_MIN=120
 ```
 
 `OPENROUTER_PROVIDERS_JSON`은 필수다. 값은 공급사 이름이 아니라 **모델별 엔드포인트 태그**이며 모델마다 다르다(`google/gemini-2.5-flash-lite`는 `google-vertex`, `google/gemini-3.8-flash`는 `google-vertex/global`). `https://openrouter.ai/api/v1/models/<model>/endpoints`로 태그·ZDR·구조화 출력 지원을 확인하고 넣는다. 없는 태그를 넣으면 요약 요청이 400으로 실패한다. 임의 공급자 fallback을 허용하지 않는다. 공급자가 없거나 필수 파라미터를 지원하지 않으면 요청이 실패하는 것이 정상이다.
@@ -40,6 +46,8 @@ PORT=8788
 
 현재 RATES는 2026-09-11 확인한 후보 단가다. 제공자 요금이 바뀌면 예약 계산을 갱신해야 한다. OpenRouter 키 자체에도 비용 한도를 설정해 이중으로 제한한다. 비용 상한은 결제 및 소매 단위 차감 시스템을 대신하지 않는다.
 
+`FEATURE_FLAGS_JSON`은 기능별 전역 스위치다. `false`로 지정한 기능은 계정 권한과 무관하게 `/v1/me` 목록과 라우트에서 꺼진다(기본 `{}` = 모두 켬). `REMOTE_CONFIG_JSON`은 클라이언트에 내려가는 원격 설정으로 기본값 `{concurrency:{download:4,decode:1,stt:4,vision:8,judge:2,write:8},throughputMbps:50,minClientVersion:"0.0.0",promptVersion:"v1",schemaVersion:1}` 위에 병합된다. 알 수 없는 키나 0 이하 수치는 기동을 거부한다. `minClientVersion`보다 낮은 `x-client-version` 헤더의 클라이언트는 426을 받는다. `ACCOUNT_CONCURRENCY`는 계정당 동시 진행 요청 상한(기본 12), `PROVIDER_CONCURRENCY_JSON`은 모델별 제공자 동시 슬롯(기본 16), `PROVIDER_QUEUE_MS`는 슬롯 대기 상한(기본 10000, 넘으면 `provider_busy`), `ACCOUNT_RATE_PER_MIN`은 계정당 분당 POST 상한(기본 120)이다.
+
 ## 데이터와 운영 경계
 
 - 요청/응답 본문을 로깅하지 않는다. 역방향 프록시·APM·오류 수집 도구에도 본문/Authorization 로깅을 끈다.
@@ -56,6 +64,8 @@ PORT=8788
 실제 비용이 숫자로 보고되면 0.000001 USD 단위로 올림해 원장을 보정한다. 비용 누락·취소·실패 시 예약액을 유지한다. 요청 시작과 완료 시 월이 바뀌는 경우를 포함해 이 원장은 사용 제한을 위한 보수적 장치다. 최종 정산은 공급자 자료와 대조한다.
 
 원장 JSON이 손상되면 기동을 거부한다. 임의로 원장을 삭제하면 이력이 없어지므로 백업을 복구하고 비용을 대조해야 한다. 한 원장 파일을 여러 프로세스/서버리스 인스턴스가 함께 쓰면 안전하지 않다. 확장 전에 DB 트랜잭션으로 예약·중복 방지를 이전한다.
+
+오류 응답은 `{error:{code,message,retryable,retryAfterMs}}` 봉투다. 같은 requestId는 멱등하며 중복은 409다. 제공자 호출이 나간 뒤 실패하면 예약은 "uncertain"으로 남아 비용을 보수적으로 잡으므로 5xx 뒤 재시도는 새 requestId(예: 원본 + "-r1")를 써야 한다. `provider_busy`는 제공자에 아무것도 보내지 않은 요청이라 예약이 정확히 되돌아가며 같은 requestId로 재시도할 수 있다. `retryable`과 `retryAfterMs`는 429 재시도 대기 힌트다.
 
 ## 확인
 
