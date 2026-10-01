@@ -1,9 +1,26 @@
 // One in-memory session and archive encryption boundary.
 let session=null,generation=0,starting=false,summaryController=null,archiveBusy=false;
+// 파이프라인 진단 이벤트: 한 버스를 어드민(실시간 포트)과 암호화 로컬 로그가 함께 구독한다. 파이프라인에는 예외를 삼키는 safe 껍데기만 넘긴다.
+const bus=new PipelineEvents.EventBus(),events=PipelineEvents.safe(bus);
+PackageStore.indexedDbAdapter().then(PackageStore.createStore).then(store=>new PipelineEvents.LogSink(bus,store).start()).catch(()=>events.emit({stage:"system",level:"warn",code:"LOG_STORE_UNAVAILABLE"}));
 const emit=state=>chrome.runtime.sendMessage({target:"panel",type:"SESSION_STATE",state}).catch(()=>{});
 const trusted=sender=>{try{const url=new URL(sender.url),base=new URL(chrome.runtime.getURL(""));return sender.id===chrome.runtime.id&&url.protocol===base.protocol&&url.host===base.host&&["/background.js","/sidepanel.html","/options.html"].includes(url.pathname);}catch{return false;}};
 const settingsOf=s=>({openRouterApiKey:String(s?.openRouterApiKey||""),serviceUrl:String(s?.serviceUrl||""),appSessionToken:String(s?.appSessionToken||""),summaryModel:String(s?.summaryModel||""),remoteSummaryConsent:s?.remoteSummaryConsent===true});
+chrome.runtime.onConnect.addListener(port=>{
+  if(port.name!=="admin-events")return;
+  let ok=false;
+  try{const url=new URL(port.sender.url),base=new URL(chrome.runtime.getURL(""));ok=port.sender.id===chrome.runtime.id&&url.protocol===base.protocol&&url.host===base.host&&url.pathname==="/admin.html";}catch{}
+  if(!ok){port.disconnect();return;}
+  port.postMessage({type:"snapshot",events:bus.recent()});
+  const off=bus.on(event=>{try{port.postMessage({type:"event",event});}catch{}});
+  port.onDisconnect.addListener(off);
+});
 async function archive(message){
+  const span=message.type==="SAVE_VAULT"||message.type==="LOAD_VAULT"?events.span({stage:"vault",jobId:session?.id,unit:message.type==="SAVE_VAULT"?"save":"load"}):null;
+  try{const result=await archiveRun(message);span?.done();return result;}
+  catch(error){span?.fail("VAULT_FAILED");throw error;}
+}
+async function archiveRun(message){
   if(archiveBusy||summaryController||session&&!["completed","failed","disposed"].includes(session.status))throw new Error("현재 처리를 먼저 마쳐 주세요.");
   archiveBusy=true;const config=settingsOf(message.settings),client={baseUrl:config.serviceUrl,token:config.appSessionToken};
   try{
@@ -32,7 +49,7 @@ async function archive(message){
     }
     else if(note&&note.status!=="recognition-only")throw new Error("보관 노트의 형식을 확인할 수 없습니다.");
     await session?.dispose();
-    session=new CaptureSession({id:crypto.randomUUID(),generation:++generation,stream:null,options:{},emit});
+    session=new CaptureSession({id:crypto.randomUUID(),generation:++generation,stream:null,options:{},emit,events});
     session.store=restored;session.summary=note;session.status="completed";session.closed=true;
     session.gaps=Array.isArray(value.gaps)?value.gaps.slice(-200):[];
     session.counts={visual:restored.items.filter(e=>e.source==="ocr").length,audio:restored.items.filter(e=>e.source==="asr").length};
@@ -69,7 +86,7 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
         await session?.dispose();
         const config=settingsOf(message.settings);
         const options={...message.options,serviceUrl:config.serviceUrl,appSessionToken:config.appSessionToken};
-        session=new CaptureSession({id:options.sessionId||crypto.randomUUID(),generation:++generation,stream,options,emit});
+        session=new CaptureSession({id:options.sessionId||crypto.randomUUID(),generation:++generation,stream,options,emit,events});
         session.publish();await session.start();
         return {ok:true,state:session.state()};
       }finally{starting=false;}
@@ -87,11 +104,13 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
       if(!["completed","failed"].includes(session.status))throw new Error("캡처 처리를 마친 뒤 요약하세요.");
       const current=session;summaryController=new AbortController();current.status="summarizing";current.error=null;current.publish();
       current.summaryCache||=new Map();current.summaryAttempt=(current.summaryAttempt||0)+1;
+      const span=events.span({stage:"summary",jobId:current.id});
       try{
         const config=settingsOf(message.settings),summaryService=config.openRouterApiKey?OpenRouterClient:ServiceClient;
         current.log(`[요약] 연결 확인 · ${config.openRouterApiKey?"OpenRouter API 키 입력됨":config.serviceUrl&&config.appSessionToken?"보관 서비스 설정됨":"연결 설정 없음"} · 동의 ${config.remoteSummaryConsent?"완료":"미확인"} · 모델 ${config.summaryModel||"기본"}`);
         current.summary=await SummaryPipeline.generate(current.store.snapshot(),{sessionId:current.id,gaps:current.gaps,settings:config,service:summaryService,signal:summaryController.signal,cache:current.summaryCache,attempt:current.summaryAttempt,onProgress:progress=>{current.progress=progress;current.publish();}});
-      }catch(error){if(error.partial?.sections.length)current.summary=error.partial;current.error=error.name==="AbortError"?"요약을 취소했습니다. 완료한 구간은 유지됩니다.":error.message;}
+        span.done();
+      }catch(error){if(error.partial?.sections.length)current.summary=error.partial;current.error=error.name==="AbortError"?"요약을 취소했습니다. 완료한 구간은 유지됩니다.":error.message;if(error.name==="AbortError")span.skip({msg:"cancelled"});else span.fail("SUMMARY_FAILED");}
       finally{summaryController=null;current.status="completed";current.progress=null;current.publish();}
       return {ok:!current.error,state:current.state(),error:current.error};
     }

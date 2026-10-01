@@ -63,3 +63,10 @@
 
 - GSAP + ScrollTrigger는 `landing/gsap-animations.js` 한 파일에서만 쓴다. 사용처와 유지 이유는 그 파일 머리말에 적어뒀다. 두 연출(히어로 진입 타임라인, ScrollTrigger 1회 등장)을 쓰지 않게 되면 `landing/index.html`의 CDN `<script>` 두 줄과 함께 통째로 지운다.
 - 히어로 진입의 초기 상태(`opacity: 0`)는 세 곳에 나뉘어 있다. `index.html` head의 인라인 스크립트가 `html.gsap-enter`를 붙이고(2초 안전장치 포함), `landing.css`가 그 클래스로 숨기고, `gsap-animations.js`가 `gsap.set()`으로 시작값을 고정한 뒤 클래스를 걷는다. 셋 중 하나만 고치면 히어로가 영영 안 보이거나 페인트 후 깜빡인다.
+
+## 파이프라인 이벤트 스트림
+
+- 진단 이벤트는 오프스크린의 단일 `PipelineEvents.EventBus`(`lib/events.js`)에서 나오고 세 곳이 구독한다: `admin-events` 포트의 `admin.html`(`offscreen.js` onConnect — 송신자가 이 확장의 `/admin.html`인지 검증), `LogSink`→`PackageStore` "logs" 스토어의 암호화 로컬 로그, 이후 진행 UI.
+- 이벤트에는 강의 텍스트를 싣지 않는다(AGENTS.md §2 콘텐츠 없는 원격 측정). 고정 코드·수치·짧은 진단 msg만 허용한다.
+- 파이프라인(`session.js`, `offscreen.js`)에는 `PipelineEvents.safe(bus)` 껍데기만 넘긴다 — 잘못된 진단 이벤트의 예외가 캡처를 죽이지 않도록.
+- `admin.html`은 개발 전용이며 `tools/package-cws.mjs`(테스트 + 감사 규칙)가 스토어 패키지에서 배제한다.
