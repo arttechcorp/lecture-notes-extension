@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<!-- 개발 전용 관찰 화면. manifest에서 도달할 수 없어 웹스토어 패키지에는 들어가지 않는다. -->
+<meta charset="utf-8">
+<title>Summrizei Admin (개발용)</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font: 13px/1.5 system-ui, sans-serif; margin: 0; padding: 16px; background: #f5f5f4; color: #1c1c1c; }
+  header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  h1 { font-size: 16px; margin: 0; }
+  h1 small { font-weight: normal; color: #777; }
+  #connStatus { padding: 2px 8px; border-radius: 10px; background: #ddd; }
+  #connStatus.ok { background: #d3ead3; }
+  #connStatus.bad { background: #f3d5d5; }
+  .counters { color: #555; }
+  #loadNote { color: #777; }
+  button { font: inherit; padding: 4px 10px; border: 1px solid #bbb; border-radius: 6px; background: #fff; cursor: pointer; }
+  nav.tabs { display: flex; gap: 4px; margin: 12px 0; }
+  .tab.active { background: #1c1c1c; color: #fff; border-color: #1c1c1c; }
+  table { border-collapse: collapse; background: #fff; }
+  th, td { border: 1px solid #ddd; padding: 3px 8px; text-align: left; }
+  h2 { font-size: 13px; margin: 14px 0 6px; }
+  #openSpans { margin: 0; padding-left: 18px; }
+  #gantt { background: #fff; border: 1px solid #ddd; padding: 6px; }
+  .lane { display: flex; align-items: center; gap: 8px; margin: 2px 0; }
+  .lane .lab { width: 90px; flex: none; text-align: right; color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lane .track { position: relative; flex: 1; height: 16px; background: #f0efee; border-radius: 3px; }
+  .bar { position: absolute; top: 2px; bottom: 2px; border-radius: 2px; min-width: 2px; }
+  .bar.running { background: #4a90d9; }
+  .bar.done { background: #58a05c; }
+  .bar.failed { background: #d05555; }
+  .bar.skipped { background: #d8a13c; }
+  .filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+  input, select { font: inherit; padding: 3px 6px; border: 1px solid #bbb; border-radius: 4px; }
+  #logWrap { max-height: 60vh; overflow: auto; border: 1px solid #ddd; background: #fff; }
+  #logTable { font: 12px/1.45 ui-monospace, Menlo, monospace; width: 100%; }
+  #logTable th, #logTable td { border: none; border-bottom: 1px solid #eee; padding: 2px 8px; white-space: nowrap; }
+  #logTable td.msg { white-space: normal; }
+  tr.lv-warn { background: #fdf3e0; }
+  tr.lv-error { background: #fbe4e4; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Summrizei 파이프라인 관찰 <small>(개발용)</small></h1>
+  <span id="connStatus">연결 중…</span>
+  <span class="counters">이벤트 <b id="eventCount">0</b> · 오류 <b id="errorCount">0</b></span>
+  <button id="loadLogs" type="button">저장된 로그 불러오기 (24시간)</button>
+  <span id="loadNote"></span>
+</header>
+<nav class="tabs">
+  <button id="tabPipeline" type="button" class="tab active">파이프라인</button>
+  <button id="tabLogs" type="button" class="tab">로그</button>
+</nav>
+<section id="viewPipeline">
+  <table id="stageTable">
+    <thead><tr><th>단계</th><th>대기</th><th>실행</th><th>완료</th><th>실패</th><th>건너뜀</th></tr></thead>
+    <tbody id="stageRows"></tbody>
+  </table>
+  <h2>진행 중인 스팬</h2>
+  <ul id="openSpans"></ul>
+  <h2>타임라인 (최근 10분)</h2>
+  <div id="gantt"></div>
+</section>
+<section id="viewLogs" hidden>
+  <div class="filters">
+    <select id="fLevel">
+      <option value="debug">전체</option>
+      <option value="info">info 이상</option>
+      <option value="warn">warn 이상</option>
+      <option value="error">error만</option>
+    </select>
+    <input id="fStage" placeholder="단계">
+    <input id="fJob" placeholder="jobId">
+    <input id="fText" placeholder="텍스트 검색" size="24">
+    <label><input id="follow" type="checkbox" checked> 실시간 따라가기</label>
+    <button id="exportJson" type="button">JSON 내보내기</button>
+  </div>
+  <div id="logWrap">
+    <table id="logTable">
+      <thead><tr><th>시각</th><th>level</th><th>stage</th><th>status</th><th>unit</th><th>ms</th><th>code</th><th>msg</th></tr></thead>
+      <tbody id="logRows"></tbody>
+    </table>
+  </div>
+</section>
+<script src="lib/package-store.js"></script>
+<script src="admin.js"></script>
+</body>
+</html>
