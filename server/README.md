@@ -14,6 +14,8 @@ EXTENSION_ORIGIN=chrome-extension://<실제 32자 확장 ID>
 APP_TOKENS_JSON={"pilot-user":"<계정마다 고유한 32자 이상 난수 앱 토큰>"}
 ALLOWED_MODELS=["google/gemini-2.5-flash-lite"]
 OPENROUTER_PROVIDERS_JSON={"google/gemini-2.5-flash-lite":["<검증한 공급자 식별자>"]}
+GROQ_API_KEY=<운영자 Groq 키 — ALLOWED_STT_MODELS가 비어 있지 않으면 필수>
+ALLOWED_STT_MODELS=["whisper-large-v3-turbo"]
 VAULT_DIR=<서비스 전용 영속 볼륨의 절대 경로>
 USAGE_STATE_FILE=<같은 영속 볼륨>/usage.json
 MAX_REQUESTS=500
@@ -66,6 +68,20 @@ ACCOUNT_RATE_PER_MIN=120
 원장 JSON이 손상되면 기동을 거부한다. 임의로 원장을 삭제하면 이력이 없어지므로 백업을 복구하고 비용을 대조해야 한다. 한 원장 파일을 여러 프로세스/서버리스 인스턴스가 함께 쓰면 안전하지 않다. 확장 전에 DB 트랜잭션으로 예약·중복 방지를 이전한다.
 
 오류 응답은 `{error:{code,message,retryable,retryAfterMs}}` 봉투다. 같은 requestId는 멱등하며 중복은 409다. 제공자 호출이 나간 뒤 실패하면 예약은 "uncertain"으로 남아 비용을 보수적으로 잡으므로 5xx 뒤 재시도는 새 requestId(예: 원본 + "-r1")를 써야 한다. `provider_busy`는 제공자에 아무것도 보내지 않은 요청이라 예약이 정확히 되돌아가며 같은 requestId로 재시도할 수 있다. `retryable`과 `retryAfterMs`는 429 재시도 대기 힌트다.
+
+## 화면 인식(비전)
+
+`POST /v1/vision`은 슬라이드 프레임 한 장을 구조화된 SlideDoc으로 옮긴다. 본문은 정확히 `{model, requestId, slideId, t0, t1, image, mode}`다. `image`는 `data:image/jpeg;base64,` 한 덩어리(디코드 후 최대 1.5 MiB), `mode`는 `full` 또는 `reread`(수식·표 영역을 2배로 잘라 다시 읽는 모드)다. 응답은 `{slideDoc, usage, promptVersion, schemaVersion}`이고 `slideDoc`은 `Contracts.SCHEMAS.slideDoc`을 따른다.
+
+제공자에게는 slideDoc 스키마에서 검증 전용 키워드를 뺀 strict JSON Schema(`response_format: json_schema`, 이름 `slide_doc`)를 내리고 `id`·`status`는 서버가 채운다. 형식 실패(출력 잘림·JSON 파손·계약 불일치)는 같은 제공자로 한 번만 재시도한다. 프레임은 zero-retention 제공자(`zdr`, `data_collection:"deny"`, fallback 금지)로만 보내고 서버에는 저장하지 않는다.
+
+## 음성 인식(STT)
+
+`POST /v1/stt`는 Groq Whisper에 오디오 청크를 multipart로 넘겨 전사한다. 본문은 정확히 `{model, requestId, t0, durationSec, lang, prompt, audio}`다. `audio`는 `data:audio/mp4;base64,` 한 덩어리(디코드 후 최대 8 MiB, 길이 최대 330초), `lang`은 `ko`/`en`, `prompt`는 1000자 이하(빈 문자열 허용), 요청 본문 상한은 12 MB다. 응답은 `{transcript, usage:{audioSec,costUsd}, promptVersion, schemaVersion}`이고 `transcript`는 `Contracts.SCHEMAS.transcript`다.
+
+`ALLOWED_STT_MODELS`에는 `STT_RATES`에 단가가 있는 모델만 넣는다. 비어 있으면(기본) `/v1/stt`는 어떤 모델에도 `invalid_model`로 답한다. 과금은 오디오 시간당이다: `whisper-large-v3-turbo` $0.04/h, `whisper-large-v3` $0.111/h, 최소 청구 10초. 예약은 클라이언트 선언 `durationSec`으로 잡고 정산은 `max(선언값, 제공자가 보고한 duration)`으로 확정한다 — 제공자가 실제 음성 길이로 청구하기 때문이다.
+
+오디오는 메모리에서만 디코드돼 Groq로 전달되고 원장·로그·오류 본문에 남지 않는다(멱등 digest에는 base64의 sha256만 들어간다). Groq의 zero data retention은 요청 단위로 설정할 수 없으므로 Groq 조직 설정에서 미리 켜둬야 한다. 제공자 HTTP 오류(429 `provider_busy` 포함)는 과금이 없다고 확정할 수 있어 예약을 정확히 되돌리고 같은 requestId를 재사용할 수 있다. 200인데 출력이 계약을 어기는 경우 등 그 밖의 실패는 예약을 유지한다.
 
 ## 확인
 
