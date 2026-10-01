@@ -54,7 +54,7 @@ Summrizei는 강의 영상을 시청하는 동안 화면의 슬라이드와 강�
 - 제3자에게 데이터를 판매하거나 광고 목적으로 수집하지 않습니다.
 - 패널을 닫으면 캡처 원본 데이터는 메모리에서 완전히 소멸합니다.
 
-문의 및 피드백: jihwanbu26@gmail.com
+문의 및 피드백: summrizei.support@gmail.com
 ```
 
 **Category** [REQUIRED]  
