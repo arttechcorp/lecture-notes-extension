@@ -111,7 +111,8 @@ const bgEl=Object.fromEntries(['bgBox','bgBtn','bgStatus','bgProgress','bgRetryB
 const YOUTUBE=/(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com|googlevideo\.com)$/i; // lib/background-job.js와 같은 목록(§19)
 const BG_STATE={created:'준비',acquiring_source:'소스 확인',ingesting:'수신·인식',refining:'정제',judging:'판정',planning:'계획',writing:'작성',validating:'검증',rendering:'렌더'},BG_COUNT={recv:'수신',decode:'해석',vision:'화면',stt:'음성',write:'작성'};
 let bg=null; // {jobId,source?,code?}. 패널을 닫으면 사라진다 — 이어 할 작업은 BG_LIST가 다시 알려 준다.
-const bgConsented=()=>backgroundAllowed(settings)&&cloudRecognitionAllowed(settings);
+// 요약 동의도 시작 전에 본다: 인식만 끝난 결과를 볼 화면이 아직 없어서, 동의 없이 시작하면 클라우드 인식 비용만 쓰고 멈춘다.
+const bgConsented=()=>backgroundAllowed(settings)&&cloudRecognitionAllowed(settings)&&settings?.remoteSummaryConsent===true;
 function bgShow({text='',progress='',busy=false,cancel=false,retry=false,live=false,options=false}={}){
   bgEl.bgStatus.textContent=text;bgEl.bgProgress.textContent=progress;
   bgEl.bgBtn.disabled=busy;bgEl.bgCancelBtn.hidden=!cancel;bgEl.bgRetryBtn.hidden=!retry;bgEl.bgLiveBtn.hidden=!live;bgEl.bgOptionsLink.hidden=!options;
@@ -145,7 +146,7 @@ async function bgStart(jobId=crypto.randomUUID(),source=null){
   bg={jobId,source};
   if(!tab){bgShow({text:'선택한 강의 탭이 없습니다. 강의 창에서 확장을 다시 여세요.'});return;}
   if(YOUTUBE.test(new URL(tab.url).hostname)){bgShow({text:'이 사이트는 실시간 모드만 지원합니다. 위의 “캡처 시작”으로 진행하세요.'});return;}
-  if(!bgConsented()){settings=await loadSettings();if(!bgConsented()){bgShow({text:'백그라운드 처리에는 이용 동의 2종과 클라우드 인식 동의가 필요합니다. 설정에서 동의해 주세요.',options:true});return;}}
+  if(!bgConsented()){settings=await loadSettings();if(!bgConsented()){bgShow({text:'백그라운드 처리에는 이용 동의 2종, 클라우드 인식(화면·음성 전송) 동의, 외부 요약 처리 동의가 필요합니다. 설정에서 동의해 주세요.',options:true});return;}}
   if(!source){
     bgShow({text:'영상 목록을 찾는 중… 강의 탭에서 영상을 재생하세요.',busy:true});
     let url=null;
@@ -202,7 +203,8 @@ async function openMenu(){
     const s=await Account.getSession();
     if(!s)return renderHead(null);
     const user=Account.decodeUser(s.access_token);renderHead(s,user,'—');
-    const acc=await Account.fetchAccount(s);if(acc)renderHead(s,user,PLANS[acc.plan]||'—');
+    // 등급과 이번 달 인식 분량. my_account는 서버가 한도를 거는 것과 같은 표(plans·monthly_usage)를 읽는다.
+    const acc=await Account.fetchAccount(s);if(acc)renderHead(s,user,(PLANS[acc.plan]||'—')+(acc.minutes_limit!=null?` · 이번 달 ${acc.minutes_used??0}/${acc.minutes_limit}분`:''));
   }catch{amErrShow('계정 정보를 불러오지 못했습니다.');}
 }
 async function login(){

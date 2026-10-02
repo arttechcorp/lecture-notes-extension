@@ -752,11 +752,11 @@
   </dialog>
 
   <dialog id="visionWarn" class="warn-modal" aria-labelledby="visionWarnTitle">
-    <h2 id="visionWarnTitle">강의 화면을 인식 모델로 보낼까요?</h2>
-    <p>켜는 동안 <strong>강의 슬라이드 화면이 기기 밖으로 나갑니다.</strong> 자체 서비스를 거쳐 인식 모델에 전달되며, 전송 구간은 HTTPS로 보호되지만 모델은 인식하는 순간 화면을 봅니다.</p>
-    <p>화면은 어디에도 저장하지 않습니다. 인식이 끝나면 사라지고, 사용량 기록에는 계정과 비용만 남습니다.</p>
-    <p><strong>비공개 사내 교육 자료나 기밀 강의에는 켜지 마세요.</strong> 끄면 지금처럼 기기 안에서만 인식합니다.</p>
-    <p class="note">음성은 이 설정과 무관하게 항상 기기 안에서만 처리됩니다.</p>
+    <h2 id="visionWarnTitle">강의 화면과 음성을 클라우드 인식으로 보낼까요?</h2>
+    <p>켜는 동안 <strong>강의 슬라이드 화면이 기기 밖으로 나갑니다.</strong> 백그라운드 처리를 쓰면 <strong>강의 음성 조각도 함께 나갑니다.</strong> 자체 서비스를 거쳐 외부 인식 모델에 전달되며, 전송 구간은 HTTPS로 보호되지만 모델은 인식하는 순간 화면과 음성을 봅니다.</p>
+    <p>화면과 음성은 자체 서비스에 저장하지 않고, 인식 제공자에는 보관하지 않는 설정으로 요청합니다. 인식 결과만 돌아오며, 사용량 기록에는 계정과 비용만 남습니다.</p>
+    <p><strong>비공개 사내 교육 자료나 기밀 강의에는 켜지 마세요.</strong> 끄면 화면은 기기 안에서 인식하고, 백그라운드 처리는 쓸 수 없습니다.</p>
+    <p class="note">실시간 캡처의 음성은 이 설정과 무관하게 기기 안에서 인식합니다.</p>
     <div class="warn-actions">
       <button type="button" id="visionWarnCancel">취소</button>
       <button type="button" id="visionWarnOk" class="primary">이해했고 켜기</button>
