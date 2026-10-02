@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>사용자 정보 — Summrizei</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/images/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hedvig+Letters+Serif:opsz@12..24&family=Geist+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/landing.css?v=20260919-mobile-fix">
+<link rel="stylesheet" href="/account.css">
+</head>
+<body data-page="account">
+<header class="site-header wrap">
+  <button class="menu-button" id="menuBtn" type="button" aria-label="메뉴"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  <a class="brand" href="/" aria-label="Summrizei 홈">Summr<span>i</span>zei<span class="brand-dot">.</span></a>
+</header>
+<main class="wrap account-main">
+  <nav class="account-nav" aria-label="계정">
+    <a href="/account" aria-current="page">사용자 정보</a>
+    <a href="/account/billing">결제 정보</a>
+    <a href="/account/subscription">구독 설정</a>
+  </nav>
+  <section class="account-body" id="view" aria-live="polite"><p class="skeleton">불러오는 중…</p></section>
+</main>
+<footer class="account-footer"><div class="wrap"><span>© 2026 Summrizei</span><nav aria-label="약관 및 방침"><a href="/policies/terms">이용약관</a><a href="/policies/privacy">개인정보처리방침</a><a href="/policies/refund">결제 및 환불 정책</a></nav></div></footer>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="/supabase-config.js"></script>
+<script src="/billing-config.js"></script>
+<script src="/account-menu.js"></script>
+<script src="/account.js"></script>
+</body></html>

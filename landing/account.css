@@ -1,0 +1,98 @@
+/* 계정 메뉴(햄버거·서랍)와 /account 페이지. 토큰은 landing.css 것을 쓴다. */
+.menu-button{flex:none;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;margin-left:-10px;margin-right:-12px;padding:0;border:0;border-radius:10px;background:none;color:var(--ink);cursor:pointer}
+.menu-button:hover{background:rgba(0,0,0,.05)}
+.menu-button svg{width:22px;height:22px}
+.menu-button + .brand{margin-right:auto}
+.menu-button:focus-visible,.drawer :focus-visible,.account-nav a:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+
+dialog.drawer{position:fixed;inset:0 auto 0 0;margin:0;width:min(320px,86vw);height:100dvh;max-height:none;padding:0 0 env(safe-area-inset-bottom);border:0;border-right:1px solid var(--line);border-radius:0;background:var(--paper);box-shadow:0 0 60px #0003;overflow-y:auto}
+dialog.drawer[open]{animation:drawer-in .22s ease-out}
+dialog.drawer::backdrop{background:#0006;backdrop-filter:none}
+@keyframes drawer-in{from{transform:translateX(-100%)}to{transform:none}}
+@media(prefers-reduced-motion:reduce){dialog.drawer[open]{animation:none}}
+.drawer-head{display:flex;align-items:center;justify-content:space-between;padding:8px 8px 8px 20px;border-bottom:1px solid var(--line)}
+.drawer-title{font:600 15px var(--sans)}
+.drawer-close{min-height:44px;min-width:44px;padding:0 12px;border:0;border-radius:10px;background:none;color:var(--muted);font:500 13px var(--sans);cursor:pointer}
+.drawer-close:hover{background:rgba(0,0,0,.05)}
+.drawer-user{display:flex;align-items:center;gap:12px;padding:20px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.drawer-user .drawer-login{width:100%;margin:0}
+.drawer-note{margin:0;font-size:13px;color:var(--muted);line-height:1.6;width:100%}
+.avatar{flex:none;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:50%;background:var(--ink);color:var(--paper);font:600 17px var(--sans);overflow:hidden}
+.avatar img{width:100%;height:100%;object-fit:cover}
+.avatar.lg{width:64px;height:64px;font-size:24px}
+.who{display:flex;flex-direction:column;min-width:0;flex:1;font-size:13px;line-height:1.5}
+.who strong,.who span{overflow-wrap:anywhere}
+.who span{color:var(--muted)}
+.plan-badge{align-self:flex-start;margin-top:6px;padding:1px 9px;border:1px solid var(--line-strong);border-radius:9999px;font:500 11px/1.7 var(--mono);font-style:normal}
+.drawer-list{display:flex;flex-direction:column;padding:8px}
+.drawer-item{display:flex;align-items:center;min-height:44px;padding:0 12px;border:0;border-radius:10px;background:none;color:var(--ink);font:500 14px var(--sans);text-align:left;text-decoration:none;cursor:pointer}
+.drawer-item:hover{background:var(--soft)}
+.drawer-divider{width:100%;margin:8px 0;border:0;border-top:1px solid var(--line)}
+
+/* /account 페이지 */
+.account-main{display:grid;grid-template-columns:200px minmax(0,1fr);gap:48px;padding-block:40px 96px;min-height:60vh}
+.account-nav{display:flex;flex-direction:column;gap:4px;align-self:start;position:sticky;top:84px}
+.account-nav a{display:flex;align-items:center;min-height:44px;padding:0 14px;border-radius:10px;color:var(--muted);font-size:14px;font-weight:500;text-decoration:none}
+.account-nav a:hover{background:var(--soft);color:var(--ink)}
+.account-nav a[aria-current=page]{background:var(--paper);border:1px solid var(--line);color:var(--ink)}
+.account-body{min-width:0;max-width:720px}
+body[data-page=subscription] .account-body{max-width:960px}
+.account-body h1{font:600 26px/1.3 var(--sans);letter-spacing:-.02em;margin:0 0 6px}
+.account-lead{margin:0 0 28px;font-size:14px;color:var(--muted)}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:24px;margin-bottom:16px}
+.card h2{font:600 16px var(--sans);margin:0 0 14px}
+.card.center{text-align:center;padding:40px 24px}
+.card.center p{font-size:13px;color:var(--muted);margin:0 0 20px}
+.card.center .button{width:auto}
+.profile{display:flex;align-items:center;gap:16px}
+.profile .who{font-size:14px}
+.profile .who strong{font-size:18px}
+.facts{display:grid;grid-template-columns:auto 1fr;gap:10px 20px;margin:0;font-size:14px}
+.facts dt{color:var(--muted)}
+.facts dd{margin:0;overflow-wrap:anywhere}
+.meter{height:10px;border-radius:6px;background:rgba(0,0,0,.07);overflow:hidden;margin:12px 0 8px}
+.meter>i{display:block;height:100%;background:linear-gradient(90deg,#ff762e,var(--accent))}
+.meter-text{font:500 13px var(--mono);color:var(--muted)}
+.skeleton{color:var(--muted);font-size:14px;padding:24px 0}
+.error-card{border-color:#c0392b}
+.error-card p{margin:0 0 16px;font-size:14px}
+.account-actions{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.account-actions .button{width:auto}
+.account-note{font-size:13px;color:var(--muted);line-height:1.8;margin:14px 0 0}
+.account-note a{color:var(--ink)}
+.is-disabled{opacity:.55;pointer-events:none}
+.danger{color:#c0392b;border-color:rgba(192,57,43,.4)}
+.plans-stack{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;border:1px solid var(--line);margin-bottom:16px}
+.plans-stack .plan.current{outline:2px solid var(--ink);outline-offset:-2px;z-index:1}
+.plan-cta{margin-top:auto;padding-top:20px}
+.plans-stack .plan .benefits{margin-top:16px}
+.plans-stack .plan .button{width:100%;font-size:13px}
+.plans-stack .plan .price{margin-top:4px}
+.plans-stack .plan-for{font-size:14px;margin:8px 0 12px}
+.badge-current{display:inline-block;font-size:12px;padding:3px 8px;border-radius:9999px;background:var(--ink);color:var(--paper);white-space:nowrap}
+.plan-soon{margin:10px 0 0;font-size:12px;color:var(--muted);line-height:1.6}
+.plan-soon a{color:var(--ink)}
+.confirm-dialog{width:min(420px,calc(100% - 32px));padding:24px}
+.confirm-dialog h2{font:600 18px var(--sans);margin:0 0 10px}
+.confirm-dialog p{font-size:13px;line-height:1.8;margin:0 0 14px}
+.confirm-dialog input{width:100%;min-height:44px;padding:10px 12px;border:1px solid var(--line-strong);border-radius:8px;font:16px var(--sans);margin-bottom:16px}
+.confirm-dialog .account-actions{justify-content:flex-end}
+.confirm-dialog button:disabled{opacity:.4;cursor:not-allowed}
+.account-footer{background:var(--black);color:rgba(255,255,255,.6);padding:28px 0;font-size:12px}
+.account-footer .wrap{display:flex;flex-wrap:wrap;gap:8px 24px;justify-content:space-between}
+.account-footer nav{display:flex;flex-wrap:wrap;gap:4px 20px}
+.account-footer a{color:inherit;text-decoration:none;padding-block:7px}
+.account-footer a:hover{text-decoration:underline;color:#F4F4F5}
+
+@media(max-width:760px){
+  .account-main{grid-template-columns:minmax(0,1fr);gap:20px;padding-block:20px 64px}
+  .account-nav{flex-direction:row;position:static;gap:6px;border-bottom:1px solid var(--line);padding-bottom:10px}
+  .account-nav a{flex:1 1 0;min-width:0;justify-content:center;padding:0 6px;font-size:13px;text-align:center}
+  .plans-stack{grid-template-columns:minmax(0,1fr)}
+  .card{padding:20px 18px}
+}
+@media(max-width:540px){
+  .facts{grid-template-columns:minmax(0,1fr);gap:2px}
+  .facts dd{margin-bottom:10px}
+  .profile{flex-wrap:wrap}
+}
