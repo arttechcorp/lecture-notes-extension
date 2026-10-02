@@ -39,6 +39,17 @@
   #logTable td.msg { white-space: normal; }
   tr.lv-warn { background: #fdf3e0; }
   tr.lv-error { background: #fbe4e4; }
+  .note { color: #777; margin: 6px 0; }
+  .srcCard { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 8px 10px; margin: 8px 0; max-width: 680px; }
+  .srcHead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .srcHead b { margin-right: auto; }
+  .verdict { padding: 1px 8px; border-radius: 10px; font-size: 12px; }
+  .verdict.ok { background: #d3ead3; }
+  .verdict.warn { background: #fdf3e0; }
+  .verdict.bad { background: #f3d5d5; }
+  .srcCard dl { display: grid; grid-template-columns: max-content 1fr; gap: 1px 10px; margin: 6px 0 0; }
+  .srcCard dt { color: #555; }
+  .srcCard dd { margin: 0; overflow-wrap: anywhere; white-space: pre-line; }
 </style>
 </head>
 <body>
@@ -52,6 +63,7 @@
 <nav class="tabs">
   <button id="tabPipeline" type="button" class="tab active">파이프라인</button>
   <button id="tabLogs" type="button" class="tab">로그</button>
+  <button id="tabSource" type="button" class="tab">소스 진단</button>
 </nav>
 <section id="viewPipeline">
   <table id="stageTable">
@@ -84,7 +96,19 @@
     </table>
   </div>
 </section>
+<section id="viewSource" hidden>
+  <p class="note">개발 전용: 탭을 고르고 [진단]을 누른 뒤 10초 안에 그 탭에서 영상을 재생하세요. 선택한 탭의 미디어 요청만 관찰하며 아무것도 저장하지 않습니다.</p>
+  <div class="filters">
+    <select id="srcTab"></select>
+    <button id="srcRefresh" type="button">목록 새로고침</button>
+    <button id="srcRun" type="button">진단</button>
+    <button id="srcRelease" type="button">webRequest 권한 해제</button>
+  </div>
+  <p class="note" id="srcStatus" role="status" aria-live="polite"></p>
+  <div id="srcResults"></div>
+</section>
 <script src="lib/package-store.js"></script>
+<script src="lib/media-source.js"></script>
 <script src="admin.js"></script>
 </body>
 </html>

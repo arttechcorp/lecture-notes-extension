@@ -12,6 +12,7 @@
     "offscreen",
     "activeTab"
   ],
+  "optional_permissions": ["webRequest"],
   "host_permissions": [
     "<all_urls>",
     "https://huggingface.co/*",
