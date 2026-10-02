@@ -19,7 +19,7 @@ async function body({ origin }) {
     const timing = {};
     const timed = async (key, fn) => { const t = performance.now(); const r = await fn(); timing[key] = Math.round(performance.now() - t); return r; };
     const base = `${origin}/fx/${name}/`, pl = LectureMedia.parseM3U8(new TextDecoder().decode(await get(base + "index.m3u8")), base + "index.m3u8");
-    const segs = await timed("demux", async () => { const out = []; for (const seg of pl.segments) out.push(LectureDemux.demuxSegment(await get(seg.uri), { start: seg.start })); return out; });
+    const segs = await timed("demux", async () => { const out = [], anchor = {}; for (const seg of pl.segments) out.push(LectureDemux.demuxSegment(await get(seg.uri), { start: seg.start, discontinuity: seg.discontinuity, anchor })); return out; });
     const kfs = segs.flatMap(s => LectureDemux.keyframes(s.video)), tracks = segs.map(s => s.audio);
 
     // 키프레임 → 샘플·JPEG. 샘플은 운영과 같이 VisualGate(비전 모드)에 먹인다.
@@ -44,7 +44,7 @@ async function body({ origin }) {
       const size = async o => { let n = 0; for await (const k of LectureDecode.keyframeImages(nk, o)) n = k.blob.size; return n; };
       // 서로 다른 avcC(320×180 ↔ 1920×1080)가 섞인 목록: 설정이 바뀔 때마다 다시 configure하고 순서를 지킨다
       out.mixed = [];
-      for await (const k of LectureDecode.keyframeImages([...kfs.slice(0, 2), ...nk, ...kfs.slice(2, 4)])) { const b = await createImageBitmap(k.blob); out.mixed.push([+k.t.toFixed(2), b.width, b.height]); b.close(); }
+      for await (const k of LectureDecode.keyframeImages([...kfs.slice(0, 2), ...nk, ...kfs.slice(2, 4)])) { const b = await createImageBitmap(k.blob); out.mixed.push([Math.round(k.t), b.width, b.height]); b.close(); }
       out.noise = { keyframes: nk.length, byDefault: await size({}), quality1: await size({ quality: 1 }), quality06: await size({ quality: 0.6 }) };
       // 가운데 세그먼트를 빼면 8~16초가 구멍(무음)이어야 한다 — 트랙 시각이 타임라인에 맞게 놓였는지 본다
       out.gap = arr(await LectureDecode.audioEnergy([tracks[0], tracks[2]]));
@@ -114,9 +114,9 @@ const types = { ".js": "text/javascript", ".m3u8": "application/vnd.apple.mpegur
       // 오디오: 24초, 사인파가 무음 문턱(filterSegments 기본 silenceRms 0.01)보다 크다(끝의 프라이밍·꼬리 1초는 뺀다)
       const e = Float32Array.from(r.audio.energy), inner = e.subarray(Math.ceil(1 / 0.03), Math.floor(23 / 0.03)), median = Float32Array.from(inner).sort()[inner.length >> 1];
       near(r.audio.t0, 0, 0.05, `${r.name} t0`); assert.equal(r.audio.frameMs, 30);
-      near(e.length * 0.03, 24, 0.3, `${r.name} covered seconds`); // demux 오디오 시각이 세그먼트마다 최대 ~0.2초 어긋난다
+      near(e.length * 0.03, 24, 0.3, `${r.name} covered seconds`);
       assert.ok(Math.min(...inner) > 0.01, `${r.name} min tone rms ${Math.min(...inner)}`);
-      assert.ok(Math.min(...inner) > 0.7 * median, `${r.name} 일정한 톤인데 이음새에서 에너지가 꺼졌다(min ${Math.min(...inner)}, median ${median})`); // 세그먼트 이음새의 구멍·페이드인 보정 검사
+      assert.ok(Math.min(...inner) > 0.7 * median, `${r.name} 일정한 톤인데 이음새에서 에너지가 꺼졌다(min ${Math.min(...inner)}, median ${median})`); // 세그먼트 이음새 검사: demux가 오디오를 이어 붙여 구멍이 없고(브리지 없음), 디코더 flush 뒤 버린 페이드인 프레임은 30ms 프레임을 통째로 비우지 않는다
       near(median, 0.125 / Math.SQRT2, 0.02, `${r.name} median rms`); // ffmpeg sine 진폭 1/8
       r.vadFull = Stt.vadSegments(e, { frameMs: r.audio.frameMs }); // 대비 없는 일정한 톤이라 기본 VAD(바닥×3)는 구간을 못 찾는다 — 출력만 한다
     }

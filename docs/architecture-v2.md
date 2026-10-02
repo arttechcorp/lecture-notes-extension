@@ -208,7 +208,7 @@
    - AAC를 **재인코딩하지 않고** m4a로 재포장한다.
    - `AudioDecoder`는 VAD와 무음 경계 계산에만 쓴다.
 7. **시간축**
-   - 정준 시각 = 재생목록의 EXTINF 누적 + 세그먼트 안의 PTS 오프셋. DISCONTINUITY나 PTS 리셋과 무관하게 맞는다.
+   - 정준 시각 = DISCONTINUITY 구간 첫 세그먼트의 EXTINF 누적 시작 + (PTS − 그 구간 첫 세그먼트의 전 트랙 최소 PTS). 구간 안에서는 PTS가 이어지므로 오디오·비디오 이음새가 끊기지 않고, DISCONTINUITY에서 기준을 새로 잡는다(`lib/media-demux.js` anchor). DISCONTINUITY 태그 없이 PTS가 리셋되는 비표준 스트림은 감지하지 않는다.
    - LiveSource는 기존 `currentTime + epoch`를 쓴다.
 8. **저장 금지(D8)**
    - 세그먼트 버퍼는 디코드나 재포장 직후 해제한다.
