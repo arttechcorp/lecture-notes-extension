@@ -1,0 +1,82 @@
+{
+  "concepts": [
+    { "conceptId": "C1", "name": "고정비", "homeSectionId": "S1", "depth": "defined" },
+    { "conceptId": "C2", "name": "변동비", "homeSectionId": "S1", "depth": "defined" },
+    { "conceptId": "C3", "name": "공헌이익", "homeSectionId": "S2", "depth": "defined" },
+    { "conceptId": "C4", "name": "손익분기점", "homeSectionId": "S2", "depth": "defined" },
+    { "conceptId": "C5", "name": "거래비용 관점", "homeSectionId": "S3", "depth": "defined" },
+    { "conceptId": "C6", "name": "자원기반 관점", "homeSectionId": "S3", "depth": "defined" },
+    { "conceptId": "C7", "name": "대리인 관점", "homeSectionId": "S3", "depth": "mentioned" }
+  ],
+  "sections": [
+    {
+      "sectionId": "S1",
+      "title": "원가는 생산량에 어떻게 반응하는가",
+      "question": "어떤 비용은 생산량과 함께 움직이고 어떤 비용은 그렇지 않은가?",
+      "stage": "understand",
+      "unitIds": ["U1"],
+      "crossUnitIds": [],
+      "blocks": [
+        { "type": "B05", "purpose": "고정비 개념을 정의한다", "conceptIds": ["C1"], "formulaIds": [], "figureIds": [] },
+        { "type": "B05", "purpose": "변동비 개념을 정의한다", "conceptIds": ["C2"], "formulaIds": [], "figureIds": [] },
+        { "type": "B12", "purpose": "고정비의 기간 조건을 짚는다", "conceptIds": ["C1"], "formulaIds": [], "figureIds": [] }
+      ]
+    },
+    {
+      "sectionId": "S2",
+      "title": "몇 개를 팔아야 손실을 면하는가",
+      "question": "공헌이익으로 손익분기 판매량을 어떻게 구하는가?",
+      "stage": "apply",
+      "unitIds": ["U2", "U3"],
+      "crossUnitIds": [],
+      "blocks": [
+        { "type": "B05", "purpose": "공헌이익 개념을 정의한다", "conceptIds": ["C3"], "formulaIds": [], "figureIds": [] },
+        { "type": "B05", "purpose": "손익분기점 개념을 정의한다", "conceptIds": ["C4"], "formulaIds": [], "figureIds": [] },
+        { "type": "B10", "purpose": "손익분기 판매량을 계산한다", "conceptIds": ["C3", "C4"], "formulaIds": ["F1", "F2"], "figureIds": [] },
+        { "type": "B11", "purpose": "공헌이익에 대한 흔한 오해를 바로잡는다", "conceptIds": ["C3"], "formulaIds": [], "figureIds": [] },
+        { "type": "B14", "purpose": "손익분기점 계산과 공헌이익 개념을 점검한다", "conceptIds": ["C3", "C4"], "formulaIds": [], "figureIds": [] }
+      ]
+    },
+    {
+      "sectionId": "S3",
+      "title": "기업의 경계를 두 관점은 어떻게 설명하는가",
+      "question": "어떤 활동을 기업 안에 두는가?",
+      "stage": "relate",
+      "unitIds": ["U4"],
+      "crossUnitIds": [],
+      "blocks": [
+        { "type": "B05", "purpose": "거래비용 관점을 정의한다", "conceptIds": ["C5"], "formulaIds": [], "figureIds": [] },
+        { "type": "B05", "purpose": "자원기반 관점을 정의한다", "conceptIds": ["C6"], "formulaIds": [], "figureIds": [] },
+        { "type": "B06", "purpose": "세 관점을 같은 기준으로 비교한다", "conceptIds": ["C5", "C6", "C7"], "formulaIds": ["F3"], "figureIds": ["G1"] },
+        { "type": "B07", "purpose": "거래비용 관점의 논거를 연결한다", "conceptIds": ["C5"], "formulaIds": [], "figureIds": [] }
+      ]
+    },
+    {
+      "sectionId": "S4",
+      "title": "자료는 무엇을 말하고 무엇을 말하지 못하는가",
+      "question": null,
+      "stage": "apply",
+      "unitIds": ["U5"],
+      "crossUnitIds": ["U4"],
+      "blocks": [
+        { "type": "B09", "purpose": "설문 자료의 주장과 한계를 읽는다", "conceptIds": [], "formulaIds": [], "figureIds": ["G2"] },
+        { "type": "B14", "purpose": "자료 해석과 관점 적용을 점검한다", "conceptIds": ["C5"], "formulaIds": [], "figureIds": [] }
+      ]
+    },
+    {
+      "sectionId": "S5",
+      "title": "다음 수업 준비",
+      "question": null,
+      "stage": "check",
+      "unitIds": ["U6"],
+      "crossUnitIds": [],
+      "blocks": [
+        { "type": "B18", "purpose": "다음 수업 공지를 모은다", "conceptIds": [], "formulaIds": [], "figureIds": [] }
+      ]
+    }
+  ],
+  "global": [
+    { "type": "B02", "purpose": "강의 결론을 한눈에 정리한다", "conceptIds": ["C4", "C5", "C6"] },
+    { "type": "B13", "purpose": "두 관점의 관계를 정리한다", "conceptIds": ["C5", "C6"] }
+  ]
+}

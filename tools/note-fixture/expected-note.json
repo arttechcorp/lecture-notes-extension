@@ -1,0 +1,1540 @@
+{
+  "schemaVersion": 1,
+  "noteSpecVersion": "lecture-note-1",
+  "promptVersion": null,
+  "status": "partial",
+  "tier": "paid",
+  "policy": {
+    "externalAugmentation": false,
+    "syntheticExamples": false
+  },
+  "meta": {
+    "title": "경영학원론(가상) 6주차",
+    "course": null,
+    "lectureDate": null,
+    "session": "6주차",
+    "lang": "ko",
+    "generatedAt": "2026-10-02T12:00:00.000Z",
+    "processed": {
+      "t0": 0,
+      "t1": 1260
+    }
+  },
+  "concepts": [
+    {
+      "conceptId": "C1",
+      "name": "고정비",
+      "depth": "defined",
+      "homeBlockId": "S1_B1"
+    },
+    {
+      "conceptId": "C2",
+      "name": "변동비",
+      "depth": "defined",
+      "homeBlockId": "S1_B2"
+    },
+    {
+      "conceptId": "C3",
+      "name": "공헌이익",
+      "depth": "defined",
+      "homeBlockId": "S2_B1"
+    },
+    {
+      "conceptId": "C4",
+      "name": "손익분기점",
+      "depth": "defined",
+      "homeBlockId": "S2_B2"
+    },
+    {
+      "conceptId": "C5",
+      "name": "거래비용 관점",
+      "depth": "defined",
+      "homeBlockId": "S3_B1"
+    },
+    {
+      "conceptId": "C6",
+      "name": "자원기반 관점",
+      "depth": "defined",
+      "homeBlockId": "S3_B2"
+    },
+    {
+      "conceptId": "C7",
+      "name": "대리인 관점",
+      "depth": "mentioned",
+      "homeBlockId": null
+    }
+  ],
+  "global": [
+    {
+      "id": "GB1",
+      "type": "B02",
+      "sectionId": null,
+      "status": "supported",
+      "importance": "core",
+      "emphasis": [],
+      "content": {
+        "question": {
+          "text": "공헌이익으로 손익분기 판매량을 어떻게 구하는가",
+          "evidenceIds": [
+            "U2.t3"
+          ],
+          "basis": "lecture"
+        },
+        "mode": "conclusions",
+        "items": [
+          {
+            "claim": {
+              "text": "정정된 월 고정비 3,000,000원과 개당 공헌이익 6,000원이면 손익분기 판매량은 500개다",
+              "evidenceIds": [
+                "S2_B3.c2",
+                "S2_B3.c1",
+                "S2_B3.i3"
+              ],
+              "basis": "derived"
+            },
+            "reason": null,
+            "targetIds": [
+              "S2"
+            ]
+          },
+          {
+            "claim": {
+              "text": "거래비용 관점은 비용 비교로, 자원기반 관점은 자원과 역량의 경쟁우위로 기업 경계를 설명하지만 둘 다 무엇을 내부에 둘지를 묻는다",
+              "evidenceIds": [
+                "U4.t2",
+                "U4.t3",
+                "U4.t4"
+              ],
+              "basis": "lecture"
+            },
+            "reason": null,
+            "targetIds": [
+              "S3_B3"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "GB2",
+      "type": "B13",
+      "sectionId": null,
+      "status": "supported",
+      "importance": "core",
+      "emphasis": [],
+      "content": {
+        "title": "두 관점의 관계",
+        "propositions": [
+          {
+            "relation": "contrast",
+            "claim": {
+              "text": "거래비용 관점은 비용 비교를, 자원기반 관점은 자원과 역량의 경쟁우위를 먼저 묻는다",
+              "evidenceIds": [
+                "U4.t2",
+                "U4.t3"
+              ],
+              "basis": "lecture"
+            },
+            "targetIds": [
+              "C5",
+              "C6"
+            ]
+          },
+          {
+            "relation": "common",
+            "claim": {
+              "text": "두 관점 모두 기업이 무엇을 내부에 둘지를 설명한다",
+              "evidenceIds": [
+                "U4.t4"
+              ],
+              "basis": "lecture"
+            },
+            "targetIds": [
+              "S3_B3"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "sections": [
+    {
+      "sectionId": "S1",
+      "number": 1,
+      "title": "원가는 생산량에 어떻게 반응하는가",
+      "question": "어떤 비용은 생산량과 함께 움직이고 어떤 비용은 그렇지 않은가?",
+      "stage": "understand",
+      "unitIds": [
+        "U1"
+      ],
+      "range": {
+        "t0": 0,
+        "t1": 150
+      },
+      "gist": {
+        "text": "비용을 고정비와 변동비로 나누는 기준은 생산량과의 관계다",
+        "evidenceIds": [
+          "U1.t2",
+          "U1.t3"
+        ],
+        "basis": "lecture"
+      },
+      "blocks": [
+        {
+          "id": "S1_B1",
+          "type": "B05",
+          "sectionId": "S1",
+          "status": "supported",
+          "importance": "core",
+          "emphasis": [
+            {
+              "kind": "exam",
+              "evidenceIds": [
+                "U1.t3"
+              ]
+            }
+          ],
+          "content": {
+            "conceptId": "C1",
+            "term": "고정비",
+            "original": null,
+            "definition": {
+              "text": "생산량과 관계없이 일정 기간 동안 발생하는 비용을 고정비라고 한다",
+              "evidenceIds": [
+                "U1.s2",
+                "U1.t2"
+              ],
+              "basis": "lecture"
+            },
+            "explanation": {
+              "text": "공장 임차료처럼 한 개를 만들든 많이 만들든 이번 달에 똑같이 나가는 돈이다",
+              "evidenceIds": [
+                "U1.t2"
+              ],
+              "basis": "lecture"
+            },
+            "mechanism": null,
+            "scope": [
+              {
+                "text": "일정 기간을 기준으로 한 분류다",
+                "evidenceIds": [
+                  "U1.s2"
+                ],
+                "basis": "lecture"
+              }
+            ],
+            "examples": []
+          }
+        },
+        {
+          "id": "S1_B2",
+          "type": "B05",
+          "sectionId": "S1",
+          "status": "supported",
+          "importance": "core",
+          "emphasis": [],
+          "content": {
+            "conceptId": "C2",
+            "term": "변동비",
+            "original": null,
+            "definition": {
+              "text": "생산량에 비례해 늘어나는 비용을 변동비라고 한다",
+              "evidenceIds": [
+                "U1.s3",
+                "U1.t3"
+              ],
+              "basis": "lecture"
+            },
+            "explanation": {
+              "text": "원재료비처럼 많이 만들수록 그만큼 늘어나는 비용이다",
+              "evidenceIds": [
+                "U1.t3"
+              ],
+              "basis": "lecture"
+            },
+            "mechanism": null,
+            "scope": [],
+            "examples": []
+          }
+        },
+        {
+          "id": "S1_B3",
+          "type": "B12",
+          "sectionId": "S1",
+          "status": "supported",
+          "importance": "supporting",
+          "emphasis": [],
+          "content": {
+            "kind": "hint",
+            "note": {
+              "text": "고정비에는 일정 기간 동안이라는 조건이 붙는다는 점을 함께 기억해 두면 좋다",
+              "evidenceIds": [
+                "U1.s2"
+              ],
+              "basis": "lecture"
+            }
+          }
+        }
+      ],
+      "checks": []
+    },
+    {
+      "sectionId": "S2",
+      "number": 2,
+      "title": "몇 개를 팔아야 손실을 면하는가",
+      "question": "공헌이익으로 손익분기 판매량을 어떻게 구하는가?",
+      "stage": "apply",
+      "unitIds": [
+        "U2",
+        "U3"
+      ],
+      "range": {
+        "t0": 150,
+        "t1": 560
+      },
+      "gist": {
+        "text": "고정비를 개당 공헌이익으로 나누면 손익분기 판매량이 나온다",
+        "evidenceIds": [
+          "U2.t3"
+        ],
+        "basis": "lecture"
+      },
+      "blocks": [
+        {
+          "id": "S2_B1",
+          "type": "B05",
+          "sectionId": "S2",
+          "status": "supported",
+          "importance": "core",
+          "emphasis": [],
+          "content": {
+            "conceptId": "C3",
+            "term": "공헌이익",
+            "original": null,
+            "definition": {
+              "text": "판매가격에서 단위당 변동비를 뺀, 한 개를 팔 때 남는 돈이다",
+              "evidenceIds": [
+                "U2.s4",
+                "U2.t1"
+              ],
+              "basis": "lecture"
+            },
+            "explanation": {
+              "text": "이 예에서는 한 개를 팔 때마다 6,000원이 고정비를 메우는 데 쓰인다",
+              "evidenceIds": [
+                "U2.t2"
+              ],
+              "basis": "lecture"
+            },
+            "mechanism": null,
+            "scope": [],
+            "examples": []
+          }
+        },
+        {
+          "id": "S2_B2",
+          "type": "B05",
+          "sectionId": "S2",
+          "status": "supported",
+          "importance": "core",
+          "emphasis": [
+            {
+              "kind": "stress",
+              "evidenceIds": [
+                "U2.t3"
+              ]
+            }
+          ],
+          "content": {
+            "conceptId": "C4",
+            "term": "손익분기점",
+            "original": null,
+            "definition": {
+              "text": "고정비를 개당 공헌이익으로 나눴을 때 나오는 판매량이다",
+              "evidenceIds": [
+                "U2.t3"
+              ],
+              "basis": "lecture"
+            },
+            "explanation": null,
+            "mechanism": null,
+            "scope": [],
+            "examples": []
+          }
+        },
+        {
+          "id": "S2_B3",
+          "type": "B10",
+          "sectionId": "S2",
+          "status": "supported",
+          "importance": "core",
+          "emphasis": [],
+          "content": {
+            "title": "손익분기 판매량 계산",
+            "kind": "calc",
+            "goal": {
+              "text": "식 {{F1}}에 따라 고정비를 개당 공헌이익으로 나눠 손익분기 판매량을 구한다",
+              "evidenceIds": [
+                "U2.t3"
+              ],
+              "basis": "lecture"
+            },
+            "formulaIds": [
+              "F1",
+              "F2"
+            ],
+            "figureIds": [],
+            "variables": [],
+            "assumptions": [
+              {
+                "text": "판매가격과 단위당 변동비는 슬라이드 예시의 값을 그대로 쓴다",
+                "evidenceIds": [
+                  "U2.s2"
+                ],
+                "basis": "lecture"
+              }
+            ],
+            "inputs": [
+              {
+                "label": "판매가격",
+                "value": 15000,
+                "unit": "원",
+                "evidenceIds": [
+                  "U2.s2"
+                ]
+              },
+              {
+                "label": "단위당 변동비",
+                "value": 9000,
+                "unit": "원",
+                "evidenceIds": [
+                  "U2.s2"
+                ]
+              },
+              {
+                "label": "월 고정비",
+                "value": 3000000,
+                "unit": "원",
+                "evidenceIds": [
+                  "U3.t1"
+                ]
+              }
+            ],
+            "steps": [
+              {
+                "label": "개당 공헌이익",
+                "op": "sub",
+                "a": "i1",
+                "b": "i2",
+                "value": 6000,
+                "unit": "원",
+                "digits": 0
+              },
+              {
+                "label": "손익분기 판매량",
+                "op": "div",
+                "a": "i3",
+                "b": "c1",
+                "value": 500,
+                "unit": "개",
+                "digits": 0
+              }
+            ],
+            "derived": [
+              "BEP=\\frac{3000000}{6000}"
+            ],
+            "reading": [],
+            "result": {
+              "text": "정정된 고정비로 계산한 손익분기 판매량은 500개다",
+              "evidenceIds": [
+                "S2_B3.c2",
+                "U3.t2"
+              ],
+              "basis": "derived"
+            },
+            "limits": [],
+            "withheld": null
+          }
+        },
+        {
+          "id": "S2_B4",
+          "type": "B11",
+          "sectionId": "S2",
+          "status": "supported",
+          "importance": "supporting",
+          "emphasis": [],
+          "content": {
+            "misconception": {
+              "text": "공헌이익을 판매가격에서 고정비를 뺀 값으로 착각하기 쉽다",
+              "evidenceIds": [
+                "U2.t4"
+              ],
+              "basis": "lecture"
+            },
+            "correction": {
+              "text": "공헌이익은 판매가격에서 단위당 변동비를 뺀 값이고, 고정비는 판매 개수와 상관이 없으므로 빼면 안 된다",
+              "evidenceIds": [
+                "U2.s4",
+                "U2.t4"
+              ],
+              "basis": "lecture"
+            },
+            "conditions": [],
+            "origin": "lecture_correction"
+          }
+        },
+        {
+          "id": "S2_B5",
+          "type": "B14",
+          "sectionId": "S2",
+          "status": "supported",
+          "importance": "core",
+          "emphasis": [],
+          "content": {
+            "items": [
+              {
+                "kind": "calc",
+                "prompt": {
+                  "text": "판매가격 15,000원, 단위당 변동비 9,000원, 월 고정비 3,000,000원일 때 손익분기 판매량은?",
+                  "evidenceIds": [
+                    "U2.s2",
+                    "U3.t1"
+                  ],
+                  "basis": "lecture"
+                },
+                "premise": null,
+                "level": "applied",
+                "targetIds": [
+                  "C4"
+                ],
+                "answer": {
+                  "verdict": null,
+                  "explanation": {
+                    "text": "개당 공헌이익 6,000원으로 3,000,000원을 나누면 500개다",
+                    "evidenceIds": [
+                      "S2_B3.c1",
+                      "S2_B3.c2",
+                      "S2_B3.i3"
+                    ],
+                    "basis": "derived"
+                  },
+                  "correction": null,
+                  "rubric": [],
+                  "alternatives": [],
+                  "reviewIds": [
+                    "S2_B3"
+                  ]
+                }
+              },
+              {
+                "kind": "ox",
+                "prompt": {
+                  "text": "공헌이익은 판매가격에서 고정비를 뺀 값이다",
+                  "evidenceIds": [],
+                  "basis": "pedagogical"
+                },
+                "premise": null,
+                "level": "basic",
+                "targetIds": [
+                  "C3"
+                ],
+                "answer": {
+                  "verdict": "X",
+                  "explanation": {
+                    "text": "고정비는 판매 개수와 상관이 없으므로 판매가격에서 빼면 안 된다",
+                    "evidenceIds": [
+                      "U2.t4"
+                    ],
+                    "basis": "lecture"
+                  },
+                  "correction": {
+                    "text": "공헌이익은 판매가격에서 단위당 변동비를 뺀 값이다",
+                    "evidenceIds": [
+                      "U2.s4"
+                    ],
+                    "basis": "lecture"
+                  },
+                  "rubric": [],
+                  "alternatives": [],
+                  "reviewIds": [
+                    "S2_B1",
+                    "S2_B4"
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "checks": [
+        {
+          "kind": "correction",
+          "claim": {
+            "text": "강의 중 월 고정비 수치가 정정되었다",
+            "evidenceIds": [
+              "U3.t1"
+            ],
+            "basis": "lecture"
+          },
+          "targetIds": [
+            "S2_B3"
+          ],
+          "before": {
+            "text": "슬라이드의 월 고정비는 2,400,000원이었다",
+            "evidenceIds": [
+              "U2.s3"
+            ],
+            "basis": "lecture"
+          },
+          "after": {
+            "text": "정정된 월 고정비는 3,000,000원이다",
+            "evidenceIds": [
+              "U3.t1"
+            ],
+            "basis": "lecture"
+          },
+          "hold": null
+        }
+      ]
+    },
+    {
+      "sectionId": "S3",
+      "number": 3,
+      "title": "기업의 경계를 두 관점은 어떻게 설명하는가",
+      "question": "어떤 활동을 기업 안에 두는가?",
+      "stage": "relate",
+      "unitIds": [
+        "U4"
+      ],
+      "range": {
+        "t0": 560,
+        "t1": 900
+      },
+      "gist": {
+        "text": "기업의 경계를 설명하는 관점들을 같은 기준으로 비교한다",
+        "evidenceIds": [
+          "U4.s1",
+          "U4.t1"
+        ],
+        "basis": "lecture"
+      },
+      "blocks": [
+        {
+          "id": "S3_B1",
+          "type": "B05",
+          "sectionId": "S3",
+          "status": "supported",
+          "importance": "core",
+          "emphasis": [],
+          "content": {
+            "conceptId": "C5",
+            "term": "거래비용 관점",
+            "original": null,
+            "definition": {
+              "text": "시장 거래 비용과 내부 조직 비용을 비교해 기업의 경계를 정한다는 관점이다",
+              "evidenceIds": [
+                "U4.s2",
+                "U4.t2"
+              ],
+              "basis": "lecture"
+            },
+            "explanation": {
+              "text": "거래가 자주 일어나고 그 기업에만 맞춘 자산이 필요할수록 내부에서 하는 편이 낫다고 본다",
+              "evidenceIds": [
+                "U4.t2"
+              ],
+              "basis": "lecture"
+            },
+            "mechanism": null,
+            "scope": [
+              {
+                "text": "어떤 활동을 직접 하고 어떤 활동을 시장에서 살지 정하는 문제를 다룬다",
+                "evidenceIds": [
+                  "U4.t1"
+                ],
+                "basis": "lecture"
+              }
+            ],
+            "examples": []
+          }
+        },
+        {
+          "id": "S3_B2",
+          "type": "B05",
+          "sectionId": "S3",
+          "status": "supported",
+          "importance": "core",
+          "emphasis": [],
+          "content": {
+            "conceptId": "C6",
+            "term": "자원기반 관점",
+            "original": null,
+            "definition": {
+              "text": "고유 자원과 역량이 있는 활동을 기업 내부에 둔다는 관점이다",
+              "evidenceIds": [
+                "U4.s3",
+                "U4.t3"
+              ],
+              "basis": "lecture"
+            },
+            "explanation": {
+              "text": "비용보다 그 기업만 가진 자원과 역량이 경쟁우위가 되는지를 먼저 묻는다",
+              "evidenceIds": [
+                "U4.t3"
+              ],
+              "basis": "lecture"
+            },
+            "mechanism": null,
+            "scope": [],
+            "examples": []
+          }
+        },
+        {
+          "id": "S3_B3",
+          "type": "B06",
+          "sectionId": "S3",
+          "status": "supported",
+          "importance": "core",
+          "emphasis": [],
+          "content": {
+            "title": "세 관점을 같은 기준으로 비교",
+            "entities": [
+              {
+                "label": "거래비용 관점",
+                "conceptId": "C5"
+              },
+              {
+                "label": "자원기반 관점",
+                "conceptId": "C6"
+              },
+              {
+                "label": "대리인 관점",
+                "conceptId": "C7"
+              }
+            ],
+            "criteria": [
+              {
+                "label": "분석 단위",
+                "cells": [
+                  {
+                    "text": "거래를 분석 단위로 삼는다",
+                    "evidenceIds": [
+                      "U4.g1"
+                    ],
+                    "basis": "lecture"
+                  },
+                  {
+                    "text": "자원과 역량을 분석 단위로 삼는다",
+                    "evidenceIds": [
+                      "U4.g1"
+                    ],
+                    "basis": "lecture"
+                  },
+                  {
+                    "text": "계약 관계를 분석 단위로 삼는다",
+                    "evidenceIds": [
+                      "U4.g1"
+                    ],
+                    "basis": "lecture"
+                  }
+                ]
+              },
+              {
+                "label": "핵심 질문",
+                "cells": [
+                  {
+                    "text": "만들 것인가 살 것인가를 묻는다",
+                    "evidenceIds": [
+                      "U4.g1"
+                    ],
+                    "basis": "lecture"
+                  },
+                  {
+                    "text": "무엇이 강점인가를 묻는다",
+                    "evidenceIds": [
+                      "U4.g1"
+                    ],
+                    "basis": "lecture"
+                  },
+                  null
+                ]
+              },
+              {
+                "label": "경계 결정 방식",
+                "cells": [
+                  {
+                    "text": "시장 거래 비용과 내부 조직 비용을 비교해 정한다",
+                    "evidenceIds": [
+                      "U4.s2"
+                    ],
+                    "basis": "lecture"
+                  },
+                  {
+                    "text": "고유 자원과 역량이 있는 활동을 내부에 둔다",
+                    "evidenceIds": [
+                      "U4.s3"
+                    ],
+                    "basis": "lecture"
+                  },
+                  null
+                ]
+              },
+              {
+                "label": "판단 식",
+                "cells": [
+                  {
+                    "text": "비교 식으로 {{F3}}가 제시되었다",
+                    "evidenceIds": [
+                      "U4.s2"
+                    ],
+                    "basis": "lecture"
+                  },
+                  null,
+                  null
+                ]
+              },
+              {
+                "label": "주목하는 비용",
+                "cells": [
+                  {
+                    "text": "시장 거래 비용과 내부 조직 비용을 본다",
+                    "evidenceIds": [
+                      "U4.s2"
+                    ],
+                    "basis": "lecture"
+                  },
+                  {
+                    "text": "비용보다 자원과 역량의 경쟁우위를 먼저 본다",
+                    "evidenceIds": [
+                      "U4.t3"
+                    ],
+                    "basis": "lecture"
+                  },
+                  {
+                    "text": "위임 관계의 감시 비용에 주목한다",
+                    "evidenceIds": [
+                      "U4.s4"
+                    ],
+                    "basis": "lecture"
+                  }
+                ]
+              },
+              {
+                "label": "내부화 조건",
+                "cells": [
+                  {
+                    "text": "거래가 잦고 전용 자산이 필요할수록 내부화가 낫다",
+                    "evidenceIds": [
+                      "U4.t2"
+                    ],
+                    "basis": "lecture"
+                  },
+                  {
+                    "text": "경쟁우위가 되는 자원과 역량이 있으면 내부에 둔다",
+                    "evidenceIds": [
+                      "U4.t3"
+                    ],
+                    "basis": "lecture"
+                  },
+                  null
+                ]
+              },
+              {
+                "label": "출발점",
+                "cells": [
+                  {
+                    "text": "거래가 얼마나 자주, 얼마나 그 기업에 맞춰 일어나는지에서 출발한다",
+                    "evidenceIds": [
+                      "U4.t2"
+                    ],
+                    "basis": "lecture"
+                  },
+                  {
+                    "text": "그 기업만 가진 자원과 역량에서 출발한다",
+                    "evidenceIds": [
+                      "U4.t3"
+                    ],
+                    "basis": "lecture"
+                  },
+                  null
+                ]
+              }
+            ],
+            "common": [
+              {
+                "text": "두 관점 모두 기업이 무엇을 내부에 둘지를 설명한다는 점이 같다",
+                "evidenceIds": [
+                  "U4.t4"
+                ],
+                "basis": "lecture"
+              }
+            ],
+            "discriminator": {
+              "text": "비용 비교로 경계를 정하면 거래비용 관점이고, 자원과 역량의 경쟁우위를 먼저 물으면 자원기반 관점이다",
+              "evidenceIds": [
+                "U4.t2",
+                "U4.t3"
+              ],
+              "basis": "lecture"
+            }
+          }
+        }
+      ],
+      "checks": []
+    },
+    {
+      "sectionId": "S4",
+      "number": 4,
+      "title": "자료는 무엇을 말하고 무엇을 말하지 못하는가",
+      "question": null,
+      "stage": "apply",
+      "unitIds": [
+        "U5"
+      ],
+      "range": {
+        "t0": 900,
+        "t1": 1140
+      },
+      "gist": {
+        "text": "설문 자료가 말하는 것과 말하지 못하는 것을 구분해 읽는다",
+        "evidenceIds": [
+          "U5.s2",
+          "U5.t1"
+        ],
+        "basis": "lecture"
+      },
+      "blocks": [
+        {
+          "id": "S4_B1",
+          "type": "B09",
+          "sectionId": "S4",
+          "status": "supported",
+          "importance": "core",
+          "emphasis": [],
+          "content": {
+            "sourceTitle": "자료 A(가상): 지역 상인회 설문 보고서 발췌",
+            "sourceKind": "data",
+            "gist": {
+              "text": "상인회가 회원 점포에 설문한 결과이며 응답 점포가 전체 상권을 대표하는지는 확인되지 않는다",
+              "evidenceIds": [
+                "U5.s2",
+                "U5.t1"
+              ],
+              "basis": "lecture"
+            },
+            "quote": {
+              "text": "입점 이후 응답 점포의 62%가 매출이 늘었다고 답했다",
+              "evidenceIds": [
+                "U5.s3"
+              ]
+            },
+            "points": [
+              {
+                "clue": {
+                  "text": "응답 점포의 62%가 매출이 늘었다고 답했다",
+                  "evidenceIds": [
+                    "U5.s3"
+                  ],
+                  "basis": "lecture"
+                },
+                "reading": {
+                  "text": "응답 점포 다수가 그렇게 느꼈다고 읽는 것이 정확하다",
+                  "evidenceIds": [
+                    "U5.t2"
+                  ],
+                  "basis": "lecture"
+                }
+              },
+              {
+                "clue": {
+                  "text": "비슷하다는 응답이 25%, 줄었다는 응답이 13%였다",
+                  "evidenceIds": [
+                    "U5.g1"
+                  ],
+                  "basis": "lecture"
+                },
+                "reading": {
+                  "text": "같은 기간에 다른 요인도 매출에 영향을 줬을 수 있다",
+                  "evidenceIds": [
+                    "U5.t3"
+                  ],
+                  "basis": "lecture"
+                }
+              }
+            ],
+            "authorClaim": {
+              "text": "자료는 응답 점포의 62%가 매출이 늘었다고 답했다고 보고한다",
+              "evidenceIds": [
+                "U5.s3"
+              ],
+              "basis": "lecture"
+            },
+            "lecturerReading": {
+              "text": "입점이 골목 상권 매출을 늘렸다고 결론 내리기보다 응답 점포 다수가 그렇게 느꼈다고 읽어야 한다",
+              "evidenceIds": [
+                "U5.t2"
+              ],
+              "basis": "lecture"
+            },
+            "limits": [
+              {
+                "text": "응답한 점포가 전체 상권을 대표하는지 알 수 없다",
+                "evidenceIds": [
+                  "U5.t1"
+                ],
+                "basis": "lecture"
+              },
+              {
+                "text": "같은 기간 다른 요인이 매출에 영향을 줬을 수 있다",
+                "evidenceIds": [
+                  "U5.t3"
+                ],
+                "basis": "lecture"
+              }
+            ]
+          }
+        },
+        {
+          "id": "S4_B2",
+          "type": "B14",
+          "sectionId": "S4",
+          "status": "supported",
+          "importance": "supporting",
+          "emphasis": [],
+          "content": {
+            "items": [
+              {
+                "kind": "argue",
+                "prompt": {
+                  "text": "자료 A의 결과가 대형 유통점 입점이 골목 상권 매출을 늘렸다는 주장을 뒷받침하는지 논하라",
+                  "evidenceIds": [
+                    "U5.t1",
+                    "U5.t2"
+                  ],
+                  "basis": "lecture"
+                },
+                "premise": null,
+                "level": "applied",
+                "targetIds": [
+                  "S4_B1"
+                ],
+                "answer": {
+                  "verdict": null,
+                  "explanation": {
+                    "text": "표본의 대표성과 인과 해석의 한계를 함께 논해야 한다",
+                    "evidenceIds": [
+                      "U5.t1",
+                      "U5.t2"
+                    ],
+                    "basis": "lecture"
+                  },
+                  "correction": null,
+                  "rubric": [
+                    {
+                      "text": "응답 점포가 전체 상권을 대표하는지 알 수 없다는 점을 지적한다",
+                      "evidenceIds": [
+                        "U5.t1"
+                      ],
+                      "basis": "lecture"
+                    },
+                    {
+                      "text": "응답 점포 다수가 그렇게 느꼈다는 정도로 읽는 것이 정확하다는 점을 설명한다",
+                      "evidenceIds": [
+                        "U5.t2"
+                      ],
+                      "basis": "lecture"
+                    },
+                    {
+                      "text": "같은 기간 다른 요인이 매출에 영향을 줬을 수 있음을 언급한다",
+                      "evidenceIds": [
+                        "U5.t3"
+                      ],
+                      "basis": "lecture"
+                    }
+                  ],
+                  "alternatives": [],
+                  "reviewIds": [
+                    "S4_B1"
+                  ]
+                }
+              },
+              {
+                "kind": "ox",
+                "prompt": {
+                  "text": "자료 A에서 응답 점포의 62%가 매출이 늘었다고 답했다",
+                  "evidenceIds": [
+                    "U5.s3"
+                  ],
+                  "basis": "lecture"
+                },
+                "premise": null,
+                "level": "basic",
+                "targetIds": [
+                  "S4_B1"
+                ],
+                "answer": {
+                  "verdict": "O",
+                  "explanation": {
+                    "text": "자료 발췌문에 응답 점포의 62%가 매출이 늘었다고 답했다고 적혀 있다",
+                    "evidenceIds": [
+                      "U5.s3"
+                    ],
+                    "basis": "lecture"
+                  },
+                  "correction": null,
+                  "rubric": [],
+                  "alternatives": [],
+                  "reviewIds": [
+                    "S4_B1"
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "checks": []
+    },
+    {
+      "sectionId": "S5",
+      "number": 5,
+      "title": "다음 수업 준비",
+      "question": null,
+      "stage": "check",
+      "unitIds": [
+        "U6"
+      ],
+      "range": {
+        "t0": 1140,
+        "t1": 1260
+      },
+      "gist": {
+        "text": "다음 수업 전까지 사례 보고서를 제출하고 손익분기점 계산을 복습한다",
+        "evidenceIds": [
+          "U6.t1",
+          "U6.t2"
+        ],
+        "basis": "lecture"
+      },
+      "blocks": [
+        {
+          "id": "S5_B1",
+          "type": "B18",
+          "sectionId": "S5",
+          "status": "supported",
+          "importance": "core",
+          "emphasis": [
+            {
+              "kind": "exam",
+              "evidenceIds": [
+                "U6.t2"
+              ]
+            }
+          ],
+          "content": {
+            "items": [
+              {
+                "topic": "assignment",
+                "claim": {
+                  "text": "오늘 배운 공헌이익을 활용한 사례 보고서를 제출한다",
+                  "evidenceIds": [
+                    "U6.t1",
+                    "U6.s2"
+                  ],
+                  "basis": "lecture"
+                },
+                "due": "다음 주 수요일 수업 전까지"
+              },
+              {
+                "topic": "exam",
+                "claim": {
+                  "text": "손익분기점 계산이 중간고사에 나온다고 언급했다",
+                  "evidenceIds": [
+                    "U6.t2"
+                  ],
+                  "basis": "lecture"
+                },
+                "due": null
+              }
+            ]
+          }
+        }
+      ],
+      "checks": []
+    }
+  ],
+  "registry": [
+    {
+      "id": "F1",
+      "latex": "BEP=\\frac{FC}{P-VC}",
+      "text": "BEP = FC/(P-VC)",
+      "status": "verified",
+      "slideId": "sl-2",
+      "t0": 150,
+      "display": "latex"
+    },
+    {
+      "id": "F2",
+      "latex": "CM=P-VC",
+      "text": "CM = P - VC",
+      "status": "image",
+      "slideId": "sl-2",
+      "t0": 150,
+      "display": "crop"
+    },
+    {
+      "id": "F3",
+      "latex": null,
+      "text": "TC = C_market - C_internal",
+      "status": "unverified",
+      "slideId": "sl-4",
+      "t0": 560,
+      "display": "check"
+    }
+  ],
+  "figures": [
+    {
+      "id": "G1",
+      "evidenceId": "U4.g1",
+      "kind": "table",
+      "title": "세 관점 비교",
+      "cells": [
+        [
+          "기준",
+          "거래비용",
+          "자원기반",
+          "대리인"
+        ],
+        [
+          "분석 단위",
+          "거래",
+          "자원·역량",
+          "계약 관계"
+        ],
+        [
+          "핵심 질문",
+          "만들까 살까",
+          "무엇이 강점인가",
+          "어떻게 감시하나"
+        ]
+      ],
+      "t0": 560,
+      "display": "check"
+    },
+    {
+      "id": "G2",
+      "evidenceId": "U5.g1",
+      "kind": "chart",
+      "title": "응답 점포 매출 변화",
+      "cells": null,
+      "t0": 900,
+      "display": "crop"
+    }
+  ],
+  "sources": [
+    {
+      "id": "U1.s2",
+      "kind": "slide",
+      "t0": 0,
+      "t1": 150,
+      "slideId": "sl-1"
+    },
+    {
+      "id": "U1.s3",
+      "kind": "slide",
+      "t0": 0,
+      "t1": 150,
+      "slideId": "sl-1"
+    },
+    {
+      "id": "U1.t2",
+      "kind": "speech",
+      "t0": 40,
+      "t1": 95,
+      "slideId": "sl-1"
+    },
+    {
+      "id": "U1.t3",
+      "kind": "speech",
+      "t0": 95,
+      "t1": 150,
+      "slideId": "sl-1"
+    },
+    {
+      "id": "U2.s2",
+      "kind": "slide",
+      "t0": 150,
+      "t1": 420,
+      "slideId": "sl-2"
+    },
+    {
+      "id": "U2.s3",
+      "kind": "slide",
+      "t0": 150,
+      "t1": 420,
+      "slideId": "sl-2"
+    },
+    {
+      "id": "U2.s4",
+      "kind": "slide",
+      "t0": 150,
+      "t1": 420,
+      "slideId": "sl-2"
+    },
+    {
+      "id": "U2.t1",
+      "kind": "speech",
+      "t0": 150,
+      "t1": 210,
+      "slideId": "sl-2"
+    },
+    {
+      "id": "U2.t2",
+      "kind": "speech",
+      "t0": 210,
+      "t1": 280,
+      "slideId": "sl-2"
+    },
+    {
+      "id": "U2.t3",
+      "kind": "speech",
+      "t0": 280,
+      "t1": 350,
+      "slideId": "sl-2"
+    },
+    {
+      "id": "U2.t4",
+      "kind": "speech",
+      "t0": 350,
+      "t1": 420,
+      "slideId": "sl-2"
+    },
+    {
+      "id": "U3.t1",
+      "kind": "speech",
+      "t0": 420,
+      "t1": 480,
+      "slideId": "sl-3"
+    },
+    {
+      "id": "U3.t2",
+      "kind": "speech",
+      "t0": 480,
+      "t1": 560,
+      "slideId": "sl-3"
+    },
+    {
+      "id": "U4.s1",
+      "kind": "slide",
+      "t0": 560,
+      "t1": 900,
+      "slideId": "sl-4"
+    },
+    {
+      "id": "U4.s2",
+      "kind": "slide",
+      "t0": 560,
+      "t1": 900,
+      "slideId": "sl-4"
+    },
+    {
+      "id": "U4.s3",
+      "kind": "slide",
+      "t0": 560,
+      "t1": 900,
+      "slideId": "sl-4"
+    },
+    {
+      "id": "U4.s4",
+      "kind": "slide",
+      "t0": 560,
+      "t1": 900,
+      "slideId": "sl-4"
+    },
+    {
+      "id": "U4.g1",
+      "kind": "figure",
+      "t0": 560,
+      "t1": 900,
+      "slideId": "sl-4"
+    },
+    {
+      "id": "U4.t1",
+      "kind": "speech",
+      "t0": 560,
+      "t1": 620,
+      "slideId": "sl-4"
+    },
+    {
+      "id": "U4.t2",
+      "kind": "speech",
+      "t0": 620,
+      "t1": 700,
+      "slideId": "sl-4"
+    },
+    {
+      "id": "U4.t3",
+      "kind": "speech",
+      "t0": 700,
+      "t1": 780,
+      "slideId": "sl-4"
+    },
+    {
+      "id": "U4.t4",
+      "kind": "speech",
+      "t0": 780,
+      "t1": 840,
+      "slideId": "sl-4"
+    },
+    {
+      "id": "U5.s2",
+      "kind": "slide",
+      "t0": 900,
+      "t1": 1140,
+      "slideId": "sl-5"
+    },
+    {
+      "id": "U5.s3",
+      "kind": "slide",
+      "t0": 900,
+      "t1": 1140,
+      "slideId": "sl-5"
+    },
+    {
+      "id": "U5.g1",
+      "kind": "figure",
+      "t0": 900,
+      "t1": 1140,
+      "slideId": "sl-5"
+    },
+    {
+      "id": "U5.t1",
+      "kind": "speech",
+      "t0": 900,
+      "t1": 980,
+      "slideId": "sl-5"
+    },
+    {
+      "id": "U5.t2",
+      "kind": "speech",
+      "t0": 980,
+      "t1": 1060,
+      "slideId": "sl-5"
+    },
+    {
+      "id": "U5.t3",
+      "kind": "speech",
+      "t0": 1060,
+      "t1": 1140,
+      "slideId": "sl-5"
+    },
+    {
+      "id": "U6.s2",
+      "kind": "slide",
+      "t0": 1140,
+      "t1": 1260,
+      "slideId": "sl-6"
+    },
+    {
+      "id": "U6.t1",
+      "kind": "speech",
+      "t0": 1140,
+      "t1": 1200,
+      "slideId": "sl-6"
+    },
+    {
+      "id": "U6.t2",
+      "kind": "speech",
+      "t0": 1200,
+      "t1": 1260,
+      "slideId": "sl-6"
+    }
+  ],
+  "notices": [
+    {
+      "code": "NOTE_CAPTURE_GAP",
+      "count": 1,
+      "ids": null,
+      "ranges": [
+        {
+          "t0": 1000,
+          "t1": 1010
+        }
+      ]
+    },
+    {
+      "code": "NOTE_BLOCKS_DROPPED",
+      "count": 1,
+      "ids": [
+        "S3_B4"
+      ],
+      "ranges": null
+    },
+    {
+      "code": "NOTE_ITEMS_PRUNED",
+      "count": 2,
+      "ids": [
+        "S4_B2/Q3",
+        "GB1/I3"
+      ],
+      "ranges": null
+    },
+    {
+      "code": "NOTE_FORMULAS_IMAGE",
+      "count": 1,
+      "ids": [
+        "F2"
+      ],
+      "ranges": null
+    },
+    {
+      "code": "NOTE_FORMULAS_CHECK",
+      "count": 1,
+      "ids": [
+        "F3"
+      ],
+      "ranges": null
+    },
+    {
+      "code": "NOTE_FIGURES_CHECK",
+      "count": 1,
+      "ids": [
+        "G1"
+      ],
+      "ranges": null
+    }
+  ],
+  "dropped": [
+    {
+      "blockId": "S3_B4",
+      "type": "B07",
+      "codes": [
+        "VAL_NUMBER_MISSING"
+      ]
+    }
+  ],
+  "pruned": [
+    {
+      "id": "S4_B2/Q3",
+      "codes": [
+        "NOTE_REVIEW_DROPPED"
+      ]
+    },
+    {
+      "id": "GB1/I3",
+      "codes": [
+        "NOTE_TARGET_DROPPED"
+      ]
+    }
+  ],
+  "advisories": [
+    {
+      "code": "NOTE_ADVISORY_TABLE_LONG",
+      "id": "S3_B3"
+    },
+    {
+      "code": "NOTE_ADVISORY_OX_CONTESTED",
+      "id": "S4_B2/Q2"
+    }
+  ]
+}
