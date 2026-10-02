@@ -2,7 +2,7 @@
 // Operator key server-only; archive contents are authenticated ciphertext.
 const fs=require("node:fs"),path=require("node:path"),http=require("node:http"),crypto=require("node:crypto");
 const Vault=require("../lib/vault.js"),{validateSummary}=require("../lib/summary.js");
-const Contracts=require("../lib/contracts.js");
+const Contracts=require("../lib/contracts.js"),NoteSpec=require("../lib/note-spec.js"),Prompts=require("./prompts.js");
 const RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"google/gemini-2.5-pro":[1.25,10],"anthropic/claude-haiku-4.5":[1,5],"anthropic/claude-sonnet-4.6":[3,15],"anthropic/claude-sonnet-5":[2,10]};
 // 이미지 입력은 텍스트와 단가가 다르고 출력도 훨씬 짧다. /v1/summary 와 예약 계산을 섞지 않는다.
 const VISION_RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"mistralai/ministral-8b-2512":[.15,.15],"qwen/qwen3-vl-8b-instruct":[.12,.45]};
@@ -56,7 +56,9 @@ function providerSchema(s,drop){
   return out;
 }
 const VISION_SCHEMA=providerSchema({type:"object",additionalProperties:false,required:["blocks","formulas","figures"],properties:{blocks:Contracts.SCHEMAS.slideDoc.properties.blocks,formulas:Contracts.SCHEMAS.slideDoc.properties.formulas,figures:Contracts.SCHEMAS.slideDoc.properties.figures}},["id","status"]);
-const {schema,systemFor,systemMessage,reasoningFor,maxTokensFor,parseNote}=require("../lib/openrouter-client.js");
+const {schema,systemFor,systemMessage,cachedSystem,reasoningFor,maxTokensFor,parseNote}=require("../lib/openrouter-client.js");
+// plan/write 가 제공자에 내리는 출력 스키마. 양식 슬롯의 스키마에서 검증 전용 키워드를 뺀 것이다.
+const NOTE_PROVIDER_SCHEMA=Object.fromEntries(Prompts.STAGES.map(s=>[s,providerSchema(Prompts.outputSchema(s),[])]));
 const safePart=x=>{if(typeof x!=="string"||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(x))throw new Error("invalid_id");return x;};
 const tokenEqual=(a,b)=>{const x=Buffer.from(String(a)),y=Buffer.from(String(b));return x.length===y.length&&crypto.timingSafeEqual(x,y);};
 const positive=(x,fallback)=>{const n=Number(x??fallback);if(!Number.isFinite(n)||n<=0)throw new Error("invalid_limit");return n;};
@@ -96,6 +98,8 @@ const ERRORS={
   rate_limited:[429,true,"요청이 너무 잦습니다. 잠시 후 다시 시도하세요."],
   account_concurrency_exceeded:[429,true,"동시에 처리할 수 있는 요청 수를 넘었습니다."],
   client_upgrade_required:[426,false,"확장을 최신 버전으로 업데이트하세요."],
+  llm_output_truncated:[422,false,"출력이 길이 한도에 걸려 잘렸습니다. 섹션을 나눠 다시 요청하세요."],
+  note_spec_mismatch:[409,false,"노트 양식 버전이 서버와 다릅니다. 확장을 업데이트하거나 계획부터 다시 만드세요."],
 };
 // Chrome 확장 버전은 1~4개 숫자 조각이다. x.y.z 로만 읽으면 4조각 버전이 0.0.0 으로 떨어져 426 을 맞는다.
 const version=v=>{const m=/^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.(\d+))?$/.exec(String(v??"0.0.0"));return m?m.slice(1).map(x=>Number(x||0)):[0,0,0,0];};
@@ -248,7 +252,12 @@ function createServer(env=process.env,deps={}){
       }finally{release();}
     }catch(e){
       if(e&&e.refund){rec.requests--;rec.spentCents=Math.max(0,rec.spentCents-reserve);delete rec.jobs[requestId];save();fail(res,e.code||"provider_failed_or_invalid_output",e.retryAfterMs);}
-      else{rec.jobs[requestId].status="uncertain";save();fail(res,controller.signal.aborted?"request_cancelled_or_timed_out":"provider_failed_or_invalid_output");}
+      else{
+        // 응답이 와서 비용이 확정된 실패(출력 잘림)는 예약 전액이 아니라 제공자가 보고한 금액만 청구한다. 환불이 아니다 — 돈은 이미 나갔다.
+        const ch=e&&e.charged,paid=ch&&ch.reported;
+        if(paid)rec.spentCents=Math.max(0,rec.spentCents-reserve+Math.ceil(ch.amount*1e6)/1e4);
+        rec.jobs[requestId].status=paid?"completed":"uncertain";save();fail(res,controller.signal.aborted?"request_cancelled_or_timed_out":ch?e.code:"provider_failed_or_invalid_output");
+      }
     }finally{clearTimeout(timer);res.removeListener("close",disconnect);const n=(inflight.get(account)||1)-1;n>0?inflight.set(account,n):inflight.delete(account);active.delete(controller);}
   }
   async function summary(input,account,req,res){
@@ -403,6 +412,53 @@ function createServer(env=process.env,deps={}){
       return {amount,reported,payload};
     });
   }
+  // plan/write 공용. 순서: 모델·계정 → 필드 화이트리스트 → 양식 버전 → 본문 모양·크기 → 예약. 계획 1회와 섹션별 작성이 같은 경로를 쓴다 —
+  // 둘이 따로 놀면 한도·멱등·재시도 규칙이 조용히 어긋난다. 입력 본문은 digest 에 해시로만 들어가고 저장되지 않는다.
+  async function noteRoute(input,account,res,stage){
+    if(!c.allow.includes(input.model))return fail(res,stage==="plan"?"invalid_model":"invalid_model_or_stage");
+    if(!limitFor(account).models.includes(input.model))return fail(res,"model_not_in_account_plan");
+    safePart(input.requestId);
+    const envelope=stage==="plan"?["model","requestId","noteSpecVersion"]:["model","requestId","noteSpecVersion","stage"],fields=[...envelope,...Object.keys(Prompts.REQUEST[stage].properties)];
+    if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)))return fail(res,"unexpected_field");
+    // 다른 양식 버전의 입력은 모양부터 다를 수 있다. 본문 검사보다 먼저 버전으로 거절해야 클라이언트가 원인을 안다.
+    if(input.noteSpecVersion!==NoteSpec.NOTE_SPEC_VERSION)return fail(res,"note_spec_mismatch");
+    // 모델 입력은 스키마 순서의 본문만이다 — 클라이언트의 키 순서가 달라도 같은 프롬프트가 나가야 재현된다.
+    const rest=Object.fromEntries(Object.keys(Prompts.REQUEST[stage].properties).map(k=>[k,input[k]])),checked=Contracts.validate(Prompts.REQUEST[stage],rest);
+    if(!checked.ok)return fail(res,checked.errors.some(e=>e.message==="허용되지 않는 속성입니다")?"unexpected_field":"request_rejected");
+    const user=JSON.stringify(rest);
+    if(Prompts.estimateTokens(user)>Prompts.inputTokenLimit(stage))return fail(res,"request_too_large");
+    const digest=crypto.createHash("sha256").update(JSON.stringify({route:stage==="plan"?"plan":"write",stage,model:input.model,noteSpecVersion:input.noteSpecVersion,rest})).digest("hex");
+    const [pi,po]=RATES[input.model],params=Prompts.modelParams(input.model,stage),attempts=2;
+    // 형식 실패 재시도분까지 예약하고 정산에서 되돌린다. 시스템 본문과 스키마도 입력 토큰이다.
+    const reserve=Math.ceil((Prompts.estimateTokens(Prompts.systemFor(stage)+JSON.stringify(Prompts.outputSchema(stage))+user)*pi+params.max_tokens*po)/1e6*100*1.2*attempts);
+    return await withReservation({account,requestId:input.requestId,digest,reserve,model:input.model,res},async signal=>{
+      let usage={promptTokens:0,completionTokens:0},amount=0,reported=true;
+      for(let retry=0;retry<attempts;retry++){
+        const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
+          model:input.model,...params,
+          messages:[cachedSystem(input.model,Prompts.systemFor(stage)),{role:"user",content:user}],
+          response_format:{type:"json_schema",json_schema:{name:"lecture_note_"+stage,strict:true,schema:NOTE_PROVIDER_SCHEMA[stage]}},
+          provider:{only:c.providers[input.model],order:c.providers[input.model],require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}
+        })});
+        if(!response.ok)throw new Error("provider_failed");
+        const raw=await boundedResponse(response,1024*1024),u=raw.usage||{},choice=raw.choices?.[0];
+        usage={promptTokens:usage.promptTokens+(Number(u.prompt_tokens)||0),completionTokens:usage.completionTokens+(Number(u.completion_tokens)||0)};
+        if(typeof u.cost==="number"&&Number.isFinite(u.cost)&&u.cost>=0)amount+=u.cost;else reported=false;
+        // 잘림은 한도를 키워 재시도하지 않는다 — 클라이언트가 섹션을 나눠 새 요청으로 보낸다(§6.5). 재시도 없이 지금까지 나간 비용만 청구한다.
+        if(choice?.finish_reason==="length")throw Object.assign(new Error("llm_output_truncated"),{code:"llm_output_truncated",charged:{amount,reported}});
+        // 형식 실패(파손·계약 불일치·repair 개수 불일치)만 같은 모델·제공자로 한 번 더 간다 — 돈은 이미 나갔다.
+        try{
+          if(choice?.finish_reason!=="stop")throw new Error("provider_output_incomplete");
+          const parsed=parseNote(choice.message.content),r=Contracts.validate(Prompts.outputSchema(stage),parsed);
+          if(!r.ok)throw new Error("invalid_note_output");
+          if(stage==="repair"&&parsed.blocks.length!==input.repair.length)throw new Error("repair_count_mismatch");
+          return {amount,reported,payload:{...(stage==="plan"?{plan:parsed}:{blocks:parsed.blocks}),usage:{...usage,costUsd:reported?amount:reserve/100},promptVersion:Prompts.PROMPT_VERSION,schemaVersion:c.remoteConfig.schemaVersion,noteSpecVersion:NoteSpec.NOTE_SPEC_VERSION}};
+        }catch(error){if(retry===attempts-1)throw error;}
+      }
+    });
+  }
+  const plan=(input,account,res)=>noteRoute(input,account,res,"plan");
+  const write=(input,account,res)=>["section","global","repair"].includes(input.stage)?noteRoute(input,account,res,input.stage):fail(res,"invalid_model_or_stage");
   const server=http.createServer(async(req,res)=>{
     try{
       if(req.headers.origin&&req.headers.origin!==c.origin)return fail(res,"origin_not_allowed");
@@ -431,6 +487,8 @@ function createServer(env=process.env,deps={}){
       if(req.url==="/v1/vision"&&req.method==="POST")return await vision(await body(req,2200000),account,res);
       if(req.url==="/v1/stt"&&req.method==="POST")return await stt(await body(req,12000000),account,res);
       if(req.url==="/v1/judge"&&req.method==="POST")return await judge(await body(req,70000),account,res);
+      if(req.url==="/v1/plan"&&req.method==="POST")return await plan(await body(req,256*1024),account,res);
+      if(req.url==="/v1/write"&&req.method==="POST")return await write(await body(req,64*1024),account,res);
       fail(res,"not_found");
     }catch(e){fail(res,e&&e.message==="request_too_large"?"request_too_large":"request_rejected");}
   });

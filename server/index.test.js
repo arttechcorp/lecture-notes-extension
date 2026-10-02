@@ -1073,3 +1073,382 @@ test("ServiceClient.judge round-trips results through the real client", async ()
     assert.equal(err.retryable, false);
   } finally { await close(server); removeTemp(root); }
 });
+
+// ── 노트 계획·작성(plan/write) ──
+const NoteSpec = require("../lib/note-spec.js"), Prompts = require("./prompts.js");
+const noteUnit = (id, t0 = 0, text = "합성 슬라이드 글 " + id) => ({
+  schemaVersion: 1, unitId: id, slideId: "s-" + id, t0, t1: t0 + 30, slideText: text, speech: "합성 발화 " + id,
+  features: { dwell: 30, speechChars: 12, emphasis: 0, deixis: 0, repeat: 0, hasFormula: true, hasFigure: false },
+  judge: { importance: null, lectureProb: null },
+});
+const noteSection = { sectionId: "S1", title: "합성 섹션", unitIds: ["U1", "U2"], blocks: [{ type: "text", purpose: "개념을 설명한다" }, { type: "text", purpose: "예시를 든다" }] };
+const noteRegistry = [{ id: "F1", latex: "a=b+c", status: "verified" }, { id: "F2", latex: null, status: "image" }];
+const noteBlock = { type: "text", heading: "개념", body: "관계는 {{F1}}로 나타낸다.", evidenceIds: ["U1"], derived: [] };
+const planOut = { sections: [noteSection] };
+const noteSpecVersion = NoteSpec.NOTE_SPEC_VERSION;
+const planIn = o => ({ model, requestId: "plan-x", noteSpecVersion, ir: { units: [noteUnit("U1"), noteUnit("U2", 30)] }, formulas: [{ id: "F1", status: "verified" }, { id: "F2", status: "image" }], ...o });
+const sectionIn = o => ({ model, requestId: "write-x", noteSpecVersion, stage: "section", section: noteSection, units: [noteUnit("U1"), noteUnit("U2", 30)], registry: noteRegistry, ...o });
+const globalIn = o => ({ model, requestId: "write-g", noteSpecVersion, stage: "global", sections: [{ sectionId: "S1", title: "합성 섹션", blocks: [noteBlock] }], ...o });
+const repairIn = o => ({ model, requestId: "write-r", noteSpecVersion, stage: "repair", section: noteSection, units: [noteUnit("U1")], registry: noteRegistry,
+  repair: [{ index: 0, block: noteBlock, errors: [{ code: "evidence_missing", detail: "근거 id가 없다" }] }, { index: 2, block: noteBlock, errors: [{ code: "number_changed", detail: "수치가 다르다" }] }], ...o });
+const noteReply = (content, o = {}) => ({ ok: true, json: async () => ({ choices: [{ finish_reason: o.finish || "stop", message: { content: typeof content === "string" ? content : JSON.stringify(content) } }], usage: { prompt_tokens: 800, completion_tokens: 90, cost: Object.hasOwn(o, "cost") ? o.cost : .002 } }) });
+const near = (a, b, label) => assert.ok(Math.abs(a - b) < 1e-9, label + ": " + a + " != " + b);
+const withNoteServer = async (fetcher, run, extra = {}) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  const server = createServer({ ...config(root), ...extra }, { fetch: fetcher });
+  await new Promise(r => server.listen(0, "127.0.0.1", r));
+  try { await run("http://127.0.0.1:" + server.address().port, root); } finally { await close(server); removeTemp(root); }
+};
+const errorOf = async (res, status, code) => {
+  assert.equal(res.status, status, code);
+  const body = await res.json();
+  assert.ok(Contracts.validate(Contracts.SCHEMAS.errorEnvelope, body).ok, "오류 봉투 계약: " + code);
+  assert.equal(body.error.code, code);
+  return body.error;
+};
+
+test("plan reads units through strict json_schema, allows the free tier and carries versions", async () => {
+  const bodies = [];
+  await withNoteServer(async (_u, o) => { bodies.push(JSON.parse(o.body)); return noteReply(planOut); }, async url => {
+    // tokenB 는 한도 설정이 없는 계정(Free 상당)이다 — plan 은 등급 기능 검사 없이 기존 계정 한도만 적용한다.
+    const res = await req(url, "/v1/plan", "POST", planIn(), tokenB);
+    assert.equal(res.status, 200);
+    const out = await res.json();
+    assert.deepEqual(out.plan, planOut);
+    assert.ok(Contracts.validate(NoteSpec.planSchema, out.plan).ok);
+    assert.equal(out.promptVersion, Prompts.PROMPT_VERSION);
+    assert.equal(out.schemaVersion, Contracts.CONTRACT_VERSION);
+    assert.equal(out.noteSpecVersion, NoteSpec.NOTE_SPEC_VERSION);
+    assert.deepEqual(out.usage, { promptTokens: 800, completionTokens: 90, costUsd: .002 });
+    const sent = bodies[0];
+    assert.equal(sent.model, model);
+    assert.equal(sent.temperature, 0);
+    assert.equal(typeof sent.seed, "number", "seed 를 지원하는 모델에는 seed 를 보낸다");
+    assert.equal(sent.max_tokens, NoteSpec.limits.tokens.plannerOutput, "출력 상한은 양식 슬롯의 예산이다");
+    assert.deepEqual(sent.provider, { only: ["test-provider"], order: ["test-provider"], require_parameters: true, allow_fallbacks: false, zdr: true, data_collection: "deny" });
+    assert.equal(sent.response_format.type, "json_schema");
+    assert.equal(sent.response_format.json_schema.strict, true);
+    const schemaText = JSON.stringify(sent.response_format.json_schema.schema);
+    assert.ok(Contracts.isStrictCompatible(sent.response_format.json_schema.schema));
+    assert.ok(!/maxLength|maxItems|minItems|pattern/.test(schemaText), "제공자 스키마에 검증 전용 키워드가 남아 있다");
+    // 변하지 않는 시스템 본문이 앞, 변하는 입력이 뒤다. 모델 입력에 요청 봉투(model·requestId)는 없다.
+    assert.deepEqual(sent.messages.map(m => m.role), ["system", "user"]);
+    assert.equal(sent.messages[0].content, Prompts.systemFor("plan"));
+    assert.deepEqual(JSON.parse(sent.messages[1].content), { ir: planIn().ir, formulas: planIn().formulas });
+  });
+});
+
+test("write answers each stage with validated blocks and the stage's own system prompt", async () => {
+  const bodies = [];
+  const cases = [
+    ["section", sectionIn(), [noteBlock, { ...noteBlock, heading: "예시" }]],
+    ["global", globalIn(), [{ ...noteBlock, heading: "전체 요약" }]],
+    ["repair", repairIn(), [noteBlock, { ...noteBlock, heading: "고침" }]],
+  ];
+  let next = null;
+  await withNoteServer(async (_u, o) => { bodies.push(JSON.parse(o.body)); return noteReply({ blocks: next }); }, async url => {
+    for (const [stage, body, blocks] of cases) {
+      next = blocks;
+      const res = await req(url, "/v1/write", "POST", body, tokenB);
+      assert.equal(res.status, 200, stage);
+      const out = await res.json();
+      assert.deepEqual(out.blocks, blocks, stage);
+      assert.ok(Contracts.validate(NoteSpec.sectionOutputSchema, { blocks: out.blocks }).ok, stage);
+      assert.equal(out.promptVersion, Prompts.PROMPT_VERSION);
+      assert.equal(out.schemaVersion, Contracts.CONTRACT_VERSION);
+      assert.equal(out.noteSpecVersion, NoteSpec.NOTE_SPEC_VERSION);
+      assert.equal(out.usage.costUsd, .002);
+      const sent = bodies.at(-1);
+      assert.equal(sent.messages[0].content, Prompts.systemFor(stage), stage + " 시스템 프롬프트");
+      assert.equal(sent.max_tokens, NoteSpec.limits.tokens.writerOutput);
+      assert.equal(sent.temperature, 0);
+      assert.equal(sent.response_format.json_schema.name, "lecture_note_" + stage);
+      const { model: _m, requestId: _r, noteSpecVersion: _v, stage: _s, ...expected } = body;
+      assert.deepEqual(JSON.parse(sent.messages[1].content), expected, stage + " 모델 입력");
+    }
+    assert.notEqual(Prompts.systemFor("section"), Prompts.systemFor("global"));
+    assert.equal(bodies.length, 3);
+  });
+});
+
+test("plan and write retry a schema-invalid or unfinished output once on the same model", async () => {
+  const replies = [];
+  let calls = 0;
+  await withNoteServer(async () => { calls++; return replies.shift(); }, async url => {
+    replies.push(noteReply({ sections: [{ ...noteSection, sectionId: "intro" }] }, { cost: .001 }), noteReply(planOut, { cost: .002 }));
+    const plan = await req(url, "/v1/plan", "POST", planIn({ requestId: "retry-plan" }));
+    assert.equal(plan.status, 200);
+    const planBody = await plan.json();
+    assert.deepEqual(planBody.plan, planOut);
+    assert.equal(calls, 2);
+    assert.equal(planBody.usage.costUsd, .003, "두 번 나간 비용이 모두 청구된다");
+    assert.equal(planBody.usage.promptTokens, 1600);
+
+    calls = 0;
+    replies.push(noteReply({ blocks: [{ ...noteBlock, type: "quiz" }] }), noteReply({ blocks: [noteBlock] }));
+    assert.equal((await req(url, "/v1/write", "POST", sectionIn({ requestId: "retry-sec" }))).status, 200);
+    assert.equal(calls, 2);
+
+    calls = 0;
+    replies.push(noteReply({ blocks: [noteBlock] }, { finish: "content_filter" }), noteReply({ blocks: [noteBlock] }));
+    assert.equal((await req(url, "/v1/write", "POST", globalIn({ requestId: "retry-glob" }))).status, 200, "stop 이 아닌 종료는 형식 실패로 한 번 재시도한다");
+    assert.equal(calls, 2);
+
+    calls = 0;
+    replies.push(noteReply("not json"), noteReply({ blocks: "x" }));
+    const failed = await req(url, "/v1/write", "POST", sectionIn({ requestId: "retry-twice" }));
+    assert.equal((await errorOf(failed, 502, "provider_failed_or_invalid_output")).retryable, true);
+    assert.equal(calls, 2, "두 번째 실패 뒤에는 더 시도하지 않는다");
+  });
+});
+
+test("a length cut-off is not retried, answers llm_output_truncated and charges the reported cost", async () => {
+  const replies = [];
+  let calls = 0;
+  await withNoteServer(async () => { calls++; return replies.shift(); }, async (url, root) => {
+    const ledger = () => readState(path.join(root, "usage.json")).accounts.A;
+    for (const [route, body, label] of [["/v1/plan", planIn({ requestId: "cut-plan" }), "plan"], ["/v1/write", sectionIn({ requestId: "cut-write" }), "write"]]) {
+      calls = 0;
+      replies.push(noteReply('{"blocks":[{"type":"te', { finish: "length", cost: .003 }));
+      const before = ledger()?.spentCents || 0;
+      const err = await errorOf(await req(url, route, "POST", body), 422, "llm_output_truncated");
+      assert.equal(err.retryable, false, label);
+      assert.equal(calls, 1, label + ": 한도를 키워 재시도하지 않는다");
+      near(ledger().spentCents - before, settle(.003), label + ": 예약이 아니라 제공자가 보고한 금액만 청구한다");
+      assert.equal(ledger().jobs[body.requestId].status, "completed");
+      // 환불이 아니다: 같은 requestId 는 다시 못 쓰고 요청 수도 되돌아가지 않는다. 클라이언트는 섹션을 나눠 새 requestId 로 보낸다.
+      await errorOf(await req(url, route, "POST", body), 409, "request_already_reserved_or_processed");
+      assert.equal(calls, 1);
+    }
+    assert.equal(ledger().requests, 2);
+
+    // 형식 실패 뒤에 잘려도 두 호출의 보고 비용이 모두 청구된다.
+    const before = ledger().spentCents;
+    replies.push(noteReply("{}", { cost: .001 }), noteReply('{"blocks":[', { finish: "length", cost: .003 }));
+    await errorOf(await req(url, "/v1/write", "POST", sectionIn({ requestId: "cut-after-retry" })), 422, "llm_output_truncated");
+    near(ledger().spentCents - before, settle(.001 + .003), "두 호출의 보고 비용");
+
+    // 비용을 보고하지 않은 잘림은 모르는 비용이라 예약을 그대로 둔다.
+    replies.push(noteReply('{"blocks":[', { finish: "length", cost: null }));
+    const spent = ledger().spentCents;
+    await errorOf(await req(url, "/v1/write", "POST", sectionIn({ requestId: "cut-unreported" })), 422, "llm_output_truncated");
+    const job = ledger().jobs["cut-unreported"];
+    assert.equal(job.status, "uncertain");
+    assert.ok(job.reservedCents > 0);
+    near(ledger().spentCents - spent, job.reservedCents, "예약 전액이 남는다");
+  });
+});
+
+test("a request with another noteSpecVersion is refused before anything is reserved", async () => {
+  let calls = 0;
+  await withNoteServer(async () => { calls++; return noteReply(planOut); }, async url => {
+    for (const [route, body] of [["/v1/plan", planIn({ noteSpecVersion: "v9" })], ["/v1/write", sectionIn({ noteSpecVersion: "v9" })], ["/v1/write", globalIn({ noteSpecVersion: 3 })]]) {
+      const err = await errorOf(await req(url, route, "POST", body), 409, "note_spec_mismatch");
+      assert.equal(err.retryable, false);
+    }
+    // 다른 양식은 본문 모양도 다를 수 있다 — 모양 검사보다 버전 검사가 먼저다.
+    await errorOf(await req(url, "/v1/plan", "POST", planIn({ noteSpecVersion: "v9", ir: { units: "new-format" } })), 409, "note_spec_mismatch");
+    assert.equal(calls, 0);
+    const me = await (await req(url, "/v1/me")).json();
+    assert.equal(me.quota.requests, 0, "거절된 요청은 예약을 만들지 않는다");
+    assert.equal(me.quota.spentCents, 0);
+    // 버전을 아예 빼면 필수 필드 누락이다.
+    const { noteSpecVersion: _v, ...noVersion } = planIn();
+    await errorOf(await req(url, "/v1/plan", "POST", noVersion), 400, "unexpected_field");
+  });
+});
+
+test("plan and write reject unknown, missing and mismatched fields without calling the provider", async () => {
+  let calls = 0;
+  await withNoteServer(async () => { calls++; return noteReply(planOut); }, async url => {
+    const expectCode = async (route, body, status, code, label) => { await errorOf(await req(url, route, "POST", body), status, code); assert.equal(calls, 0, label); };
+    const bad = (u, patch) => ({ ...u, ...patch });
+    await expectCode("/v1/plan", planIn({ extra: 1 }), 400, "unexpected_field", "plan 최상위 추가 필드");
+    await expectCode("/v1/plan", planIn({ stage: "plan" }), 400, "unexpected_field", "plan 에는 stage 가 없다");
+    await expectCode("/v1/plan", bad(planIn(), { ir: { units: planIn().ir.units, extra: 1 } }), 400, "unexpected_field", "ir 안의 추가 필드");
+    await expectCode("/v1/plan", planIn({ ir: { units: [{ ...noteUnit("U1"), secret: "x" }] } }), 400, "unexpected_field", "유닛 안의 추가 필드");
+    const { formulas: _f, ...noFormulas } = planIn();
+    await expectCode("/v1/plan", noFormulas, 400, "unexpected_field", "필드 누락");
+    await expectCode("/v1/plan", planIn({ model: "nope/model" }), 400, "invalid_model", "plan 모델");
+    await expectCode("/v1/plan", planIn({ requestId: "../x" }), 400, "request_rejected", "requestId");
+    await expectCode("/v1/plan", planIn({ ir: { units: [] } }), 400, "request_rejected", "빈 유닛");
+    await expectCode("/v1/plan", planIn({ ir: { units: [{ ...noteUnit("U1"), t0: "0" }] } }), 400, "request_rejected", "유닛 계약 위반");
+    await expectCode("/v1/plan", planIn({ formulas: [{ id: "f1", status: "verified" }] }), 400, "request_rejected", "수식 id 형식");
+    await expectCode("/v1/plan", planIn({ formulas: [{ id: "F1", status: "maybe" }] }), 400, "request_rejected", "수식 상태");
+
+    await expectCode("/v1/write", sectionIn({ stage: "plan" }), 400, "invalid_model_or_stage", "write 에 plan 단계");
+    await expectCode("/v1/write", sectionIn({ stage: undefined }), 400, "invalid_model_or_stage", "stage 누락");
+    await expectCode("/v1/write", sectionIn({ model: "nope/model" }), 400, "invalid_model_or_stage", "write 모델");
+    await expectCode("/v1/write", sectionIn({ repair: repairIn().repair }), 400, "unexpected_field", "section 에 repair 필드");
+    await expectCode("/v1/write", globalIn({ units: [noteUnit("U1")] }), 400, "unexpected_field", "global 에 units 필드");
+    await expectCode("/v1/write", repairIn({ extra: 1 }), 400, "unexpected_field", "repair 최상위 추가 필드");
+    await expectCode("/v1/write", sectionIn({ section: { ...noteSection, extra: 1 } }), 400, "unexpected_field", "계획 섹션의 추가 필드");
+    await expectCode("/v1/write", sectionIn({ registry: [{ id: "F1", latex: "x", status: "verified", note: "y" }] }), 400, "unexpected_field", "등록부의 추가 필드");
+    await expectCode("/v1/write", sectionIn({ units: [] }), 400, "request_rejected", "빈 유닛");
+    await expectCode("/v1/write", sectionIn({ section: { ...noteSection, blocks: [{ type: "quiz", purpose: "x" }] } }), 400, "request_rejected", "모르는 블록 종류");
+    await expectCode("/v1/write", sectionIn({ registry: [{ id: "F1", latex: undefined, status: "verified" }] }), 400, "request_rejected", "latex 누락");
+    await expectCode("/v1/write", repairIn({ repair: [] }), 400, "request_rejected", "repair 비어 있음");
+    await expectCode("/v1/write", repairIn({ repair: [{ index: 99, block: noteBlock, errors: [{ code: "x", detail: "y" }] }] }), 400, "request_rejected", "index 범위");
+    await expectCode("/v1/write", repairIn({ repair: [{ index: 0, block: noteBlock, errors: [] }] }), 400, "request_rejected", "오류 목록 없음");
+    await expectCode("/v1/write", repairIn({ repair: [{ index: 0, block: { ...noteBlock, type: "quiz" }, errors: [{ code: "x", detail: "y" }] }] }), 400, "request_rejected", "block 계약");
+    await expectCode("/v1/write", globalIn({ sections: [] }), 400, "request_rejected", "빈 섹션 목록");
+  });
+});
+
+test("plan and write enforce body size and the token budgets of the note spec", async () => {
+  let calls = 0;
+  await withNoteServer(async () => { calls++; return noteReply({ blocks: [noteBlock] }); }, async url => {
+    const kor = n => "가".repeat(n);
+    // 본문 상한: plan 256 KB, write 64 KB.
+    await errorOf(await req(url, "/v1/plan", "POST", planIn({ ir: { units: [noteUnit("U1", 0, kor(20000)), noteUnit("U2", 30, kor(20000)), noteUnit("U3", 60, kor(20000)), noteUnit("U4", 90, kor(20000)), noteUnit("U5", 120, kor(20000))] } })), 413, "request_too_large");
+    await errorOf(await req(url, "/v1/write", "POST", sectionIn({ units: [noteUnit("U1", 0, kor(20000)), noteUnit("U2", 30, kor(20000))] })), 413, "request_too_large");
+    assert.equal(calls, 0);
+    // 본문 상한 안이어도 입력 토큰 예산(writer 12k, planner 40k)을 넘으면 거절한다. 한국어 3바이트/글자.
+    const writeBody = sectionIn({ units: [noteUnit("U1", 0, kor(20000))] });
+    assert.ok(Buffer.byteLength(JSON.stringify(writeBody)) < 64 * 1024, "본문 상한 안이어야 예산 검사를 확인한다");
+    await errorOf(await req(url, "/v1/write", "POST", writeBody), 413, "request_too_large");
+    const planBody = planIn({ ir: { units: [noteUnit("U1", 0, kor(20000)), noteUnit("U2", 30, kor(20000)), noteUnit("U3", 60, kor(20000))] } });
+    assert.ok(Buffer.byteLength(JSON.stringify(planBody)) < 256 * 1024);
+    await errorOf(await req(url, "/v1/plan", "POST", planBody), 413, "request_too_large");
+    assert.equal(calls, 0);
+    // 예산 안이면 통과한다.
+    assert.equal((await req(url, "/v1/write", "POST", sectionIn({ requestId: "fits", units: [noteUnit("U1", 0, kor(8000))] }))).status, 200);
+    assert.equal(calls, 1);
+  });
+});
+
+test("repair must return exactly as many blocks as it was given", async () => {
+  const replies = [];
+  let calls = 0;
+  await withNoteServer(async () => { calls++; return replies.shift(); }, async url => {
+    replies.push(noteReply({ blocks: [noteBlock] }), noteReply({ blocks: [noteBlock, noteBlock, noteBlock] }));
+    await errorOf(await req(url, "/v1/write", "POST", repairIn({ requestId: "repair-bad" })), 502, "provider_failed_or_invalid_output");
+    assert.equal(calls, 2, "개수가 틀리면 형식 실패로 한 번 재시도한다");
+    calls = 0;
+    replies.push(noteReply({ blocks: [noteBlock] }), noteReply({ blocks: [noteBlock, { ...noteBlock, heading: "둘째" }] }));
+    const ok = await req(url, "/v1/write", "POST", repairIn({ requestId: "repair-fixed" }));
+    assert.equal(ok.status, 200);
+    assert.equal((await ok.json()).blocks.length, 2);
+    assert.equal(calls, 2);
+    // 개수 검사는 repair 에만 걸린다: section 은 블록 수가 자유롭다.
+    calls = 0;
+    replies.push(noteReply({ blocks: [noteBlock] }));
+    assert.equal((await req(url, "/v1/write", "POST", sectionIn({ requestId: "section-free-count", repair: undefined }))).status, 200);
+    assert.equal(calls, 1);
+  });
+});
+
+test("plan and write are idempotent per requestId and keep lecture text out of the ledger", async () => {
+  let calls = 0;
+  await withNoteServer(async () => { calls++; return noteReply({ blocks: [noteBlock] }); }, async (url, root) => {
+    const body = sectionIn({ requestId: "idem-one" });
+    assert.equal((await req(url, "/v1/write", "POST", body)).status, 200);
+    await errorOf(await req(url, "/v1/write", "POST", body), 409, "request_already_reserved_or_processed");
+    assert.equal(calls, 1, "중복은 제공자를 다시 부르지 않는다");
+    const { units, registry, ...head } = body;
+    await errorOf(await req(url, "/v1/write", "POST", { ...head, registry, units }), 409, "request_already_reserved_or_processed");
+    await errorOf(await req(url, "/v1/write", "POST", sectionIn({ requestId: "idem-one", units: [noteUnit("U1", 0, "다른 내용")] })), 400, "idempotency_content_mismatch");
+    // 같은 requestId 로 다른 라우트를 불러도 본문이 달라 같은 요청이 아니다.
+    await errorOf(await req(url, "/v1/plan", "POST", planIn({ requestId: "idem-one" })), 400, "idempotency_content_mismatch");
+    // 같은 requestId 가 동시에 두 번 와도 제공자 호출은 한 번이다.
+    const concurrent = await Promise.all([req(url, "/v1/write", "POST", sectionIn({ requestId: "idem-two" })), req(url, "/v1/write", "POST", sectionIn({ requestId: "idem-two" }))]);
+    assert.deepEqual(concurrent.map(r => r.status).sort(), [200, 409]);
+    assert.equal(calls, 2);
+    const ledger = fs.readFileSync(path.join(root, "usage.json"), "utf8");
+    assert.ok(!ledger.includes("합성 슬라이드 글") && !ledger.includes("합성 발화") && !ledger.includes("개념을 설명한다"), "원장에 강의 내용이 남는다");
+  });
+});
+
+test("plan and write follow the account's model list and monthly cost cap", async () => {
+  const expensive = "anthropic/claude-haiku-4.5";
+  let calls = 0;
+  const extra = {
+    ALLOWED_MODELS: JSON.stringify([model, expensive]),
+    OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], [expensive]: ["test-provider"] }),
+    ACCOUNT_LIMITS_JSON: JSON.stringify({ A: { models: [model], maxRequests: 10, maxCostCents: 0.01 } }),
+  };
+  await withNoteServer(async () => { calls++; return noteReply(planOut); }, async url => {
+    await errorOf(await req(url, "/v1/plan", "POST", planIn({ model: expensive })), 403, "model_not_in_account_plan");
+    await errorOf(await req(url, "/v1/write", "POST", sectionIn({ model: expensive })), 403, "model_not_in_account_plan");
+    // 예약이 월 한도를 넘으면 지출 전에 거절한다.
+    await errorOf(await req(url, "/v1/plan", "POST", planIn()), 429, "quota_exceeded");
+    assert.equal(calls, 0);
+    assert.equal((await req(url, "/v1/plan", "POST", planIn({ requestId: "other-account" }), tokenB)).status, 200, "한도 설정이 없는 계정은 기본 한도를 따른다");
+  }, extra);
+});
+
+test("write sends the cache breakpoint only to caching models and seed only where supported", async () => {
+  const claude = "anthropic/claude-haiku-4.5";
+  const bodies = [];
+  const extra = { ALLOWED_MODELS: JSON.stringify([model, claude]), OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["provider-a"], [claude]: ["provider-b"] }) };
+  await withNoteServer(async (_u, o) => { bodies.push(JSON.parse(o.body)); return noteReply({ blocks: [noteBlock] }); }, async url => {
+    assert.equal((await req(url, "/v1/write", "POST", sectionIn({ requestId: "cache-g" }))).status, 200);
+    assert.equal((await req(url, "/v1/write", "POST", sectionIn({ requestId: "cache-c", model: claude }))).status, 200);
+    const [gemini, anthropic] = bodies;
+    assert.equal(typeof gemini.messages[0].content, "string");
+    assert.equal(typeof gemini.seed, "number");
+    assert.deepEqual(anthropic.messages[0].content, [{ type: "text", text: Prompts.systemFor("section"), cache_control: { type: "ephemeral" } }], "Anthropic 요청에 캐시 중단점이 없다");
+    assert.equal(anthropic.messages[1].role, "user", "변하는 입력은 캐시 중단점 뒤에 온다");
+    assert.equal(anthropic.seed, undefined, "seed 를 지원하지 않는 모델에 보내면 제공자가 요청을 거절한다");
+    assert.equal(anthropic.temperature, 0);
+    assert.deepEqual(anthropic.provider.only, ["provider-b"]);
+  }, extra);
+});
+
+test("ServiceClient.plan and write round-trip through the real client and surface the new error codes", async () => {
+  const ServiceClient = require("../lib/service-client.js");
+  const replies = [];
+  await withNoteServer(async () => replies.shift(), async url => {
+    replies.push(noteReply(planOut));
+    const plan = await ServiceClient.plan({ baseUrl: url, token, model, requestId: "cli-plan", noteSpecVersion, ir: planIn().ir, formulas: planIn().formulas });
+    assert.deepEqual(plan.plan, planOut);
+    assert.equal(plan.noteSpecVersion, noteSpecVersion);
+    for (const body of [sectionIn({ requestId: "cli-sec" }), globalIn({ requestId: "cli-glob" }), repairIn({ requestId: "cli-rep" })]) {
+      replies.push(noteReply({ blocks: body.stage === "global" ? [noteBlock] : [noteBlock, noteBlock] }));
+      const { model: m, requestId, ...rest } = body;
+      const out = await ServiceClient.write({ baseUrl: url, token, model: m, requestId, ...rest });
+      assert.equal(out.blocks.length, body.stage === "global" ? 1 : 2, body.stage);
+      assert.equal(out.promptVersion, Prompts.PROMPT_VERSION);
+    }
+    const fail = async (call, args) => { try { await call({ baseUrl: url, token, ...args }); } catch (e) { return e; } assert.fail("오류가 나야 한다"); };
+    replies.push(noteReply('{"blocks":[', { finish: "length" }));
+    const cut = await fail(ServiceClient.write, sectionIn({ requestId: "cli-cut" }));
+    assert.equal(cut.code, "llm_output_truncated");
+    assert.equal(cut.retryable, false);
+    const stale = await fail(ServiceClient.plan, planIn({ requestId: "cli-stale", noteSpecVersion: "old" }));
+    assert.equal(stale.code, "note_spec_mismatch");
+    assert.equal(stale.retryable, false);
+  });
+});
+
+test("the note format is one slot: swapping lib/note-spec.js changes validation, prompts and version without touching the routes", async () => {
+  const [specPath, promptsPath, indexPath] = ["../lib/note-spec.js", "./prompts.js", "./index.js"].map(k => require.resolve(k));
+  const saved = { spec: require.cache[specPath].exports, prompts: require.cache[promptsPath], index: require.cache[indexPath] };
+  const altBlock = { type: "object", additionalProperties: false, required: ["kind", "text"], properties: { kind: { type: "string", enum: ["callout"] }, text: { type: "string", maxLength: 200 } } };
+  const altOut = { type: "object", additionalProperties: false, required: ["blocks"], properties: { blocks: { type: "array", maxItems: 5, items: altBlock } } };
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  const bodies = [], replies = [];
+  let server;
+  try {
+    require.cache[specPath].exports = { ...NoteSpec, NOTE_SPEC_VERSION: "alt-1", BLOCK_TYPES: ["callout"], blockSchema: altBlock, sectionOutputSchema: altOut, promptRules: "[대체 양식 규칙]" };
+    delete require.cache[promptsPath]; delete require.cache[indexPath];
+    server = require("./index.js").createServer(config(root), { fetch: async (_u, o) => { bodies.push(JSON.parse(o.body)); return replies.shift(); } });
+    await new Promise(r => server.listen(0, "127.0.0.1", r));
+    const url = "http://127.0.0.1:" + server.address().port;
+    replies.push(noteReply({ blocks: [{ kind: "callout", text: "새 양식 블록" }] }));
+    const ok = await req(url, "/v1/write", "POST", sectionIn({ requestId: "alt-ok", noteSpecVersion: "alt-1" }));
+    assert.equal(ok.status, 200);
+    const out = await ok.json();
+    assert.deepEqual(out.blocks, [{ kind: "callout", text: "새 양식 블록" }]);
+    assert.equal(out.noteSpecVersion, "alt-1");
+    assert.ok(bodies[0].messages[0].content.includes("[대체 양식 규칙]"), "프롬프트가 슬롯의 규칙을 따른다");
+    assert.deepEqual(bodies[0].response_format.json_schema.schema.properties.blocks.items.required, ["kind", "text"], "제공자 스키마가 슬롯의 것이다");
+    replies.push(noteReply({ blocks: [noteBlock] }), noteReply({ blocks: [noteBlock] }));
+    await errorOf(await req(url, "/v1/write", "POST", sectionIn({ requestId: "alt-old", noteSpecVersion: "alt-1" })), 502, "provider_failed_or_invalid_output");
+    await errorOf(await req(url, "/v1/write", "POST", sectionIn({ requestId: "alt-stale", noteSpecVersion: noteSpecVersion })), 409, "note_spec_mismatch");
+  } finally {
+    if (server) await close(server);
+    require.cache[specPath].exports = saved.spec; require.cache[promptsPath] = saved.prompts; require.cache[indexPath] = saved.index;
+    removeTemp(root);
+  }
+});

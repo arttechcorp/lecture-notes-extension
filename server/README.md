@@ -95,6 +95,17 @@ ACCOUNT_RATE_PER_MIN=300
 
 비용은 다른 라우트와 같은 예약·정산을 쓴다: 예약은 `항목당 (입력 바이트+시스템 프롬프트)×입력 단가 + 1토큰×출력 단가`의 1.2배, 정산은 각 호출이 보고한 `usage.cost` 합계다. 항목 텍스트는 멱등 digest에 sha256 해시로만 들어가고 저장되지 않는다. 항목 단위 제공자 슬롯은 대기 타임아웃·환불 표시가 없는 "patient" 모드다 — 일부 항목이 이미 결제된 뒤 예약을 되돌리면 공짜 호출이 되므로, 하나라도 나간 뒤 실패하면 예약을 유지하고 첫 실패에서 나머지 호출을 중단한다.
 
+## 노트 계획·작성(plan/write)
+
+`POST /v1/plan`(본문 ≤ 256 KB)은 IR 전체를 받아 섹션 계획을 1회 만들고, `POST /v1/write`(본문 ≤ 64 KB)는 섹션별로 병렬 호출해 블록을 쓴다. 둘 다 Free 포함 전 계정이 쓴다 — 등급 기능 검사 없이 `/v1/summary`와 같은 계정 한도(`ALLOWED_MODELS`, `ACCOUNT_LIMITS_JSON`의 모델·비용 상한)와 `RATES`·제공자 태그를 쓴다.
+
+- `plan`: `{model, requestId, noteSpecVersion, ir:{units:[Unit]}, formulas:[{id:"F12", status}]}` → `{plan, usage, promptVersion, schemaVersion, noteSpecVersion}`. 유닛은 `Contracts.SCHEMAS.unit`으로 검증한다.
+- `write`: `{model, requestId, noteSpecVersion, stage, …}` → `{blocks, usage, promptVersion, schemaVersion, noteSpecVersion}`. `stage`별 추가 필드는 `section`: `{section, units, registry:[{id, latex|null, status}]}`, `global`: `{sections:[{sectionId, title, blocks}]}`, `repair`: `{section, units, registry, repair:[{index, block, errors:[{code, detail}]}]}`다. `repair`는 정확히 `repair.length`개의 블록을 같은 순서로 돌려준다.
+- 노트 양식(블록 종류, 스키마, 한도, 프롬프트 형식 규칙)은 `lib/note-spec.js` 한 곳에서만 온다. 지금은 자리표시자(`NOTE_SPEC_VERSION="placeholder-0"`)이고, 양식 설계 산출물이 이 파일을 대체해도 라우트는 바뀌지 않는다. 버전이 다른 요청은 모양 검사 전에 `409 note_spec_mismatch`다. 프롬프트·요청/출력 스키마·생성 파라미터는 `server/prompts.js`(`PROMPT_VERSION`)가 관리한다.
+- 호출 방식은 요약과 같다: OpenRouter strict `json_schema`(검증 전용 키워드는 뺀 스키마), `temperature:0`, 지원 모델(Anthropic 제외)에는 `seed`, `zdr`·`data_collection:"deny"`·fallback 금지. 시스템 본문이 앞이고 입력이 뒤이며 캐시 모델에는 `cache_control`을 찍는다. 출력은 `Contracts.validate`로 검증하고 형식 실패(`repair` 개수 불일치 포함)만 같은 모델로 한 번 재시도한다.
+- `finish_reason=length`는 한도를 키워 재시도하지 않고 `422 llm_output_truncated`(재시도 불가)로 답한다. 클라이언트가 섹션을 나눠 새 requestId로 다시 보낸다. 환불이 아니다: 제공자가 보고한 금액만 청구하고(미보고면 예약 유지) 같은 requestId는 다시 쓸 수 없다.
+- 입력 토큰은 바이트/4로 어림해 plan 40k, write 12k를 넘으면 `request_too_large`다. 출력 상한은 plan 8k, write 4k 토큰(`NoteSpec.limits.tokens`). 알 수 없는 필드는 `unexpected_field`, 모양 위반은 `request_rejected`다.
+
 ## 확인
 
 ```text
