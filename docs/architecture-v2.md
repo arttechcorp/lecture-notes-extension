@@ -569,6 +569,7 @@
 
 - **강의 내용은 0바이트**다. 강의 제목과 URL 경로도 저장하지 않고, 플레이어 호환성 통계용으로 호스트명(`host`)만 남긴다.
 - RPC: `reserve_usage`, `settle_usage`, `admin_usage()`(is_admin 게이트), `admin_grant_plan()`(테스트용 등급 부여).
+  - 구현: `supabase/schema-v2.sql`(`schema.sql` 다음에 적용). `delete_account_data()`(D8)와 `effective_plan()`이 추가됐고, 등급별 상한은 `plans` 표의 자리표시 값이다(남은 결정 1). 로컬 Postgres 테스트는 `tools/supabase-schema.test.mjs`.
 - 기존 서버 파일 저장 파일럿(`server-data/`)은 폐기한다.
 
 **로컬 패키지** (IndexedDB `summrizei`)
