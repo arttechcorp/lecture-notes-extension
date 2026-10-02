@@ -76,4 +76,12 @@
 - 동의 기록은 `chrome.storage.local`의 설정 값에만 산다(`lib/settings.js`): 클라우드 인식은 `visionConsent`+`visionConsentVersion`/`visionConsentAt`, 백그라운드 처리는 `backgroundConsent{personalUse,accessRights,version,at}`.
 - `TERMS_VERSION`은 options.html/sidepanel의 동의 문구나 정책 페이지가 바뀔 때마다 올린다 - 올리면 재동의가 강제되고, 이후 서버 `profiles.consent_version`과도 맞춰야 한다.
 - 버전 없는 `visionConsent:true`는 화면 프레임만 커버하는 레거시 동의다. 장래 음성/클라우드 STT 게이트는 `cloudRecognitionAllowed()`를 쓰고, `session.js`의 기존 화면 전송 게이트(`visionConsent===true`)는 그대로다.
-- `backgroundAllowed()`를 읽는 백그라운드 작업은 아직 없다 - 기록과 게이트 도우미만 먼저 들어갔다.
+- `backgroundAllowed()`·`cloudRecognitionAllowed()`는 패널(시작 전 확인)과 `lib/background-job.js`의 게이트(네트워크 전)가 읽는다. 후자는 이 함수들을 전역에서 찾으므로 `offscreen.html`이 `lib/settings.js`를 싣는다(저장소를 읽는 함수는 offscreen.js가 부르지 않는다). offscreen에 넘기는 설정은 패널이 보낸 값이 아니라 background가 저장소에서 읽은 것이다.
+
+## 유료 백그라운드 작업 배선
+
+- 메시지: 패널 → background `BG_RUN`·`BG_LIST`·`BG_CANCEL` → offscreen(`target:"session"`, 송신자는 `/background.js`만). offscreen → background `BG_REFERER`(새 호스트를 Referer 규칙에 더함)·`BG_DONE`(결말, 이 둘은 offscreen 문서만 보낼 수 있다). background → 패널 `BG_DONE`, offscreen → 패널 `BG_PROGRESS`(단계 이름과 개수만).
+- `BG_DONE`을 빠뜨리면 절전 방지(`chrome.power`)와 Referer 규칙(DNR 세션 규칙 900002, admin 소스 진단은 900001)이 풀리지 않는다 - background가 둘 다 `BG_DONE`에서만 푼다. offscreen은 어떤 결말이든 `BG_DONE`을 보내야 한다.
+- Referer 값은 background가 `BG_RUN` 때 `chrome.tabs.get`으로 읽은 탭 주소(조각 제외)다. 패널이 보낸 pageUrl은 쓰지 않는다. 규칙은 `tabIds:[-1]`이라 확장 자신의 요청에만 걸린다.
+- 모델 이름은 `offscreen.js`의 `BG_MODELS` 한 곳이다. 서버 allowlist(`ALLOWED_*_MODELS`)와 맞아야 한다.
+- `sidepanel.js`의 `YOUTUBE` 정규식은 `lib/background-job.js`의 것과 같아야 한다(`lib/sidepanel-background.test.js`가 대조한다).

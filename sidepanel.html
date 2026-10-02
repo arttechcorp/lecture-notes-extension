@@ -373,6 +373,18 @@
   <button class="primary" id="startBtn" type="button" aria-describedby="capturePermissionHint" disabled>캡처 시작</button>
   <p class="detail" id="capturePermissionHint">일반 탭은 확장 아이콘으로 여세요. LearnUs 팝업은 강의 창을 클릭한 뒤 <b>Alt+Shift+S</b>를 누르면 해당 강의를 선택한 캡처 창이 열립니다.</p>
   <p class="detail">화면 인식과 원문 타임라인은 기기 안에서 무료로 동작합니다.<br>AI 요약은 설정에서 요약 서비스를 연결해야 사용할 수 있어요.</p>
+
+  <!-- 백그라운드로 처리: 계정 features에 "background"가 있을 때만 보인다(sidepanel.js bgInit). 작업은 offscreen이 하고 여기는 누르고 보여 줄 뿐이다. -->
+  <div id="bgBox" class="readycard" hidden>
+    <div class="checkrow"><span class="what">백그라운드로 처리</span><span class="val">유료</span></div>
+    <p class="detail">영상을 받아 화면·음성을 서비스로 보내 노트를 만듭니다. 사용 동의가 필요하고, 브라우저는 켜 두세요.</p>
+    <p class="detail" id="bgStatus" role="status" aria-live="polite" style="white-space:pre-wrap;"></p>
+    <p class="detail" id="bgProgress"></p>
+    <button id="bgBtn" type="button">백그라운드로 처리</button>
+    <div class="btnrow"><button id="bgRetryBtn" type="button" hidden>다시 시도</button><button id="bgCancelBtn" type="button" hidden>취소</button></div>
+    <button id="bgLiveBtn" type="button" hidden>실시간 모드로 시작</button>
+    <a href="#" id="bgOptionsLink" hidden>설정 열기</a>
+  </div>
 </div>
 
 <!-- ── 설정 서랍 (준비/완료 양쪽에서 같은 것을 연다) ───────────── -->
@@ -525,6 +537,7 @@
 </footer>
 
   <script src="lib/settings.js"></script>
+  <script src="lib/media-source.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

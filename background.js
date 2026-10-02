@@ -1,12 +1,47 @@
 // Permissions and routing only; lecture state belongs to offscreen.
 // Auth(로그인 토큰 읽기·갱신)는 요청이 올 때마다 storage에서 읽는다. 전역에 세션을 두지 않는다.
-importScripts("lib/settings.js", "lib/auth.js");
+importScripts("lib/settings.js", "lib/auth.js", "lib/media-source.js");
 const trustedPage = sender => {
   try { const url=new URL(sender.url),base=new URL(chrome.runtime.getURL("")); return sender.id===chrome.runtime.id&&url.protocol===base.protocol&&url.host===base.host&&["/sidepanel.html","/options.html"].includes(url.pathname); }
   catch { return false; }
 };
 // 토큰 요청은 offscreen 문서(chrome.storage가 없다)도 보낸다. 같은 확장의 offscreen.html 그 자체만 허용한다.
 const offscreenPage = sender => sender.id === chrome.runtime.id && !sender.tab && sender.url === chrome.runtime.getURL("offscreen.html");
+// ── 유료 백그라운드 작업(docs/architecture-v2.md §6.1, §17) ──
+// 작업 상태는 offscreen이 갖는다. 여기는 절전 방지와 Referer 규칙만 맡고 전역에 아무것도 두지 않는다: chrome.power와 DNR 세션 규칙은 브라우저가 상태를 쥔다.
+// ponytail: offscreen이 BG_DONE 없이 사라지면 절전 방지와 규칙이 남는다(확장을 다시 불러오거나 브라우저를 재시작하면 풀린다). 서비스 워커 시작 때 offscreen 문서가 없으면 풀어 주는 정리를 더할 수 있다.
+const BG_RULE = 900002; // admin.js 소스 진단 규칙(900001)과 겹치지 않는다
+const OFFSCREEN_ONLY = new Set(["BG_REFERER", "BG_DONE"]); // 패널이 Referer 규칙을 걸거나 작업 종료를 흉내 내지 못하게 한다
+const BG_SETTINGS = ["serviceUrl", "appSessionToken", "whisperLang", "remoteSummaryConsent", "visionConsent", "visionConsentVersion", "backgroundConsent"];
+// 동의 기록은 패널이 보낸 값이 아니라 저장소에서 읽는다. 로그인 세션(authSession)은 offscreen에 넘기지 않는다 — 토큰은 AUTH_TOKEN으로만 건넨다.
+const bgSettings = async () => { const s = await loadSettings(); return Object.fromEntries(BG_SETTINGS.map(k => [k, s[k]])); };
+async function bgRun(message) {
+  const tab = Number.isInteger(message.tabId) ? await chrome.tabs.get(message.tabId).catch(() => null) : null, playlistUrl = message.source?.playlistUrl;
+  if (!/^https?:/.test(tab?.url || "") || !/^https?:\/\//i.test(playlistUrl || "")) throw new Error("일반 웹 강의 탭에서 시작하세요.");
+  // Referer의 출처는 패널이 보낸 문자열이 아니라 사용자가 보고 있는 탭이다. 브라우저 기본 정책(strict-origin-when-cross-origin)이
+  // 교차 출처 미디어 요청에 보내는 값과 같게 출처만 쓴다 — 경로(강의 id 등)는 싣지 않는다.
+  const source = { playlistUrl, pageUrl: new URL(tab.url).origin + "/" };
+  chrome.power.requestKeepAwake("system");
+  let reply;
+  try { await ensureOffscreen(); reply = await chrome.runtime.sendMessage({ target: "session", type: "BG_RUN", jobId: message.jobId, source, settings: await bgSettings() }); }
+  catch (error) { reply = { ok: false, error: error.message }; }
+  if (!reply?.ok && !reply?.busy) chrome.power.releaseKeepAwake(); // 이미 도는 작업이 있으면(busy) 그 작업의 절전 방지는 그대로 둔다
+  return reply ?? { ok: false, error: "백그라운드 처리를 시작하지 못했습니다." };
+}
+// offscreen이 새 호스트로 나가기 전에 부른다: 그 호스트를 규칙의 requestDomains에 더한다(없으면 규칙을 만든다). 규칙은 tabIds:[-1]이라 확장 자신의 요청에만 걸린다.
+async function bgReferer({ host, referer }) {
+  const rules = chrome.declarativeNetRequest, old = (await rules.getSessionRules()).find(rule => rule.id === BG_RULE);
+  const requestDomains = [...new Set([...(old?.condition.requestDomains || []), host])];
+  await rules.updateSessionRules({ removeRuleIds: [BG_RULE], addRules: [LectureMedia.refererRule({ ruleId: BG_RULE, requestDomains, referer })] });
+  return { ok: true };
+}
+// 작업이 어떤 결말로 끝나든(완료·일시정지·실패·취소) 절전 방지와 규칙을 풀고, 패널에는 내용 없는 결말만 전한다.
+async function bgDone({ jobId, status, code, reason, suggest, message, stats, notices }) {
+  chrome.power.releaseKeepAwake();
+  await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [BG_RULE] }).catch(() => {});
+  chrome.runtime.sendMessage({ target: "panel", type: "BG_DONE", jobId, status, code, reason, suggest, message, stats, notices }).catch(() => {});
+  return { ok: true };
+}
 const captureError = error => {
   const message = error?.message || "";
   if (/Extension has not been invoked|Chrome pages cannot be captured/i.test(message)) {
@@ -85,9 +120,13 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     return;
   }
   if (message?.target !== "background") return;
-  if (!(trustedPage(sender) || message.type === "AUTH_TOKEN" && offscreenPage(sender))) { reply({ ok: false, error: "허용되지 않은 요청입니다." }); return; }
+  if (!(OFFSCREEN_ONLY.has(message.type) ? offscreenPage(sender) : trustedPage(sender) || message.type === "AUTH_TOKEN" && offscreenPage(sender))) { reply({ ok: false, error: "허용되지 않은 요청입니다." }); return; }
   (async () => {
     if (message.type === "AUTH_TOKEN") return { ok: true, token: await Auth.token() };
+    if (message.type === "BG_REFERER") return bgReferer(message);
+    if (message.type === "BG_DONE") return bgDone(message);
+    if (message.type === "BG_RUN") return bgRun(message);
+    if (message.type === "BG_LIST") { await ensureOffscreen(); return chrome.runtime.sendMessage({ target: "session", type: "BG_LIST", settings: await bgSettings() }); } // BG_CANCEL은 아래의 일반 전달을 탄다
     if (message.type === "GET_PREVIEW") {
       const tabId = message.tabId;
       if (!Number.isInteger(tabId)) throw new Error("미리보기를 가져올 탭을 선택하세요.");

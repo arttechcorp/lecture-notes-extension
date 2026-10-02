@@ -105,5 +105,79 @@ if(els.notionModalClose)els.notionModalClose.addEventListener('click',()=>els.no
 if(els.notionModal)els.notionModal.addEventListener('click',event=>{if(event.target===els.notionModal)els.notionModal.close();});
 chrome.runtime.onMessage.addListener((message,sender)=>{try{const url=new URL(sender.url),base=new URL(chrome.runtime.getURL(''));if(sender.id===chrome.runtime.id&&url.protocol===base.protocol&&url.host===base.host&&url.pathname==='/offscreen.html'&&message?.target==='panel'&&message.type==='SESSION_STATE')render(message.state);}catch{}});
 window.addEventListener('message',event=>{if(event.source!==els.renderFrame?.contentWindow||!event.data)return;if(event.data.type==='RENDER_HEIGHT'&&typeof event.data.height==='number')els.renderFrame.style.height=Math.max(event.data.height,140)+'px';else if(event.data.type==='PRINT_COMPLETE')setStatus('PDF 인쇄가 완료되었거나 대화상자가 닫혔습니다.');else if(event.data.type==='PRINT_ERROR')setStatus(`PDF 인쇄 오류: ${event.data.error||'알 수 없는 오류'}`);});
-(async()=>{settings=await loadSettings();els.ocrEnabledToggle.checked=settings.ocrEnabled!==false;els.langSelect.value=settings.whisperLang||'auto';await loadTabs();const result=await action('GET_STATE');render(result?.state||null);els.obConsent.checked=!!settings.consentAccepted;els.obWhisper.checked=!!settings.whisperEnabled;els.obDone.disabled=!els.obConsent.checked;updateReadyCard();})().catch(error=>setError(error.message));
+// ── 백그라운드 처리(유료, docs/architecture-v2.md §6.1): 영상 목록 찾기 → BG_RUN → 진행·결말 표시. 작업은 offscreen이 하고 패널은 누르고 보여 줄 뿐이다.
+// 실시간 모드로는 사용자가 "실시간 모드로 시작"을 눌러야만 넘어간다 — 보호·미지원·실패 어느 경우에도 조용히 바꾸지 않는다.
+const bgEl=Object.fromEntries(['bgBox','bgBtn','bgStatus','bgProgress','bgRetryBtn','bgCancelBtn','bgLiveBtn','bgOptionsLink'].map(id=>[id,$(id)]));
+const YOUTUBE=/(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com|googlevideo\.com)$/i; // lib/background-job.js와 같은 목록(§19)
+const BG_STATE={created:'준비',acquiring_source:'소스 확인',ingesting:'수신·인식',refining:'정제',judging:'판정',planning:'계획',writing:'작성',validating:'검증',rendering:'렌더'},BG_COUNT={recv:'수신',decode:'해석',vision:'화면',stt:'음성',write:'작성'};
+let bg=null; // {jobId,source?,code?}. 패널을 닫으면 사라진다 — 이어 할 작업은 BG_LIST가 다시 알려 준다.
+const bgConsented=()=>backgroundAllowed(settings)&&cloudRecognitionAllowed(settings);
+function bgShow({text='',progress='',busy=false,cancel=false,retry=false,live=false,options=false}={}){
+  bgEl.bgStatus.textContent=text;bgEl.bgProgress.textContent=progress;
+  bgEl.bgBtn.disabled=busy;bgEl.bgCancelBtn.hidden=!cancel;bgEl.bgRetryBtn.hidden=!retry;bgEl.bgLiveBtn.hidden=!live;bgEl.bgOptionsLink.hidden=!options;
+}
+// BG_DONE → 화면. 안내 문구는 offscreen이 파이프라인 CODES의 userMessage로 실어 보낸다. 실시간 모드 버튼은 suggest:"live"일 때만 나온다.
+function bgDoneView(d){
+  const notices=d.notices||[];
+  if(['complete','partial','done'].includes(d.status))return {text:`노트 준비됨${d.status==='partial'?' (일부 섹션 제외)':''} · 슬라이드 ${d.stats?.slides??'-'} · 음성 구간 ${d.stats?.chunks??'-'}\n고지 ${notices.length}건${notices.length?': '+notices.map(n=>n.code+(n.count?`×${n.count}`:'')).join(' · '):''}\n암호화해 이 기기에 저장했습니다. v2 노트 보기는 노트 양식이 정해진 뒤에 제공됩니다.`};
+  if(d.status==='cancelled')return {text:'백그라운드 처리를 취소했습니다.'};
+  const text=d.message||`백그라운드 처리를 마치지 못했습니다${d.code?` (${d.code})`:''}.`;
+  if(d.status==='paused')return {text,retry:true,options:/^CONSENT_/.test(d.code||'')};
+  return {text,live:d.suggest==='live'};
+}
+// webRequest(선택 권한)는 사용자가 누른 뒤에만 요청한다. 고른 강의 탭의 media·xhr 응답만 몇 초 보고 바로 해제하며, 주소와 MIME만 분류하고 내용은 보지 않는다.
+// ponytail: 이미 로드된 VOD 재생목록은 다시 요청되지 않아 못 찾는다 — 영상을 처음부터 다시 재생하게 안내한다. 지난 요청까지 보려면 content script에서 performance.getEntriesByType("resource")를 읽는다.
+function findPlaylist(tabId,ms=8000){
+  return new Promise(resolve=>{
+    const end=url=>{clearTimeout(timer);chrome.webRequest.onResponseStarted.removeListener(seen);resolve(url);};
+    const seen=d=>{
+      if(d.tabId!==tabId)return;
+      const mime=(d.responseHeaders||[]).find(h=>h.name.toLowerCase()==='content-type')?.value;
+      if(LectureMedia.classifyRequest({url:d.url,type:d.type,mime})==='hls')end(d.url);
+    };
+    const timer=setTimeout(()=>end(null),ms);
+    chrome.webRequest.onResponseStarted.addListener(seen,{urls:['<all_urls>'],tabId,types:['media','xmlhttprequest']},['responseHeaders']);
+  });
+}
+// source가 없으면 영상 목록을 찾는다(처음 시작, 그리고 강의 탭을 다시 연 뒤의 재개). 있으면 같은 jobId로 그대로 다시 보낸다.
+async function bgStart(jobId=crypto.randomUUID(),source=null){
+  const tab=tabs.find(t=>String(t.id)===els.tabSelect.value);
+  bg={jobId,source};
+  if(!tab){bgShow({text:'선택한 강의 탭이 없습니다. 강의 창에서 확장을 다시 여세요.'});return;}
+  if(YOUTUBE.test(new URL(tab.url).hostname)){bgShow({text:'이 사이트는 실시간 모드만 지원합니다. 위의 “캡처 시작”으로 진행하세요.'});return;}
+  if(!bgConsented()){settings=await loadSettings();if(!bgConsented()){bgShow({text:'백그라운드 처리에는 이용 동의 2종과 클라우드 인식 동의가 필요합니다. 설정에서 동의해 주세요.',options:true});return;}}
+  if(!source){
+    bgShow({text:'영상 목록을 찾는 중… 강의 탭에서 영상을 재생하세요.',busy:true});
+    let url=null;
+    try{if(await chrome.permissions.request({permissions:['webRequest']}))url=await findPlaylist(tab.id);}catch{} // 권한 요청은 클릭 제스처 안의 첫 await이어야 한다
+    if(!url){bgShow({text:'재생 중인 영상 목록(HLS)을 찾지 못했습니다. webRequest 권한을 허용하고, 영상을 처음부터 다시 재생한 뒤 다시 시도하세요.',retry:true});return;}
+    source=bg.source={playlistUrl:url};
+  }
+  bgShow({text:'백그라운드 처리를 시작합니다…',busy:true,cancel:true});
+  const r=await rpc({type:'BG_RUN',jobId,tabId:tab.id,source});
+  if(!r.ok)bgShow({text:r.error||'백그라운드 처리를 시작하지 못했습니다.',retry:true});
+}
+// 패널을 열 때: 유료 계정이면 컨트롤을 보이고, 끝나지 않은 작업이 있으면 알린다(이어 하기는 같은 jobId로 BG_RUN).
+async function bgInit(){
+  if(!settings?.serviceUrl||!(settings.authSession||settings.appSessionToken))return;
+  const r=await rpc({type:'BG_LIST'});
+  if(!r.ok||!r.background)return;
+  bgEl.bgBox.hidden=false;
+  const open=r.jobs.find(j=>j.running)||r.jobs[0];
+  if(!open)return;
+  bg={jobId:open.jobId};
+  bgShow(open.running?{text:'백그라운드 처리 중…',busy:true,cancel:true}:{text:`이어서 처리할 작업이 있습니다 (${BG_STATE[open.state]||open.state}${open.code?` · ${open.code}`:''}).`,retry:true});
+}
+bgEl.bgBtn.addEventListener('click',()=>bgStart());
+bgEl.bgRetryBtn.addEventListener('click',()=>bgStart(bg?.jobId,bg?.code==='SRC_AUTH_EXPIRED'?null:bg?.source)); // 로그인 세션이 만료됐다면 강의 탭을 다시 연 뒤라 주소가 바뀌었을 수 있다
+bgEl.bgCancelBtn.addEventListener('click',async()=>{bgShow({text:'취소하는 중…',busy:true});await rpc({type:'BG_CANCEL'});});
+bgEl.bgLiveBtn.addEventListener('click',start); // 실시간 모드로 가는 유일한 길: 사용자의 클릭
+bgEl.bgOptionsLink.addEventListener('click',event=>{event.preventDefault();chrome.runtime.openOptionsPage();});
+chrome.runtime.onMessage.addListener((message,sender)=>{try{
+  const url=new URL(sender.url),base=new URL(chrome.runtime.getURL(''));
+  if(sender.id!==chrome.runtime.id||url.protocol!==base.protocol||url.host!==base.host||message?.target!=='panel'||!bg||message.jobId!==bg.jobId)return;
+  if(url.pathname==='/offscreen.html'&&message.type==='BG_PROGRESS')bgShow({text:`처리 중 · ${BG_STATE[message.state]||message.state}`,progress:Object.entries(message.counts||{}).filter(([k])=>BG_COUNT[k]).map(([k,n])=>`${BG_COUNT[k]} ${n}`).join(' · '),busy:true,cancel:true});
+  else if(url.pathname==='/background.js'&&message.type==='BG_DONE'){bg.code=message.code;bgShow(bgDoneView(message));}
+}catch{}});
+(async()=>{settings=await loadSettings();els.ocrEnabledToggle.checked=settings.ocrEnabled!==false;els.langSelect.value=settings.whisperLang||'auto';await loadTabs();const result=await action('GET_STATE');render(result?.state||null);els.obConsent.checked=!!settings.consentAccepted;els.obWhisper.checked=!!settings.whisperEnabled;els.obDone.disabled=!els.obConsent.checked;updateReadyCard();bgInit();})().catch(error=>setError(error.message));
 els.obConsent.addEventListener('change',()=>els.obDone.disabled=!els.obConsent.checked);els.obDone.addEventListener('click',async()=>{settings=await loadSettings();settings.consentAccepted=els.obConsent.checked;settings.whisperEnabled=els.obWhisper.checked;await saveSettings({consentAccepted:settings.consentAccepted,whisperEnabled:settings.whisperEnabled});setStage('ready');});

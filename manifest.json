@@ -11,7 +11,10 @@
     "tabCapture",
     "offscreen",
     "activeTab",
-    "identity"
+    "identity",
+    "power",
+    "declarativeNetRequestWithHostAccess",
+    "unlimitedStorage"
   ],
   "optional_permissions": ["webRequest"],
   "host_permissions": [
