@@ -107,9 +107,20 @@
 | `lib/session.js` / `evidence.js` | 제한된 OCR/ASR 큐, 종료 drain, 시각·출처 근거 관리 |
 | `lib/summary.js` | 비파괴 선별, 전체 coverage 청킹, 구간 요약과 필수 전체 합성 |
 | `lib/events.js` | 내용 없는 파이프라인 진단 이벤트 버스(동작 — 암호화 로그와 개발용 어드민에 공급) |
+| `lib/auth.js` | Supabase 구글 로그인(PKCE)과 액세스 토큰 갱신. 세션은 `chrome.storage.local`의 `authSession`에만 있다(동기화 안 함) |
 | `lib/package-store.js` | 기기 암호화 IndexedDB 저장소(동작 — 현재는 진단 로그만 보관) |
 | `server/index.js` | 운영자 키, 고정 provider 정책, 구조화 요약, 사용량 제한, ciphertext 보관 |
 | `sidepanel.html` / `.js` | 표시·제어용 thin RPC adapter와 결과보내기 |
+
+## Supabase 로그인 설정 (운영자)
+
+확장은 `chrome.identity.launchWebAuthFlow`로 Supabase Auth(구글, PKCE)에 로그인합니다. 프로젝트 URL과 공개 anon 키는 `lib/auth.js`에 있고 `landing/supabase-config.js`와 같은 값입니다.
+
+1. Supabase 대시보드 → Authentication → Providers에서 Google을 켭니다. Google Cloud Console의 OAuth 클라이언트 ID/Secret을 넣고, 그 클라이언트의 승인된 리디렉션 URI에 Supabase가 보여 주는 콜백(`https://<프로젝트 ref>.supabase.co/auth/v1/callback`)을 추가합니다.
+2. Authentication → URL Configuration → Redirect URLs에 `https://<확장 ID>.chromiumapp.org/`를 추가합니다. 목록에 없으면 Supabase가 Site URL로 돌려보내 로그인 창이 끝나지 않습니다.
+3. 확장 ID는 `manifest.json`의 `key`가 없으면 압축 해제 로드 시 폴더 경로에서, 웹스토어 배포 시 웹스토어가 정한 값으로 정해집니다. 개발과 배포의 ID를 같게 고정하려면 `key`가 필요하며, 현재 `manifest.json`에는 `key`가 없습니다. ID가 바뀌면 2번의 URL도 바꿔야 합니다.
+
+액세스 토큰은 Supabase의 JWT 만료 설정(기본 1시간)을 따르고, 확장은 만료 60초 전부터 refresh token으로 갱신합니다. 갱신이 거부되면(폐기·만료) 세션을 지우고 다시 로그인하도록 안내합니다.
 
 ## 캡처 권한 회귀 검증
 

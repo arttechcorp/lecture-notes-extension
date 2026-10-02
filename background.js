@@ -1,8 +1,12 @@
 // Permissions and routing only; lecture state belongs to offscreen.
+// Auth(로그인 토큰 읽기·갱신)는 요청이 올 때마다 storage에서 읽는다. 전역에 세션을 두지 않는다.
+importScripts("lib/settings.js", "lib/auth.js");
 const trustedPage = sender => {
   try { const url=new URL(sender.url),base=new URL(chrome.runtime.getURL("")); return sender.id===chrome.runtime.id&&url.protocol===base.protocol&&url.host===base.host&&["/sidepanel.html","/options.html"].includes(url.pathname); }
   catch { return false; }
 };
+// 토큰 요청은 offscreen 문서(chrome.storage가 없다)도 보낸다. 같은 확장의 offscreen.html 그 자체만 허용한다.
+const offscreenPage = sender => sender.id === chrome.runtime.id && !sender.tab && sender.url === chrome.runtime.getURL("offscreen.html");
 const captureError = error => {
   const message = error?.message || "";
   if (/Extension has not been invoked|Chrome pages cannot be captured/i.test(message)) {
@@ -81,8 +85,9 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     return;
   }
   if (message?.target !== "background") return;
-  if (!trustedPage(sender)) { reply({ ok: false, error: "허용되지 않은 요청입니다." }); return; }
+  if (!(trustedPage(sender) || message.type === "AUTH_TOKEN" && offscreenPage(sender))) { reply({ ok: false, error: "허용되지 않은 요청입니다." }); return; }
   (async () => {
+    if (message.type === "AUTH_TOKEN") return { ok: true, token: await Auth.token() };
     if (message.type === "GET_PREVIEW") {
       const tabId = message.tabId;
       if (!Number.isInteger(tabId)) throw new Error("미리보기를 가져올 탭을 선택하세요.");

@@ -10,7 +10,8 @@
     "tabs",
     "tabCapture",
     "offscreen",
-    "activeTab"
+    "activeTab",
+    "identity"
   ],
   "optional_permissions": ["webRequest"],
   "host_permissions": [

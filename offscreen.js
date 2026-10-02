@@ -6,6 +6,12 @@ PackageStore.indexedDbAdapter().then(PackageStore.createStore).then(store=>new P
 const emit=state=>chrome.runtime.sendMessage({target:"panel",type:"SESSION_STATE",state}).catch(()=>{});
 const trusted=sender=>{try{const url=new URL(sender.url),base=new URL(chrome.runtime.getURL(""));return sender.id===chrome.runtime.id&&url.protocol===base.protocol&&url.host===base.host&&["/background.js","/sidepanel.html","/options.html"].includes(url.pathname);}catch{return false;}};
 const settingsOf=s=>({openRouterApiKey:String(s?.openRouterApiKey||""),serviceUrl:String(s?.serviceUrl||""),appSessionToken:String(s?.appSessionToken||""),summaryModel:String(s?.summaryModel||""),remoteSummaryConsent:s?.remoteSummaryConsent===true});
+// 서비스 호출 직전에 쓸 토큰을 정한다. offscreen에는 chrome.storage가 없어 background에 묻는다: 로그인 토큰(만료 전 갱신됨)을 우선하고, 로그아웃 상태면 설정의 개발용 정적 토큰(fallback)을 쓴다. 갱신 실패 같은 오류는 조용히 넘기지 않고 그대로 올린다.
+const tokenProvider=async fallback=>{
+  const reply=await chrome.runtime.sendMessage({target:"background",type:"AUTH_TOKEN"}).catch(()=>null);
+  if(reply?.ok===false)throw new Error(reply.error||"로그인 정보를 확인하지 못했습니다.");
+  return typeof reply?.token==="string"&&reply.token?reply.token:String(fallback||"");
+};
 chrome.runtime.onConnect.addListener(port=>{
   if(port.name!=="admin-events")return;
   let ok=false;
@@ -22,8 +28,9 @@ async function archive(message){
 }
 async function archiveRun(message){
   if(archiveBusy||summaryController||session&&!["completed","failed","disposed"].includes(session.status))throw new Error("현재 처리를 먼저 마쳐 주세요.");
-  archiveBusy=true;const config=settingsOf(message.settings),client={baseUrl:config.serviceUrl,token:config.appSessionToken};
+  archiveBusy=true;const config=settingsOf(message.settings);
   try{
+    const client={baseUrl:config.serviceUrl,token:await tokenProvider(config.appSessionToken)};
     const me=await ServiceClient.me(client);
     if(message.type==="LIST_VAULT")return {ok:true,items:(await ServiceClient.listEncrypted(client)).items};
     const objectId=message.objectId||crypto.randomUUID();
@@ -85,7 +92,10 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
         const stream=await navigator.mediaDevices.getUserMedia({audio:source,video:source});
         await session?.dispose();
         const config=settingsOf(message.settings);
-        const options={...message.options,serviceUrl:config.serviceUrl,appSessionToken:config.appSessionToken};
+        // 고화질 화면 인식만 서비스를 쓴다. 시작 때 한 번 풀어 연결 여부를 확인하고(오류는 여기서 드러난다), 인식은 장면마다 getToken으로 새로 받는다 - 1시간 넘는 강의에서도 만료되지 않는다.
+        let token=config.appSessionToken;
+        if(message.options?.ocrEngine==="vision-cloud"){try{token=await tokenProvider(token);}catch(error){for(const track of stream.getTracks())track.stop();throw error;}}
+        const options={...message.options,serviceUrl:config.serviceUrl,appSessionToken:token,getToken:()=>tokenProvider(config.appSessionToken)};
         session=new CaptureSession({id:options.sessionId||crypto.randomUUID(),generation:++generation,stream,options,emit,events});
         session.publish();await session.start();
         return {ok:true,state:session.state()};
@@ -106,7 +116,10 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
       current.summaryCache||=new Map();current.summaryAttempt=(current.summaryAttempt||0)+1;
       const span=events.span({stage:"summary",jobId:current.id});
       try{
-        const config=settingsOf(message.settings),summaryService=config.openRouterApiKey?OpenRouterClient:ServiceClient;
+        const config=settingsOf(message.settings),byok=Boolean(config.openRouterApiKey);
+        // 서비스 경로는 청크마다 토큰을 새로 받는다(요약은 몇 분 걸릴 수 있다). 시작 때 한 번 풀어 두는 건 연결 여부 판단용이다.
+        if(!byok&&config.serviceUrl)config.appSessionToken=await tokenProvider(config.appSessionToken);
+        const summaryService=byok?OpenRouterClient:{summary:async o=>ServiceClient.summary({...o,token:await tokenProvider(o.token)})};
         current.log(`[요약] 연결 확인 · ${config.openRouterApiKey?"OpenRouter API 키 입력됨":config.serviceUrl&&config.appSessionToken?"보관 서비스 설정됨":"연결 설정 없음"} · 동의 ${config.remoteSummaryConsent?"완료":"미확인"} · 모델 ${config.summaryModel||"기본"}`);
         current.summary=await SummaryPipeline.generate(current.store.snapshot(),{sessionId:current.id,gaps:current.gaps,settings:config,service:summaryService,signal:summaryController.signal,cache:current.summaryCache,attempt:current.summaryAttempt,onProgress:progress=>{current.progress=progress;current.publish();}});
         span.done();

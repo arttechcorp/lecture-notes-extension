@@ -35,6 +35,10 @@ function wireBackgroundConsent(settings){
   access.addEventListener('change',persist);
   show(lastSaved);
 }
+// 서비스 호출에 쓸 토큰: 로그인한 계정이 우선이고, 로그아웃 상태일 때만 개발·테스트용 정적 토큰을 쓴다(offscreen의 tokenProvider와 같은 순서).
+async function serviceToken(s){return (await Auth.token())||s.appSessionToken;}
+// 로그인·로그아웃 뒤에 고화질 인식 가능 여부를 다시 확인한다(wireVision이 채운다).
+let refreshVision=async()=>{};
 // 유료 여부는 서버만 안다. chrome.storage 는 사용자가 고칠 수 있으므로 여기서 켜진 토글은
 // 의사 표시일 뿐이고, 실제 호출은 /v1/vision 이 계정 features 로 다시 막는다.
 async function wireVision(settings){
@@ -52,15 +56,32 @@ async function wireVision(settings){
   $('visionWarnOk')?.addEventListener('click',()=>{modal.close();persist(true);});
   $('visionWarnCancel')?.addEventListener('click',()=>{modal.close();box.checked=false;});
   modal?.addEventListener('cancel',()=>{box.checked=false;});
-  if(!settings.serviceUrl||!settings.appSessionToken){state.textContent='서비스 연결을 먼저 설정하세요.';return;}
-  try{
-    const me=await ServiceClient.me({baseUrl:settings.serviceUrl,token:settings.appSessionToken,timeoutMs:15000});
-    const allowed=Array.isArray(me.features)&&me.features.includes('vision');
-    box.disabled=!allowed;
-    state.textContent=allowed?'사용 가능한 플랜입니다.':'유료 플랜에서 사용할 수 있습니다.';
-    // 플랜이 끝났는데 설정만 남아 있으면 세션 시작이 403 으로 죽는다. 조용히 로컬로 되돌린다.
-    if(!allowed&&box.checked){box.checked=false;await saveSettings({ocrEngine:'ppocr-v5-wasm',visionConsent:false});}
-  }catch(error){state.textContent='사용 가능 여부를 확인하지 못했습니다 · '+error.message;}
+  const check=async s=>{
+    try{
+      const token=s.serviceUrl&&await serviceToken(s);
+      if(!token){state.textContent='서비스 연결을 먼저 설정하세요.';return;}
+      const me=await ServiceClient.me({baseUrl:s.serviceUrl,token,timeoutMs:15000});
+      const allowed=Array.isArray(me.features)&&me.features.includes('vision');
+      box.disabled=!allowed;
+      state.textContent=allowed?'사용 가능한 플랜입니다.':'유료 플랜에서 사용할 수 있습니다.';
+      // 플랜이 끝났는데 설정만 남아 있으면 세션 시작이 403 으로 죽는다. 조용히 로컬로 되돌린다.
+      if(!allowed&&box.checked){box.checked=false;await saveSettings({ocrEngine:'ppocr-v5-wasm',visionConsent:false});}
+    }catch(error){state.textContent='사용 가능 여부를 확인하지 못했습니다 · '+error.message;}
+  };
+  refreshVision=()=>loadSettings().then(check);
+  await check(settings);
+}
+// 계정 카드: 이메일만 보여 주고 토큰은 읽지 않는다.
+async function showAuth(){
+  const user=await Auth.user().catch(()=>null);
+  $('authState').textContent=user?(user.email?user.email+' 계정으로 로그인했습니다.':'로그인했습니다.'):'로그인하지 않았습니다.';
+  $('loginBtn').hidden=Boolean(user);$('logoutBtn').hidden=!user;
+}
+function wireAuth(){
+  for(const [id,work,done] of [['loginBtn',Auth.signIn,'로그인했습니다.'],['logoutBtn',Auth.signOut,'로그아웃했습니다.']]){
+    const button=$(id);
+    button.addEventListener('click',async()=>{button.disabled=true;try{await work();await showAuth();await refreshVision();notice(done);}catch(error){notice(error.message);}finally{button.disabled=false;}});
+  }
 }
 function notice(message){$('saved').hidden=false;$('saved').textContent=message;}
 function values(){return Object.fromEntries(fields.map(id=>[id,BOOL_FIELDS.has(id)?$(id).checked:$(id).value]));}
@@ -70,6 +91,8 @@ function values(){return Object.fromEntries(fields.map(id=>[id,BOOL_FIELDS.has(i
   for(const [id,key] of AUTO){const el=$(id);if(!el)continue;if(el.type==='checkbox')el.checked=s[key];else el.value=s[key];}
   wireSpeedCorrection(s.speedCorrection===true);
   wireBackgroundConsent(s);
+  wireAuth();
+  await showAuth();
   await wireVision(s);
 }catch(error){notice(error.message);}})();
 for(const [id,key] of AUTO){
@@ -78,4 +101,4 @@ for(const [id,key] of AUTO){
   el.addEventListener('change',async()=>{try{await saveSettings({[key]:el.type==='checkbox'?el.checked:el.value});notice('설정이 저장되었습니다');}catch(error){notice(error.message);}});
 }
 $('saveBtn').addEventListener('click',async()=>{try{await saveSettings(values());notice('설정을 저장했습니다. 열려 있는 강의 패널로 돌아갈 수 있습니다.');}catch(error){notice(error.message);}});
-$('testBtn').addEventListener('click',async()=>{const button=$('testBtn');button.disabled=true;try{const s=await saveSettings(values());if(s.openRouterApiKey){await OpenRouterClient.check({apiKey:s.openRouterApiKey,timeoutMs:15000});notice('연결됨 · OpenRouter API 키를 확인했습니다.');}else{const result=await ServiceClient.me({baseUrl:s.serviceUrl,token:s.appSessionToken,timeoutMs:15000});if(typeof result.accountId!=='string'||!Array.isArray(result.models))throw new Error('계정 정보를 확인하지 못했습니다.');notice(result.models.includes(s.summaryModel)?'연결됨 · 선택한 요약 모델을 사용할 수 있습니다.':'연결됨 · 선택한 모델이 계정에 허용되지 않았습니다. 다른 모델을 선택하세요.');}}catch(error){notice(error.message);}finally{button.disabled=false;}});
+$('testBtn').addEventListener('click',async()=>{const button=$('testBtn');button.disabled=true;try{const s=await saveSettings(values());if(s.openRouterApiKey){await OpenRouterClient.check({apiKey:s.openRouterApiKey,timeoutMs:15000});notice('연결됨 · OpenRouter API 키를 확인했습니다.');}else{const result=await ServiceClient.me({baseUrl:s.serviceUrl,token:await serviceToken(s),timeoutMs:15000});if(typeof result.accountId!=='string'||!Array.isArray(result.models))throw new Error('계정 정보를 확인하지 못했습니다.');notice(result.models.includes(s.summaryModel)?'연결됨 · 선택한 요약 모델을 사용할 수 있습니다.':'연결됨 · 선택한 모델이 계정에 허용되지 않았습니다. 다른 모델을 선택하세요.');}}catch(error){notice(error.message);}finally{button.disabled=false;}});

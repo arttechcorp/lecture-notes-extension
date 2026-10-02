@@ -785,6 +785,22 @@
     <p class="note" id="bgState" role="status" aria-live="polite"></p>
   </section>
 
+  <section class="card" aria-labelledby="accountHeading">
+    <div class="section-top">
+      <h2 id="accountHeading">계정</h2>
+      <span class="badge">Google 로그인</span>
+    </div>
+
+    <p class="note" id="authState" role="status" aria-live="polite" style="margin-top: 0;">로그인하지 않았습니다.</p>
+
+    <div class="save-row">
+      <button id="loginBtn" type="button">Google로 로그인</button>
+      <button id="logoutBtn" type="button" hidden>로그아웃</button>
+    </div>
+
+    <p class="note setting-note">로그인하면 서비스 호출(요약·고화질 화면 인식·보관함)에 이 계정을 씁니다. 로그인 정보는 이 기기의 확장 설정에만 저장되며 다른 기기로 동기화하지 않습니다.</p>
+  </section>
+
   <section class="card" aria-labelledby="apiHeading">
     <details>
       <summary class="api-summary">
@@ -815,9 +831,10 @@
 
         <div class="form-field">
           <div class="label-row">
-            <label for="appSessionToken" class="field-label">보관 서비스 앱 세션 토큰</label>
+            <label for="appSessionToken" class="field-label">개발·테스트용 앱 세션 토큰</label>
           </div>
-          <input id="appSessionToken" type="password" placeholder="발급받은 앱 세션 토큰" autocomplete="off" spellcheck="false" aria-describedby="apiHelp" class="mono-input" />
+          <input id="appSessionToken" type="password" placeholder="개발 서버에서 발급한 토큰" autocomplete="off" spellcheck="false" aria-describedby="tokenNote" class="mono-input" />
+          <p class="note" id="tokenNote">위에서 Google로 로그인했다면 로그인한 계정이 우선 쓰입니다. 로그인하지 않았을 때만 이 토큰을 씁니다.</p>
         </div>
 
         <div class="form-field">
@@ -864,6 +881,7 @@
 
   <script src="lib/settings.js"></script>
   <script src="lib/service-client.js"></script>
+  <script src="lib/auth.js"></script>
   <script src="lib/openrouter-client.js"></script>
   <script src="options.js"></script>
 </body>
