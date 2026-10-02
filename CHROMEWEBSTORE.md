@@ -76,8 +76,8 @@ Summrizei는 강의 영상을 시청하는 동안 화면의 슬라이드와 강�
 | **스크린샷 2 [권장]** | 1280×800 PNG | `store-assets/screenshot-2-capture.png` ✅ | 캡처 중 — 슬라이드·음성 인식 실시간 누적 |
 | **스크린샷 3 [권장]** | 1280×800 PNG | `store-assets/screenshot-3-formula.png` ✅ | 노트 서식 — LaTeX 수식과 비교 표 렌더링 |
 | **스크린샷 4 [권장]** | 1280×800 PNG | `store-assets/screenshot-4-note.png` ✅ | 완성 노트 — 구조화된 요약 본문 |
-| **소형 프로모션 타일 [권장]** | 440×280 PNG | `store-assets/promo-small-440x280.png` ⬜ | 스토어 추천 탭 노출용 그래픽 배너 |
-| **대형 프로모션 타일 [선택]** | 1400×560 PNG | `store-assets/promo-marquee-1400x560.png` ⬜ | 스토어 메인 상단 마키 배너 |
+| **소형 프로모션 타일 [권장]** | 440×280 PNG | `store-assets/promo-small-440x280.png` ✅ | 스토어 추천 탭 노출용 그래픽 배너 |
+| **대형 프로모션 타일 [선택]** | 1400×560 PNG | `store-assets/promo-marquee-1400x560.png` ✅ | 스토어 메인 상단 마키 배너 |
 
 ---
 
