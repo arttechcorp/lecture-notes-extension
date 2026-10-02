@@ -155,8 +155,8 @@
 | `Transcript` | `segments[{id,t0,t1,text,words[{w,t0,t1}],noSpeechProb?,avgLogprob?,status}], engine, model, lang` | 패키지 |
 | `Unit` / `IR` | `unitId, slideId, t0, t1, slideText, speech, features{dwell,speechChars,emphasis,deixis,repeat,hasFormula,hasFigure}, judge{…}` / 순서 있는 Unit + 수식·도표 후보 | 패키지 |
 | `JudgeResult` | `itemId, task, probs{label:p}, score?, model` | 패키지 |
-| `Plan` | 섹션 경계, 섹션별 블록 배치, 수식·도표 참조. **블록 타입은 Note 스펙을 참조** | 패키지 |
-| `Note` | 노트 기획 세션이 정의 | 패키지 |
+| `Plan` | 섹션 경계, 섹션별 블록 배치, 수식·도표 참조. **블록 타입은 Note 스펙을 참조**. 실행 계약: `docs/note-contract.md` §8.2, `lib/note-contract.js` | 패키지 |
+| `Note` | 노트 양식 v3 → 실행 계약 `lecture-note-1`(`docs/note-contract.md` §8.5, 근거 인덱스 `EvidenceItem` §5) | 패키지 |
 | `Event` | `ts, jobId, traceId, spanId, parentSpanId, stage, unit, status, ms, bytes, model, costUsd, code, level, msg(≤200자, 내용 없음)` | 메모리, 로그 |
 | `Package` | `meta, slideDocs, transcript, ir, judge, plans[], notes[], crops{id→blob}, boilerplate, jobState, stageCache` | IndexedDB(암호화) |
 
