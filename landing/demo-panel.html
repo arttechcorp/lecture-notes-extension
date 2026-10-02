@@ -76,11 +76,14 @@
   .mobile-demo #stageDone .detail.result-help { font-size: 10px; margin-top: 1px; }
   .mobile-demo #result { font-size: 12px; }
   .mobile-demo .export-row button { height: 26px; font-size: 11px; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; }
+  .menu-glyph { display: inline-flex; width: 32px; height: 32px; align-items: center; justify-content: center; color: var(--ash, #666); border-radius: 8px; }
 </style>
 </head>
 <body>
 <div class="topbar">
   <div><h1>Summr<span>i</span>zei<span class="brand-dot">.</span></h1></div>
+  <span class="menu-glyph" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></span>
 </div>
 <nav class="stage-steps" aria-label="노트 만들기 단계"><span id="stepLive" class="active" aria-current="step">02 캡처</span><i aria-hidden="true"></i><span id="stepDone">03 노트</span></nav>
 
