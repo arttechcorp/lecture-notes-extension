@@ -1452,3 +1452,656 @@ test("the note format is one slot: swapping lib/note-spec.js changes validation,
     removeTemp(root);
   }
 });
+
+// ── Supabase 인증·장부 (docs/architecture-v2.md §11, supabase/schema-v2.sql) ──
+// 키는 테스트 안에서 만든다. Supabase는 가짜 fetch 하나가 JWKS 엔드포인트와 PostgREST RPC·테이블을 흉내 낸다(OpenRouter·Groq는 sb.other 로 넘긴다).
+const SB = "https://proj.supabase.co", SERVICE_KEY = "service-role-key-".padEnd(40, "s"), DIGEST_KEY = "usage-digest-key-".padEnd(40, "d"), JWT_SECRET = "jwt-secret-".padEnd(40, "j");
+const UID = "7b1f3c52-0a4e-4d19-9c8e-5e2a6f1d3b70", UID2 = "0d9c4a1e-2b7f-4e55-8a31-9f6c7d2e1b44";
+const EC1 = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" }), EC2 = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" }), RSA1 = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
+const jwkOf = (pair, kid) => ({ ...pair.publicKey.export({ format: "jwk" }), kid, use: "sig", alg: pair.publicKey.asymmetricKeyType === "ec" ? "ES256" : "RS256" });
+const b64u = x => Buffer.from(typeof x === "string" || Buffer.isBuffer(x) ? x : JSON.stringify(x)).toString("base64url");
+function mint({ alg = "ES256", kid = "ec-1", pair = EC1, secret = JWT_SECRET, claims = {}, header = {}, now = Math.floor(Date.now() / 1000) } = {}) {
+  const p = { sub: UID, aud: "authenticated", role: "authenticated", iss: SB + "/auth/v1", iat: now, exp: now + 3600, ...claims };
+  for (const k of Object.keys(p)) if (p[k] === undefined) delete p[k];
+  const data = b64u({ alg, typ: "JWT", ...(kid === null ? {} : { kid }), ...header }) + "." + b64u(p);
+  const sig = alg === "HS256" ? crypto.createHmac("sha256", secret).update(data).digest()
+    : alg === "ES256" ? crypto.sign("sha256", Buffer.from(data), { key: pair.privateKey, dsaEncoding: "ieee-p1363" })
+    : alg === "RS256" ? crypto.sign("sha256", Buffer.from(data), pair.privateKey) : Buffer.alloc(0);
+  return data + "." + b64u(sig);
+}
+const ec1 = o => mint({ pair: EC1, kid: "ec-1", ...o });
+const sha256 = s => crypto.createHash("sha256").update(s).digest("hex"), hmac256 = s => crypto.createHmac("sha256", DIGEST_KEY).update(s).digest("hex");
+function supabaseFake() {
+  const ok = v => ({ ok: true, status: 200, json: async () => v });
+  const f = {
+    jwks: { keys: [] }, jwksCalls: 0, jwksDown: false, down: false, plan: "free", planCalls: 0, reserveResult: null, failRpc: {}, upsertOk: true,
+    rpcs: [], calls: [], upserts: [], gets: [], reservations: new Map(), other: async () => provider(),
+    rows: { plans: { free: { monthly_cost_cap_micros: 300000, monthly_request_cap: 300, monthly_minutes_cap: 600 }, paid: { monthly_cost_cap_micros: 15000000, monthly_request_cap: null, monthly_minutes_cap: 6000 } }, usage: null },
+  };
+  f.rpcNamed = name => f.rpcs.filter(r => r.rpc === name);
+  f.fetch = async (url, init = {}) => {
+    const u = new URL(url);
+    if (url === SB + "/auth/v1/.well-known/jwks.json") {
+      f.jwksCalls++;
+      if (f.jwksDown) throw new TypeError("fetch failed");
+      return ok(f.jwks);
+    }
+    if (u.origin !== SB) return f.other(url, init);
+    const headers = init.headers || {};
+    f.calls.push({ url, method: init.method || "GET", headers, redirect: init.redirect, bounded: init.signal instanceof AbortSignal });
+    if (f.down) throw new TypeError("fetch failed");
+    const name = u.pathname.slice("/rest/v1/".length);
+    if (name.startsWith("rpc/")) {
+      const rpc = name.slice(4), args = JSON.parse(init.body);
+      f.rpcs.push({ rpc, args, headers, raw: init.body });
+      if (f.failRpc[rpc] > 0) { f.failRpc[rpc]--; return { ok: false, status: 503, json: async () => ({}) }; }
+      if (rpc === "effective_plan") { f.planCalls++; return ok(f.plan); }
+      if (rpc === "settle_usage") return ok("settled");
+      if (rpc === "reserve_usage") {
+        if (f.reserveResult !== null) return ok(typeof f.reserveResult === "function" ? f.reserveResult(args) : f.reserveResult);
+        // schema-v2.sql 의 멱등 의미: 같은 (user, requestId) 가 있으면 digest 로 duplicate / digest_mismatch 를 가른다.
+        const key = args.p_user + ":" + args.p_request_id, prior = f.reservations.get(key);
+        if (prior !== undefined) return ok(prior === args.p_digest ? "duplicate" : "digest_mismatch");
+        f.reservations.set(key, args.p_digest);
+        return ok("reserved");
+      }
+    }
+    if (name === "profiles") { f.upserts.push({ search: u.search, headers, body: JSON.parse(init.body) }); return { ok: f.upsertOk, status: f.upsertOk ? 201 : 500 }; }
+    if ((name === "plans" || name === "monthly_usage") && f.failGet) return { ok: false, status: 500, json: async () => ({}) };
+    if (name === "plans") { f.gets.push(url); const row = f.rows.plans[(u.searchParams.get("plan") || "").replace(/^eq\./, "")]; return ok(row ? [row] : []); }
+    if (name === "monthly_usage") { f.gets.push(url); return ok(f.rows.usage ? [f.rows.usage] : []); }
+    return { ok: false, status: 404, json: async () => ({}) };
+  };
+  return f;
+}
+const sbEnv = root => ({
+  ...config(root), SUPABASE_URL: SB, SUPABASE_SERVICE_ROLE_KEY: SERVICE_KEY, USAGE_DIGEST_KEY: DIGEST_KEY,
+  OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], [judgeModel]: ["test-provider"] }),
+  ALLOWED_VISION_MODELS: JSON.stringify([model]), ALLOWED_STT_MODELS: JSON.stringify(["whisper-large-v3-turbo"]), GROQ_API_KEY: "mock-groq-key",
+});
+// clock.t 를 올리면 서버의 JWT 만료·JWKS cooldown·등급 캐시 시계가 같이 간다.
+async function withSupabase(run, { env = {}, setup } = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-")), sb = supabaseFake(), clock = { t: Date.now() };
+  sb.jwks = { keys: [jwkOf(EC1, "ec-1"), jwkOf(RSA1, "rsa-1")] };
+  if (setup) setup(sb);
+  const server = createServer({ ...sbEnv(root), ...env }, { fetch: sb.fetch, now: () => clock.t });
+  await new Promise(r => server.listen(0, "127.0.0.1", r));
+  try { await run({ url: "http://127.0.0.1:" + server.address().port, root, sb, clock }); } finally { await close(server); removeTemp(root); }
+}
+const settledOf = (sb, n = 0) => sb.rpcNamed("settle_usage")[n].args;
+
+test("supabase config fails closed without its secrets and plan features are validated at boot", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  try {
+    const base = sbEnv(root);
+    createServer(base);
+    createServer({ ...base, APP_TOKENS_JSON: undefined });
+    assert.throws(() => createServer({ ...config(root), APP_TOKENS_JSON: undefined }), /APP_TOKENS_JSON/, "Supabase 없이는 정적 토큰이 여전히 필수다");
+    assert.throws(() => createServer({ ...base, USAGE_DIGEST_KEY: undefined }), /USAGE_DIGEST_KEY/);
+    assert.throws(() => createServer({ ...base, USAGE_DIGEST_KEY: "short" }), /USAGE_DIGEST_KEY/);
+    assert.throws(() => createServer({ ...base, SUPABASE_SERVICE_ROLE_KEY: undefined }), /SERVICE_ROLE_KEY/);
+    assert.throws(() => createServer({ ...base, SUPABASE_JWT_SECRET: "short" }), /invalid_supabase_jwt_secret/);
+    createServer({ ...base, SUPABASE_JWT_SECRET: JWT_SECRET });
+    for (const bad of ["http://proj.supabase.co", SB + "/rest/v1", SB + "?x=1", "not a url", "https://user:pw@proj.supabase.co"])
+      assert.throws(() => createServer({ ...base, SUPABASE_URL: bad }), /invalid_supabase_url/, bad);
+    createServer({ ...base, SUPABASE_URL: "http://127.0.0.1:54321" });
+    const { SUPABASE_URL, ...noUrl } = base;
+    assert.throws(() => createServer(noUrl), /SUPABASE_URL required/, "URL 없이 키만 있는 설정은 조용히 무시하지 않는다");
+    assert.throws(() => createServer({ ...config(root), SUPABASE_JWT_SECRET: JWT_SECRET }), /SUPABASE_URL required/);
+
+    const defaults = serverConfig(base).planFeatures;
+    assert.deepEqual(defaults.free, { features: [], models: [model] });
+    assert.deepEqual(defaults.paid, { features: ["vision", "stt", "judge", "background"], models: [model] });
+    const lite = "anthropic/claude-haiku-4.5", two = { ...base, ALLOWED_MODELS: JSON.stringify([lite, model]), OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["p"], [lite]: ["p"] }) };
+    assert.deepEqual(serverConfig(two).planFeatures.free.models, [model], "free 는 lite 요약 모델만");
+    assert.deepEqual(serverConfig(two).planFeatures.paid.models, [lite, model]);
+    const merged = serverConfig({ ...base, PLAN_FEATURES_JSON: JSON.stringify({ free: { features: ["judge"] }, pro: { features: ["vision"] } }) }).planFeatures;
+    assert.deepEqual(merged.free, { features: ["judge"], models: [model] }, "빠진 키는 기본값을 유지한다");
+    assert.deepEqual(merged.pro, { features: ["vision"], models: [model] });
+    for (const bad of [{ free: { features: ["admin"] } }, { free: { models: ["openai/unknown"] } }, { free: { models: [] } }, { free: { extra: 1 } }, { "Bad Name": {} }, [], { free: [] }])
+      assert.throws(() => createServer({ ...base, PLAN_FEATURES_JSON: JSON.stringify(bad) }), /invalid_plan/, JSON.stringify(bad));
+  } finally { removeTemp(root); }
+});
+
+test("JWT verification accepts valid ES256 and RS256 tokens, caches the JWKS and rejects everything else", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    const now = Math.floor(Date.now() / 1000), rs = o => mint({ alg: "RS256", pair: RSA1, kid: "rsa-1", ...o });
+    for (const t of [ec1(), rs(), ec1({ claims: { sub: UID.toUpperCase() } }), ec1({ claims: { aud: ["authenticated", "extra"] } }), ec1({ claims: { exp: now - 2 } })]) {
+      const res = await req(url, "/v1/me", "GET", undefined, t);
+      assert.equal(res.status, 200);
+      assert.equal((await res.json()).accountId, UID, "계정 id 는 sub(소문자 uuid)다");
+    }
+    assert.equal(sb.jwksCalls, 1, "JWKS 는 캐시된다");
+    const before = [sb.rpcs.length, sb.upserts.length, sb.calls.length];
+
+    const [h, p, s] = ec1().split("."), flip = x => x.slice(0, 10) + (x[10] === "A" ? "B" : "A") + x.slice(11);
+    const edit = (claims, tail = s) => h + "." + b64u({ ...JSON.parse(Buffer.from(p, "base64url")), ...claims }) + "." + tail;
+    const pem = EC1.publicKey.export({ type: "spki", format: "pem" });
+    const bad = [
+      ["expired", ec1({ claims: { exp: now - 60 } }), "token_expired"],
+      ["expired + forged signature", mint({ pair: EC2, kid: "ec-1", claims: { exp: now - 60 } }), "unauthorized"],
+      ["expiry extended in the payload", edit({ exp: now + 99999 }), "unauthorized"],
+      ["not yet valid", ec1({ claims: { nbf: now + 600 } })],
+      ["exp missing", ec1({ claims: { exp: undefined } })], ["exp is a string", ec1({ claims: { exp: String(now + 600) } })],
+      ["aud anon", ec1({ claims: { aud: "anon" } })], ["aud missing", ec1({ claims: { aud: undefined } })], ["aud array without authenticated", ec1({ claims: { aud: ["a", "b"] } })],
+      ["iss of another project", ec1({ claims: { iss: "https://evil.supabase.co/auth/v1" } })], ["iss missing", ec1({ claims: { iss: undefined } })], ["iss without /auth/v1", ec1({ claims: { iss: SB } })],
+      ["anon key role", ec1({ claims: { role: "anon" } })], ["service_role key", ec1({ claims: { role: "service_role" } })],
+      ["sub missing", ec1({ claims: { sub: undefined } })], ["sub is not a uuid", ec1({ claims: { sub: "admin" } })], ["anonymous sign-in", ec1({ claims: { is_anonymous: true } })],
+      ["alg none, empty signature", mint({ alg: "none" })],
+      ["alg none, junk signature", b64u({ alg: "none", typ: "JWT" }) + "." + p + ".AAAA"], ["alg None", mint({ alg: "None" })],
+      ["tampered signature", h + "." + p + "." + flip(s)], ["tampered payload", edit({ sub: UID2 })], ["signed by another key under a known kid", mint({ pair: EC2, kid: "ec-1" })],
+      ["HS256 with the public key PEM as the secret", mint({ alg: "HS256", secret: pem })], ["HS256 with the project secret while only JWKS is configured", mint({ alg: "HS256", secret: JWT_SECRET })],
+      ["ES256 header on an RSA kid", mint({ pair: EC1, kid: "rsa-1" })], ["RS256 header on an EC kid", mint({ alg: "RS256", pair: RSA1, kid: "ec-1" })],
+      ["no kid", ec1({ kid: null })], ["unknown kid", ec1({ kid: "ec-9" })], ["crit header", ec1({ header: { crit: ["exp"] } })],
+      ["not a jwt", "bad"], ["two segments", h + "." + p], ["empty segment", h + ".." + s], ["segment with padding", h + "." + p + "=." + s], ["oversized", h + "." + "A".repeat(5000) + "." + s],
+    ];
+    for (const [label, t, code = "unauthorized"] of bad) {
+      const e = await errorOf(await req(url, "/v1/me", "GET", undefined, t), 401, code);
+      assert.equal(e.retryable, false, label);
+    }
+    assert.deepEqual([sb.rpcs.length, sb.upserts.length, sb.calls.length], before, "거절된 토큰은 DB를 건드리지 않는다");
+    assert.equal((await req(url, "/v1/me", "GET", undefined, ec1())).status, 200, "거절 뒤에도 정상 토큰은 통과한다");
+  });
+});
+
+test("with SUPABASE_JWT_SECRET only HS256 is accepted and the JWKS is never fetched", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    const now = Math.floor(Date.now() / 1000), hs = o => mint({ alg: "HS256", kid: null, ...o });
+    const res = await req(url, "/v1/me", "GET", undefined, hs());
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).accountId, UID);
+    await errorOf(await req(url, "/v1/me", "GET", undefined, hs({ claims: { exp: now - 60 } })), 401, "token_expired");
+    for (const t of [hs({ secret: "another-secret".padEnd(40, "x") }), hs({ claims: { aud: "anon" } }), hs({ claims: { iss: "https://evil.supabase.co/auth/v1" } }), hs({ claims: { role: "anon" } }),
+      ec1(), mint({ alg: "RS256", pair: RSA1, kid: "rsa-1" }), mint({ alg: "none" })])
+      await errorOf(await req(url, "/v1/me", "GET", undefined, t), 401, "unauthorized");
+    const [h, p, s] = hs().split(".");
+    await errorOf(await req(url, "/v1/me", "GET", undefined, h + "." + b64u({ sub: UID2, aud: "authenticated", role: "authenticated", iss: SB + "/auth/v1", exp: now + 99 }) + "." + s), 401, "unauthorized");
+    assert.equal(sb.jwksCalls, 0, "시크릿이 있으면 JWKS 를 쓰지 않는다");
+  }, { env: { SUPABASE_JWT_SECRET: JWT_SECRET } });
+});
+
+test("an unknown kid refetches the JWKS at most once per cooldown and rotated keys are picked up", async () => {
+  await withSupabase(async ({ url, sb, clock }) => {
+    const ec2 = o => mint({ pair: EC2, kid: "ec-2", ...o });
+    assert.equal((await req(url, "/v1/me", "GET", undefined, ec1())).status, 200);
+    assert.equal(sb.jwksCalls, 1);
+    sb.jwks = { keys: [jwkOf(EC1, "ec-1"), jwkOf(EC2, "ec-2")] };
+    // 가짜 kid 로 Supabase 를 두드릴 수 없다: cooldown 안에서는 다시 받지 않는다.
+    for (let i = 0; i < 10; i++) await errorOf(await req(url, "/v1/me", "GET", undefined, ec2()), 401, "unauthorized");
+    assert.equal(sb.jwksCalls, 1);
+    clock.t += 11000;
+    assert.equal((await req(url, "/v1/me", "GET", undefined, ec2())).status, 200, "새 kid 는 JWKS 를 다시 받으면 통과한다");
+    assert.equal(sb.jwksCalls, 2);
+    assert.equal((await req(url, "/v1/me", "GET", undefined, ec1())).status, 200);
+    assert.equal(sb.jwksCalls, 2, "아는 kid 는 다시 받지 않는다");
+    // 끝내 없는 kid 는 cooldown 마다 한 번만 받아 본다.
+    clock.t += 11000;
+    for (let i = 0; i < 10; i++) await errorOf(await req(url, "/v1/me", "GET", undefined, ec1({ kid: "ec-9" })), 401, "unauthorized");
+    assert.equal(sb.jwksCalls, 3);
+    // TTL(10분)이 지나면 아는 kid 도 새로 받고, 받기에 실패하면 가진 키로 계속 검증한다.
+    sb.jwksDown = true;
+    clock.t += 11 * 60 * 1000;
+    assert.equal((await req(url, "/v1/me", "GET", undefined, ec1())).status, 200);
+    assert.equal(sb.jwksCalls, 4);
+    // 폐기된 키가 JWKS 에서 빠지면 다음 새로고침에서 거절된다.
+    sb.jwksDown = false;
+    sb.jwks = { keys: [jwkOf(EC2, "ec-2")] };
+    clock.t += 11000;
+    await errorOf(await req(url, "/v1/me", "GET", undefined, ec1()), 401, "unauthorized");
+    assert.equal((await req(url, "/v1/me", "GET", undefined, ec2())).status, 200);
+  });
+});
+
+test("an unreachable JWKS answers a retryable 503 instead of logging users out, then recovers", async () => {
+  await withSupabase(async ({ url, sb, clock }) => {
+    const e = await errorOf(await req(url, "/v1/me", "GET", undefined, ec1()), 503, "auth_unavailable");
+    assert.equal(e.retryable, true);
+    assert.equal(sb.jwksCalls, 1);
+    await errorOf(await req(url, "/v1/me", "GET", undefined, ec1()), 503, "auth_unavailable");
+    assert.equal(sb.jwksCalls, 1, "실패한 뒤에도 cooldown 안에서는 다시 두드리지 않는다");
+    sb.jwksDown = false;
+    clock.t += 11000;
+    assert.equal((await req(url, "/v1/me", "GET", undefined, ec1())).status, 200);
+  }, { setup: sb => { sb.jwksDown = true; } });
+  // 쓸 수 있는 키가 하나도 없는 응답(대칭키·너무 작은 RSA 키뿐)도 못 믿는 응답이다.
+  await withSupabase(async ({ url }) => {
+    await errorOf(await req(url, "/v1/me", "GET", undefined, ec1()), 503, "auth_unavailable");
+  }, { setup: sb => { sb.jwks = { keys: [{ kty: "oct", kid: "ec-1", k: "c2VjcmV0", use: "sig", alg: "HS256" }, { kty: "RSA", kid: "weak" }] }; } });
+});
+
+test("static tokens keep the file ledger while JWT accounts use Postgres", async () => {
+  await withSupabase(async ({ url, root, sb }) => {
+    assert.equal((await req(url, "/v1/summary", "POST", input)).status, 200);
+    assert.equal(sb.rpcs.length, 0, "정적 토큰 계정은 Supabase 장부를 쓰지 않는다");
+    assert.equal(sb.calls.length, 0);
+    const ledger = () => readState(path.join(root, "usage.json")).accounts;
+    assert.equal(ledger().A.jobs["request-one"].status, "completed");
+    assert.equal(ledger().A.jobs["request-one"].digest, sha256(JSON.stringify({ model, stage: "chunk", evidence: input.evidence, gaps: [] })), "파일 장부 digest 는 기존 SHA-256 이다");
+    const me = await (await req(url, "/v1/me")).json();
+    assert.equal(me.accountId, "A");
+    assert.equal(me.quota.requests, 1);
+    assert.deepEqual(me.models, [model]);
+    assert.equal(me.plan, undefined, "정적 계정에는 DB 등급이 없다");
+    assert.equal(me.noteSpecVersion, NoteSpec.NOTE_SPEC_VERSION);
+    assert.equal(me.promptVersion, Prompts.PROMPT_VERSION);
+    assert.equal(sb.upserts.length, 0, "정적 계정은 프로필을 만들지 않는다");
+
+    assert.equal((await req(url, "/v1/summary", "POST", { ...input, requestId: "jwt-one" }, ec1())).status, 200);
+    assert.ok(!ledger()[UID], "JWT 계정은 파일 장부에 남지 않는다");
+    assert.equal(sb.rpcNamed("reserve_usage").length, 1);
+    assert.equal(sb.rpcNamed("reserve_usage")[0].args.p_user, UID);
+    // 같은 requestId 라도 계정마다 따로다 — 정적 "A" 의 request-one 은 JWT 사용자와 겹치지 않는다.
+    assert.equal((await req(url, "/v1/summary", "POST", input, ec1())).status, 200);
+  });
+});
+
+test("the client-version gate and rate limit run before any database call for JWT accounts", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    const old = { "x-client-version": "1.0.0" }, ok = { "x-client-version": "1.2.0" };
+    await errorOf(await req(url, "/v1/me", "GET", undefined, ec1(), origin, old), 426, "client_upgrade_required");
+    await errorOf(await req(url, "/v1/summary", "POST", { ...input, requestId: "old-client" }, ec1(), origin, old), 426, "client_upgrade_required");
+    assert.equal(sb.calls.length, 0, "426 은 등급 조회·예약·프로필 전에 나간다");
+    assert.equal((await req(url, "/v1/summary", "POST", { ...input, requestId: "new-client" }, ec1(), origin, ok)).status, 200);
+    const e = await errorOf(await req(url, "/v1/summary", "POST", { ...input, requestId: "too-fast" }, ec1(), origin, ok), 429, "rate_limited");
+    assert.equal(e.retryable, true);
+    assert.equal(sb.rpcNamed("reserve_usage").length, 1, "토큰 버킷은 sub 별로 메모리에서 센다");
+    assert.equal((await req(url, "/v1/summary", "POST", { ...input, requestId: "other-user" }, ec1({ claims: { sub: UID2 } }), origin, ok)).status, 200, "다른 사용자의 버킷은 따로다");
+  }, { env: { REMOTE_CONFIG_JSON: JSON.stringify({ minClientVersion: "1.2.0" }), ACCOUNT_RATE_PER_MIN: "1" } });
+});
+
+test("reserve_usage results map to the existing error codes and nothing reaches the provider", async () => {
+  let calls = 0;
+  await withSupabase(async ({ url, sb }) => {
+    const jwt = ec1();
+    for (const [result, status, code, retryable] of [["duplicate", 409, "request_already_reserved_or_processed", false], ["digest_mismatch", 400, "idempotency_content_mismatch", false], ["quota_exceeded", 429, "quota_exceeded", false],
+      ["surprise", 503, "usage_store_failed", true], [null, 503, "usage_store_failed", true], [7, 503, "usage_store_failed", true], ["constructor", 503, "usage_store_failed", true]]) {
+      sb.reserveResult = () => result;
+      for (let i = 0; i < 3; i++) {
+        const e = await errorOf(await req(url, "/v1/summary", "POST", { ...input, requestId: "map-" + i }, jwt), status, code);
+        assert.equal(e.retryable, retryable, String(result));
+      }
+    }
+    assert.equal(calls, 0, "예약이 거절되면 제공자를 부르지 않는다");
+    assert.equal(sb.rpcNamed("settle_usage").length, 0, "예약하지 못한 요청은 정산할 것도 없다");
+    // 거절마다 동시 처리 슬롯이 반납된다(ACCOUNT_CONCURRENCY=1 인데 21번 연속 같은 오류가 나왔다).
+    sb.reserveResult = null;
+    assert.equal((await req(url, "/v1/summary", "POST", { ...input, requestId: "map-ok" }, jwt)).status, 200);
+    assert.equal(calls, 1);
+
+    // 실제 RPC 의 멱등 의미: 같은 본문은 duplicate(409), 다른 본문은 digest_mismatch(400).
+    await errorOf(await req(url, "/v1/summary", "POST", { ...input, requestId: "map-ok" }, jwt), 409, "request_already_reserved_or_processed");
+    await errorOf(await req(url, "/v1/summary", "POST", { ...input, requestId: "map-ok", evidence: [{ ...input.evidence[0], text: "changed" }] }, jwt), 400, "idempotency_content_mismatch");
+    assert.equal(calls, 1);
+    assert.equal((await req(url, "/v1/summary", "POST", { ...input, requestId: "map-ok" }, ec1({ claims: { sub: UID2 } }))).status, 200, "requestId 는 사용자별로 따로다");
+  }, { env: { ACCOUNT_CONCURRENCY: "1", ACCOUNT_RATE_PER_MIN: "1000" }, setup: sb => { sb.other = async () => { calls++; return provider(); }; } });
+});
+
+test("a successful summary reserves then settles through PostgREST with content-free metadata", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    const res = await req(url, "/v1/summary", "POST", input, ec1(), origin, { "x-client-version": "1.2.3" });
+    assert.equal(res.status, 200);
+    assert.deepEqual(sb.rpcs.map(r => r.rpc), ["effective_plan", "reserve_usage", "settle_usage"]);
+    for (const c of sb.calls) {
+      assert.equal(c.headers.apikey, SERVICE_KEY);
+      assert.equal(c.headers.authorization, "Bearer " + SERVICE_KEY);
+      assert.equal(c.redirect, "error", "리다이렉트를 따라가지 않는다");
+      assert.ok(c.bounded, "모든 Supabase 호출에 시간 제한이 걸린다");
+      assert.ok(c.url.startsWith(SB + "/rest/v1/"));
+    }
+    assert.deepEqual(sb.rpcNamed("effective_plan")[0].args, { p_user: UID });
+    const reserve = sb.rpcNamed("reserve_usage")[0].args;
+    const canonical = JSON.stringify({ model, stage: "chunk", evidence: input.evidence, gaps: [] });
+    assert.deepEqual(Object.keys(reserve).sort(), ["p_cost_micros", "p_digest", "p_minutes", "p_request_id", "p_user"]);
+    assert.equal(reserve.p_user, UID);
+    assert.equal(reserve.p_request_id, "request-one");
+    assert.equal(reserve.p_digest, hmac256(canonical), "digest 는 USAGE_DIGEST_KEY 로 HMAC 한 값이다");
+    assert.notEqual(reserve.p_digest, sha256(canonical), "맨 SHA-256 은 DB에 가지 않는다");
+    assert.match(reserve.p_digest, /^[a-f0-9]{64}$/);
+    assert.ok(Number.isInteger(reserve.p_cost_micros) && reserve.p_cost_micros > 0 && reserve.p_cost_micros % 1e4 === 0, "예약은 센트 x 10,000 마이크로달러다: " + reserve.p_cost_micros);
+    assert.equal(reserve.p_minutes, 0);
+
+    const { p_latency_ms, ...settled } = settledOf(sb);
+    assert.deepEqual(settled, {
+      p_user: UID, p_request_id: "request-one", p_actual_cost_micros: Math.ceil(.001 * 1e6), p_status: "ok", p_stage: "summary.chunk", p_provider: "openrouter", p_model: model,
+      p_input_tokens: 100, p_output_tokens: 20, p_audio_seconds: null, p_images: null, p_prompt_version: null, p_schema_version: null, p_error_code: null, p_client_version: "1.2.3", p_host: null,
+    });
+    assert.ok(Number.isInteger(p_latency_ms) && p_latency_ms >= 0 && p_latency_ms < 5000);
+    assert.equal(sb.rpcs.at(-1).rpc, "settle_usage");
+  });
+});
+
+test("unreported costs settle as null and reported charges settle in micros", async () => {
+  let cost = null;
+  await withSupabase(async ({ url, sb }) => {
+    const jwt = ec1();
+    const reply = () => ({ ok: true, json: async () => ({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ blocks: [noteBlock] }) } }], usage: { prompt_tokens: 800, completion_tokens: 90, cost } }) });
+    sb.other = async () => reply();
+    const body = i => sectionIn({ requestId: "cost-" + i });
+    assert.equal((await req(url, "/v1/write", "POST", body(1), jwt)).status, 200);
+    assert.equal(settledOf(sb, 0).p_actual_cost_micros, null, "비용을 보고하지 않으면 null — DB가 예약액을 그대로 청구한다");
+    assert.equal(settledOf(sb, 0).p_status, "ok");
+    cost = .0023;
+    assert.equal((await req(url, "/v1/write", "POST", body(2), jwt)).status, 200);
+    assert.equal(settledOf(sb, 1).p_actual_cost_micros, Math.ceil(.0023 * 1e6));
+    cost = 0;
+    assert.equal((await req(url, "/v1/write", "POST", body(3), jwt)).status, 200);
+    assert.equal(settledOf(sb, 2).p_actual_cost_micros, 0, "0 으로 보고한 비용은 0 이다(미보고와 다르다)");
+    assert.equal(settledOf(sb, 2).p_stage, "write.section");
+    assert.equal(settledOf(sb, 2).p_prompt_version, Prompts.PROMPT_VERSION, "plan/write 의 프롬프트 버전이 원장에 남는다");
+    assert.equal(settledOf(sb, 2).p_schema_version, 1);
+
+    // 제공자가 끝내 실패하면 예약을 그대로 두고(actual null) error 로 닫는다. 같은 requestId 는 다시 못 쓴다.
+    sb.other = async () => ({ ok: false, status: 500, json: async () => ({}) });
+    const e = await errorOf(await req(url, "/v1/write", "POST", body(4), jwt), 502, "provider_failed_or_invalid_output");
+    assert.equal(e.retryable, true);
+    const failed = settledOf(sb, 3);
+    assert.equal(failed.p_status, "error");
+    assert.equal(failed.p_actual_cost_micros, null);
+    assert.equal(failed.p_error_code, "provider_failed_or_invalid_output");
+    assert.equal(failed.p_input_tokens, null);
+    await errorOf(await req(url, "/v1/write", "POST", body(4), jwt), 409, "request_already_reserved_or_processed");
+  }, { setup: sb => { sb.plan = "free"; } });
+});
+
+test("a length cut-off settles as an error carrying the reported charge, not as a refund", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    const jwt = ec1();
+    sb.other = async () => noteReply('{"blocks":[{"type":"te', { finish: "length", cost: .003 });
+    const e = await errorOf(await req(url, "/v1/write", "POST", sectionIn({ requestId: "cut-1" }), jwt), 422, "llm_output_truncated");
+    assert.equal(e.retryable, false);
+    const { p_latency_ms, ...cut } = settledOf(sb, 0);
+    assert.deepEqual(cut, {
+      p_user: UID, p_request_id: "cut-1", p_actual_cost_micros: Math.ceil(.003 * 1e6), p_status: "error", p_stage: "write.section", p_provider: "openrouter", p_model: model,
+      p_input_tokens: 800, p_output_tokens: 90, p_audio_seconds: null, p_images: null, p_prompt_version: null, p_schema_version: null, p_error_code: "llm_output_truncated", p_client_version: null, p_host: null,
+    });
+    await errorOf(await req(url, "/v1/write", "POST", sectionIn({ requestId: "cut-1" }), jwt), 409, "request_already_reserved_or_processed");
+
+    sb.other = async () => noteReply('{"blocks":[', { finish: "length", cost: null });
+    await errorOf(await req(url, "/v1/plan", "POST", planIn({ requestId: "cut-2" }), jwt), 422, "llm_output_truncated");
+    const unreported = settledOf(sb, 1);
+    assert.equal(unreported.p_status, "error");
+    assert.equal(unreported.p_actual_cost_micros, null, "비용을 모르는 잘림은 예약을 그대로 둔다");
+    assert.equal(unreported.p_stage, "plan");
+
+    // 형식 실패 뒤에 잘려도 두 호출의 보고 비용이 합쳐진다.
+    const replies = [noteReply("{}", { cost: .001 }), noteReply('{"blocks":[', { finish: "length", cost: .003 })];
+    sb.other = async () => replies.shift();
+    await errorOf(await req(url, "/v1/write", "POST", sectionIn({ requestId: "cut-3" }), jwt), 422, "llm_output_truncated");
+    assert.equal(settledOf(sb, 2).p_actual_cost_micros, Math.ceil((.001 + .003) * 1e6));
+    assert.equal(settledOf(sb, 2).p_input_tokens, 1600);
+    assert.equal(sb.rpcNamed("settle_usage").every(r => r.args.p_status === "error"), true);
+  });
+});
+
+test("refund paths settle as refunded with no cost and no usage, and the same requestId can retry", async () => {
+  let mode = "fail";
+  await withSupabase(async ({ url, sb }) => {
+    const jwt = ec1();
+    // 제공자 HTTP 오류는 청구가 없다고 확정할 수 있다 — 환불.
+    let e = await errorOf(await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-r1" }), jwt), 502, "provider_failed_or_invalid_output");
+    assert.equal(e.retryable, true);
+    assert.equal(sb.rpcNamed("reserve_usage")[0].args.p_minutes, 1, "60초 청크는 1분으로 센다");
+    assert.deepEqual(settledOf(sb, 0), {
+      p_user: UID, p_request_id: "stt-r1", p_actual_cost_micros: null, p_status: "refunded", p_stage: "stt", p_provider: "groq", p_model: "whisper-large-v3-turbo",
+      p_input_tokens: null, p_output_tokens: null, p_audio_seconds: null, p_images: null, p_prompt_version: null, p_schema_version: null,
+      p_error_code: "provider_failed_or_invalid_output", p_latency_ms: settledOf(sb, 0).p_latency_ms, p_client_version: null, p_host: null,
+    });
+    mode = "busy";
+    e = await errorOf(await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-r2" }), jwt), 429, "provider_busy");
+    assert.equal(e.retryAfterMs, 3000);
+    assert.equal(settledOf(sb, 1).p_status, "refunded");
+    assert.equal(settledOf(sb, 1).p_error_code, "provider_busy");
+    // 실제 RPC 는 환불하면 예약 행을 지운다 — 같은 requestId 로 다시 보낼 수 있다.
+    sb.reservations.delete(UID + ":stt-r1");
+    mode = "ok";
+    const ok = await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-r1" }), jwt);
+    assert.equal(ok.status, 200);
+    const done = settledOf(sb, 2);
+    assert.equal(done.p_status, "ok");
+    assert.equal(done.p_audio_seconds, 60, "정산은 제공자가 잰 길이와 선언 중 큰 값이다");
+    assert.equal(done.p_actual_cost_micros, Math.ceil(0.04 * 60 / 3600 * 1e6));
+    assert.equal(done.p_prompt_version, "v1");
+    assert.equal(done.p_schema_version, 1);
+    assert.equal(done.p_error_code, null);
+
+    // 정산에 실패한 환불은 같은 requestId 재시도를 약속할 수 없으므로 503 이다. 성공은 결과를 돌려준다.
+    mode = "fail";
+    sb.failRpc.settle_usage = 2;
+    await errorOf(await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-r3" }), jwt), 503, "usage_store_failed");
+    mode = "ok";
+    sb.failRpc.settle_usage = 2;
+    assert.equal((await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-r4" }), jwt)).status, 200, "정산 실패가 이미 만든 결과를 버리지 않는다");
+    // 정산은 한 번 다시 시도한다(DB가 already_settled 로 멱등 처리).
+    sb.failRpc.settle_usage = 1;
+    const before = sb.rpcNamed("settle_usage").length;
+    assert.equal((await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-r5" }), jwt)).status, 200);
+    assert.equal(sb.rpcNamed("settle_usage").length - before, 2);
+    assert.equal(sb.rpcNamed("reserve_usage").filter(r => r.args.p_request_id === "stt-r5").length, 1, "예약은 다시 부르지 않는다");
+  }, { setup: sb => {
+    sb.plan = "paid";
+    sb.other = async () => {
+      if (mode === "fail") return { ok: false, status: 500, headers: new Map(), json: async () => ({}) };
+      if (mode === "busy") return { ok: false, status: 429, headers: new Map([["retry-after", "3"]]), json: async () => ({}) };
+      return { ok: true, json: async () => groqRaw() };
+    };
+  } });
+});
+
+test("when Supabase is unavailable no request reaches a provider and every failure is a retryable 503", async () => {
+  let calls = 0;
+  await withSupabase(async ({ url, sb }) => {
+    const jwt = ec1();
+    // 등급 조회 단계: 아직 아무것도 읽지 못했다.
+    sb.down = true;
+    let e = await errorOf(await req(url, "/v1/summary", "POST", input, jwt), 503, "usage_store_failed");
+    assert.equal(e.retryable, true);
+    await errorOf(await req(url, "/v1/me", "GET", undefined, jwt), 503, "usage_store_failed");
+    assert.equal(calls, 0);
+    assert.equal(sb.rpcs.length, 0);
+
+    // 예약 단계: 등급은 캐시에서 읽히고 reserve 가 실패한다.
+    sb.down = false;
+    assert.equal((await req(url, "/v1/me", "GET", undefined, jwt)).status, 200);
+    calls = 0;
+    sb.down = true;
+    e = await errorOf(await req(url, "/v1/summary", "POST", { ...input, requestId: "down-1" }, jwt), 503, "usage_store_failed");
+    assert.equal(e.retryable, true);
+    assert.equal(calls, 0, "예약에 성공하지 못하면 제공자를 부르지 않는다");
+    sb.down = false;
+    sb.failRpc.reserve_usage = 1;
+    await errorOf(await req(url, "/v1/summary", "POST", { ...input, requestId: "down-2" }, jwt), 503, "usage_store_failed");
+    assert.equal(calls, 0);
+    assert.equal(sb.calls.filter(c => c.url.endsWith("/rpc/reserve_usage")).length, 2, "요청마다 예약을 한 번만 시도한다(자동 재시도 없음 — 응답을 잃어도 DB에는 들어갔을 수 있다)");
+    assert.equal(sb.rpcNamed("settle_usage").length, 0);
+
+    // 복구되면 새 requestId 로 정상 동작하고 동시 처리 슬롯도 새지 않았다.
+    assert.equal((await req(url, "/v1/summary", "POST", { ...input, requestId: "down-3" }, jwt)).status, 200);
+    assert.equal(calls, 1);
+
+    // 한도 조회(/v1/me)가 실패해도 503 이다.
+    sb.failGet = true;
+    await errorOf(await req(url, "/v1/me", "GET", undefined, jwt), 503, "usage_store_failed");
+  }, { env: { ACCOUNT_CONCURRENCY: "1" }, setup: sb => { sb.other = async () => { calls++; return provider(); }; } });
+});
+
+test("no lecture content or bare hash reaches Supabase from any route and digests are keyed HMACs", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    const jwt = ec1(), items = judgeBody({ requestId: "leak-judge" }).items;
+    sb.other = async (u, o) => {
+      if (u.includes("groq")) return { ok: true, json: async () => groqRaw() };
+      const b = JSON.parse(o.body), schemaName = b.response_format?.json_schema?.name;
+      if (b.logprobs) return judgeReply();
+      if (schemaName === "slide_doc") return slideProvider();
+      if (schemaName === "lecture_note_plan") return noteReply(planOut);
+      if (schemaName === "lecture_note_section") return noteReply({ blocks: [noteBlock] });
+      return provider();
+    };
+    const calls = [
+      ["/v1/summary", { ...input, requestId: "leak-summary" }], ["/v1/plan", planIn({ requestId: "leak-plan" })], ["/v1/write", sectionIn({ requestId: "leak-write" })],
+      ["/v1/vision", visionBody({ requestId: "leak-vision" })], ["/v1/stt", sttBody({ requestId: "leak-stt" })], ["/v1/judge", judgeBody({ requestId: "leak-judge" })],
+    ];
+    for (const [route, body] of calls) assert.equal((await req(url, route, "POST", body, jwt)).status, 200, route);
+    const reserves = sb.rpcNamed("reserve_usage"), digests = reserves.map(r => r.args.p_digest);
+    assert.equal(reserves.length, 6);
+    assert.equal(new Set(digests).size, 6);
+    for (const d of digests) assert.match(d, /^[a-f0-9]{64}$/);
+    assert.equal(reserves[0].args.p_digest, hmac256(JSON.stringify({ model, stage: "chunk", evidence: input.evidence, gaps: [] })));
+    const judgeCanonical = JSON.stringify({ route: "judge", task: "utterance", model: judgeModel, items });
+    assert.equal(reserves[5].args.p_digest, hmac256(judgeCanonical));
+    assert.notEqual(reserves[5].args.p_digest, sha256(judgeCanonical));
+    assert.deepEqual(sb.rpcNamed("settle_usage").map(r => r.args.p_stage), ["summary.chunk", "plan", "write.section", "vision.full", "stt", "judge.utterance"]);
+    assert.equal(settledOf(sb, 3).p_images, 1);
+    assert.equal(settledOf(sb, 4).p_audio_seconds, 60);
+
+    const wire = JSON.stringify([sb.rpcs, sb.upserts, sb.gets, sb.calls.map(c => c.url)]);
+    for (const secret of ["synthetic lecture", "합성 슬라이드 글", "합성 발화", "개념을 설명한다", "미분은 순간 변화율이다", "앞뒤 문맥 단서", "강의 전사", "BwcH", "서로 다른 조건", DIGEST_KEY, JWT_SECRET, ec1().slice(0, 40)])
+      assert.ok(!wire.includes(secret), "Supabase 로 나간 본문에 있으면 안 된다: " + secret);
+    // 메타데이터 칸은 usage_events 의 CHECK 와 같은 모양이거나 null 이다. 호스트와 job id 는 보내지 않는다.
+    for (const { args } of sb.rpcNamed("settle_usage")) {
+      assert.equal(args.p_host, null);
+      assert.equal(Object.hasOwn(args, "p_job_id"), false);
+      for (const [k, v] of Object.entries(args)) if (typeof v === "string" && !["p_user", "p_request_id"].includes(k)) assert.match(v, /^[A-Za-z0-9][A-Za-z0-9_./:@-]*$/, k);
+    }
+  }, { setup: sb => { sb.plan = "paid"; }, env: { ACCOUNT_RATE_PER_MIN: "1000" } });
+});
+
+test("client-chosen metadata that would violate the ledger CHECKs is dropped instead of failing the settlement", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    for (const [i, v] of ["9.9.9; drop table usage_events", "1.2.3/../x", "v".repeat(40), "1.2.3"].entries()) {
+      assert.equal((await req(url, "/v1/summary", "POST", { ...input, requestId: "meta-" + i }, ec1(), origin, { "x-client-version": v })).status, 200);
+    }
+    assert.deepEqual(sb.rpcNamed("settle_usage").map(r => r.args.p_client_version), [null, null, null, "1.2.3"]);
+  });
+});
+
+test("the DB plan decides features and models, closed by default, and is cached for 30 seconds", async () => {
+  const haiku = "anthropic/claude-haiku-4.5";
+  let provided = 0;
+  await withSupabase(async ({ url, sb, clock }) => {
+    const jwt = ec1(), me = async () => (await req(url, "/v1/me", "GET", undefined, jwt)).json();
+    // free: 기능 없음, lite 요약 모델만. 막힌 요청은 예약도 제공자 호출도 만들지 않는다.
+    let m = await me();
+    assert.equal(m.plan, "free");
+    assert.deepEqual(m.features, []);
+    assert.deepEqual(m.models, [model]);
+    for (const [route, body] of [["/v1/vision", visionBody({ requestId: "p-v" })], ["/v1/stt", sttBody({ requestId: "p-s" })], ["/v1/judge", judgeBody({ requestId: "p-j" })]])
+      await errorOf(await req(url, route, "POST", body, jwt), 403, "feature_not_in_account_plan");
+    await errorOf(await req(url, "/v1/summary", "POST", { ...input, requestId: "p-h", model: haiku }, jwt), 403, "model_not_in_account_plan");
+    await errorOf(await req(url, "/v1/write", "POST", sectionIn({ requestId: "p-w", model: haiku }), jwt), 403, "model_not_in_account_plan");
+    assert.equal(sb.rpcNamed("reserve_usage").length, 0);
+    assert.equal(provided, 0);
+    assert.equal((await req(url, "/v1/plan", "POST", planIn({ requestId: "p-plan" }), jwt)).status, 200, "plan/write 는 free 도 쓴다");
+    assert.equal(provided, 1);
+
+    // 등급 조회는 사용자별 30초 캐시이고 /v1/me 만 새로 읽는다. 업그레이드는 /v1/me 로 즉시 보인다.
+    const calls = sb.planCalls;
+    sb.plan = "paid";
+    await errorOf(await req(url, "/v1/judge", "POST", judgeBody({ requestId: "p-j2" }), jwt), 403, "feature_not_in_account_plan");
+    assert.equal(sb.planCalls, calls, "연속 호출은 캐시를 쓴다");
+    m = await me();
+    assert.equal(sb.planCalls, calls + 1);
+    assert.equal(m.plan, "paid");
+    assert.deepEqual(m.features, ["vision", "stt", "judge", "background"]);
+    assert.deepEqual(m.models, [model, haiku]);
+    assert.equal((await req(url, "/v1/judge", "POST", judgeBody({ requestId: "p-j3" }), jwt)).status, 200, "/v1/me 가 캐시를 갱신했다");
+    assert.equal(sb.planCalls, calls + 1);
+    sb.plan = "free";
+    assert.equal((await req(url, "/v1/judge", "POST", judgeBody({ requestId: "p-j4" }), jwt)).status, 200, "TTL 안에서는 이전 등급이다(한도는 DB가 매번 판정한다)");
+    clock.t += 31000;
+    await errorOf(await req(url, "/v1/judge", "POST", judgeBody({ requestId: "p-j5" }), jwt), 403, "feature_not_in_account_plan");
+    assert.equal(sb.planCalls, calls + 2, "TTL 이 지나면 다시 읽는다");
+
+    // 모르는 등급과 null 은 free 로 닫힌다.
+    for (const plan of ["legacy", null]) {
+      sb.plan = plan;
+      m = await me();
+      assert.equal(m.plan, plan);
+      assert.deepEqual(m.features, []);
+      assert.deepEqual(m.models, [model]);
+    }
+  }, {
+    env: { ALLOWED_MODELS: JSON.stringify([model, haiku]), OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], [haiku]: ["test-provider"], [judgeModel]: ["test-provider"] }), ACCOUNT_RATE_PER_MIN: "1000" },
+    setup: sb => { sb.other = async (_u, o) => { provided++; return JSON.parse(o.body).logprobs ? judgeReply() : noteReply(planOut); }; },
+  });
+});
+
+test("PLAN_FEATURES_JSON overrides the defaults per plan", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    const jwt = ec1();
+    sb.plan = "pro";
+    let m = await (await req(url, "/v1/me", "GET", undefined, jwt)).json();
+    assert.deepEqual(m.features, ["vision"]);
+    assert.equal((await req(url, "/v1/vision", "POST", visionBody({ requestId: "pro-v" }), jwt)).status, 200);
+    await errorOf(await req(url, "/v1/stt", "POST", sttBody({ requestId: "pro-s" }), jwt), 403, "feature_not_in_account_plan");
+    sb.plan = "free";
+    m = await (await req(url, "/v1/me", "GET", undefined, jwt)).json();
+    assert.deepEqual(m.features, ["judge"], "free 의 덮어쓴 기능");
+    assert.deepEqual(m.models, [model]);
+  }, { env: { PLAN_FEATURES_JSON: JSON.stringify({ free: { features: ["judge"] }, pro: { features: ["vision"] } }) }, setup: sb => { sb.other = async () => slideProvider(); } });
+});
+
+test("/v1/me for a JWT user returns plan, features, DB limits, remote config and version prechecks; the profile is upserted once", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    const jwt = ec1(), month = new Date().toISOString().slice(0, 7);
+    sb.rows.usage = { requests: 3, minutes: 7, cost_micros: 123456 };
+    const res = await req(url, "/v1/me", "GET", undefined, jwt, origin, { "x-client-version": "1.0.0" });
+    assert.equal(res.status, 200);
+    const me = await res.json();
+    assert.deepEqual(me, {
+      accountId: UID, plan: "free", models: [model], features: [],
+      config: { concurrency: { download: 4, decode: 1, stt: 4, vision: 8, judge: 2, write: 8 }, throughputMbps: 50, minClientVersion: "0.0.0", promptVersion: "v1", schemaVersion: 1 },
+      noteSpecVersion: NoteSpec.NOTE_SPEC_VERSION, promptVersion: Prompts.PROMPT_VERSION,
+      quota: { month, requests: 3, maxRequests: 300, minutes: 7, maxMinutes: 600, spentCents: 12.3456, maxCents: 30 },
+    });
+    assert.notEqual(me.promptVersion, me.config.promptVersion, "plan/write 프롬프트 버전은 비전·판정용 원격 설정과 별개다");
+    const [plans, usage] = sb.gets;
+    assert.ok(plans.includes("/rest/v1/plans?") && plans.includes("plan=eq.free"));
+    assert.ok(usage.includes("/rest/v1/monthly_usage?") && usage.includes("user_id=eq." + UID) && usage.includes("month=eq." + month + "-01"));
+
+    for (let i = 0; i < 3; i++) assert.equal((await req(url, "/v1/me", "GET", undefined, jwt)).status, 200);
+    assert.equal(sb.upserts.length, 1, "프로필 upsert 는 사용자당 한 번");
+    const [up] = sb.upserts;
+    assert.equal(up.search, "?on_conflict=user_id");
+    assert.deepEqual(up.body, { user_id: UID });
+    assert.equal(up.headers.prefer, "resolution=ignore-duplicates,return=minimal", "이미 있는 프로필(등급)을 덮어쓰지 않는다");
+    assert.equal(up.headers.apikey, SERVICE_KEY);
+    assert.equal(up.headers.authorization, "Bearer " + SERVICE_KEY);
+    await req(url, "/v1/me", "GET", undefined, ec1({ claims: { sub: UID2 } }));
+    assert.equal(sb.upserts.length, 2, "다른 사용자는 따로 한 번");
+    assert.equal(sb.upserts[1].body.user_id, UID2);
+
+    // 한도가 없는 상한(null)은 그대로 null, 상한 줄이 없는 등급은 maxCents 0 으로 닫힌다. 사용 기록이 없으면 0 이다.
+    sb.rows.usage = null;
+    sb.plan = "paid";
+    let q = (await (await req(url, "/v1/me", "GET", undefined, jwt)).json()).quota;
+    assert.deepEqual(q, { month, requests: 0, maxRequests: null, minutes: 0, maxMinutes: 6000, spentCents: 0, maxCents: 1500 });
+    sb.plan = "legacy";
+    q = (await (await req(url, "/v1/me", "GET", undefined, jwt)).json()).quota;
+    assert.equal(q.maxCents, 0);
+    const reads = sb.gets.length;
+    sb.plan = null;
+    q = (await (await req(url, "/v1/me", "GET", undefined, jwt)).json()).quota;
+    assert.equal(q.maxCents, 0);
+    assert.equal(sb.gets.length - reads, 1, "등급이 없으면 plans 조회는 건너뛰고 사용량만 읽는다");
+    // 전역 스위치는 등급과 무관하게 기능을 가린다.
+    sb.plan = "paid";
+    assert.deepEqual((await (await req(url, "/v1/me", "GET", undefined, jwt)).json()).features, ["vision", "stt", "background"]);
+  }, { env: { FEATURE_FLAGS_JSON: JSON.stringify({ judge: false }) } });
+});
+
+test("a failed profile upsert never blocks /v1/me and is retried until it succeeds", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    const jwt = ec1();
+    sb.upsertOk = false;
+    assert.equal((await req(url, "/v1/me", "GET", undefined, jwt)).status, 200, "프로필이 없어도 effective_plan 은 free 로 읽힌다");
+    assert.equal((await req(url, "/v1/me", "GET", undefined, jwt)).status, 200);
+    assert.equal(sb.upserts.length, 2, "성공할 때까지 다음 /v1/me 가 다시 시도한다");
+    sb.upsertOk = true;
+    await req(url, "/v1/me", "GET", undefined, jwt);
+    await req(url, "/v1/me", "GET", undefined, jwt);
+    assert.equal(sb.upserts.length, 3);
+    // 장부를 쓰는 라우트는 프로필을 만들지 않는다(/v1/me 만으로 충분하다).
+    await req(url, "/v1/summary", "POST", { ...input, requestId: "no-profile" }, ec1({ claims: { sub: UID2 } }));
+    assert.equal(sb.upserts.length, 3);
+  });
+});

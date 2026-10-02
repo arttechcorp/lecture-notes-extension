@@ -1,8 +1,11 @@
 # Summrizei 파일럿 서비스
 
-Node.js 22 이상, 추가 의존성/빌드 없이 `node server/index.js`. 기본 바인딩은 `127.0.0.1:8788`이다. **상태를 보존하는 단일 프로세스**로 실행한다. Vercel 정적 랜딩에 이 파일을 올리는 것만으로 API가 생기지 않는다.
+Node.js 22 이상, 추가 의존성/빌드 없이 `node server/index.js`. 기본 바인딩은 `127.0.0.1:8788`이다. Vercel 정적 랜딩에 이 파일을 올리는 것만으로 API가 생기지 않는다.
 
-운영자 OpenRouter 키는 서버에서만 사용한다. 확장에는 서비스 URL과 별도로 발급한 앱 토큰을 입력한다. 현재 수동 토큰 발급은 내부 파일럿용이며 소비자 가입·로그인·토큰 갱신·Paddle 권한 연동은 포함하지 않는다.
+운영자 OpenRouter 키는 서버에서만 사용한다. 계정은 두 종류다.
+
+- **정적 토큰 계정**(`APP_TOKENS_JSON`): 운영·개발·테스트용. 한도는 `ACCOUNT_LIMITS_JSON`, 장부는 JSON 파일(`usage.json`)이라 **상태를 보존하는 단일 프로세스**로 실행한다.
+- **Supabase 계정**(`SUPABASE_URL` 설정 시): 확장이 Supabase Auth 로그인으로 받은 액세스 토큰(JWT)을 `Authorization: Bearer`로 보낸다. 한도·예약·사용량 원장이 Postgres에 있어 이 계정의 요청 처리는 서버에 상태를 남기지 않는다(아래 "Supabase 계정과 장부"). 소비자 결제(Paddle) 연동은 아직 없다. 등급은 `admin_grant_plan()`으로 수동 부여한다.
 
 ## 설정
 
@@ -28,6 +31,12 @@ ACCOUNT_CONCURRENCY=12
 PROVIDER_CONCURRENCY_JSON={"google/gemini-2.5-flash-lite":16}
 PROVIDER_QUEUE_MS=10000
 ACCOUNT_RATE_PER_MIN=300
+# Supabase 계정(선택, 아래 절 참고). SUPABASE_URL을 켜면 나머지 둘이 필수다.
+SUPABASE_URL=https://<프로젝트 ref>.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=<서비스 롤 키, 서버 전용>
+USAGE_DIGEST_KEY=<32자 이상 난수, 서버 전용>
+SUPABASE_JWT_SECRET=<HS256 프로젝트일 때만>
+PLAN_FEATURES_JSON={"paid":{"features":["vision","stt","judge","background"]}}
 ```
 
 `OPENROUTER_PROVIDERS_JSON`은 필수다. 값은 공급사 이름이 아니라 **모델별 엔드포인트 태그**이며 모델마다 다르다(`google/gemini-2.5-flash-lite`는 `google-vertex`, `google/gemini-3.8-flash`는 `google-vertex/global`). `https://openrouter.ai/api/v1/models/<model>/endpoints`로 태그·ZDR·구조화 출력 지원을 확인하고 넣는다. 없는 태그를 넣으면 요약 요청이 400으로 실패한다. 임의 공급자 fallback을 허용하지 않는다. 공급자가 없거나 필수 파라미터를 지원하지 않으면 요청이 실패하는 것이 정상이다.
@@ -50,6 +59,49 @@ ACCOUNT_RATE_PER_MIN=300
 
 `FEATURE_FLAGS_JSON`은 기능별 전역 스위치다. `false`로 지정한 기능은 계정 권한과 무관하게 `/v1/me` 목록과 라우트에서 꺼진다(기본 `{}` = 모두 켬). `REMOTE_CONFIG_JSON`은 클라이언트에 내려가는 원격 설정으로 기본값 `{concurrency:{download:4,decode:1,stt:4,vision:8,judge:2,write:8},throughputMbps:50,minClientVersion:"0.0.0",promptVersion:"v1",schemaVersion:1}` 위에 병합된다. 알 수 없는 키나 0 이하 수치는 기동을 거부한다. `minClientVersion`보다 낮은 `x-client-version` 헤더의 클라이언트는 426을 받는다. `ACCOUNT_CONCURRENCY`는 계정당 동시 진행 요청 상한(기본 12), `PROVIDER_CONCURRENCY_JSON`은 모델별 제공자 동시 슬롯(기본 16), `PROVIDER_QUEUE_MS`는 슬롯 대기 상한(기본 10000, 넘으면 `provider_busy`), `ACCOUNT_RATE_PER_MIN`은 계정당 분당 POST 상한(기본 300)이다.
 
+## Supabase 계정과 장부
+
+`SUPABASE_URL`을 설정하면 정적 토큰 계정에 더해 JWT 계정이 생긴다. 정적 토큰이 먼저 비교되고 일치하지 않으면 JWT로 검증한다. Supabase를 켠 배포는 `APP_TOKENS_JSON` 없이(JWT 계정만) 기동할 수 있다. 키 없이 켜면 기동을 거부한다.
+
+| 환경 변수 | 설명 |
+|---|---|
+| `SUPABASE_URL` | 프로젝트 원점(`https://<ref>.supabase.co`, 경로 없음. 개발용 loopback만 http 허용). JWT의 `iss`는 `<SUPABASE_URL>/auth/v1`과 같아야 한다 |
+| `SUPABASE_SERVICE_ROLE_KEY` | PostgREST RPC·표 호출 전용(`apikey` + `Authorization: Bearer`). JWKS 호출에는 보내지 않는다. 확장·로그·오류 본문에 넣지 않는다 |
+| `USAGE_DIGEST_KEY` | 32자 이상. 요청 본문 digest를 HMAC-SHA256으로 만드는 서버 비밀. 없으면 기동 거부 |
+| `SUPABASE_JWT_SECRET` | 선택(32자 이상). 있으면 **HS256만** 받고 JWKS는 쓰지 않는다. 없으면 JWKS의 **ES256/RS256만** 받는다. 레거시 HS256 프로젝트면 설정하고, 비대칭 서명 키로 옮겼다면 지운다 |
+| `PLAN_FEATURES_JSON` | 선택. 등급별 `{features, models}`. 기본값 `free: {features: [], models: [요약 lite 모델]}`, `paid: {features: ["vision","stt","judge","background"], models: ALLOWED_MODELS 전체}`. 빠진 키는 기본값을 유지하고 모르는 기능 이름이나 `ALLOWED_MODELS` 밖의 모델은 기동 거부 |
+
+**설정 순서**
+
+1. Supabase 프로젝트를 만들고(서울 리전 권장) SQL Editor에서 `supabase/schema.sql` → `supabase/schema-v2.sql`을 순서대로 실행한다(둘 다 멱등). `plans` 한도는 자리표시 값(`placeholder=true`)이니 확정 값으로 고친다.
+2. Auth에서 Google 로그인을 켠다. 액세스 토큰 수명은 기본 1시간을 유지한다(짧을수록 탈취 피해가 작다). 익명 로그인은 서버가 거절한다(`is_anonymous`).
+3. 서버에 `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `USAGE_DIGEST_KEY`를 비밀 관리 도구로 주입한다(HS256 프로젝트면 `SUPABASE_JWT_SECRET`도). `USAGE_DIGEST_KEY`를 바꾸면 그 순간 진행 중이던 requestId의 재시도가 `idempotency_content_mismatch`로 보일 수 있다.
+4. (선택) `PLAN_FEATURES_JSON`. 테스트 계정은 `admin_grant_plan(user, 'paid')`로 등급을 준다.
+5. 기동 후 JWT로 `GET /v1/me`를 호출해 `plan`·`features`를 확인한다. 정적 토큰이 더 필요 없으면 `APP_TOKENS_JSON`을 비운다.
+
+**토큰 검증** (Node `crypto`만 사용). 서명이 맞은 뒤에만 클레임을 본다:
+
+- `exp`는 5초 여유(`nbf`도), `aud`는 `authenticated`(문자열 또는 배열), `iss`는 `<SUPABASE_URL>/auth/v1`, `role`은 `authenticated`, `sub`는 uuid. anon·service_role 키 JWT와 익명 로그인은 여기서 걸린다.
+- `alg`는 헤더가 아니라 설정이 정한다(`none`, HS/RS 혼동, JWKS만 설정한 서버에서의 HS256은 모두 거절). ES256 토큰은 EC P-256 키, RS256은 2048비트 이상 RSA 키로만 검증한다.
+- JWKS(`<SUPABASE_URL>/auth/v1/.well-known/jwks.json`)는 10분 캐시한다. 모르는 `kid`는 10초에 한 번까지만 다시 받아 키 회전을 따라가므로 회전 직후 최대 10초간 새 키 토큰이 401일 수 있다. 다시 받기에 실패하면 가진 키로 계속 검증하고, 키가 하나도 없을 때만 `auth_unavailable`(503, 재시도 가능)이다. Supabase 호출은 모두 5초 제한, 리다이렉트 금지, 응답 256 KiB 제한이다.
+- 로그아웃·폐기된 토큰은 `exp`까지 유효하다(서버가 세션을 조회하지 않는다).
+- 만료된 토큰은 `401 token_expired`(서명이 맞는 토큰에만), 나머지 실패는 `401 unauthorized`다. 클라이언트는 `token_expired`면 갱신 토큰으로 새 토큰을 받아 한 번 다시 보내고 `unauthorized`면 다시 로그인한다.
+
+**장부**: JWT 계정은 `reserve_usage`/`settle_usage` RPC(`${SUPABASE_URL}/rest/v1/rpc/...`)를 쓴다. 의미는 파일 장부와 같다(사전 예약 → 제공자 호출 → 정산, 보고되지 않은 비용은 예약 유지).
+
+- 예약 결과 매핑: `duplicate` → 409 `request_already_reserved_or_processed`, `digest_mismatch` → 400 `idempotency_content_mismatch`, `quota_exceeded` → 429 `quota_exceeded`. 예약이 성공하기 전에는 제공자를 부르지 않는다. 예약이 안 되면(Supabase 중단·시간 초과·예상 밖 응답) 503 `usage_store_failed`(재시도 가능, **새 requestId**로 — 응답을 잃은 예약은 DB에 남았을 수 있고 예약은 자동 재시도하지 않는다)이다.
+- 정산: 보고된 비용은 마이크로달러(`ceil(USD x 1e6)`), 미보고는 `null`(DB가 예약액을 청구), 제공자에 아무것도 안 보낸 환불 경로는 `refunded`, 그 밖의 실패는 `error`다. 출력 잘림(`llm_output_truncated`)은 `error`에 보고된 비용을 싣는다. 정산은 한 번 더 시도한다(DB가 `already_settled`로 멱등 처리). 정산이 끝내 실패하면 이미 만든 결과는 그대로 돌려주고 예약은 `reserved`로 남아 비용이 보수적으로 잡힌다(`usage_reservations_open_idx`로 찾아 대조). 환불 정산이 실패하면 같은 requestId 재시도를 약속할 수 없어 `usage_store_failed`로 답한다.
+- 원장 메타데이터: `stage`(`summary.chunk`, `vision.full`, `stt`, `judge.<task>`, `plan`, `write.<stage>`), `provider`(`openrouter`/`groq`), `model`, 토큰 수, `audio_seconds`, `images`, 프롬프트·스키마 버전, `error_code`, `latency_ms`, `client_version`(`x-client-version`). `host`와 `job_id`는 신뢰할 출처가 없어 보내지 않는다. `usage_events` CHECK와 모양이 다른 값은 정산 전체가 거절되지 않도록 `null`로 바꾼다. 강의 텍스트·이미지·음성은 어떤 RPC 본문에도 없다.
+- digest: 파일 장부는 기존 SHA-256, JWT 계정은 `HMAC-SHA256(USAGE_DIGEST_KEY, 요청 본문 정규형)`이라 DB에 사전 공격이 가능한 해시가 남지 않는다.
+- 인식 분량: `/v1/stt`는 선언 길이를 올림한 분(`ceil(durationSec/60)`)을 `p_minutes`로 예약한다(`plans.monthly_minutes_cap`). 비용은 제공자가 잰 길이로 따로 정산한다.
+- 동시 처리 수(`ACCOUNT_CONCURRENCY`), 분당 요청 수(`ACCOUNT_RATE_PER_MIN`), 모델별 제공자 슬롯은 모든 계정에 메모리에서 센다. 월 한도·전역 상한(`global_caps`)은 DB가 판정하므로 `MAX_REQUESTS`/`MAX_COST_CENTS`/`GLOBAL_COST_CENTS`와 `ACCOUNT_LIMITS_JSON`은 JWT 계정에 적용되지 않는다.
+
+**등급·기능**: JWT 계정은 `effective_plan(user)`가 돌려준 등급 이름을 `PLAN_FEATURES_JSON`(기본값 포함)으로 옮겨 모델·기능을 정한다. 모르는 등급과 `null`은 `free`로 닫힌다. 장부를 쓰는 POST 라우트는 사용자별로 30초 캐시한 등급을 쓰고 `GET /v1/me`는 항상 새로 읽는다. 한도 자체는 매 예약마다 DB가 판정하므로 캐시가 한도를 늦추지 않는다. `FEATURE_FLAGS_JSON`은 등급과 무관하게 계속 우선한다.
+
+**`GET /v1/me`**: 모든 계정이 `{accountId, models, features, config, quota, noteSpecVersion, promptVersion}`을 받는다. `noteSpecVersion`·`promptVersion`은 `/v1/plan`·`/v1/write` 응답과 같은 값(`lib/note-spec.js`, `server/prompts.js`의 `PROMPT_VERSION`)이라 클라이언트가 호출 전에 맞는지 본다(`config.promptVersion`은 비전·판정용 원격 설정으로 별개다). JWT 계정은 `accountId`가 `sub`이고 `plan`이 더해지며 `quota`는 DB 값이다: `{month, requests, maxRequests, minutes, maxMinutes, spentCents, maxCents}`(상한이 `null`이면 무제한, 등급 줄이 없으면 `maxCents` 0). 정적 계정의 `quota`는 기존 모양이다. 첫 `/v1/me`에서 `profiles` 줄을 `on_conflict=user_id` + `resolution=ignore-duplicates`로 한 번 만든다(이미 있는 등급은 건드리지 않고, 실패해도 `/v1/me`는 막지 않으며 다음 호출이 다시 시도한다).
+
+보관함(`/v1/vault`) 라우트는 아직 계정 종류와 무관하게 `VAULT_DIR`의 파일을 쓴다(Supabase Storage 이전은 별도 단계).
+
 ## 데이터와 운영 경계
 
 - 요청/응답 본문을 로깅하지 않는다. 역방향 프록시·APM·오류 수집 도구에도 본문/Authorization 로깅을 끈다.
@@ -61,13 +113,13 @@ ACCOUNT_RATE_PER_MIN=300
 
 ## 사용량·중복 요청
 
-추론 호출 전에 요청 ID와 본문 해시, 예약액을 `usage.json`에 원자적으로 기록한다. 같은 ID 재요청은 409로 차단한다. 같은 ID에 다른 본문은 400이다. 결과 평문은 저장하지 않으므로 서버 재시작 후 결과를 재전송하지 않는다. 클라이언트가 응답을 받지 못했다면 새 요청은 비용이 다시 발생할 수 있다.
+(정적 토큰 계정. JWT 계정은 위 "Supabase 계정과 장부"의 RPC가 같은 일을 한다.) 추론 호출 전에 요청 ID와 본문 해시, 예약액을 `usage.json`에 원자적으로 기록한다. 같은 ID 재요청은 409로 차단한다. 같은 ID에 다른 본문은 400이다. 결과 평문은 저장하지 않으므로 서버 재시작 후 결과를 재전송하지 않는다. 클라이언트가 응답을 받지 못했다면 새 요청은 비용이 다시 발생할 수 있다.
 
 실제 비용이 숫자로 보고되면 0.000001 USD 단위로 올림해 원장을 보정한다. 비용 누락·취소·실패 시 예약액을 유지한다. 요청 시작과 완료 시 월이 바뀌는 경우를 포함해 이 원장은 사용 제한을 위한 보수적 장치다. 최종 정산은 공급자 자료와 대조한다.
 
 원장 JSON이 손상되면 기동을 거부한다. 임의로 원장을 삭제하면 이력이 없어지므로 백업을 복구하고 비용을 대조해야 한다. 한 원장 파일을 여러 프로세스/서버리스 인스턴스가 함께 쓰면 안전하지 않다. 확장 전에 DB 트랜잭션으로 예약·중복 방지를 이전한다.
 
-오류 응답은 `{error:{code,message,retryable,retryAfterMs}}` 봉투다. 같은 requestId는 멱등하며 중복은 409다. 제공자 호출이 나간 뒤 실패하면 예약은 "uncertain"으로 남아 비용을 보수적으로 잡으므로 5xx 뒤 재시도는 새 requestId(예: 원본 + "-r1")를 써야 한다. `provider_busy`는 제공자에 아무것도 보내지 않은 요청이라 예약이 정확히 되돌아가며 같은 requestId로 재시도할 수 있다. `retryable`과 `retryAfterMs`는 429 재시도 대기 힌트다.
+오류 응답은 `{error:{code,message,retryable,retryAfterMs}}` 봉투다. 인증·저장소 오류는 `unauthorized`(401), `token_expired`(401), `auth_unavailable`(503, 재시도 가능), `usage_store_failed`(503, 재시도 가능, 새 requestId)다. 같은 requestId는 멱등하며 중복은 409다. 제공자 호출이 나간 뒤 실패하면 예약은 "uncertain"으로 남아 비용을 보수적으로 잡으므로 5xx 뒤 재시도는 새 requestId(예: 원본 + "-r1")를 써야 한다. `provider_busy`는 제공자에 아무것도 보내지 않은 요청이라 예약이 정확히 되돌아가며 같은 requestId로 재시도할 수 있다. `retryable`과 `retryAfterMs`는 429 재시도 대기 힌트다.
 
 ## 화면 인식(비전)
 
