@@ -105,6 +105,10 @@ const ERRORS={
   auth_unavailable:[503,true,"인증 키를 확인하지 못했습니다. 잠시 후 다시 시도하세요."],
   // JWT 계정의 보관함(Storage·vault_objects)에 닿지 못했다. 보관함 쓰기는 같은 id 로 다시 보내도 안전하다(PUT 은 덮어쓰기, DELETE 는 멱등).
   vault_store_failed:[503,true,"보관함 저장소에 연결하지 못했습니다. 잠시 후 다시 시도하세요."],
+  // DELETE /v1/account 의 세 단계(Storage·RPC·auth 사용자) 중 하나가 실패했다. 단계마다 멱등이라 같은 요청을 그대로 다시 보내면 남은 일을 마친다.
+  account_delete_failed:[503,true,"계정을 모두 삭제하지 못했습니다. 잠시 후 다시 시도하면 남은 부분부터 이어서 지웁니다."],
+  // 정적 토큰 계정(운영·개발·테스트)은 Supabase 사용자가 아니라 앱에서 지울 것이 없다.
+  account_not_deletable:[403,false,"이 계정은 앱에서 삭제할 수 없습니다. 로그인 계정만 삭제할 수 있습니다."],
   client_upgrade_required:[426,false,"확장을 최신 버전으로 업데이트하세요."],
   llm_output_truncated:[422,false,"출력이 길이 한도에 걸려 잘렸습니다. 섹션을 나눠 다시 요청하세요."],
   note_spec_mismatch:[409,false,"노트 양식 버전이 서버와 다릅니다. 확장을 업데이트하거나 계획부터 다시 만드세요."],
@@ -219,7 +223,7 @@ function createServer(env=process.env,deps={}){
   // Supabase 호출은 모두 여기를 지난다: 리다이렉트 금지, 5초 제한(init.signal 로 바꿀 수 있다), 응답 256 KiB 제한(max). parse=false 면 본문을 읽지 않는다(profiles upsert).
   const sbHttp=async(url,init,parse=true,max=262144)=>{
     const r=await fetcher(url,{redirect:"error",signal:AbortSignal.timeout(5000),...init});
-    if(!r.ok||!parse){try{await r.body?.cancel();}catch{}if(!r.ok)throw new Error("supabase_http");return;}
+    if(!r.ok||!parse){try{await r.body?.cancel();}catch{}if(!r.ok)throw Object.assign(new Error("supabase_http"),{status:r.status});return;}
     return boundedResponse(r,max);
   };
   const file=fileUsage({state,record,save,month,globalCents:c.globalCents});
@@ -282,6 +286,16 @@ function createServer(env=process.env,deps={}){
       if(envelope)return await vstore.put(user,id,JSON.stringify(envelope),{maxFiles:c.maxFiles,maxArchiveBytes:c.maxArchiveBytes})?send(res,200,{objectId:id,saved:true}):fail(res,"archive_quota_exceeded");
     }catch{return fail(res,"vault_store_failed");}
     fail(res,"not_found");
+  }
+  // 계정 삭제(JWT 계정만, §9·D8). 순서는 schema-v2.sql 의 delete_account_data 주석과 같다: ① Storage 객체 ② 그 RPC ③ auth 사용자.
+  // ③ 이 마지막이어야 한다 — auth 사용자를 먼저 지우면 FK cascade 로 vault_objects 행이 사라져 지울 객체의 목록을 잃는다.
+  // 단계마다 멱등이고 앞 단계가 실패하면 뒤 단계는 부르지 않는다. 어디서 끊겨도 같은 요청을 다시 보내면 남은 일을 마친다.
+  // ponytail: 삭제 도중 같은 사용자의 PUT 이 끼면 객체가 남을 수 있다 — DELETE 를 한 번 더 보내면 접두사 목록이 치운다. 요청 자체를 막는 잠금은 두지 않았다.
+  async function deleteAccount(res,user){
+    try{await vstore.removeAll(user);await sb.deleteData(user);await sb.deleteAuthUser(user);}catch{return fail(res,"account_delete_failed");}
+    // 지운 사용자의 캐시를 남기지 않는다(등급 캐시·프로필 upsert 기억·분당 요청 버킷). 진행 중이던 요청의 inflight 는 각자 finally 에서 정리한다.
+    plans.delete(user);profiles.delete(user);buckets.delete(user);
+    send(res,200,{deleted:true});
   }
   // 모델별 제공자 슬롯. 대기자는 FIFO로 슬롯을 물려받고 타임아웃은 .refund로 구분한다 —
   // 슬롯을 얻지 못한 요청은 제공자에 아무것도 보내지 않았으므로 예약을 정확히 되돌려야 한다.
@@ -569,6 +583,7 @@ function createServer(env=process.env,deps={}){
         const u=q.used||{},cap=q.cap||{};
         return send(res,200,{...head,quota:{month:month(),requests:u.requests??0,maxRequests:cap.monthly_request_cap??null,minutes:u.minutes??0,maxMinutes:cap.monthly_minutes_cap??null,spentCents:(u.cost_micros??0)/1e4,maxCents:(cap.monthly_cost_cap_micros??0)/1e4}});
       }
+      if(req.url==="/v1/account"&&req.method==="DELETE")return who.jwt?await deleteAccount(res,account):fail(res,"account_not_deletable");
       const match=req.url?.match(/^\/v1\/vault\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/);
       if(who.jwt&&(match||req.url==="/v1/vault"&&req.method==="GET"))return await vaultSb(req,res,account,match?.[1]);
       if(req.url==="/v1/vault"&&req.method==="GET")return send(res,200,{items:fs.readdirSync(accountDir(account)).filter(x=>/^[A-Za-z0-9][A-Za-z0-9_-]*\.json$/.test(x)).map(x=>({objectId:x.slice(0,-5)}))});

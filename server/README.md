@@ -67,7 +67,7 @@ PLAN_FEATURES_JSON={"paid":{"features":["vision","stt","judge","background"]}}
 | 환경 변수 | 설명 |
 |---|---|
 | `SUPABASE_URL` | 프로젝트 원점(`https://<ref>.supabase.co`, 경로 없음. 개발용 loopback만 http 허용). JWT의 `iss`는 `<SUPABASE_URL>/auth/v1`과 같아야 한다 |
-| `SUPABASE_SERVICE_ROLE_KEY` | PostgREST RPC·표 호출 전용(`apikey` + `Authorization: Bearer`). JWKS 호출에는 보내지 않는다. 확장·로그·오류 본문에 넣지 않는다 |
+| `SUPABASE_SERVICE_ROLE_KEY` | PostgREST RPC·표, Storage, Auth admin(계정 삭제) 호출 전용(`apikey` + `Authorization: Bearer`). JWKS 호출에는 보내지 않는다. 확장·로그·오류 본문에 넣지 않는다 |
 | `USAGE_DIGEST_KEY` | 32자 이상. 요청 본문 digest를 HMAC-SHA256으로 만드는 서버 비밀. 없으면 기동 거부 |
 | `SUPABASE_JWT_SECRET` | 선택(32자 이상). 있으면 **HS256만** 받고 JWKS는 쓰지 않는다. 없으면 JWKS의 **ES256/RS256만** 받는다. 레거시 HS256 프로젝트면 설정하고, 비대칭 서명 키로 옮겼다면 지운다 |
 | `VAULT_BUCKET` | 선택(기본 `vault`). JWT 계정의 보관함 암호문을 두는 Storage 버킷 이름(영문·숫자·`_`·`-`, 63자 이하). **비공개 버킷**이어야 하고 서버가 만들지 않는다 — 대시보드에서 직접 만든다(아래 설정 순서 3) |
@@ -108,7 +108,19 @@ PLAN_FEATURES_JSON={"paid":{"features":["vision","stt","judge","background"]}}
 - 정적 토큰 계정: `VAULT_DIR`의 파일(아래 "데이터와 운영 경계").
 - JWT 계정: 서버 디스크에는 아무것도 쓰지 않는다. envelope JSON은 비공개 Storage 버킷(`VAULT_BUCKET`)의 `<user_id>/<object_id>`에, 목록·용량은 `vault_objects` 행에 둔다. `user_id`는 검증된 토큰의 `sub`뿐이라 다른 사용자의 객체에는 닿을 수 없다. 객체 이름에 `.json`을 붙이지 않는다 — `storage_path`의 CHECK가 `.`을 막고 계정 삭제가 이 칸을 그대로 Storage 경로로 읽는다. 서비스 롤 키로 업로드는 `POST /storage/v1/object/<bucket>/<path>` + `x-upsert: true`, 읽기는 `GET`(행이 있을 때만), 삭제는 `DELETE /storage/v1/object/<bucket>` `{prefixes}`(없는 객체에도 200이라 멱등)이고 행은 PostgREST로 upsert/삭제한다. PUT은 올리기 전에 이 사용자의 행으로 개수·용량(덮어쓸 때는 자기 크기 제외)을 따져 넘으면 `413 archive_quota_exceeded`다. 읽고-쓰기라 같은 사용자의 동시 PUT 몇 개는 한도를 약간 넘길 수 있다.
 - **쓰기 순서는 Storage 먼저, 행은 그다음이다**(PUT도 DELETE도). Storage가 실패하면 표는 그대로라 행이 있으면 객체가 있다. 실패는 `503 vault_store_failed`이고 같은 요청을 그대로 다시 보내도 안전하다. 행 쓰기만 실패하면 객체만 남는데 목록·용량·읽기에 안 잡히고, 같은 id의 PUT 재시도가 덮어쓰고 DELETE가 지운다(표와 버킷을 대조해 치우는 청소는 아직 없다). DELETE에서 Storage 삭제 뒤 행 삭제가 실패하면 행이 남아 읽기가 503이고 DELETE 재시도가 정리한다.
-- 계정 삭제(`delete_account_data`: Storage 객체 → RPC → auth 사용자)를 부르는 서버 라우트는 아직 없다. 만들 때는 `storage_path` 목록 외에 `<user_id>/` 아래 남은 행 없는 객체도 지운다.
+- 계정 삭제(`delete_account_data`: Storage 객체 → RPC → auth 사용자)는 아래 `DELETE /v1/account`가 부른다. 행 없는 고아 객체도 그때 `<user_id>/` 접두사 목록으로 치운다.
+
+**계정 삭제(`DELETE /v1/account`)**: Supabase 로그인(JWT) 계정 전용이다. 본문 없이 호출하고 대상은 토큰의 `sub` 하나뿐이다. 정적 토큰 계정은 `403 account_not_deletable`(재시도 불가)이고 Supabase를 부르지 않는다. 순서는 `schema-v2.sql`의 `delete_account_data` 주석과 같다(`docs/architecture-v2.md` §9, D8).
+
+1. **Storage 객체**: `vault_objects.storage_path`가 가리키는 객체와, `POST /storage/v1/object/list/<버킷>` `{prefix:"<user_id>/",limit:100,offset,sortBy}`로 읽은 `<user_id>/` 아래 객체 전부(행 없는 고아 포함)를 `DELETE /storage/v1/object/<버킷>` `{prefixes}`로 100개씩 일괄 삭제한다. 지울 것이 없으면 삭제를 부르지 않는다(빈 `prefixes`는 Storage가 거절한다).
+2. **RPC `delete_account_data(p_user)`**: 프로필·권리·잔액·예약·보관함 행·피드백을 지우고 `usage_events`는 `user_id`를 null로 만들어 집계만 남긴다.
+3. **auth 사용자**: `DELETE ${SUPABASE_URL}/auth/v1/admin/users/<id>`(서비스 롤 키). 이미 없으면(404) 성공으로 센다. 마지막이어야 한다 — 먼저 지우면 FK cascade로 `vault_objects` 행이 사라져 객체 목록을 잃는다.
+
+단계마다 멱등이라 어디서 끊겨도 같은 요청을 다시 보내면 남은 일을 마친다. 한 단계가 실패하면 뒤 단계는 부르지 않고 `503 account_delete_failed`(재시도 가능, 같은 요청 그대로)로 답한다. 성공하면 `{deleted:true}`이고, 그 사용자의 등급 캐시·프로필 upsert 기억·분당 요청 버킷을 서버 메모리에서 지운다. 한계:
+
+- 토큰은 `exp`까지 유효해서(서버가 세션을 조회하지 않는다) 삭제 뒤에도 서명 검사는 통과한다. DB 표는 모두 `auth.users` FK라 행은 다시 만들어지지 않지만 Storage 업로드에는 FK가 없어, 삭제와 겹친 PUT이 객체를 남길 수 있다. 같은 DELETE를 한 번 더 보내면 접두사 목록이 치운다.
+- 접두사 아래 하위 폴더는 따라가지 않고(서버는 `<user_id>/<object_id>`만 만든다) 1만 개를 넘으면 지우지 않고 `503`이다.
+- Storage 목록 응답 모양과 admin 삭제 응답은 가짜 Supabase 테스트로만 확인했다. 배포 전에 테스트 계정으로 한 번 실행해 `<user_id>/` 아래 객체가 모두 사라지는지 본다.
 
 ## 데이터와 운영 경계
 

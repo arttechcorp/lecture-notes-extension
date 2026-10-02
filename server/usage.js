@@ -55,6 +55,10 @@ function supabaseUsage({url,key,http}){
     async plan(user){const r=await rpc("effective_plan",{p_user:user});return typeof r==="string"&&/^[a-z][a-z0-9_]{0,31}$/.test(r)?r:null;},
     // 첫 로그인 때 한 번. 이미 있으면 건드리지 않는다(plan 을 되돌리지 않도록 ignore-duplicates).
     ensureProfile:user=>http(url+"/rest/v1/profiles?on_conflict=user_id",{method:"POST",headers:{...auth,"content-type":"application/json",prefer:"resolution=ignore-duplicates,return=minimal"},body:JSON.stringify({user_id:user})},false),
+    // 계정 삭제(§9, D8)의 ②③단계. ② 는 행 삭제 + usage_events 비식별화 RPC, ③ 은 auth 사용자 삭제(GoTrue admin API, 서비스 롤 키)다. 둘 다 멱등이다.
+    // ③ 의 404 는 이미 없다는 뜻이라 성공으로 센다(응답을 잃은 뒤의 재시도). 본문을 읽지 않으므로 다른 404 와는 구별하지 못한다.
+    deleteData:user=>rpc("delete_account_data",{p_user:user}),
+    async deleteAuthUser(user){try{await http(url+"/auth/v1/admin/users/"+user,{method:"DELETE",headers:auth},false);}catch(e){if(e?.status!==404)throw e;}},
     // /v1/me 의 한도 조회. plans·monthly_usage 직접 조회다(schema-v2.sql 의 service_role 권한).
     async quota(user,plan,monthStart){
       const q=name=>http(url+"/rest/v1/"+name,{headers:auth});
