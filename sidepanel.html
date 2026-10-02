@@ -57,6 +57,28 @@
   }
   h1 { font-size: 20px; margin: 0; font-weight: 750; letter-spacing: -.055em; }
   .topbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  /* 계정 메뉴: 햄버거 버튼 + 오른쪽 정렬 팝업 */
+  .menu-wrap { position: relative; }
+  button.menu-btn { width: 36px; height: 36px; padding: 0; display: grid; place-items: center; color: var(--ink); background: var(--paper); box-shadow: var(--lift-1); }
+  #accountMenu {
+    position: absolute; top: calc(100% + 6px); right: 0; z-index: 20; width: 260px; max-width: calc(100vw - 24px);
+    display: flex; flex-direction: column; padding: 6px; background: var(--paper); border: 1px solid var(--rule);
+    border-radius: var(--r-lg); box-shadow: var(--lift-2);
+  }
+  #accountMenu button[role="menuitem"] { width: 100%; text-align: left; border: 0; background: none; box-shadow: none; color: var(--ink); padding: 9px 10px; border-radius: 8px; font-size: 13px; }
+  #accountMenu button[role="menuitem"]:hover, #accountMenu button[role="menuitem"]:focus-visible { background: var(--sunk); transform: none; outline-offset: -2px; }
+  #accountMenu hr { border: 0; border-top: 1px solid var(--rule); margin: 6px 4px; }
+  .am-head { padding: 8px 10px 10px; border-bottom: 1px solid var(--rule); margin-bottom: 6px; }
+  .am-user { display: flex; gap: 10px; align-items: center; min-width: 0; }
+  .am-avatar { flex: none; width: 36px; height: 36px; border-radius: 50%; background: var(--sunk); border: 1px solid var(--rule); display: grid; place-items: center; font-weight: 650; overflow: hidden; }
+  .am-avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .am-who { min-width: 0; line-height: 1.35; }
+  .am-who b, .am-who span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .am-who span { font-size: 11.5px; color: var(--ash); }
+  .am-plan { display: inline-block; margin-top: 8px; padding: 1px 8px; border: 1px solid var(--ink); border-radius: 99px; font-size: 11px; font-weight: 650; }
+  .am-err { margin: 2px 10px 6px; font-size: 12px; color: var(--ink); font-weight: 600; }
+  #amLogin { width: 100%; }
+
   #stageReady, #stageLive, #stageDone { display: flex; flex-direction: column; gap: 18px; }
   .brand-caption { margin: 2px 0 0; color: var(--ash); font-size: 11px; letter-spacing: .035em; }
   .stage-steps { display: flex; align-items: center; gap: 8px; padding: 12px 0; border-block: 1px solid var(--rule); }
@@ -307,7 +329,22 @@
   <div><h1>Summrizei</h1><p class="brand-caption">강의의 흐름을, 나의 노트로.</p></div>
   <div style="display: flex; gap: 8px; align-items: center;">
     <button class="link" id="popoutBtn" type="button" title="독립 팝업 창으로 분리해서 띄웁니다 (최소화 가능)">🗗 창 분리</button>
-    <button class="link" id="settingsLink" type="button">설정</button>
+    <div class="menu-wrap">
+      <button id="menuBtn" class="menu-btn" type="button" aria-label="메뉴" aria-haspopup="menu" aria-expanded="false" aria-controls="accountMenu"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4.5h13M2.5 9h13M2.5 13.5h13"/></svg></button>
+      <div id="accountMenu" role="menu" aria-label="계정 메뉴" hidden>
+        <div class="am-head" id="amHead"></div>
+        <p class="am-err" id="amErr" role="alert" hidden></p>
+        <button role="menuitem" type="button" data-path="/account">사용자 정보</button>
+        <button role="menuitem" type="button" data-path="/account/billing">결제 정보</button>
+        <button role="menuitem" type="button" data-act="options">인앱 설정</button>
+        <button role="menuitem" type="button" data-path="/account/subscription">구독 설정</button>
+        <hr role="separator" />
+        <button role="menuitem" type="button" data-href="mailto:jihwanbu26@gmail.com">고객지원</button>
+        <button role="menuitem" type="button" data-path="/policies/terms">이용약관</button>
+        <button role="menuitem" type="button" data-path="/policies/privacy">개인정보처리방침</button>
+        <button role="menuitem" type="button" data-act="logout" id="amLogout" hidden>로그아웃</button>
+      </div>
+    </div>
   </div>
 </div>
 <nav class="stage-steps" aria-label="노트 만들기 단계"><span id="stepReady" class="active">01 준비</span><i aria-hidden="true"></i><span id="stepLive">02 캡처</span><i aria-hidden="true"></i><span id="stepDone">03 노트</span></nav>
@@ -527,6 +564,7 @@
 </footer>
 
   <script src="lib/settings.js"></script>
+  <script src="lib/account.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>
