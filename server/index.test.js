@@ -1,5 +1,5 @@
 const test=require("node:test"),assert=require("node:assert/strict"),fs=require("node:fs"),os=require("node:os"),path=require("node:path"),crypto=require("node:crypto");
-const {createServer,config:serverConfig,readState,toTranscript,toSlideDoc,VISION_SCHEMA}=require("./index"),Vault=require("../lib/vault"),Contracts=require("../lib/contracts.js");
+const {createServer,config:serverConfig,readState,toTranscript,toSlideDoc,VISION_SCHEMA,judgeProbs,JUDGE_MODELS}=require("./index"),Vault=require("../lib/vault"),Contracts=require("../lib/contracts.js");
 const token="test-token-A-".padEnd(40,"a"),tokenB="test-token-B-".padEnd(40,"b"),origin="chrome-extension://"+"a".repeat(32),model="google/gemini-2.5-flash-lite";
 function config(root){return {APP_TOKENS_JSON:JSON.stringify({A:token,B:tokenB}),EXTENSION_ORIGIN:origin,OPENROUTER_API_KEY:"mock-operator-key",OPENROUTER_PROVIDERS_JSON:JSON.stringify({[model]:["test-provider"]}),VAULT_DIR:root};}
 function provider(){const ids=["ev-1"],item={content:"서로 다른 조건을 비교하는 학습 설명입니다.",importance:"important",evidenceIds:ids},summary={title:"노트",keyConclusions:[item],concepts:[],corrections:[],openQuestions:[],sections:[{heading:"비교",...item}],formulas:[],visuals:[],reviewQuestions:[{question:"무엇이 다른가요?",evidenceIds:ids}],evidenceIds:ids};return {ok:true,json:async()=>({choices:[{finish_reason:"stop",message:{content:JSON.stringify(summary)}}],usage:{prompt_tokens:100,completion_tokens:20,cost:.001}})};}
@@ -811,5 +811,265 @@ test("request-count and rate defaults are generous so the cost caps stay the rea
     assert.equal(me.quota.maxCents, 1500);
     assert.equal(serverConfig({ ...config(root), MAX_REQUESTS: "7", ACCOUNT_RATE_PER_MIN: "9" }).maxRequests, 7, "환경 변수가 기본값을 덮어쓴다");
     assert.equal(serverConfig({ ...config(root), MAX_REQUESTS: "7", ACCOUNT_RATE_PER_MIN: "9" }).ratePerMin, 9);
+  } finally { await close(server); removeTemp(root); }
+});
+
+// ── 판정(judge) ──
+const judgeModel = "openai/gpt-4.1-nano";
+const judgeEnv = root => ({
+  ...config(root),
+  OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], [judgeModel]: ["test-provider"] }),
+  ACCOUNT_LIMITS_JSON: JSON.stringify({
+    A: { models: [model], maxRequests: 50, maxCostCents: 500, features: ["judge"] },
+    B: { models: [model], maxRequests: 50, maxCostCents: 500 },
+  }),
+});
+// 제공자는 알파벳 한 글자와 top_logprobs를 실어 보낸다 — 호출별 스펙은 top_logprobs 배열 하나다.
+const judgeReply = (top = [{ token: "A", logprob: Math.log(.9) }, { token: " B", logprob: Math.log(.1) }]) => ({
+  ok: true,
+  json: async () => ({ choices: [{ finish_reason: "length", message: { content: "A" }, logprobs: { content: [{ token: "A", logprob: Math.log(.9), top_logprobs: top }] } }], usage: { prompt_tokens: 300, completion_tokens: 1, cost: .00003 } }),
+});
+const judgeRaw = top => ({ choices: [{ logprobs: { content: [{ token: "A", logprob: 0, top_logprobs: top }] } }] });
+const judgeBody = o => ({ task: "utterance", model: judgeModel, requestId: "judge-x", items: [{ itemId: "it-1", text: "미분은 순간 변화율이다" }, { itemId: "it-2", text: "시험은 다음 주 목요일이다", context: "앞뒤 문맥 단서" }], ...o });
+
+test("judgeProbs renormalises label letters and derives per-task scores", () => {
+  const lp = p => Math.log(p);
+  const r = judgeProbs(judgeRaw([{ token: "A", logprob: lp(.6) }, { token: " B", logprob: lp(.2) }, { token: "Hello", logprob: lp(.2) }]), "utterance");
+  assert.equal(r.probs.length, 4);
+  assert.ok(Math.abs(r.probs[0].p - .75) < 1e-9, "라벨 바깥 토큰은 버리고 라벨끼리만 정규화한다");
+  assert.ok(Math.abs(r.probs[1].p - .25) < 1e-9);
+  assert.equal(r.score, null, "utterance 는 score 가 없다");
+  const v = judgeProbs(judgeRaw([{ token: "A", logprob: lp(.3) }, { token: " A", logprob: lp(.2) }, { token: "a", logprob: lp(.1) }, { token: "B", logprob: lp(.4) }]), "utterance");
+  assert.ok(Math.abs(v.probs[0].p - .6) < 1e-9, "'A', ' A', 'a' 변형이 한 라벨에 합산된다");
+  assert.ok(Math.abs(v.probs[1].p - .4) < 1e-9);
+  assert.ok(Math.abs(v.probs.reduce((s, x) => s + x.p, 0) - 1) < 1e-9, "확률 합은 1이다");
+  const imp = judgeProbs(judgeRaw([{ token: "D", logprob: lp(.5) }, { token: "E", logprob: lp(.5) }]), "importance");
+  assert.equal(imp.probs[3].label, "4");
+  assert.ok(Math.abs(imp.score - 4.5) < 1e-9, "importance score 는 기댓값 1~5다");
+  assert.ok(Math.abs(judgeProbs(judgeRaw([{ token: "A", logprob: lp(.8) }, { token: "B", logprob: lp(.2) }]), "boilerplate").score - .8) < 1e-9, "boilerplate score 는 p(yes)");
+  assert.ok(Math.abs(judgeProbs(judgeRaw([{ token: "A", logprob: lp(.7) }, { token: "B", logprob: lp(.3) }]), "support").score - .7) < 1e-9, "support score 는 p(supported)");
+  assert.equal(judgeProbs(judgeRaw([{ token: "A", logprob: lp(.9) }, { token: "B", logprob: lp(.1) }]), "figure").score, null, "figure 는 score 가 없다");
+  assert.deepEqual(judgeProbs(judgeRaw([{ token: "Hello", logprob: 0 }, { token: "world", logprob: -1 }]), "utterance"), { probs: [], score: null }, "라벨 글자가 없으면 판정 없음이다");
+  assert.throws(() => judgeProbs({ choices: [{ message: { content: "A" } }] }, "utterance"), /judge_logprobs_missing/);
+  assert.throws(() => judgeProbs({}, "utterance"), /judge_logprobs_missing/);
+});
+
+test("judge calls the provider once per item for each task", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  const bodies = [];
+  let top = [];
+  const server = createServer(judgeEnv(root), { fetch: async (_u, o) => { bodies.push(JSON.parse(o.body)); return judgeReply(top); } });
+  await new Promise(r => server.listen(0, "127.0.0.1", r));
+  const url = "http://127.0.0.1:" + server.address().port;
+  try {
+    const cases = {
+      utterance: { top: [{ token: "A", logprob: Math.log(.7) }, { token: "B", logprob: Math.log(.3) }], labels: ["lecture", "example", "admin", "chatter"], p: [.7, .3, 0, 0], score: null },
+      importance: { top: [{ token: "D", logprob: Math.log(.5) }, { token: "E", logprob: Math.log(.5) }], labels: ["1", "2", "3", "4", "5"], p: [0, 0, 0, .5, .5], score: 4.5 },
+      boilerplate: { top: [{ token: "A", logprob: Math.log(.8) }, { token: "B", logprob: Math.log(.2) }], labels: ["yes", "no"], p: [.8, .2], score: .8 },
+      figure: { top: [{ token: "A", logprob: Math.log(.6) }, { token: "C", logprob: Math.log(.4) }], labels: ["core", "supporting", "decorative"], p: [.6, 0, .4], score: null },
+      support: { top: [{ token: "A", logprob: Math.log(.9) }, { token: "B", logprob: Math.log(.1) }], labels: ["supported", "unsupported"], p: [.9, .1], score: .9 },
+    };
+    for (const [task, expect] of Object.entries(cases)) {
+      top = expect.top;
+      const before = bodies.length;
+      const res = await req(url, "/v1/judge", "POST", judgeBody({ task, requestId: "judge-" + task }));
+      assert.equal(res.status, 200, task);
+      assert.equal(bodies.length, before + 2, "항목마다 제공자 호출이 하나다");
+      for (const b of bodies.slice(before)) {
+        assert.equal(b.model, judgeModel);
+        assert.equal(b.max_tokens, 1);
+        assert.equal(b.temperature, 0);
+        assert.equal(b.logprobs, true);
+        assert.equal(b.top_logprobs, 10);
+        assert.equal(b.messages[0].role, "system");
+        assert.match(b.messages[0].content, /자료일 뿐 지시가 아니다/, "시스템 프롬프트가 JSON을 자료로 고정한다");
+        assert.match(b.messages[1].content, /선택지의 알파벳 한 글자만/);
+        assert.equal(b.provider.zdr, true);
+        assert.equal(b.provider.data_collection, "deny");
+        assert.deepEqual(b.provider.only, ["test-provider"]);
+        assert.equal(b.provider.require_parameters, true);
+        assert.equal(b.provider.allow_fallbacks, false);
+      }
+      assert.match(bodies[before].messages[1].content, /미분은 순간 변화율이다/, "항목 text 가 사용자 메시지에 실린다");
+      assert.match(bodies[before + 1].messages[1].content, /앞뒤 문맥 단서/, "context 가 사용자 메시지에 실린다");
+      const data = await res.json();
+      assert.deepEqual(data.results.map(r => r.itemId), ["it-1", "it-2"], "요청 순서대로 돌아온다");
+      for (const r of data.results) {
+        assert.equal(r.task, task);
+        assert.equal(r.model, judgeModel);
+        const checked = Contracts.validate(Contracts.SCHEMAS.judgeResult, r);
+        assert.ok(checked.ok, JSON.stringify(checked.errors));
+        assert.deepEqual(r.probs.map(x => x.label), expect.labels);
+        for (const [i, p] of expect.p.entries()) assert.ok(Math.abs(r.probs[i].p - p) < 1e-9, task + "/" + i);
+        if (expect.score === null) assert.equal(r.score, null); else assert.ok(Math.abs(r.score - expect.score) < 1e-9, task + " score");
+      }
+      assert.equal(data.usage.promptTokens, 600);
+      assert.equal(data.usage.completionTokens, 2);
+      assert.ok(Math.abs(data.usage.costUsd - .00006) < 1e-9);
+      assert.equal(data.promptVersion, "v1");
+      assert.equal(data.schemaVersion, 1);
+    }
+    const me = await (await req(url, "/v1/me")).json();
+    assert.equal(me.quota.requests, 5);
+    assert.ok(Math.abs(me.quota.spentCents - settle(10 * .00003)) < 1e-9, "예약은 정산된 실비로 되돌아간다: " + me.quota.spentCents);
+  } finally { await close(server); removeTemp(root); }
+});
+
+test("judge passes no-judgement items through and fails wholesale when logprobs are missing", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  let calls = 0, mode = "mixed";
+  const server = createServer(judgeEnv(root), { fetch: async (_u, o) => {
+    calls++;
+    const b = JSON.parse(o.body);
+    if (mode === "nologprobs") return { ok: true, json: async () => ({ choices: [{ finish_reason: "length", message: { content: "A" } }], usage: { prompt_tokens: 10, completion_tokens: 1, cost: .00001 } }) };
+    if (b.messages[1].content.includes("라벨 없는 답변")) return judgeReply([{ token: "Hello", logprob: 0 }, { token: "world", logprob: -.5 }]);
+    return judgeReply();
+  }});
+  await new Promise(r => server.listen(0, "127.0.0.1", r));
+  const url = "http://127.0.0.1:" + server.address().port;
+  try {
+    const res = await req(url, "/v1/judge", "POST", judgeBody({ requestId: "j-mixed", items: [{ itemId: "ok", text: "개념 설명" }, { itemId: "skip", text: "라벨 없는 답변" }] }));
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.results[0].probs.length, 4);
+    assert.deepEqual(data.results[1].probs, [], "라벨 글자가 없는 항목은 판정 없음으로 돌아온다");
+    assert.equal(data.results[1].score, null);
+    mode = "nologprobs";
+    const bad = await req(url, "/v1/judge", "POST", judgeBody({ requestId: "j-nolog" }));
+    assert.equal(bad.status, 502, "logprobs가 빠진 응답은 요청 전체를 실패시킨다");
+    assert.equal((await bad.json()).error.code, "provider_failed_or_invalid_output");
+    assert.equal((await req(url, "/v1/judge", "POST", judgeBody({ requestId: "j-nolog" }))).status, 409, "유지된 예약이 같은 requestId를 막는다");
+    const me = await (await req(url, "/v1/me")).json();
+    assert.ok(me.quota.spentCents > 1, "실패 요청은 예약을 유지한다");
+  } finally { await close(server); removeTemp(root); }
+});
+
+test("judge validation rejects bad shapes without touching the provider", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  let calls = 0;
+  const server = createServer(judgeEnv(root), { fetch: async () => { calls++; return judgeReply(); } });
+  await new Promise(r => server.listen(0, "127.0.0.1", r));
+  const url = "http://127.0.0.1:" + server.address().port;
+  const expect = async (b, status, code) => {
+    const r = await req(url, "/v1/judge", "POST", b);
+    assert.equal(r.status, status, code);
+    assert.equal((await r.json()).error.code, code);
+  };
+  try {
+    await expect(judgeBody({ requestId: "v-task", task: "nope" }), 400, "invalid_task");
+    await expect(judgeBody({ requestId: "v-model", model }), 400, "invalid_model");
+    const { items: _drop, ...noItems } = judgeBody({ requestId: "v-miss" });
+    await expect(noItems, 400, "unexpected_field");
+    await expect(judgeBody({ requestId: "v-extra", extra: 1 }), 400, "unexpected_field");
+    const bads = [
+      { items: [] },
+      { items: Array.from({ length: 201 }, (_, i) => ({ itemId: "i" + i, text: "a" })) },
+      { items: [{ itemId: "d", text: "a" }, { itemId: "d", text: "b" }] },
+      { items: [{ itemId: "i" }] },
+      { items: [{ itemId: "i", text: "" }] },
+      { items: [{ itemId: "i", text: "x".repeat(8001) }] },
+      { items: [{ itemId: "i", text: "a", context: "x".repeat(8001) }] },
+      { items: [{ itemId: "i", text: "a", nope: 1 }] },
+      { items: [{ itemId: "x".repeat(65), text: "a" }] },
+      { items: [{ itemId: "i", text: 3 }] },
+      { items: [{ itemId: "i", text: "a", context: 2 }] },
+    ];
+    for (const [i, patch] of bads.entries()) await expect(judgeBody({ requestId: "v-items-" + i, ...patch }), 400, "invalid_items");
+    await expect(judgeBody({ requestId: "v-big", items: Array.from({ length: 9 }, (_, i) => ({ itemId: "b" + i, text: "x".repeat(7300) })) }), 413, "items_too_large");
+    const huge = await req(url, "/v1/judge", "POST", judgeBody({ requestId: "v-huge", items: Array.from({ length: 10 }, (_, i) => ({ itemId: "h" + i, text: "x".repeat(7500) })) }));
+    assert.equal(huge.status, 413);
+    assert.equal((await huge.json()).error.code, "request_too_large", "본문 상한이 항목 상한보다 먼저 걸린다");
+    assert.equal(calls, 0, "검증 실패는 제공자를 호출하지 않는다");
+  } finally { await close(server); removeTemp(root); }
+});
+
+test("judge gates the paid feature, honours the global flag and keeps idempotency", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  let calls = 0;
+  const server = createServer(judgeEnv(root), { fetch: async () => { calls++; return judgeReply(); } });
+  await new Promise(r => server.listen(0, "127.0.0.1", r));
+  const url = "http://127.0.0.1:" + server.address().port;
+  const offRoot = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  const off = createServer({ ...judgeEnv(offRoot), FEATURE_FLAGS_JSON: JSON.stringify({ judge: false }) }, { fetch: async () => judgeReply() });
+  await new Promise(r => off.listen(0, "127.0.0.1", r));
+  const offUrl = "http://127.0.0.1:" + off.address().port;
+  try {
+    assert.equal((await req(url, "/v1/judge", "POST", judgeBody({ requestId: "id-one" }))).status, 200);
+    const before = calls;
+    assert.equal((await req(url, "/v1/judge", "POST", judgeBody({ requestId: "id-one" }))).status, 409);
+    assert.equal(calls, before, "중복은 제공자를 다시 호출하지 않는다");
+    const mm = await req(url, "/v1/judge", "POST", judgeBody({ requestId: "id-one", items: [{ itemId: "a", text: "다른 내용" }] }));
+    assert.equal(mm.status, 400);
+    assert.equal((await mm.json()).error.code, "idempotency_content_mismatch");
+    const free = await req(url, "/v1/judge", "POST", judgeBody({ requestId: "id-free" }), tokenB);
+    assert.equal(free.status, 403);
+    assert.equal((await free.json()).error.code, "feature_not_in_account_plan");
+    const me = await (await req(offUrl, "/v1/me")).json();
+    assert.ok(!me.features.includes("judge"), "전역 스위치가 꺼진 기능은 목록에서 빠진다");
+    const blocked = await req(offUrl, "/v1/judge", "POST", judgeBody({ requestId: "id-off" }));
+    assert.equal(blocked.status, 403);
+    assert.equal((await blocked.json()).error.code, "feature_not_in_account_plan");
+  } finally { await close(server); await close(off); removeTemp(root); removeTemp(offRoot); }
+});
+
+test("judge shares provider slots per item and stops launching calls after a failure", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  let running = 0, peak = 0, calls = 0;
+  const env = { ...judgeEnv(root), PROVIDER_CONCURRENCY_JSON: JSON.stringify({ [judgeModel]: 2 }) };
+  const server = createServer(env, { fetch: async () => { calls++; running++; peak = Math.max(peak, running); await new Promise(r => setTimeout(r, 10)); running--; return judgeReply(); } });
+  await new Promise(r => server.listen(0, "127.0.0.1", r));
+  const url = "http://127.0.0.1:" + server.address().port;
+  try {
+    const items = Array.from({ length: 8 }, (_, i) => ({ itemId: "c" + i, text: "항목 " + i }));
+    const second = (async () => { await new Promise(r => setTimeout(r, 20)); return req(url, "/v1/judge", "POST", judgeBody({ requestId: "cc-two" })); })();
+    const [r1, r2] = await Promise.all([req(url, "/v1/judge", "POST", judgeBody({ requestId: "cc-one", items })), second]);
+    assert.equal(r1.status, 200);
+    assert.equal(r2.status, 200, "동시에 온 두 번째 판정 요청도 끝까지 간다");
+    assert.equal((await r1.json()).results.length, 8);
+    assert.equal(peak, 2, "항목 슬롯이 제공자 동시 상한을 넘지 않는다");
+    assert.equal(calls, 10);
+  } finally { await close(server); removeTemp(root); }
+
+  const root2 = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  let calls2 = 0;
+  const serial = createServer({ ...judgeEnv(root2), PROVIDER_CONCURRENCY_JSON: JSON.stringify({ [judgeModel]: 1 }) }, { fetch: async () => { calls2++; if (calls2 === 2) return { ok: false, status: 500, json: async () => ({}) }; return judgeReply(); } });
+  await new Promise(r => serial.listen(0, "127.0.0.1", r));
+  const url2 = "http://127.0.0.1:" + serial.address().port;
+  try {
+    const items = Array.from({ length: 4 }, (_, i) => ({ itemId: "f" + i, text: "항목 " + i }));
+    const r = await req(url2, "/v1/judge", "POST", judgeBody({ requestId: "cc-fail", items }));
+    assert.equal(r.status, 502);
+    assert.equal(calls2, 2, "첫 실패 뒤 남은 항목은 제공자를 부르지 않는다");
+  } finally { await close(serial); removeTemp(root2); }
+});
+
+test("judge model config validates the allowlist and explicit providers", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  try {
+    assert.throws(() => createServer({ ...config(root), ALLOWED_JUDGE_MODELS: JSON.stringify(["nope/model"]) }), /invalid_judge_model_allowlist/);
+    assert.throws(() => createServer({ ...config(root), ALLOWED_JUDGE_MODELS: JSON.stringify([judgeModel]) }), /explicit_provider_allowlist_required/, "허용 모델에 제공자 목록이 없다");
+    assert.deepEqual(serverConfig(config(root)).judgeModels, [], "제공자 항목이 없으면 기본은 빈 목록이다");
+    assert.deepEqual(serverConfig(judgeEnv(root)).judgeModels, [judgeModel], "제공자 항목이 있으면 기본으로 켜진다");
+    assert.deepEqual(serverConfig({ ...judgeEnv(root), ALLOWED_JUDGE_MODELS: "[]" }).judgeModels, [], "명시적으로 끌 수 있다");
+    assert.equal(JUDGE_MODELS[judgeModel].via, "logprob");
+  } finally { removeTemp(root); }
+});
+
+test("ServiceClient.judge round-trips results through the real client", async () => {
+  const ServiceClient = require("../lib/service-client.js");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  const server = createServer(judgeEnv(root), { fetch: async () => judgeReply() });
+  await new Promise(r => server.listen(0, "127.0.0.1", r));
+  const url = "http://127.0.0.1:" + server.address().port;
+  try {
+    const data = await ServiceClient.judge({ baseUrl: url, token, task: "utterance", model: judgeModel, requestId: "cj-one", items: [{ itemId: "a", text: "개념 설명" }] });
+    assert.equal(data.results[0].itemId, "a");
+    assert.equal(data.results[0].task, "utterance");
+    assert.equal(data.results[0].model, judgeModel);
+    let err;
+    try { await ServiceClient.judge({ baseUrl: url, token, task: "nope", model: judgeModel, requestId: "cj-bad", items: [{ itemId: "a", text: "x" }] }); } catch (e) { err = e; }
+    assert.ok(err instanceof Error);
+    assert.equal(err.code, "invalid_task");
+    assert.equal(err.retryable, false);
   } finally { await close(server); removeTemp(root); }
 });

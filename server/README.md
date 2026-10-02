@@ -83,6 +83,18 @@ ACCOUNT_RATE_PER_MIN=300
 
 오디오는 메모리에서만 디코드돼 Groq로 전달되고 원장·로그·오류 본문에 남지 않는다(멱등 digest에는 base64의 sha256만 들어간다). Groq의 zero data retention은 요청 단위로 설정할 수 없으므로 Groq 조직 설정에서 미리 켜둬야 한다. 제공자 HTTP 오류(429 `provider_busy` 포함)는 과금이 없다고 확정할 수 있어 예약을 정확히 되돌리고 같은 requestId를 재사용할 수 있다. 200인데 출력이 계약을 어기는 경우 등 그 밖의 실패는 예약을 유지한다.
 
+## 판정(judge)
+
+`POST /v1/judge`는 다섯 가지 판정 과제를 한 라우트로 처리한다. 본문은 정확히 `{task, model, requestId, items}`이고 `items`는 `{itemId(1~64자, 요청 안에서 고유), text(1~8000자), context(선택, 8000자 이하)}` 객체 1~200개다. `items` 직렬화 총량은 64 KiB, 요청 본문 상한은 70000바이트다. 응답은 `{results:[{itemId,task,probs,score,model}], usage:{promptTokens,completionTokens,costUsd}, promptVersion, schemaVersion}`이고 각 결과는 `Contracts.SCHEMAS.judgeResult`를 따른다.
+
+과제와 라벨(선택지 알파벳은 라벨 순서대로 A, B, C…): `utterance`=lecture/example/admin/chatter, `importance`="1"~"5", `boilerplate`=yes/no, `figure`=core/supporting/decorative, `support`=supported/unsupported. score는 `importance`가 기댓값(1~5), `boilerplate`가 p(yes), `support`가 p(supported)이고 `utterance`·`figure`는 null이다.
+
+호출은 항목당 한 번이다. `max_tokens:1, temperature:0, logprobs:true, top_logprobs:10`으로 알파벳 한 글자만 받고 top_logprobs에서 라벨 글자의 확률 질량을 모아 라벨끼리 다시 정규화한다. 상위 10개에 라벨 글자가 하나도 없으면 그 항목은 `probs:[], score:null`의 "판정 없음"으로 돌아가고 클라이언트가 플래너로 넘긴다. 모델은 `JUDGE_MODELS` 레지스트리가 `via`(호출 방식)와 단가를 묶어 결정한다 — 다른 종류의 판정 제공자를 추가해도 `via` 구현만 더하면 돼서 클라이언트는 안 바뀐다.
+
+`ALLOWED_JUDGE_MODELS`는 `JUDGE_MODELS` 키의 JSON 배열이다. 미설정 시 기본값은 `["openai/gpt-4.1-nano"]`이지만 `OPENROUTER_PROVIDERS_JSON`에 해당 모델의 비어 있지 않은 제공자 목록이 있을 때만이고, 없으면 `[]`다. 허용된 판정 모델은 요약·비전과 마찬가지로 명시적 제공자 목록이 필수다. `gpt-4.1-nano`에는 반드시 ZDR 가능한 엔드포인트 태그를 넣는다 — `zdr:true` 요청이라 자사(1P) 태그는 제공자가 거절한다.
+
+비용은 다른 라우트와 같은 예약·정산을 쓴다: 예약은 `항목당 (입력 바이트+시스템 프롬프트)×입력 단가 + 1토큰×출력 단가`의 1.2배, 정산은 각 호출이 보고한 `usage.cost` 합계다. 항목 텍스트는 멱등 digest에 sha256 해시로만 들어가고 저장되지 않는다. 항목 단위 제공자 슬롯은 대기 타임아웃·환불 표시가 없는 "patient" 모드다 — 일부 항목이 이미 결제된 뒤 예약을 되돌리면 공짜 호출이 되므로, 하나라도 나간 뒤 실패하면 예약을 유지하고 첫 실패에서 나머지 호출을 중단한다.
+
 ## 확인
 
 ```text
