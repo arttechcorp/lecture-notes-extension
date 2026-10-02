@@ -10,7 +10,8 @@
     "tabs",
     "tabCapture",
     "offscreen",
-    "activeTab"
+    "activeTab",
+    "identity"
   ],
   "host_permissions": [
     "<all_urls>",

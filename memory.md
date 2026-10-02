@@ -63,3 +63,12 @@
 
 - GSAP + ScrollTrigger는 `landing/gsap-animations.js` 한 파일에서만 쓴다. 사용처와 유지 이유는 그 파일 머리말에 적어뒀다. 두 연출(히어로 진입 타임라인, ScrollTrigger 1회 등장)을 쓰지 않게 되면 `landing/index.html`의 CDN `<script>` 두 줄과 함께 통째로 지운다.
 - 히어로 진입의 초기 상태(`opacity: 0`)는 세 곳에 나뉘어 있다. `index.html` head의 인라인 스크립트가 `html.gsap-enter`를 붙이고(2초 안전장치 포함), `landing.css`가 그 클래스로 숨기고, `gsap-animations.js`가 `gsap.set()`으로 시작값을 고정한 뒤 클래스를 걷는다. 셋 중 하나만 고치면 히어로가 영영 안 보이거나 페인트 후 깜빡인다.
+
+## 계정 메뉴·로그인·결제(grogle)
+
+- 햄버거 메뉴는 두 곳에 있다: 확장 `sidepanel.html`의 `#menuBtn`/`#accountMenu`(인앱 설정 포함), 랜딩·계정 페이지의 `landing/account-menu.js` 서랍(인앱 설정 없음). 항목 순서·문구를 바꾸면 둘을 같이 고친다. `landing/demo-panel.html`의 `.menu-glyph`는 장식용 사본이다.
+- 확장은 `tools/package-cws.mjs`가 `landing/`을 빼고 패키징하므로 `landing/supabase-config.js`를 읽지 못한다. 그래서 `lib/account.js`가 Supabase URL·anon 키를 복제해 둔다 — 프로젝트를 바꾸면 두 파일을 같이 고친다.
+- 확장 로그인 토큰은 설정이 아니라 자격증명이라 `lib/settings.js`를 거치지 않고 `chrome.storage.local`의 `authSession` 키에만 둔다. 노트·원문은 여기 넣지 않는다.
+- Supabase Auth의 Redirect URLs에 `https://<확장ID>.chromiumapp.org/`와 `https://summrizei.vercel.app/account/**`가 등록돼 있어야 로그인이 돌아온다.
+- grogle 결제창·고객 포털 주소는 `landing/billing-config.js` 한 곳에만 둔다. 비어 있으면 계정 페이지는 "결제 준비 중"으로 안내한다. 이동할 때 `email`·`client_reference_id`(Supabase user id)를 쿼리로 붙인다 — 웹훅이 구독을 계정에 묶는 키다.
+- `subscriptions`·`usage_monthly`는 클라이언트가 쓰지 않는다. 읽기는 `my_account()`, 쓰기는 이후 서버의 grogle 웹훅(service_role)만 한다.

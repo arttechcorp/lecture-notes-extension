@@ -1,6 +1,6 @@
 // Display and control only. The offscreen document owns all lecture data.
 const $=id=>document.getElementById(id);
-const els=Object.fromEntries(['tabSelect','modeSelect','langSelect','startBtn','stopBtn','pauseBtn','disposeBtn','notesBtn','status','result','renderFrame','stageReady','stageLive','stageDone','onboard','obConsent','obWhisper','obDone','settingsToggle','settingsClose','settingsDrawer','settingsLink','optionsLink','refreshTabsBtn','ocrEnabledToggle','cntSlides','cntVoice','cntQueue','feedLines','readyAlert','panelAlert','doneSummary','donePill','doneAlert','againBtn','summarySettingsBtn','popoutBtn','viewRenderedBtn','viewRawBtn','resultHint','exportRow','rawEvidence','debugDetails','debugLog','vaultPassphrase','saveVaultBtn','loadVaultBtn','deleteVaultBtn','refreshVaultBtn','vaultList','pdfBtn','notionBtn','notionModal','notionModalClose','markEngine','engineBanner','markVoice','voiceState','markTab','tabState','settingsSummary','cropField','cropRow','cropWrap','cropImg','cropBox','cropHint','previewBtn','working'].map(id=>[id,$(id)]));
+const els=Object.fromEntries(['tabSelect','modeSelect','langSelect','startBtn','stopBtn','pauseBtn','disposeBtn','notesBtn','status','result','renderFrame','stageReady','stageLive','stageDone','onboard','obConsent','obWhisper','obDone','settingsToggle','settingsClose','settingsDrawer','optionsLink','refreshTabsBtn','ocrEnabledToggle','cntSlides','cntVoice','cntQueue','feedLines','readyAlert','panelAlert','doneSummary','donePill','doneAlert','againBtn','summarySettingsBtn','popoutBtn','viewRenderedBtn','viewRawBtn','resultHint','exportRow','rawEvidence','debugDetails','debugLog','vaultPassphrase','saveVaultBtn','loadVaultBtn','deleteVaultBtn','refreshVaultBtn','vaultList','pdfBtn','notionBtn','notionModal','notionModalClose','markEngine','engineBanner','markVoice','voiceState','markTab','tabState','settingsSummary','cropField','cropRow','cropWrap','cropImg','cropBox','cropHint','previewBtn','working'].map(id=>[id,$(id)]));
 let settings,state,busy=false,tabs=[],cropRect=null,cropTabId=null;
 const active=s=>['preparing','running','paused','draining','summarizing'].includes(s?.status);
 const label={preparing:'준비 중',running:'캡처 중',paused:'일시정지',draining:'마지막 구간 처리 중',summarizing:'요약 중',completed:'노트 준비됨',failed:'처리 중단',disposed:'세션 없음'};
@@ -80,7 +80,7 @@ function rect(){if(els.modeSelect.value==='caption')return{x:0,y:.8,w:1,h:.2};if
 async function start(){settings=await loadSettings();if(!settings.consentAccepted){setStage('onboard');return;}if(!tabs.some(tab=>String(tab.id)===els.tabSelect.value)){setError('선택한 강의 탭이 없습니다. 강의 창에서 확장을 다시 여세요.');return;}if(!els.ocrEnabledToggle.checked&&!settings.whisperEnabled){setError('화면 또는 음성 인식 중 하나를 켜세요.');return;}if(els.ocrEnabledToggle.checked&&els.modeSelect.value==='region'&&(!cropRect||cropTabId!==els.tabSelect.value)){els.settingsDrawer.showModal();els.cropHint.textContent='현재 강의 화면을 불러오고 인식할 슬라이드 영역을 드래그하세요.';setError('화면을 불러온 뒤 인식할 슬라이드 영역을 드래그하세요.');els.previewBtn.focus();return;}await action('START_SESSION',{settings,options:{tabId:Number(els.tabSelect.value),rect:rect(),ocrEnabled:els.ocrEnabledToggle.checked,ocrEngine:settings.ocrEngine||'ppocr-v5-wasm',visionConsent:settings.visionConsent===true,whisperEnabled:settings.whisperEnabled,whisperModel:settings.whisperModel,whisperLang:settings.whisperLang,speedCorrection:settings.speedCorrection===true}});}
 async function vault(type){const passphrase=els.vaultPassphrase.value;if(type!=='DELETE_VAULT'&&passphrase.length<12){setError('보관 암호를 12자 이상 입력하세요.');return;}const result=await action(type,{settings:await loadSettings(),passphrase,objectId:type==='SAVE_VAULT'?undefined:els.vaultList.value});els.vaultPassphrase.value='';if(result&&type!=='LOAD_VAULT')refreshVault();}
 async function refreshVault(){const result=await action('LIST_VAULT',{settings:await loadSettings()});if(!result)return;els.vaultList.textContent='';for(const item of result.items||[]){const opt=document.createElement('option');opt.value=item.objectId;opt.textContent=item.objectId;els.vaultList.append(opt);}controls();}
-els.startBtn.addEventListener('click',start);els.stopBtn.addEventListener('click',()=>action(state?.status==='summarizing'?'CANCEL_SUMMARY':'STOP_SESSION'));els.notesBtn.addEventListener('click',async()=>action('GENERATE_NOTES',{settings:await loadSettings()}));els.againBtn.addEventListener('click',()=>action('DISPOSE_SESSION'));els.settingsToggle.addEventListener('click',()=>els.settingsDrawer.showModal());els.settingsClose.addEventListener('click',()=>els.settingsDrawer.close());els.refreshTabsBtn.addEventListener('click',loadTabs);els.tabSelect.addEventListener('change',()=>{cropRect=null;cropTabId=null;els.cropBox.style.display='none';controls();updateReadyCard();});els.ocrEnabledToggle.addEventListener('change',async()=>{settings=await saveSettings({ocrEnabled:els.ocrEnabledToggle.checked});updateReadyCard();});els.modeSelect.addEventListener('change',updateReadyCard);els.langSelect.addEventListener('change',async()=>{settings=await saveSettings({whisperLang:els.langSelect.value});updateReadyCard();});els.summarySettingsBtn.addEventListener('click',()=>chrome.runtime.openOptionsPage());for(const id of ['settingsLink','optionsLink'])els[id].addEventListener('click',event=>{event.preventDefault();chrome.runtime.openOptionsPage();});
+els.startBtn.addEventListener('click',start);els.stopBtn.addEventListener('click',()=>action(state?.status==='summarizing'?'CANCEL_SUMMARY':'STOP_SESSION'));els.notesBtn.addEventListener('click',async()=>action('GENERATE_NOTES',{settings:await loadSettings()}));els.againBtn.addEventListener('click',()=>action('DISPOSE_SESSION'));els.settingsToggle.addEventListener('click',()=>els.settingsDrawer.showModal());els.settingsClose.addEventListener('click',()=>els.settingsDrawer.close());els.refreshTabsBtn.addEventListener('click',loadTabs);els.tabSelect.addEventListener('change',()=>{cropRect=null;cropTabId=null;els.cropBox.style.display='none';controls();updateReadyCard();});els.ocrEnabledToggle.addEventListener('change',async()=>{settings=await saveSettings({ocrEnabled:els.ocrEnabledToggle.checked});updateReadyCard();});els.modeSelect.addEventListener('change',updateReadyCard);els.langSelect.addEventListener('change',async()=>{settings=await saveSettings({whisperLang:els.langSelect.value});updateReadyCard();});els.summarySettingsBtn.addEventListener('click',()=>chrome.runtime.openOptionsPage());els.optionsLink.addEventListener('click',event=>{event.preventDefault();chrome.runtime.openOptionsPage();});
 if(els.pauseBtn)els.pauseBtn.addEventListener('click',()=>action(state?.status==='paused'?'RESUME_SESSION':'PAUSE_SESSION'));if(els.disposeBtn)els.disposeBtn.addEventListener('click',()=>action('DISPOSE_SESSION'));if(els.saveVaultBtn){els.saveVaultBtn.addEventListener('click',()=>vault('SAVE_VAULT'));els.loadVaultBtn.addEventListener('click',()=>vault('LOAD_VAULT'));els.deleteVaultBtn.addEventListener('click',()=>vault('DELETE_VAULT'));els.refreshVaultBtn.addEventListener('click',refreshVault);}
 els.viewRenderedBtn.addEventListener('click',()=>{els.renderFrame.hidden=false;els.result.hidden=true;});els.viewRawBtn.addEventListener('click',()=>{els.renderFrame.hidden=true;els.result.hidden=false;});if(els.popoutBtn)els.popoutBtn.addEventListener('click',()=>chrome.windows?.create?.({url:chrome.runtime.getURL(`sidepanel.html?tabId=${encodeURIComponent(els.tabSelect.value)}`),type:'popup',width:480,height:760}));
 function showPreview(dataUrl,tabId){if(!els.cropImg)return;cropRect=null;cropTabId=String(tabId);els.cropBox.style.display='none';els.cropImg.src=dataUrl;if(els.cropWrap)els.cropWrap.style.display='block';if(els.cropHint)els.cropHint.textContent='드래그해서 슬라이드 영역만 선택하세요.';updateReadyCard();}
@@ -107,3 +107,48 @@ chrome.runtime.onMessage.addListener((message,sender)=>{try{const url=new URL(se
 window.addEventListener('message',event=>{if(event.source!==els.renderFrame?.contentWindow||!event.data)return;if(event.data.type==='RENDER_HEIGHT'&&typeof event.data.height==='number')els.renderFrame.style.height=Math.max(event.data.height,140)+'px';else if(event.data.type==='PRINT_COMPLETE')setStatus('PDF 인쇄가 완료되었거나 대화상자가 닫혔습니다.');else if(event.data.type==='PRINT_ERROR')setStatus(`PDF 인쇄 오류: ${event.data.error||'알 수 없는 오류'}`);});
 (async()=>{settings=await loadSettings();els.ocrEnabledToggle.checked=settings.ocrEnabled!==false;els.langSelect.value=settings.whisperLang||'auto';await loadTabs();const result=await action('GET_STATE');render(result?.state||null);els.obConsent.checked=!!settings.consentAccepted;els.obWhisper.checked=!!settings.whisperEnabled;els.obDone.disabled=!els.obConsent.checked;updateReadyCard();})().catch(error=>setError(error.message));
 els.obConsent.addEventListener('change',()=>els.obDone.disabled=!els.obConsent.checked);els.obDone.addEventListener('click',async()=>{settings=await loadSettings();settings.consentAccepted=els.obConsent.checked;settings.whisperEnabled=els.obWhisper.checked;await saveSettings({consentAccepted:settings.consentAccepted,whisperEnabled:settings.whisperEnabled});setStage('ready');});
+
+// 계정 메뉴. 오류는 메뉴 안에 짧게 알리고 던지지 않는다.
+const menu=$('accountMenu'),menuBtn=$('menuBtn'),amHead=$('amHead'),amErr=$('amErr'),PLANS={free:'Free',essential:'Essential',professional:'Pro'};
+const menuItems=()=>[...menu.querySelectorAll('[role=menuitem]:not([hidden])')];
+const amErrShow=msg=>{amErr.textContent=msg||'';amErr.hidden=!msg;};
+function closeMenu(back){menu.hidden=true;menuBtn.setAttribute('aria-expanded','false');if(back)menuBtn.focus();}
+function renderHead(session,user,plan){
+  const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!==undefined)e.textContent=x;return e;};
+  $('amLogout').hidden=!session;amHead.replaceChildren();
+  if(!session){const b=el('button','', 'Google로 로그인');b.id='amLogin';b.type='button';b.className='primary';b.addEventListener('click',login);amHead.append(b);return;}
+  const av=el('div','am-avatar',(user.name||'?').trim().slice(0,1).toUpperCase());
+  if(user.avatar){const i=new Image();i.alt='';i.referrerPolicy='no-referrer';i.src=user.avatar;i.onload=()=>av.replaceChildren(i);}
+  const who=el('div','am-who');who.append(el('b','',user.name),el('span','',user.email));
+  const row=el('div','am-user');row.append(av,who);amHead.append(row,el('span','am-plan',plan));
+}
+async function openMenu(){
+  menu.hidden=false;menuBtn.setAttribute('aria-expanded','true');amErrShow('');menuItems()[0]?.focus();
+  try{
+    const s=await Account.getSession();
+    if(!s)return renderHead(null);
+    const user=Account.decodeUser(s.access_token);renderHead(s,user,'—');
+    const acc=await Account.fetchAccount(s);if(acc)renderHead(s,user,PLANS[acc.plan]||'—');
+  }catch{amErrShow('계정 정보를 불러오지 못했습니다.');}
+}
+async function login(){
+  amErrShow('');
+  try{await Account.signIn();await openMenu();}catch{amErrShow('로그인하지 못했습니다. 다시 시도해 주세요.');}
+}
+menuBtn.addEventListener('click',()=>menu.hidden?openMenu():closeMenu(true));
+menu.addEventListener('click',async e=>{
+  const b=e.target.closest('[role=menuitem]');if(!b)return;
+  const{path,href,act}=b.dataset;
+  if(act==='logout'){try{await Account.signOut();renderHead(null);amErrShow('');menuItems()[0]?.focus();}catch{amErrShow('로그아웃하지 못했습니다.');}return;}
+  closeMenu(true);
+  if(act==='options')chrome.runtime.openOptionsPage();else chrome.tabs.create({url:href||Account.SITE+path});
+});
+document.addEventListener('click',e=>{if(!menu.hidden&&!menu.contains(e.target)&&!menuBtn.contains(e.target))closeMenu();});
+document.addEventListener('keydown',e=>{
+  if(menu.hidden)return;
+  if(e.key==='Escape'){e.preventDefault();closeMenu(true);return;}
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){
+    const it=[...(amHead.querySelector('button')?[amHead.querySelector('button')]:[]),...menuItems()],i=it.indexOf(document.activeElement);
+    e.preventDefault();it[(i+(e.key==='ArrowDown'?1:-1)+it.length)%it.length]?.focus();
+  }
+});
