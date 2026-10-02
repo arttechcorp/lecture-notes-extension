@@ -3,7 +3,7 @@
 const fs=require("node:fs"),path=require("node:path"),http=require("node:http"),crypto=require("node:crypto");
 const Vault=require("../lib/vault.js"),{validateSummary}=require("../lib/summary.js");
 const Contracts=require("../lib/contracts.js"),NoteSpec=require("../lib/note-spec.js"),Prompts=require("./prompts.js");
-const {createAuth}=require("./auth.js"),{fileUsage,supabaseUsage,FAIL_CODE}=require("./usage.js");
+const {createAuth}=require("./auth.js"),{fileUsage,supabaseUsage,FAIL_CODE}=require("./usage.js"),{supabaseVault}=require("./vault-store.js");
 const RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"google/gemini-2.5-pro":[1.25,10],"anthropic/claude-haiku-4.5":[1,5],"anthropic/claude-sonnet-4.6":[3,15],"anthropic/claude-sonnet-5":[2,10]};
 // 이미지 입력은 텍스트와 단가가 다르고 출력도 훨씬 짧다. /v1/summary 와 예약 계산을 섞지 않는다.
 const VISION_RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"mistralai/ministral-8b-2512":[.15,.15],"qwen/qwen3-vl-8b-instruct":[.12,.45]};
@@ -103,6 +103,8 @@ const ERRORS={
   // 사용량 저장소(Supabase)나 인증 키 서버에 닿지 못했다. 제공자는 부르지 않았다. 예약 응답을 못 받은 경우 DB에 예약이 남았을 수 있어 재시도는 새 requestId 로 한다.
   usage_store_failed:[503,true,"사용량 저장소에 연결하지 못했습니다. 잠시 후 다시 시도하세요."],
   auth_unavailable:[503,true,"인증 키를 확인하지 못했습니다. 잠시 후 다시 시도하세요."],
+  // JWT 계정의 보관함(Storage·vault_objects)에 닿지 못했다. 보관함 쓰기는 같은 id 로 다시 보내도 안전하다(PUT 은 덮어쓰기, DELETE 는 멱등).
+  vault_store_failed:[503,true,"보관함 저장소에 연결하지 못했습니다. 잠시 후 다시 시도하세요."],
   client_upgrade_required:[426,false,"확장을 최신 버전으로 업데이트하세요."],
   llm_output_truncated:[422,false,"출력이 길이 한도에 걸려 잘렸습니다. 섹션을 나눠 다시 요청하세요."],
   note_spec_mismatch:[409,false,"노트 양식 버전이 서버와 다릅니다. 확장을 업데이트하거나 계획부터 다시 만드세요."],
@@ -154,7 +156,10 @@ function config(env){
     if(!strong(env.SUPABASE_SERVICE_ROLE_KEY,20))throw new Error("SUPABASE_SERVICE_ROLE_KEY required");
     if(!strong(env.USAGE_DIGEST_KEY,32))throw new Error("USAGE_DIGEST_KEY required");
     if(env.SUPABASE_JWT_SECRET&&!strong(env.SUPABASE_JWT_SECRET,32))throw new Error("invalid_supabase_jwt_secret");
-    supabase={url:u.origin,key:env.SUPABASE_SERVICE_ROLE_KEY,secret:env.SUPABASE_JWT_SECRET||undefined,digestKey:env.USAGE_DIGEST_KEY};
+    // 보관함 버킷은 대시보드에서 비공개로 직접 만든다. 이름은 Storage URL 에 그대로 들어가므로 경로 문자를 허용하지 않는다.
+    const bucket=env.VAULT_BUCKET||"vault";
+    if(!/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(bucket))throw new Error("invalid_vault_bucket");
+    supabase={url:u.origin,key:env.SUPABASE_SERVICE_ROLE_KEY,secret:env.SUPABASE_JWT_SECRET||undefined,digestKey:env.USAGE_DIGEST_KEY,bucket};
   }else if(env.SUPABASE_SERVICE_ROLE_KEY||env.SUPABASE_JWT_SECRET)throw new Error("SUPABASE_URL required");
   // JWT 계정의 기능·모델은 DB 등급(effective_plan)을 이 표로 옮겨 정한다. 모르는 등급과 null 은 free 로 닫는다.
   const lite="google/gemini-2.5-flash-lite",planFeatures={free:{features:[],models:[allow.includes(lite)?lite:allow[0]]},paid:{features:["vision","stt","judge","background"],models:allow}},planIn=JSON.parse(env.PLAN_FEATURES_JSON||"{}"),free0=planFeatures.free;
@@ -211,14 +216,15 @@ function createServer(env=process.env,deps={}){
   };
   const save=()=>atomic(usageFile,state);
   const limitFor=account=>Object.hasOwn(c.accountLimits,account)?{features:[],...c.accountLimits[account]}:{models:c.allow,maxRequests:c.maxRequests,maxCostCents:c.maxCents,features:[]};
-  // Supabase 호출은 모두 여기를 지난다: 리다이렉트 금지, 5초 제한, 응답 크기 제한. parse=false 면 본문을 읽지 않는다(profiles upsert).
-  const sbHttp=async(url,init,parse=true)=>{
+  // Supabase 호출은 모두 여기를 지난다: 리다이렉트 금지, 5초 제한(init.signal 로 바꿀 수 있다), 응답 256 KiB 제한(max). parse=false 면 본문을 읽지 않는다(profiles upsert).
+  const sbHttp=async(url,init,parse=true,max=262144)=>{
     const r=await fetcher(url,{redirect:"error",signal:AbortSignal.timeout(5000),...init});
     if(!r.ok||!parse){try{await r.body?.cancel();}catch{}if(!r.ok)throw new Error("supabase_http");return;}
-    return boundedResponse(r,262144);
+    return boundedResponse(r,max);
   };
   const file=fileUsage({state,record,save,month,globalCents:c.globalCents});
   const sb=c.supabase&&supabaseUsage({url:c.supabase.url,key:c.supabase.key,http:sbHttp});
+  const vstore=c.supabase&&supabaseVault({url:c.supabase.url,key:c.supabase.key,bucket:c.supabase.bucket,http:sbHttp});
   const auth=c.supabase&&createAuth({url:c.supabase.url,secret:c.supabase.secret,getJson:url=>sbHttp(url),now:clock});
   // JWT 계정은 장부 digest 를 HMAC 으로 DB에 보낸다 — 강의 본문의 맨 SHA-256 은 사전 공격이 가능하다. 파일 장부(운영자 디스크)는 기존 그대로다.
   const digestOf=(account,s)=>account.jwt?crypto.createHmac("sha256",c.supabase.digestKey).update(s).digest("hex"):crypto.createHash("sha256").update(s).digest("hex");
@@ -258,6 +264,24 @@ function createServer(env=process.env,deps={}){
     const dir=accountDir(account),file=path.join(dir,safePart(id)+".json");
     if(!file.startsWith(dir+path.sep)||fs.existsSync(file)&&fs.lstatSync(file).isSymbolicLink())throw new Error("invalid_path");
     return file;
+  }
+  // JWT 계정의 보관함: 본문 검증과 응답은 디스크 경로와 같고 저장만 Storage + vault_objects 다(server/vault-store.js).
+  // accountDir/fileFor 를 부르지 않으므로 이 계정은 디스크에 아무것도 만들지 않는다. id 없음은 목록이다.
+  async function vaultSb(req,res,user,id){
+    let envelope;
+    if(id&&req.method==="PUT"){
+      const value=await body(req,23*1024*1024);
+      if(Object.keys(value).join(",")!=="envelope")return fail(res,"unexpected_field");
+      Vault.validate(value.envelope,{accountId:user,objectId:id,kind:"session"});
+      envelope=value.envelope;
+    }
+    try{
+      if(!id)return send(res,200,{items:(await vstore.list(user)).map(r=>({objectId:r.object_id}))});
+      if(req.method==="GET"){const found=await vstore.get(user,id);return found?send(res,200,{objectId:id,envelope:found}):fail(res,"not_found");}
+      if(req.method==="DELETE"){await vstore.remove(user,id);return send(res,200,{deleted:true});}
+      if(envelope)return await vstore.put(user,id,JSON.stringify(envelope),{maxFiles:c.maxFiles,maxArchiveBytes:c.maxArchiveBytes})?send(res,200,{objectId:id,saved:true}):fail(res,"archive_quota_exceeded");
+    }catch{return fail(res,"vault_store_failed");}
+    fail(res,"not_found");
   }
   // 모델별 제공자 슬롯. 대기자는 FIFO로 슬롯을 물려받고 타임아웃은 .refund로 구분한다 —
   // 슬롯을 얻지 못한 요청은 제공자에 아무것도 보내지 않았으므로 예약을 정확히 되돌려야 한다.
@@ -545,8 +569,9 @@ function createServer(env=process.env,deps={}){
         const u=q.used||{},cap=q.cap||{};
         return send(res,200,{...head,quota:{month:month(),requests:u.requests??0,maxRequests:cap.monthly_request_cap??null,minutes:u.minutes??0,maxMinutes:cap.monthly_minutes_cap??null,spentCents:(u.cost_micros??0)/1e4,maxCents:(cap.monthly_cost_cap_micros??0)/1e4}});
       }
-      if(req.url==="/v1/vault"&&req.method==="GET")return send(res,200,{items:fs.readdirSync(accountDir(account)).filter(x=>/^[A-Za-z0-9][A-Za-z0-9_-]*\.json$/.test(x)).map(x=>({objectId:x.slice(0,-5)}))});
       const match=req.url?.match(/^\/v1\/vault\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/);
+      if(who.jwt&&(match||req.url==="/v1/vault"&&req.method==="GET"))return await vaultSb(req,res,account,match?.[1]);
+      if(req.url==="/v1/vault"&&req.method==="GET")return send(res,200,{items:fs.readdirSync(accountDir(account)).filter(x=>/^[A-Za-z0-9][A-Za-z0-9_-]*\.json$/.test(x)).map(x=>({objectId:x.slice(0,-5)}))});
       if(match){
         const id=match[1],file=fileFor(account,id);
         if(req.method==="GET"){if(!fs.existsSync(file))return fail(res,"not_found");return send(res,200,{objectId:id,envelope:JSON.parse(fs.readFileSync(file,"utf8"))});}

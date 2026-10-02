@@ -1476,7 +1476,9 @@ function supabaseFake() {
   const f = {
     jwks: { keys: [] }, jwksCalls: 0, jwksDown: false, down: false, plan: "free", planCalls: 0, reserveResult: null, failRpc: {}, upsertOk: true,
     rpcs: [], calls: [], upserts: [], gets: [], reservations: new Map(), other: async () => provider(),
-    rows: { plans: { free: { monthly_cost_cap_micros: 300000, monthly_request_cap: 300, monthly_minutes_cap: 600 }, paid: { monthly_cost_cap_micros: 15000000, monthly_request_cap: null, monthly_minutes_cap: 6000 } }, usage: null },
+    // 보관함: objects 는 Storage("<버킷>/<경로>" → 본문), failStorage/failRows 는 HTTP 메서드별 실패 스위치다.
+    objects: new Map(), storageCalls: [], failStorage: {}, failRows: {},
+    rows: { plans: { free: { monthly_cost_cap_micros: 300000, monthly_request_cap: 300, monthly_minutes_cap: 600 }, paid: { monthly_cost_cap_micros: 15000000, monthly_request_cap: null, monthly_minutes_cap: 6000 } }, usage: null, vault: new Map() },
   };
   f.rpcNamed = name => f.rpcs.filter(r => r.rpc === name);
   f.fetch = async (url, init = {}) => {
@@ -1490,6 +1492,18 @@ function supabaseFake() {
     const headers = init.headers || {};
     f.calls.push({ url, method: init.method || "GET", headers, redirect: init.redirect, bounded: init.signal instanceof AbortSignal });
     if (f.down) throw new TypeError("fetch failed");
+    const bad = status => ({ ok: false, status, json: async () => ({}) });
+    if (u.pathname.startsWith("/storage/v1/object/")) {
+      // 업로드는 POST + x-upsert, 다운로드는 GET, 삭제는 일괄 삭제(DELETE /object/<버킷> {prefixes}) 다. 서비스 롤 키 없이는 401 이다.
+      const method = init.method || "GET", key = u.pathname.slice("/storage/v1/object/".length);
+      f.storageCalls.push({ method, key, headers, body: init.body });
+      if (f.failStorage[method]) return bad(503);
+      if (headers.apikey !== SERVICE_KEY || headers.authorization !== "Bearer " + SERVICE_KEY) return bad(401);
+      if (method === "POST") { if (f.objects.has(key) && headers["x-upsert"] !== "true") return bad(400); f.objects.set(key, init.body); return ok({ Key: key }); }
+      if (method === "GET") return f.objects.has(key) ? ok(JSON.parse(f.objects.get(key))) : bad(404);
+      if (method === "DELETE") { for (const p of JSON.parse(init.body).prefixes) f.objects.delete(key + "/" + p); return ok([]); }
+      return bad(405);
+    }
     const name = u.pathname.slice("/rest/v1/".length);
     if (name.startsWith("rpc/")) {
       const rpc = name.slice(4), args = JSON.parse(init.body);
@@ -1510,6 +1524,20 @@ function supabaseFake() {
     if ((name === "plans" || name === "monthly_usage") && f.failGet) return { ok: false, status: 500, json: async () => ({}) };
     if (name === "plans") { f.gets.push(url); const row = f.rows.plans[(u.searchParams.get("plan") || "").replace(/^eq\./, "")]; return ok(row ? [row] : []); }
     if (name === "monthly_usage") { f.gets.push(url); return ok(f.rows.usage ? [f.rows.usage] : []); }
+    if (name === "vault_objects") {
+      const method = init.method || "GET", eq = k => (u.searchParams.get(k) || "").replace(/^eq\./, "");
+      if (f.failRows[method]) return bad(503);
+      if (method === "GET") return ok([...f.rows.vault.values()].filter(r => r.user_id === eq("user_id")).map(({ object_id, size }) => ({ object_id, size })));
+      if (method === "DELETE") { f.rows.vault.delete(eq("user_id") + ":" + eq("object_id")); return { ok: true, status: 204 }; }
+      if (method === "POST") {
+        // schema-v2.sql 의 vault_objects CHECK·PK·UNIQUE 를 그대로 흉내 낸다.
+        const r = JSON.parse(init.body), key = r.user_id + ":" + r.object_id;
+        const valid = /^[0-9a-f-]{36}$/.test(r.user_id) && /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(r.object_id) && Number.isInteger(r.size) && r.size >= 0 && /^[A-Za-z0-9][A-Za-z0-9/_-]{0,255}$/.test(r.storage_path);
+        if (!valid || [...f.rows.vault].some(([k, o]) => k !== key && o.storage_path === r.storage_path)) return bad(400);
+        if (f.rows.vault.has(key) && !(u.searchParams.get("on_conflict") === "user_id,object_id" && /resolution=merge-duplicates/.test(headers.prefer))) return bad(409);
+        f.rows.vault.set(key, r); return { ok: true, status: 201 };
+      }
+    }
     return { ok: false, status: 404, json: async () => ({}) };
   };
   return f;
@@ -2104,4 +2132,272 @@ test("a failed profile upsert never blocks /v1/me and is retried until it succee
     await req(url, "/v1/summary", "POST", { ...input, requestId: "no-profile" }, ec1({ claims: { sub: UID2 } }));
     assert.equal(sb.upserts.length, 3);
   });
+});
+
+// ── JWT 계정의 보관함 (Storage + vault_objects, server/vault-store.js) ──
+// 가짜 Supabase 가 Storage 와 vault_objects(schema-v2.sql 의 CHECK·UNIQUE 포함)를 함께 흉내 낸다.
+const PASS = "testing-password-123", MIB = 1024 * 1024;
+const vaultEnvelope = (account, objectId, evidence = "private synthetic vault") => Vault.encrypt({ evidence, summary: null }, PASS, { accountId: account, objectId, kind: "session" });
+const vaultReq = (url, id, method, envelope, t) => req(url, "/v1/vault" + (id ? "/" + id : ""), method, envelope === undefined ? undefined : { envelope }, t);
+const vaultRow = (user, id, size) => ({ user_id: user, object_id: id, size, storage_path: user + "/" + id, updated_at: new Date().toISOString() });
+const rowCalls = (sb, method) => sb.calls.filter(c => c.url.includes("/rest/v1/vault_objects") && c.method === method);
+
+test("JWT vault round trip keeps ciphertext in Storage and metadata in vault_objects, never on disk", async () => {
+  await withSupabase(async ({ url, root, sb }) => {
+    const jwt = ec1(), ctx = { accountId: UID, objectId: "object-one", kind: "session" }, key = "vault/" + UID + "/object-one", row = () => sb.rows.vault.get(UID + ":object-one");
+    const e1 = await vaultEnvelope(UID, "object-one", "first"), e2 = await vaultEnvelope(UID, "object-one", "second");
+    let res = await vaultReq(url, "object-one", "PUT", e1, jwt);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { objectId: "object-one", saved: true });
+    // 올라간 것은 검증을 통과한 envelope JSON 그대로이고, 경로는 <버킷>/<user_id>/<object_id> 다(storage_path 의 CHECK 가 '.' 을 막아 확장자가 없다).
+    assert.deepEqual([...sb.objects.keys()], [key]);
+    assert.equal(sb.objects.get(key), JSON.stringify(e1));
+    assert.deepEqual(Object.keys(JSON.parse(sb.objects.get(key))).sort(), ["aad", "alg", "ciphertext", "context", "iv", "kdf", "salt", "version"]);
+    assert.ok(!sb.objects.get(key).includes(PASS) && !sb.objects.get(key).includes("first"));
+    const upload = sb.storageCalls.find(c => c.method === "POST");
+    assert.equal(upload.headers["x-upsert"], "true");
+    assert.deepEqual(Object.keys(row()).sort(), ["object_id", "size", "storage_path", "updated_at", "user_id"]);
+    assert.equal(row().storage_path, UID + "/object-one");
+    assert.equal(row().size, Buffer.byteLength(JSON.stringify(e1)));
+    assert.ok(Number.isFinite(Date.parse(row().updated_at)));
+
+    assert.deepEqual(await (await vaultReq(url, "", "GET", undefined, jwt)).json(), { items: [{ objectId: "object-one" }] });
+    const got = await (await vaultReq(url, "object-one", "GET", undefined, jwt)).json();
+    assert.equal(got.objectId, "object-one");
+    assert.equal((await Vault.decrypt(got.envelope, PASS, ctx)).evidence, "first");
+    await errorOf(await vaultReq(url, "missing", "GET", undefined, jwt), 404, "not_found");
+
+    // 같은 id 로 다시 쓰면 덮어쓴다: 객체도 행도 하나고 크기가 바뀐다.
+    assert.equal((await vaultReq(url, "object-one", "PUT", e2, jwt)).status, 200);
+    assert.equal(sb.objects.size, 1);
+    assert.equal(sb.rows.vault.size, 1);
+    assert.equal(row().size, Buffer.byteLength(JSON.stringify(e2)));
+    assert.equal((await Vault.decrypt((await (await vaultReq(url, "object-one", "GET", undefined, jwt)).json()).envelope, PASS, ctx)).evidence, "second");
+
+    // 큰 envelope(16 MiB 평문 한도 근처)도 읽는다: Supabase 응답 기본 상한(256 KiB)을 보관함 다운로드만 24 MiB 로 올렸다.
+    sb.objects.set("vault/" + UID + "/big", JSON.stringify({ ...e1, ciphertext: "A".repeat(300 * 1024) }));
+    sb.rows.vault.set(UID + ":big", vaultRow(UID, "big", 300 * 1024));
+    const big = await vaultReq(url, "big", "GET", undefined, jwt);
+    assert.equal(big.status, 200);
+    assert.equal((await big.json()).envelope.ciphertext.length, 300 * 1024);
+
+    for (const id of ["object-one", "big"]) {
+      res = await vaultReq(url, id, "DELETE", undefined, jwt);
+      assert.equal(res.status, 200);
+      assert.deepEqual(await res.json(), { deleted: true });
+    }
+    assert.equal(sb.objects.size, 0);
+    assert.equal(sb.rows.vault.size, 0);
+    await errorOf(await vaultReq(url, "object-one", "GET", undefined, jwt), 404, "not_found");
+    assert.deepEqual(await (await vaultReq(url, "", "GET", undefined, jwt)).json(), { items: [] });
+    res = await vaultReq(url, "object-one", "DELETE", undefined, jwt);
+    assert.deepEqual(await res.json(), { deleted: true }, "없는 항목을 지워도 디스크 경로처럼 성공이다");
+
+    // 검증은 디스크 경로와 같고, 거절된 요청은 Storage 에도 표에도 닿지 않는다.
+    const before = sb.calls.length;
+    await errorOf(await vaultReq(url, "object-two", "PUT", e2, jwt), 400, "request_rejected");
+    await errorOf(await req(url, "/v1/vault/object-one", "PUT", { envelope: e1, plaintext: "not allowed" }, jwt), 400, "unexpected_field");
+    await errorOf(await vaultReq(url, "object-one", "PUT", await vaultEnvelope("A", "object-one"), jwt), 400, "request_rejected");
+    await errorOf(await vaultReq(url, "object-one", "PATCH", e1, jwt), 404, "not_found");
+    assert.equal(sb.calls.length, before);
+
+    assert.ok(!fs.existsSync(path.join(root, "vault")), "JWT 계정은 디스크에 아무것도 만들지 않는다");
+    assert.equal(sb.rpcs.length, 0, "보관함은 등급·장부와 무관하다");
+    for (const c of sb.calls) {
+      assert.equal(c.headers.apikey, SERVICE_KEY);
+      assert.equal(c.headers.authorization, "Bearer " + SERVICE_KEY);
+      assert.equal(c.redirect, "error");
+      assert.ok(c.bounded, "시간 제한이 걸린다");
+    }
+  });
+});
+
+test("JWT vault enforces the file and byte limits from the vault_objects rows before uploading", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    const jwt = ec1(), seed = (user, id, size) => sb.rows.vault.set(user + ":" + id, vaultRow(user, id, size));
+    const fresh = await vaultEnvelope(UID, "object-new"), extra = await vaultEnvelope(UID, "object-extra"), mine = await vaultEnvelope(UID, "obj-0");
+    const size = Buffer.byteLength(JSON.stringify(fresh)), uploads = () => sb.storageCalls.filter(c => c.method === "POST").length;
+
+    // 개수: 계정당 100개. 다른 사용자의 행은 세지 않고, 이미 있는 항목을 덮어쓰는 것은 개수에 걸리지 않는다.
+    for (let i = 0; i < 99; i++) seed(UID, "obj-" + i, 10);
+    for (let i = 0; i < 50; i++) seed(UID2, "theirs-" + i, 10);
+    assert.equal((await vaultReq(url, "object-new", "PUT", fresh, jwt)).status, 200, "100번째는 들어간다");
+    assert.equal(uploads(), 1);
+    await errorOf(await vaultReq(url, "object-extra", "PUT", extra, jwt), 413, "archive_quota_exceeded");
+    assert.equal(uploads(), 1, "거절된 요청은 아무것도 올리지 않는다");
+    assert.ok(!sb.rows.vault.has(UID + ":object-extra"));
+    assert.equal((await vaultReq(url, "obj-0", "PUT", mine, jwt)).status, 200, "덮어쓰기는 개수에 걸리지 않는다");
+    assert.equal(uploads(), 2);
+    assert.equal((await vaultReq(url, "", "GET", undefined, jwt).then(r => r.json())).items.length, 100);
+
+    // 용량: 계정당 200 MiB. 한도에 정확히 맞으면 통과하고 1바이트 넘으면 거절한다. 덮어쓸 때는 자기 크기를 뺀다.
+    sb.rows.vault.clear();
+    seed(UID, "big", 200 * MIB - size + 1);
+    await errorOf(await vaultReq(url, "object-new", "PUT", fresh, jwt), 413, "archive_quota_exceeded");
+    seed(UID, "big", 200 * MIB - size);
+    assert.equal((await vaultReq(url, "object-new", "PUT", fresh, jwt)).status, 200);
+    seed(UID, "object-new", 200 * MIB);
+    seed(UID2, "theirs", 200 * MIB);
+    assert.equal((await vaultReq(url, "object-new", "PUT", fresh, jwt)).status, 200, "자기 자신의 이전 크기는 빠진다");
+    assert.equal(sb.rows.vault.get(UID + ":object-new").size, size);
+    assert.equal(uploads(), 4);
+  });
+});
+
+test("a Storage failure leaves vault_objects untouched, and a failed row write leaves only an unlisted object that a retry heals", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    const jwt = ec1(), e1 = await vaultEnvelope(UID, "object-one", "first"), e2 = await vaultEnvelope(UID, "object-one", "second"), e3 = await vaultEnvelope(UID, "object-two");
+    const listed = async () => (await (await vaultReq(url, "", "GET", undefined, jwt)).json()).items.map(i => i.objectId);
+
+    // PUT 은 Storage 먼저다. 업로드가 실패하면 표에는 쓰지 않는다(행 쓰기를 시도조차 하지 않는다).
+    sb.failStorage.POST = true;
+    const err = await errorOf(await vaultReq(url, "object-one", "PUT", e1, jwt), 503, "vault_store_failed");
+    assert.equal(err.retryable, true);
+    assert.equal(sb.rows.vault.size, 0);
+    assert.equal(sb.objects.size, 0);
+    assert.equal(rowCalls(sb, "POST").length, 0);
+    assert.deepEqual(await listed(), []);
+
+    // 덮어쓰기가 실패해도 이전 행과 이전 객체가 그대로다.
+    sb.failStorage.POST = false;
+    assert.equal((await vaultReq(url, "object-one", "PUT", e1, jwt)).status, 200);
+    const oldSize = sb.rows.vault.get(UID + ":object-one").size;
+    sb.failStorage.POST = true;
+    await errorOf(await vaultReq(url, "object-one", "PUT", e2, jwt), 503, "vault_store_failed");
+    assert.equal(sb.rows.vault.get(UID + ":object-one").size, oldSize);
+    assert.equal(sb.objects.get("vault/" + UID + "/object-one"), JSON.stringify(e1));
+    sb.failStorage.POST = false;
+
+    // 업로드 뒤 행 쓰기가 실패하면 객체만 남는다: 목록·읽기·용량에는 없고, 같은 id 의 PUT 을 다시 보내면 정상이 된다.
+    sb.failRows.POST = true;
+    await errorOf(await vaultReq(url, "object-two", "PUT", e3, jwt), 503, "vault_store_failed");
+    assert.ok(sb.objects.has("vault/" + UID + "/object-two"));
+    assert.ok(!sb.rows.vault.has(UID + ":object-two"));
+    assert.deepEqual(await listed(), ["object-one"]);
+    await errorOf(await vaultReq(url, "object-two", "GET", undefined, jwt), 404, "not_found");
+    sb.failRows.POST = false;
+    assert.equal((await vaultReq(url, "object-two", "PUT", e3, jwt)).status, 200);
+    assert.deepEqual((await listed()).sort(), ["object-one", "object-two"]);
+    assert.equal(sb.objects.size, 2);
+
+    // DELETE 도 Storage 먼저다. 실패하면 행이 남아 목록에서 다시 지울 수 있다.
+    sb.failStorage.DELETE = true;
+    await errorOf(await vaultReq(url, "object-one", "DELETE", undefined, jwt), 503, "vault_store_failed");
+    assert.ok(sb.rows.vault.has(UID + ":object-one"));
+    assert.ok(sb.objects.has("vault/" + UID + "/object-one"));
+    assert.deepEqual((await listed()).sort(), ["object-one", "object-two"]);
+    sb.failStorage.DELETE = false;
+    assert.equal((await vaultReq(url, "object-one", "DELETE", undefined, jwt)).status, 200);
+    assert.deepEqual(await listed(), ["object-two"]);
+
+    // Storage 삭제 뒤 행 삭제가 실패하면 행만 남는다. 읽기는 503 이고(Storage 오류를 없음으로 읽지 않는다) 재시도가 행을 치운다.
+    sb.failRows.DELETE = true;
+    await errorOf(await vaultReq(url, "object-two", "DELETE", undefined, jwt), 503, "vault_store_failed");
+    assert.equal(sb.objects.size, 0);
+    assert.ok(sb.rows.vault.has(UID + ":object-two"));
+    await errorOf(await vaultReq(url, "object-two", "GET", undefined, jwt), 503, "vault_store_failed");
+    sb.failRows.DELETE = false;
+    assert.equal((await vaultReq(url, "object-two", "DELETE", undefined, jwt)).status, 200);
+    assert.deepEqual(await listed(), []);
+
+    // 읽기·목록도 저장소가 닫히면 503 이다.
+    sb.failRows.GET = true;
+    await errorOf(await vaultReq(url, "", "GET", undefined, jwt), 503, "vault_store_failed");
+    await errorOf(await vaultReq(url, "object-one", "GET", undefined, jwt), 503, "vault_store_failed");
+    sb.failRows.GET = false;
+    sb.down = true;
+    await errorOf(await vaultReq(url, "", "GET", undefined, jwt), 503, "vault_store_failed");
+    await errorOf(await vaultReq(url, "object-one", "PUT", e1, jwt), 503, "vault_store_failed");
+  });
+});
+
+test("static-token accounts keep the disk vault even when Supabase is configured", async () => {
+  await withSupabase(async ({ url, root, sb }) => {
+    const e = await vaultEnvelope("A", "object-one"), file = path.join(root, "vault", "A", "object-one.json");
+    assert.equal((await vaultReq(url, "object-one", "PUT", e)).status, 200);
+    assert.equal(fs.readFileSync(file, "utf8"), JSON.stringify(e));
+    assert.deepEqual(await (await vaultReq(url, "", "GET")).json(), { items: [{ objectId: "object-one" }] });
+    assert.equal((await Vault.decrypt((await (await vaultReq(url, "object-one", "GET")).json()).envelope, PASS, { accountId: "A", objectId: "object-one", kind: "session" })).evidence, "private synthetic vault");
+    assert.equal(sb.calls.length, 0, "정적 계정은 Supabase 에 아무것도 보내지 않는다");
+    assert.equal(sb.objects.size + sb.rows.vault.size, 0);
+
+    // 같은 id 의 JWT 사용자는 완전히 따로다: 디스크 파일은 그대로고, JWT 쪽 데이터는 Storage 에만 있다.
+    const mine = await vaultEnvelope(UID, "object-one", "jwt only");
+    assert.equal((await vaultReq(url, "object-one", "PUT", mine, ec1())).status, 200);
+    assert.equal(fs.readFileSync(file, "utf8"), JSON.stringify(e));
+    assert.deepEqual(fs.readdirSync(path.join(root, "vault")), ["A"]);
+    assert.deepEqual([...sb.objects.keys()], ["vault/" + UID + "/object-one"]);
+
+    assert.equal((await vaultReq(url, "object-one", "DELETE")).status, 200);
+    assert.ok(!fs.existsSync(file));
+    assert.ok(sb.objects.has("vault/" + UID + "/object-one"), "정적 계정의 삭제가 JWT 사용자의 객체를 건드리지 않는다");
+  });
+});
+
+test("JWT vault paths carry the user id, so one user can never reach another's object", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    const a = ec1(), b = ec1({ claims: { sub: UID2 } }), ea = await vaultEnvelope(UID, "object-one", "alice"), eb = await vaultEnvelope(UID2, "object-one", "bob");
+    assert.equal((await vaultReq(url, "object-one", "PUT", ea, a)).status, 200);
+
+    // B 는 같은 id 로 A 의 항목을 읽지도, 목록에서 보지도, 지우지도 못한다.
+    await errorOf(await vaultReq(url, "object-one", "GET", undefined, b), 404, "not_found");
+    assert.deepEqual(await (await vaultReq(url, "", "GET", undefined, b)).json(), { items: [] });
+    assert.equal((await vaultReq(url, "object-one", "DELETE", undefined, b)).status, 200);
+    assert.equal(sb.objects.get("vault/" + UID + "/object-one"), JSON.stringify(ea));
+    assert.ok(sb.rows.vault.has(UID + ":object-one"));
+
+    // A 의 암호문을 B 의 이름으로 쓰려 해도 문맥(accountId)이 달라 거절되고, B 가 자기 것을 쓰면 경로가 따로다.
+    await errorOf(await vaultReq(url, "object-one", "PUT", ea, b), 400, "request_rejected");
+    assert.equal((await vaultReq(url, "object-one", "PUT", eb, b)).status, 200);
+    assert.deepEqual([...sb.objects.keys()].sort(), ["vault/" + UID + "/object-one", "vault/" + UID2 + "/object-one"].sort());
+    assert.equal((await Vault.decrypt((await (await vaultReq(url, "object-one", "GET", undefined, a)).json()).envelope, PASS, { accountId: UID, objectId: "object-one", kind: "session" })).evidence, "alice");
+    assert.equal((await Vault.decrypt((await (await vaultReq(url, "object-one", "GET", undefined, b)).json()).envelope, PASS, { accountId: UID2, objectId: "object-one", kind: "session" })).evidence, "bob");
+    // 정적 계정도 JWT 사용자의 객체를 보지 못한다(디스크만 본다).
+    await errorOf(await vaultReq(url, "object-one", "GET"), 404, "not_found");
+
+    // 경로를 바꾸는 id 는 라우트에서 걸러져 Storage 까지 가지 않는다.
+    const before = sb.storageCalls.length;
+    for (const id of ["a%2Fb", "..%2F" + UID2 + "%2Fobject-one", "a.b", "a%00b"]) await errorOf(await vaultReq(url, id, "GET", undefined, a), 404, "not_found");
+    assert.equal(sb.storageCalls.length, before);
+    // 모든 Storage 호출의 경로는 그 요청의 토큰 sub 로 시작했다. 사용자 id 는 요청 본문·경로에서 받지 않는다.
+    for (const c of sb.storageCalls) assert.match(c.key, c.method === "DELETE" ? /^vault$/ : new RegExp("^vault/(" + UID + "|" + UID2 + ")/object-one$"));
+    for (const c of sb.storageCalls.filter(c => c.method === "DELETE")) assert.match(c.body, new RegExp('^\\{"prefixes":\\["(' + UID + "|" + UID2 + ')/object-one"\\]\\}$'));
+  });
+});
+
+test("the service-role key and Supabase internals never appear in a vault response", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    const jwt = ec1(), e = await vaultEnvelope(UID, "object-one"), seen = [];
+    const call = async (id, method, envelope) => { const res = await vaultReq(url, id, method, envelope, jwt); seen.push(JSON.stringify([...res.headers]) + await res.text()); return res.status; };
+    assert.equal(await call("object-one", "PUT", e), 200);
+    assert.equal(await call("object-one", "GET"), 200);
+    assert.equal(await call("", "GET"), 200);
+    assert.equal(await call("missing", "GET"), 404);
+    assert.equal(await call("object-one", "DELETE"), 200);
+    sb.failStorage = { POST: true, GET: true, DELETE: true };
+    assert.equal(await call("object-one", "PUT", e), 503);
+    assert.equal(await call("object-one", "DELETE"), 503);
+    sb.down = true;
+    assert.equal(await call("", "GET"), 503);
+    assert.equal(seen.length, 8);
+    for (const secret of [SERVICE_KEY, DIGEST_KEY, JWT_SECRET, SB, "supabase", "storage/v1", "rest/v1", "vault_objects"])
+      assert.ok(!seen.join("\n").includes(secret), "응답에 있으면 안 된다: " + secret);
+  });
+});
+
+test("VAULT_BUCKET picks the Storage bucket (default vault) and rejects names that could change the path", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    assert.equal((await vaultReq(url, "object-one", "PUT", await vaultEnvelope(UID, "object-one"), ec1())).status, 200);
+    assert.deepEqual([...sb.objects.keys()], ["lecture-vault/" + UID + "/object-one"]);
+    assert.equal((await vaultReq(url, "object-one", "DELETE", undefined, ec1())).status, 200);
+    assert.equal(JSON.parse(sb.storageCalls.at(-1).body).prefixes[0], UID + "/object-one");
+    assert.equal(sb.storageCalls.at(-1).key, "lecture-vault");
+  }, { env: { VAULT_BUCKET: "lecture-vault" } });
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  try {
+    assert.equal(serverConfig(sbEnv(root)).supabase.bucket, "vault");
+    assert.equal(serverConfig({ ...sbEnv(root), VAULT_BUCKET: "" }).supabase.bucket, "vault");
+    for (const bad of ["a/b", "../x", "a b", "-x", "x".repeat(64), "a?b"])
+      assert.throws(() => createServer({ ...sbEnv(root), VAULT_BUCKET: bad }), /invalid_vault_bucket/, bad);
+  } finally { removeTemp(root); }
 });

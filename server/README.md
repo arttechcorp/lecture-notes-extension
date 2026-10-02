@@ -36,6 +36,7 @@ SUPABASE_URL=https://<프로젝트 ref>.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=<서비스 롤 키, 서버 전용>
 USAGE_DIGEST_KEY=<32자 이상 난수, 서버 전용>
 SUPABASE_JWT_SECRET=<HS256 프로젝트일 때만>
+VAULT_BUCKET=vault
 PLAN_FEATURES_JSON={"paid":{"features":["vision","stt","judge","background"]}}
 ```
 
@@ -69,21 +70,23 @@ PLAN_FEATURES_JSON={"paid":{"features":["vision","stt","judge","background"]}}
 | `SUPABASE_SERVICE_ROLE_KEY` | PostgREST RPC·표 호출 전용(`apikey` + `Authorization: Bearer`). JWKS 호출에는 보내지 않는다. 확장·로그·오류 본문에 넣지 않는다 |
 | `USAGE_DIGEST_KEY` | 32자 이상. 요청 본문 digest를 HMAC-SHA256으로 만드는 서버 비밀. 없으면 기동 거부 |
 | `SUPABASE_JWT_SECRET` | 선택(32자 이상). 있으면 **HS256만** 받고 JWKS는 쓰지 않는다. 없으면 JWKS의 **ES256/RS256만** 받는다. 레거시 HS256 프로젝트면 설정하고, 비대칭 서명 키로 옮겼다면 지운다 |
+| `VAULT_BUCKET` | 선택(기본 `vault`). JWT 계정의 보관함 암호문을 두는 Storage 버킷 이름(영문·숫자·`_`·`-`, 63자 이하). **비공개 버킷**이어야 하고 서버가 만들지 않는다 — 대시보드에서 직접 만든다(아래 설정 순서 3) |
 | `PLAN_FEATURES_JSON` | 선택. 등급별 `{features, models}`. 기본값 `free: {features: [], models: [요약 lite 모델]}`, `paid: {features: ["vision","stt","judge","background"], models: ALLOWED_MODELS 전체}`. 빠진 키는 기본값을 유지하고 모르는 기능 이름이나 `ALLOWED_MODELS` 밖의 모델은 기동 거부 |
 
 **설정 순서**
 
 1. Supabase 프로젝트를 만들고(서울 리전 권장) SQL Editor에서 `supabase/schema.sql` → `supabase/schema-v2.sql`을 순서대로 실행한다(둘 다 멱등). `plans` 한도는 자리표시 값(`placeholder=true`)이니 확정 값으로 고친다.
 2. Auth에서 Google 로그인을 켠다. 액세스 토큰 수명은 기본 1시간을 유지한다(짧을수록 탈취 피해가 작다). 익명 로그인은 서버가 거절한다(`is_anonymous`).
-3. 서버에 `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `USAGE_DIGEST_KEY`를 비밀 관리 도구로 주입한다(HS256 프로젝트면 `SUPABASE_JWT_SECRET`도). `USAGE_DIGEST_KEY`를 바꾸면 그 순간 진행 중이던 requestId의 재시도가 `idempotency_content_mismatch`로 보일 수 있다.
-4. (선택) `PLAN_FEATURES_JSON`. 테스트 계정은 `admin_grant_plan(user, 'paid')`로 등급을 준다.
-5. 기동 후 JWT로 `GET /v1/me`를 호출해 `plan`·`features`를 확인한다. 정적 토큰이 더 필요 없으면 `APP_TOKENS_JSON`을 비운다.
+3. Supabase 대시보드 Storage에서 **비공개(Public 끔) 버킷**을 만든다(이름은 `VAULT_BUCKET`, 기본 `vault`). 버킷 파일 크기 제한은 envelope 최대치(약 22 MiB) 이상이어야 한다(기본 50 MB면 충분). 정책(RLS)은 추가하지 않는다 — 접근은 서버의 서비스 롤 키만 쓴다. 버킷이 없으면 JWT 계정의 보관함 저장이 `503 vault_store_failed`로 실패한다.
+4. 서버에 `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `USAGE_DIGEST_KEY`를 비밀 관리 도구로 주입한다(HS256 프로젝트면 `SUPABASE_JWT_SECRET`도). `USAGE_DIGEST_KEY`를 바꾸면 그 순간 진행 중이던 requestId의 재시도가 `idempotency_content_mismatch`로 보일 수 있다.
+5. (선택) `PLAN_FEATURES_JSON`. 테스트 계정은 `admin_grant_plan(user, 'paid')`로 등급을 준다.
+6. 기동 후 JWT로 `GET /v1/me`를 호출해 `plan`·`features`를 확인한다. 정적 토큰이 더 필요 없으면 `APP_TOKENS_JSON`을 비운다.
 
 **토큰 검증** (Node `crypto`만 사용). 서명이 맞은 뒤에만 클레임을 본다:
 
 - `exp`는 5초 여유(`nbf`도), `aud`는 `authenticated`(문자열 또는 배열), `iss`는 `<SUPABASE_URL>/auth/v1`, `role`은 `authenticated`, `sub`는 uuid. anon·service_role 키 JWT와 익명 로그인은 여기서 걸린다.
 - `alg`는 헤더가 아니라 설정이 정한다(`none`, HS/RS 혼동, JWKS만 설정한 서버에서의 HS256은 모두 거절). ES256 토큰은 EC P-256 키, RS256은 2048비트 이상 RSA 키로만 검증한다.
-- JWKS(`<SUPABASE_URL>/auth/v1/.well-known/jwks.json`)는 10분 캐시한다. 모르는 `kid`는 10초에 한 번까지만 다시 받아 키 회전을 따라가므로 회전 직후 최대 10초간 새 키 토큰이 401일 수 있다. 다시 받기에 실패하면 가진 키로 계속 검증하고, 키가 하나도 없을 때만 `auth_unavailable`(503, 재시도 가능)이다. Supabase 호출은 모두 5초 제한, 리다이렉트 금지, 응답 256 KiB 제한이다.
+- JWKS(`<SUPABASE_URL>/auth/v1/.well-known/jwks.json`)는 10분 캐시한다. 모르는 `kid`는 10초에 한 번까지만 다시 받아 키 회전을 따라가므로 회전 직후 최대 10초간 새 키 토큰이 401일 수 있다. 다시 받기에 실패하면 가진 키로 계속 검증하고, 키가 하나도 없을 때만 `auth_unavailable`(503, 재시도 가능)이다. Supabase 호출은 모두 5초 제한, 리다이렉트 금지, 응답 256 KiB 제한이다(보관함 Storage 업로드·다운로드만 60초, 다운로드 응답 24 MiB).
 - 로그아웃·폐기된 토큰은 `exp`까지 유효하다(서버가 세션을 조회하지 않는다).
 - 만료된 토큰은 `401 token_expired`(서명이 맞는 토큰에만), 나머지 실패는 `401 unauthorized`다. 클라이언트는 `token_expired`면 갱신 토큰으로 새 토큰을 받아 한 번 다시 보내고 `unauthorized`면 다시 로그인한다.
 
@@ -100,13 +103,18 @@ PLAN_FEATURES_JSON={"paid":{"features":["vision","stt","judge","background"]}}
 
 **`GET /v1/me`**: 모든 계정이 `{accountId, models, features, config, quota, noteSpecVersion, promptVersion}`을 받는다. `noteSpecVersion`·`promptVersion`은 `/v1/plan`·`/v1/write` 응답과 같은 값(`lib/note-spec.js`, `server/prompts.js`의 `PROMPT_VERSION`)이라 클라이언트가 호출 전에 맞는지 본다(`config.promptVersion`은 비전·판정용 원격 설정으로 별개다). JWT 계정은 `accountId`가 `sub`이고 `plan`이 더해지며 `quota`는 DB 값이다: `{month, requests, maxRequests, minutes, maxMinutes, spentCents, maxCents}`(상한이 `null`이면 무제한, 등급 줄이 없으면 `maxCents` 0). 정적 계정의 `quota`는 기존 모양이다. 첫 `/v1/me`에서 `profiles` 줄을 `on_conflict=user_id` + `resolution=ignore-duplicates`로 한 번 만든다(이미 있는 등급은 건드리지 않고, 실패해도 `/v1/me`는 막지 않으며 다음 호출이 다시 시도한다).
 
-보관함(`/v1/vault`) 라우트는 아직 계정 종류와 무관하게 `VAULT_DIR`의 파일을 쓴다(Supabase Storage 이전은 별도 단계).
+**보관함(`/v1/vault`)**: 요청·응답 모양, 검증(`lib/vault.js`), 상태 코드, 오류 코드, 한도(항목 100개, 200 MiB)는 계정 종류와 무관하게 같고 저장소만 다르다.
+
+- 정적 토큰 계정: `VAULT_DIR`의 파일(아래 "데이터와 운영 경계").
+- JWT 계정: 서버 디스크에는 아무것도 쓰지 않는다. envelope JSON은 비공개 Storage 버킷(`VAULT_BUCKET`)의 `<user_id>/<object_id>`에, 목록·용량은 `vault_objects` 행에 둔다. `user_id`는 검증된 토큰의 `sub`뿐이라 다른 사용자의 객체에는 닿을 수 없다. 객체 이름에 `.json`을 붙이지 않는다 — `storage_path`의 CHECK가 `.`을 막고 계정 삭제가 이 칸을 그대로 Storage 경로로 읽는다. 서비스 롤 키로 업로드는 `POST /storage/v1/object/<bucket>/<path>` + `x-upsert: true`, 읽기는 `GET`(행이 있을 때만), 삭제는 `DELETE /storage/v1/object/<bucket>` `{prefixes}`(없는 객체에도 200이라 멱등)이고 행은 PostgREST로 upsert/삭제한다. PUT은 올리기 전에 이 사용자의 행으로 개수·용량(덮어쓸 때는 자기 크기 제외)을 따져 넘으면 `413 archive_quota_exceeded`다. 읽고-쓰기라 같은 사용자의 동시 PUT 몇 개는 한도를 약간 넘길 수 있다.
+- **쓰기 순서는 Storage 먼저, 행은 그다음이다**(PUT도 DELETE도). Storage가 실패하면 표는 그대로라 행이 있으면 객체가 있다. 실패는 `503 vault_store_failed`이고 같은 요청을 그대로 다시 보내도 안전하다. 행 쓰기만 실패하면 객체만 남는데 목록·용량·읽기에 안 잡히고, 같은 id의 PUT 재시도가 덮어쓰고 DELETE가 지운다(표와 버킷을 대조해 치우는 청소는 아직 없다). DELETE에서 Storage 삭제 뒤 행 삭제가 실패하면 행이 남아 읽기가 503이고 DELETE 재시도가 정리한다.
+- 계정 삭제(`delete_account_data`: Storage 객체 → RPC → auth 사용자)를 부르는 서버 라우트는 아직 없다. 만들 때는 `storage_path` 목록 외에 `<user_id>/` 아래 남은 행 없는 객체도 지운다.
 
 ## 데이터와 운영 경계
 
 - 요청/응답 본문을 로깅하지 않는다. 역방향 프록시·APM·오류 수집 도구에도 본문/Authorization 로깅을 끈다.
 - 추론 텍스트는 서비스·OpenRouter 제공자 메모리에서 일시 평문 처리된다. 요청은 HTTPS로 전송하고 ZDR/학습 거부/공급자 고정/fallback 금지를 요청한다. 실제 계약과 처리 국가를 따로 검증한다.
-- 보관함은 확장에서 암호화한 AES-GCM envelope만 허용한다. 계정/문서/종류 AAD, 엄격한 필드 검증, 최대 평문 16 MiB에 해당하는 envelope, 계정당 100개/200 MiB를 제한한다.
+- 보관함은 확장에서 암호화한 AES-GCM envelope만 허용한다. 계정/문서/종류 AAD, 엄격한 필드 검증, 최대 평문 16 MiB에 해당하는 envelope, 계정당 100개/200 MiB를 제한한다. Storage에는 envelope JSON만 올라가고 `vault_objects`에는 크기·시각·경로(제목 없음)만 남는다.
 - 서버는 암호·복호화 키를 받지 않는다. 암호 분실 복구는 없다. `DELETE /v1/vault/:id`는 현재 보관 파일을 삭제한다. 백업이 있다면 백업 파기 기간과 처리 방법은 운영자가 별도로 정해야 한다.
 - 파일 경로는 서비스만 쓰는 전용 디렉터리로 지정한다. 일반 사용자나 다른 프로세스가 파일/심볼릭 링크를 교체할 수 있는 경로를 쓰지 않는다.
 - 실제 서비스는 영속 볼륨과 HTTPS reverse proxy를 갖춘 별도 호스트에서 운영한다. 본문 버퍼의 임시 디스크 기록, 스왑/코어 덤프, 접근 기록·백업·키 관리도 점검한다. 개발용 localhost 외에 확장 서비스 URL은 HTTPS만 허용한다.
@@ -119,7 +127,7 @@ PLAN_FEATURES_JSON={"paid":{"features":["vision","stt","judge","background"]}}
 
 원장 JSON이 손상되면 기동을 거부한다. 임의로 원장을 삭제하면 이력이 없어지므로 백업을 복구하고 비용을 대조해야 한다. 한 원장 파일을 여러 프로세스/서버리스 인스턴스가 함께 쓰면 안전하지 않다. 확장 전에 DB 트랜잭션으로 예약·중복 방지를 이전한다.
 
-오류 응답은 `{error:{code,message,retryable,retryAfterMs}}` 봉투다. 인증·저장소 오류는 `unauthorized`(401), `token_expired`(401), `auth_unavailable`(503, 재시도 가능), `usage_store_failed`(503, 재시도 가능, 새 requestId)다. 같은 requestId는 멱등하며 중복은 409다. 제공자 호출이 나간 뒤 실패하면 예약은 "uncertain"으로 남아 비용을 보수적으로 잡으므로 5xx 뒤 재시도는 새 requestId(예: 원본 + "-r1")를 써야 한다. `provider_busy`는 제공자에 아무것도 보내지 않은 요청이라 예약이 정확히 되돌아가며 같은 requestId로 재시도할 수 있다. `retryable`과 `retryAfterMs`는 429 재시도 대기 힌트다.
+오류 응답은 `{error:{code,message,retryable,retryAfterMs}}` 봉투다. 인증·저장소 오류는 `unauthorized`(401), `token_expired`(401), `auth_unavailable`(503, 재시도 가능), `usage_store_failed`(503, 재시도 가능, 새 requestId), `vault_store_failed`(503, 재시도 가능, JWT 계정의 보관함 Storage·`vault_objects` 호출 실패 — 같은 요청을 그대로 다시 보낸다)다. 같은 requestId는 멱등하며 중복은 409다. 제공자 호출이 나간 뒤 실패하면 예약은 "uncertain"으로 남아 비용을 보수적으로 잡으므로 5xx 뒤 재시도는 새 requestId(예: 원본 + "-r1")를 써야 한다. `provider_busy`는 제공자에 아무것도 보내지 않은 요청이라 예약이 정확히 되돌아가며 같은 requestId로 재시도할 수 있다. `retryable`과 `retryAfterMs`는 429 재시도 대기 힌트다.
 
 ## 화면 인식(비전)
 
