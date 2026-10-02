@@ -80,6 +80,9 @@
 | D13 | 개발·테스트용 어드민 페이지: 전체 파이프라인과 실시간 작업, 로그를 본다 | 3 |
 | D14 | 사용자 로컬 로그를 암호화해 보관한다(이후 디버그용) | 3 |
 | D15 | 구현은 `/devin-delegation`과 `/agy-delegation`을 사용한다 | 3 |
+| D16 | STT는 OpenRouter의 `microsoft/mai-transcribe-2`를 쓴다(Groq 아님). §6.2·§10.2 | 5 |
+| D17 | Supabase 작업은 Supabase CLI로 한다(`supabase/config.toml`, `db query`, `seed buckets`, `config push`) | 5 |
+| D18 | 노트 계약의 열린 결정 6건을 확정했다(`docs/note-contract.md` §18). 가상 사례·강의 밖 보강은 유료 전용 생성 옵션, 디자인만 바뀌면 H만 다시 렌더링, 화자 분리 STT 없음, 간단한 표·그래프만 HTML, 권장량은 테스트하며 조정, 시험 모드 버튼은 생성 옵션 옆 | 5 |
 
 ## 4. 요구사항과 목표치 (SLO, 초기값이며 Phase 0 실측 후 확정)
 
@@ -245,12 +248,19 @@
 ### 6.2 B. 인식
 
 **STT (유료)**
+- **공급자(D16)**: OpenRouter `POST /api/v1/audio/transcriptions`, 모델 `microsoft/mai-transcribe-2`(Azure). `response_format:"verbose_json"`, `timestamp_granularities:["segment","word"]`로 구간·단어 시각을 받는다. OpenRouter는 요청마다 상류 60초 제한이 있다.
 - 청크: **≤5분이면서 ≤8MB**. 경계는 목표 지점 근처의 무음에서 자르고(VAD), 앞뒤 1~3초를 겹친다. 단어 타임스탬프로 겹침 구간의 중복을 지운다.
+- **입력 형식(확인 필요)**:
+  - 청크는 AAC를 재인코딩하지 않은 m4a다.
+  - MAI-Transcribe 2 모델 카드는 WAV·MP3·FLAC만 적고, OpenRouter 문서는 m4a·aac도 받는다고 적는다. 실제로 받는지 Phase 0 A1에서 먼저 확인한다.
+  - 안 되면 오디오 디코더로 16kHz 모노 WAV를 만든다. 5분이면 약 9.6MB라 청크 상한을 다시 정한다.
 - **VAD 게이트**: 무음이나 음악만 있는 구간은 보내지 않는다. 원가가 줄고 환각도 막힌다.
 - **환각 필터**:
-  - 세그먼트 품질값을 본다(Whisper 기본 임계값: `no_speech_prob>0.6`이면서 `avg_logprob<-1.0`, 또는 `compression_ratio>2.4`). Groq `verbose_json`에서 이 필드가 오는지는 Phase 0에서 확인한다.
+  - 세그먼트 품질값을 본다(Whisper 기본 임계값: `no_speech_prob>0.6`이면서 `avg_logprob<-1.0`, 또는 `compression_ratio>2.4`). MAI-Transcribe 2는 이 값을 주지 않으므로(시각과 선택적 단어 신뢰도만) 이 규칙은 로컬 Whisper(Free)에만 남는다. 유료 경로는 VAD, 아래 문구 목록, 단어 신뢰도(올 때)로 거른다.
   - 저에너지 구간의 알려진 환각 문구("시청해주셔서 감사합니다", "구독과 좋아요" 등)를 지운다.
-- **용어 힌트**: 같은 시간대 슬라이드에서 뽑은 용어(규칙 기반 TF-IDF 상위)와 과목 용어집을 `prompt`로 넣는다. Whisper prompt는 **마지막 224토큰만 반영**되므로 그 안으로 자른다.
+- **용어 힌트**: 같은 시간대 슬라이드에서 뽑은 용어(규칙 기반 TF-IDF 상위)와 과목 용어집을 쓴다.
+  - MAI-Transcribe 2는 `prompt`를 무시한다. 같은 용어를 `provider.options.azure.phraseList.phrases`로 보낸다(개수 상한은 Phase 0에서 확인).
+  - 로컬 Whisper는 `prompt`로 넣고, **마지막 224토큰만 반영**되므로 그 안으로 자른다.
 - 언어: 기본 `ko`, 설정에서 `en`. 혼용 강의는 `ko`에 용어 힌트를 더한다.
 
 **비전 (유료)**
@@ -378,7 +388,7 @@
   - Free: 재생 중에 로컬 인식과 C 단계까지 끝내 두므로, 종료 후 E~H만 남는다. 로컬 엔진은 늘리지 않는다(M1 8GB, OCR 1과 Whisper 1).
 - **Rate limit**:
   - 운영 키를 모든 사용자가 공유하므로 서버에 공급자별 세마포어와 사용자별 토큰 버킷을 둔다. 넘으면 대기열 또는 `429 + Retry-After`.
-  - 공급자의 rate limit 티어(예: Groq의 오디오 초·RPM)를 Phase 0에서 확인하고, 필요하면 상향을 신청한다(D11).
+  - 공급자의 rate limit 티어(예: OpenRouter 계정 한도와 STT 요청 수)를 Phase 0에서 확인하고, 필요하면 상향을 신청한다(D11).
 - **배치 API(50% 할인, 최대 24시간 지연)**: 대화형 제품에 맞지 않아 제외한다.
 
 ## 8. 신뢰성
@@ -390,7 +400,7 @@
 
 **단계 결과 캐시와 멱등성**
 - 각 단계 결과를 `sha256(stage, inputDigest, model, promptVersion, schemaVersion)` 키로 패키지에 저장한다.
-- 다시 생성할 때 바뀐 단계 이후만 실행한다. 템플릿만 바뀌면 E~H만 돌고, LLM 비용만 든다.
+- 다시 생성할 때 바뀐 단계 이후만 실행한다. 템플릿·CSS·토큰만 바뀌면 H만 다시 렌더링해 LLM 비용이 들지 않는다(D18, `docs/note-contract.md` §13). 노트 계약(슬롯)이 바뀌면 E~H다.
 - 모든 서버 요청에는 `requestId`가 붙는다. 서버는 같은 `requestId`의 두 번째 요청을 409로 막으므로(예약·다이제스트 중복 방지) **같은 요청이 두 번 과금되지 않는다.** 서버는 결과를 저장하지 않아 같은 id로 다시 보내도 결과를 돌려받을 수 없다.
 
 **재시도 책임 분리**
@@ -455,7 +465,7 @@
 3. 사용 범위 2항목(D9): 백그라운드에 필요.
 
 **법·정책 준수**
-- **개인정보보호법**: 처리위탁과 **국외이전 고지**(Groq, OpenRouter와 하위 공급자, TypeSafe 등 미국 소재). 계정을 삭제하면 프로필·보관함·피드백을 지우고, `usage_events`는 user_id를 비식별화한 뒤 집계만 남긴다. Supabase 리전은 서울을 권장한다(국외이전 범위 축소).
+- **개인정보보호법**: 처리위탁과 **국외이전 고지**(OpenRouter와 하위 공급자 — STT는 Microsoft Azure(D16) —, TypeSafe 등 미국 소재). 계정을 삭제하면 프로필·보관함·피드백을 지우고, `usage_events`는 user_id를 비식별화한 뒤 집계만 남긴다. Supabase 리전은 서울을 권장한다(국외이전 범위 축소).
 - **웹스토어**: 단일 목적 서술("탭의 영상·음성 → 요약 노트"), 새 권한마다 사유, Privacy practices 공개(웹사이트 콘텐츠·오디오 처리, 판매·양도 없음)를 갱신한다.
 - **불변식 갱신**: AGENTS.md를 고친다(§20). 이 계획을 승인하는 것을 "명시 지시"로 간주한다.
 - **저장소 위생**: 커밋된 강의 파생물(`electric_circuits_*`, `lecture_summaries/`, `lecture_timeline_original.md`)을 삭제한다. 골든셋은 저장소 밖에 둔다.
@@ -477,14 +487,18 @@
 ### 10.2 STT (한국어, 타임스탬프 필수)
 | 후보 | 시간당 | 타임스탬프 | 용어 지정 | 보존 | 비고 |
 |---|---|---|---|---|---|
-| **Groq whisper-large-v3-turbo** | **$0.04** | 단어·구간 | prompt(224토큰) | 기본 비보존(예외 30일), ZDR 설정 가능 | 실시간의 216배, 직접 첨부 25MB |
+| **MAI-Transcribe 2** (OpenRouter `microsoft/mai-transcribe-2`, Azure) | **$0.10**(한시 가격) | 단어·구간(`verbose_json`) | `phraseList`(Azure 옵션). `prompt`는 무시 | OpenRouter ZDR 엔드포인트 목록에 있음 | **채택(D16)**. 한국어 포함 60개 언어. 화자 분리는 옵션이나 쓰지 않음(D18). 모델 카드: 1시간을 약 10초에 처리 |
+| Groq whisper-large-v3-turbo | $0.04 | 단어·구간 | prompt(224토큰) | 기본 비보존(예외 30일), ZDR 설정 가능 | 실시간의 216배, 직접 첨부 25MB |
 | Groq whisper-large-v3 | $0.111 | 단어·구간 | prompt | 같음 | turbo가 부족할 때. FLEURS 한국어 WER 18.1%(제3자) |
 | RTZR(리턴제로) | 1,000원부터(단위 확인 필요) | 단어 | 키워드 부스팅 | 결과 3일 | 한국어 특화. 강의 CER 7.76%(자사, 2023), 1시간을 38초에 처리 |
 | ElevenLabs Scribe v2 | $0.22 + 구독 | 단어·문자 | **용어 1,000개** | 기본 보존 | 전공 용어에 유리 |
 | Deepgram Nova-3 ko / AssemblyAI U2 | $0.258 / $0.15 | 단어 | 키텀(유료) / 미확인 | 학습 제외 가능 | 참고 후보 |
 | gpt-4o-mini-transcribe | $0.18 | **없음** | prompt | 비보존 | 정렬 불가 → **탈락** |
 
-**권장**: Groq turbo를 기본 후보로 두고, RTZR(한국어 품질)과 Scribe v2(전공 용어)를 도전자로 붙인다.
+**채택(D16, 2026-10-03)**: MAI-Transcribe 2.
+- Groq turbo보다 시간당 $0.06 비싸다(§18).
+- A1은 MAI-Transcribe 2의 CER·용어·정렬과 m4a 입력 여부를 잰다. 기준선이 필요하면 Groq turbo를 같이 잰다.
+- 지금 서버 `/v1/stt`는 Groq 구현이다. OpenRouter로 바꾸는 일은 `docs/v2-remaining-work.md` §2에 있다.
 
 ### 10.3 판단·검색 계열 (Jev 대안과 활용처)
 | 종류 | 후보 | 가격 | 한국어 | 비고 |
@@ -548,7 +562,7 @@
 - **오류 봉투**: `{error:{code, message, retryable, retryAfterMs}}`. 코드 체계는 §8과 같다.
 - **버전 관리**: `/v1`은 추가만 하는 변경으로 유지한다. 응답에 `promptVersion`·`schemaVersion`을 싣는다. `X-Client-Version`이 `minClientVersion`보다 낮으면 `426`을 돌려준다.
 - **프롬프트·스키마**는 `server/prompts.js`에서 버전으로 관리한다. 웹스토어 심사 없이 개선할 수 있다.
-- **공급자 설정**: OpenRouter는 기존대로(`zdr:true`, `data_collection:"deny"`, `allow_fallbacks:false`, 공급자 고정). Groq는 조직 설정에서 ZDR을 켠다. Jev는 채택 시 기업 무보존 계약. 나머지는 레지스트리에 보존 조건을 기록한다.
+- **공급자 설정**: OpenRouter는 기존대로(`zdr:true`, `data_collection:"deny"`, `allow_fallbacks:false`, 공급자 고정). STT도 OpenRouter를 거친다(D16). 전사 요청에는 OpenRouter의 라우팅 설정(`order`·`only`·`ignore`)이 적용되지 않으므로, 모델의 엔드포인트가 ZDR 목록에 있는지 레지스트리에 기록하고 바뀌면 막는다. Jev는 채택 시 기업 무보존 계약. 나머지는 레지스트리에 보존 조건을 기록한다.
 - **호스팅 요건**:
   - 요청 본문 ≥ 8MB, 요청 시간 ≥ 150초인 **컨테이너 런타임**(Cloud Run 서울, Fly.io 등). Vercel Functions는 본문 4.5MB 한도라 STT 경로에 맞지 않는다.
   - CORS는 확장 출처만 허용한다(기존 `origin` 검사). HTTPS와 HSTS를 쓴다.
@@ -642,7 +656,7 @@
 **A. 모델 선택 벤치 (Phase 0)**
 | # | 대상 | 측정 |
 |---|---|---|
-| A1 | STT: Groq turbo / large-v3, RTZR, Scribe v2 | CER, 용어 누락률, 정렬 오차, 청크 경계 중복·누락, **용어 프롬프트 켬·끔**, 환각률(무음 구간), 속도, 원가 |
+| A1 | STT: MAI-Transcribe 2(D16), m4a 입력 여부 먼저. 기준선이 필요하면 Groq turbo | CER, 용어 누락률, 정렬 오차, 청크 경계 중복·누락, **용어 프롬프트 켬·끔**, 환각률(무음 구간), 속도, 원가 |
 | A2 | 비전: gemini-2.5 / 3.5-flash-lite, gpt-5.4-nano, qwen3-vl-32b, mistral-ocr-4.1(+ Mathpix는 수식 크롭만) | KaTeX 파싱률, 수식 정규화 일치율, 표 셀 F1, 도표 bbox IoU, 역할 라벨(워터마크·쪽번호) 정확도, 한국어 CER, 지연, 원가, 오류율 |
 | A3 | 판정: Jev, gpt-4.1-nano 로그확률, Planner 단독 | 유닛 200개 정확도, ECE, 지연, 원가, Jev 가용성 |
 | A4 | (조건부) 정렬용 임베딩: API vs multilingual-e5-small(M1) | 정렬 정확도 개선폭. 개선이 없으면 도입하지 않음 |
@@ -718,7 +732,7 @@
 
 | Phase | 내용 | 완료 기준 | 의존 |
 |---|---|---|---|
-| 0 측정 | 골든셋 준비(저장소 밖), A1~A5, B1·B2(암호화 비중 포함), 공급자 rate limit 티어, Groq ZDR 설정, Jev 접근 확보 | `docs/bench-v2.md`, 모델 레지스트리 v1, 임계값 | — |
+| 0 측정 | 골든셋 준비(저장소 밖), A1~A5, B1·B2(암호화 비중 포함), 공급자 rate limit 티어, STT 엔드포인트의 ZDR 확인, Jev 접근 확보 | `docs/bench-v2.md`, 모델 레지스트리 v1, 임계값 | — |
 | 1 관찰 기반 | `events.js`, 암호화 로그, 어드민 뼈대(파이프라인·로그 탭), 패키저 제외 테스트, **CI** | 기존 실시간 경로의 이벤트가 어드민에 보임, E1·E4 일부 | — |
 | 2 계약·서버 골격 | 5.4의 계약 JSON Schema, 오류 봉투, `/v1/me` 플래그·원격 설정, 공급자 모의, 세마포어·토큰 버킷 | G1~G4 | — |
 | 3 소스 | `media-source.js`(+ vendor mux.js·mp4box.js), LiveSource 분리, 보호조치 감지, DNR 세션 규칙, 동의 UI, keepAwake, 체크포인트 재개 | B1~B10, F1, F5, F6, D1, D6 | 0, 2 |
@@ -782,12 +796,12 @@
 
 | 항목 | 유료 | Free |
 |---|---|---|
-| STT (Groq turbo, VAD로 무음 제외) | ≤ $0.04 ≈ 56원 | 0(로컬) |
+| STT (MAI-Transcribe 2(D16), VAD로 무음 제외) | ≤ $0.10 ≈ 140원 | 0(로컬) |
 | 비전 (60~120장 × $0.00025, 재판독 ≤10%) | $0.015~0.035 ≈ 21~49원 | 0(로컬) |
 | 판정 (Jev, IR 약 25k 토큰 × 과제 수) | < $0.005 ≈ < 7원 | 0 |
 | 계획 (유료 중급: 입력 25k / 출력 4k, $1.5/$7.5 기준) | 약 $0.07 ≈ 95원 | lite 약 $0.004 ≈ 6원 |
 | 작성 (lite: 합계 입력 40k / 출력 12k) | 약 $0.009 ≈ 13원 | 약 13원 |
-| **합계** | **약 190~220원**. 목표 ≤200원은 Planner 모델 선정(A5)으로 맞춘다 | **약 20원** |
+| **합계** | **약 270~305원**. STT 변경(D16)으로 목표 ≤200원을 넘는다. 무음 비율 실측, Planner 모델 선정(A5), 요금 수치로 다시 맞춘다 | **약 20원** |
 
 - 유료 사용자 측 데이터: 720p 2Mbps 기준 1시간 약 0.9GB를 받는다. 오디오 전용 렌디션과 I-frame/Range 최적화가 되는 사이트에서는 크게 줄어든다.
 
@@ -884,6 +898,7 @@
 
 ## 22. 근거 자료 (aside 리서치, 2026-10-02 확인)
 
+- STT(2026-10-03 추가): [OpenRouter STT 가이드](https://openrouter.ai/docs/guides/overview/multimodal/stt) · [MAI-Transcribe 2](https://openrouter.ai/microsoft/mai-transcribe-2) · [MAI-Transcribe-2 모델 카드](https://microsoft.ai/pdf/MAI-Transcribe-2-Model-Card.pdf)
 - STT: [Groq STT](https://console.groq.com/docs/speech-to-text) · [Groq turbo](https://console.groq.com/docs/model/whisper-large-v3-turbo) · [OpenAI STT](https://developers.openai.com/api/docs/guides/speech-to-text) · [ElevenLabs](https://elevenlabs.io/speech-to-text) · [Deepgram](https://deepgram.com/pricing) · [AssemblyAI 한국어](https://www.assemblyai.com/languages/korean) · [Chirp 3](https://docs.cloud.google.com/speech-to-text/docs/models/chirp-3) · [Gemini 가격](https://ai.google.dev/gemini-api/docs/pricing) · [RTZR](https://developers.rtzr.ai/docs/pricing) · [CLOVA Speech](https://www.ncloud.com/product/aiService/clovaSpeech)
 - 비전: [Mathpix](https://mathpix.com/pricing/api) · [Mistral OCR 4.1](https://docs.mistral.ai/models/ocr-4-1) · [Upstage](https://www.upstage.ai/pricing/api) · [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) · [dots.mocr](https://github.com/rednote-hilab/dots.mocr) · [OpenRouter ZDR](https://openrouter.ai/api/v1/endpoints/zdr)
 - 판단·검색: [Jev 발표](https://typesafe.ai/blog/introducing-system-one-models-and-jev) · [Jev 문서](https://docs.typesafe.ai/models) · [Jev 데이터 처리](https://typesafe.ai/legal/data-processing) · [Jev 독립 평가](https://arxiv.org/abs/2609.37647) · [Laya](https://huggingface.co/convaiinnovations/laya) · [Laya ONNX](https://huggingface.co/lseanlon/laya-multilingual-onnx) · [e5-small ONNX](https://huggingface.co/Xenova/multilingual-e5-small/tree/main/onnx) · [HHEM](https://www.vectara.com/blog/hhem-expanded-language-support) · [Voyage](https://docs.voyageai.com/docs/pricing) · [Cohere Rerank](https://docs.cohere.com/docs/rerank-overview) · [gpt-4.1-nano](https://platform.openai.com/docs/models/gpt-4.1-nano)
@@ -893,6 +908,6 @@
 
 ### 남은 결정 (구현을 막지 않음)
 1. Free 월 한도와 유료 한도 수치(요금 정책). 구현은 설정값으로 둔다.
-2. Supabase 리전(국외이전 고지 범위). 서울을 권장한다.
+2. Supabase 리전(국외이전 고지 범위). 서울을 권장한다. 지금 프로젝트(`rppknkhbiivyurhvljoi`)는 시드니(ap-southeast-2)라, 서울로 옮기려면 새 프로젝트가 필요하다.
 3. 저장소 히스토리에서 강의 파생물을 지울지(force push) — 공동 작업자와 합의.
 4. 출시 전 법률 검토 일정.

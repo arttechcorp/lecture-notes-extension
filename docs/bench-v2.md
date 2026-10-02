@@ -93,7 +93,7 @@ T2 규칙: 슬라이드 글과 발화를 합쳐 판단하고, 애매하면 3, �
 ## 2. 키·서버
 
 1. **OpenRouter**: 키 발급. 설정에서 ZDR 을 켠다. 요청마다 `zdr:true` 로 보내므로 **퍼스트파티 태그(openai, anthropic, google-ai-studio)를 고정하면 404** 가 난다. 모델별 엔드포인트 태그 확인: `curl -s https://openrouter.ai/api/v1/models/openai/gpt-4.1-nano/endpoints | python3 -m json.tool | grep -E '"tag"|logprobs'` (`logprobs`, `top_logprobs` 지원 태그여야 한다). 비전 모델도 같은 방식으로 `response_format`/`structured_outputs` 지원을 확인한다(저장소의 `tools/openrouter-endpoint-probe.mjs` 가 `lib/openrouter-client.js` 에 핀된 모델의 태그·지원 파라미터를 같은 API로 점검한다 — 벤치 후보처럼 핀이 없는 모델은 curl 로 직접 본다).
-2. **Groq**: 키 발급 후 **조직(Organization) 설정에서 ZDR 을 켠다**(요청 단위로 못 켠다; 메뉴 이름은 콘솔 버전에 따라 다를 수 있다). 키 확인: `curl -s https://api.groq.com/openai/v1/models -H "authorization: Bearer $GROQ_API_KEY" | head -c 200`.
+2. **Groq**(A1 기준선을 잴 때만. 설계 D16으로 운영 STT는 OpenRouter다): 키 발급 후 **조직(Organization) 설정에서 ZDR 을 켠다**(요청 단위로 못 켠다; 메뉴 이름은 콘솔 버전에 따라 다를 수 있다). 키 확인: `curl -s https://api.groq.com/openai/v1/models -H "authorization: Bearer $GROQ_API_KEY" | head -c 200`.
 3. **환경 파일** `~/summrizei-golden/bench.env.local` (값은 자리표시자):
 
 ```bash
@@ -131,6 +131,8 @@ curl -s -H "authorization: Bearer $TOKEN" http://127.0.0.1:8788/v1/me | python3 
 공통: 결과 파일은 골든 폴더 쪽에만 쓴다(기본은 입력 폴더의 `results/`). stt-bench·judge-bench 는 `--out=<dir>` 로 바꿀 수 있지만 저장소 밖 경로만 받는다. 지연은 클라이언트에서 잰 요청 시간이고, 원가는 서버가 돌려준 `usage.costUsd` 다.
 
 ### A1 STT (Groq turbo / large-v3, 용어 프롬프트 켬·끔)
+
+> **2026-10-03 변경(설계 D16)**: STT는 OpenRouter의 `microsoft/mai-transcribe-2`로 정했다. 서버 `/v1/stt`가 아직 Groq 구현이라, 아래 명령은 전환 전까지 Groq 기준선 측정에만 쓴다. 전환 뒤에는 같은 도구에 모델 `microsoft/mai-transcribe-2`를 넘겨 재고, 먼저 m4a 청크가 그대로 받아지는지 확인한다. MAI-Transcribe 2는 `prompt`를 무시하므로 용어 켬·끔은 `phraseList`로 비교한다.
 
 - **입력**: `<강의>/audio` (청크, 참조 전사, 용어 목록).
 - **명령** (모델·강의마다 한 번씩):

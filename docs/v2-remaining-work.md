@@ -1,8 +1,8 @@
 # v2 남은 작업과 테스트 준비
 
-확인 기준: `w/dev` `a04e9fc`(2026-10-02). 코드가 바뀌면 다시 대조한다.
+확인 기준: `w/dev` `a04e9fc`(2026-10-02), 2026-10-03 결정 반영. 코드가 바뀌면 다시 대조한다.
 
-- 열린 결정은 여기 두지 않는다. 노트는 `docs/note-contract.md` §18, 정책·출시는 `docs/policy-drafts-v2.md` §0, 설계는 `docs/architecture-v2.md` §22 "남은 결정"에 있다.
+- 결정과 열린 결정은 여기 두지 않는다. 노트는 `docs/note-contract.md` §18(2026-10-03 확정), 정책·출시는 `docs/policy-drafts-v2.md` §0, 설계는 `docs/architecture-v2.md` §3(D16~D18)과 §22 "남은 결정"에 있다.
 - 구현 범위는 `README.md` "구현 현황"이 기준이다. 유료 백그라운드 경로와 계정·사용량 서버까지 동작하지만 실서비스로는 검증 전이다.
 
 ## 1. 프론트에 반영할 것
@@ -39,20 +39,29 @@
 `docs/note-contract.md` §17의 단위와 함께 진행한다.
 
 10. v2 노트 보기. 지금은 완료 화면이 "노트 양식이 정해진 뒤에 제공"이라고만 한다.
-11. 인쇄 v2(`sandbox.html`): 답안을 끝에 모으고, 시험 모드를 넣고, 폰트·KaTeX·크롭이 준비된 뒤 인쇄한다(7-3·7-4).
-12. Markdown 내보내기(`sidepanel.js` `noteText` 대체, 7-4).
-13. `product-panel.css`를 사이드 패널과 `sandbox.html`이 같이 쓴다. 노트 v3 토큰을 넣을 때 패널 모양이 같이 바뀌지 않게 나눈다.
-14. v1 경로 제거: OpenRouter 키 입력란, `openrouter.ai` 호스트 권한, `lib/summary.js`, `lib/openrouter-client.js`, `noteText`(설계 §20).
-15. 보관함 목록·재생성 화면(설계 §12).
+11. **노트 생성 옵션**(`docs/note-contract.md` §18, 6-8·7-3):
+    - 가상 사례·강의 밖 보강 켜기. 기본은 꺼짐이고 유료만 켤 수 있다. Free에는 "유료" 표시와 함께 비활성으로 보이되, 실제 차단은 서버가 한다.
+    - 시험 모드 버튼을 같은 묶음에 둔다. 생성 뒤에 바꾸면 다시 렌더링만 한다.
+12. 인쇄 v2(`sandbox.html`): 답안을 끝에 모으고, 시험 모드를 넣고, 폰트·KaTeX·크롭이 준비된 뒤 인쇄한다(7-3·7-4).
+13. Markdown 내보내기(`sidepanel.js` `noteText` 대체, 7-4).
+14. `product-panel.css`를 사이드 패널과 `sandbox.html`이 같이 쓴다. 노트 v3 토큰을 넣을 때 패널 모양이 같이 바뀌지 않게 나눈다.
+15. v1 경로 제거: OpenRouter 키 입력란, `openrouter.ai` 호스트 권한, `lib/summary.js`, `lib/openrouter-client.js`, `noteText`(설계 §20).
+16. 보관함 목록·재생성 화면(설계 §12).
 
 ## 2. 백엔드·파이프라인에 남은 것
 
-- **노트 계약 연결**: `docs/note-contract.md` §17의 6-2(슬롯 교체)부터.
+- **STT 공급자 전환(설계 D16)**: 서버 `/v1/stt`를 Groq 직접 호출에서 OpenRouter `POST /api/v1/audio/transcriptions`(모델 `microsoft/mai-transcribe-2`)로 바꾼다. 테스트에 필요한 키를 OpenRouter 하나로 줄이는 일이라 먼저 한다.
+  - 요청: JSON `input_audio:{data(base64), format}`, `language`, `response_format:"verbose_json"`, `timestamp_granularities:["segment","word"]`.
+  - 용어 힌트: `prompt`는 무시되므로 `provider.options.azure.phraseList.phrases`로 보낸다.
+  - 환각 필터: Whisper 품질값(`no_speech_prob` 등)이 없다. VAD, 문구 목록, 단어 신뢰도로 거른다.
+  - 원가: 응답의 `usage.cost`로 정산한다.
+  - 먼저 확인할 것: m4a(AAC) 청크를 그대로 받는지. 모델 카드는 WAV·MP3·FLAC만 적는다(설계 §6.2).
+- **노트 계약 연결**: `docs/note-contract.md` §17의 6-2(슬롯 교체)부터. 생성 옵션은 6-8, 간단한 표·그래프는 6-6·7-2.
 - **실시간(Free) 캡처**: 아직 v1 요약 경로다. v2 단계(`lib/stages.js`)와 월 한도로 옮긴다.
 - **판정 기능 스위치**:
   - 서버에서 `judge`를 끄면(`FEATURE_FLAGS_JSON`) 유료 작업이 판정 단계에서 멈춘다. `lib/stages.js`가 `features`를 보지 않고 유료면 항상 `/v1/judge`를 부르기 때문이다. 검증 단계의 근거 지지 확인도 같다.
   - 꺼져 있으면 판정 없이 진행해야 한다(설계 §17 기능 플래그).
-- **실서비스 검증**: 실제 Supabase 프로젝트와 Groq·OpenRouter 키로 백그라운드 작업을 끝까지 한 번 돌린다.
+- **실서비스 검증**: 실제 Supabase 프로젝트와 OpenRouter 키로 백그라운드 작업을 끝까지 한 번 돌린다(STT 전환 뒤).
 
 ## 3. 테스트 준비
 
@@ -71,14 +80,14 @@
 | 실제 Chrome | 위와 같은 스크립트 | `CHROME_PATH`로 지정한다. Playwright 번들 Chromium은 H.264·AAC를 못 풀어 `media-decode-smoke`·`background-smoke`가 실패한다 |
 | PostgreSQL(선택) | `tools/supabase-schema.test.mjs` | 없으면 이 테스트만 건너뛴다 |
 
-### 외부 계정 (사람이 할 일)
+### 외부 계정·원격 설정
 
-- **OpenRouter**: 운영자 키와 모델별 ZDR 엔드포인트 태그(`OPENROUTER_PROVIDERS_JSON`, `server/README.md` "설정").
-- **Groq**: 운영자 키. 조직 설정에서 ZDR을 켠다.
-- **Supabase**:
-  - `server/README.md` "Supabase 계정과 장부"의 설정 순서를 따른다: 스키마 `schema.sql` → `schema-v2.sql`, 비공개 `vault` 버킷, 테스트 계정 `admin_grant_plan`.
-  - `README.md` "Supabase 로그인 설정"을 따른다: Google 공급자, Redirect URL.
-- **확장 ID 고정**: `manifest.json`에 `key`가 없어 압축 해제한 폴더마다 ID가 다르다. ID가 바뀌면 Supabase Redirect URL과 서버 `EXTENSION_ORIGIN`도 바꿔야 한다. 개발용 `key`를 넣을지 정한다.
+- **OpenRouter**: 운영자 키와 모델별 ZDR 엔드포인트 태그(`OPENROUTER_PROVIDERS_JSON`, `server/README.md` "설정"). STT를 바꾼 뒤에는 STT도 이 키 하나로 된다.
+- **Groq**: STT 전환 전까지 백그라운드 경로를 돌리려면 필요하다(운영자 키, 조직 설정의 ZDR). 전환 뒤에는 A1 기준선을 잴 때만 쓴다.
+- **Supabase**(CLI, 2026-10-03 적용):
+  - 운영 프로젝트에 `schema-v2.sql`, 비공개 `vault` 버킷, 개발용 확장 리디렉트 URL을 넣었다(`server/README.md` "설정 순서").
+  - 남은 것은 테스트 계정 등급이다. 확장에서 한 번 로그인한 뒤 같은 절 5번의 insert로 `paid`를 준다.
+- **확장 ID**: 저장소 경로에서 불러온 개발용 확장의 ID는 `gllijdanodakjamndimlpgmhokaakpod`다(경로에서 계산한 값, `chrome://extensions`에서 확인). 서버에는 `EXTENSION_ORIGIN=chrome-extension://gllijdanodakjamndimlpgmhokaakpod`를 넣는다. 폴더를 옮기면 ID가 바뀌므로, 고정하려면 개발용 `key`를 넣을지 정한다.
 - **운영자 진단 키**: `node tools/decrypt-diagnostic.mjs --generate-keypair <저장소 밖 폴더>`로 만들고, 공개키를 `lib/diagnostics.js` `OPERATOR_KEYS`에 넣는다. 개인키는 저장소 밖에 둔다(`.gitignore`가 `*.private.jwk.json`을 막는다).
 
 ### 서버
@@ -88,10 +97,21 @@
   - `OPENROUTER_API_KEY`, `OPENROUTER_PROVIDERS_JSON`, `EXTENSION_ORIGIN`
   - 계정 방식 하나. 벤치는 정적 토큰(`APP_TOKENS_JSON`)이면 충분하다. 확장 로그인은 `SUPABASE_URL`·`SUPABASE_SERVICE_ROLE_KEY`·`USAGE_DIGEST_KEY`가 필요하다.
 - 유료 경로:
-  - `GROQ_API_KEY`, `ALLOWED_STT_MODELS`, `ALLOWED_VISION_MODELS`. 두 목록은 기본값이 비어 있어 넣지 않으면 꺼진다.
+  - `GROQ_API_KEY`(STT 전환 전까지), `ALLOWED_STT_MODELS`, `ALLOWED_VISION_MODELS`. 두 목록은 기본값이 비어 있어 넣지 않으면 꺼진다.
+  - 확장에서 정적 토큰으로 시험하면 `ACCOUNT_LIMITS_JSON`의 그 계정 `features`에 `background`·`stt`·`vision`·`judge`를 넣는다. 기본은 빈 목록이라 백그라운드 카드가 나오지 않는다(벤치 예시에는 `background`가 없다).
   - 판정 모델은 `ALLOWED_JUDGE_MODELS`로 지정한다. 넣지 않으면 `OPENROUTER_PROVIDERS_JSON`에 `openai/gpt-4.1-nano` 태그가 있을 때만 그 모델을 쓴다.
   - 기능 스위치(`FEATURE_FLAGS_JSON`)는 기본이 모두 켬이다.
 - 벤치 절차와 변수: `docs/bench-v2.md` §2.
+
+### 확장에서 v2 화면을 보려면
+
+설정의 "보관 서비스 URL"이 비어 있으면(기본값) v2 화면은 하나도 나오지 않고 v1과 같다. 실시간 캡처는 아직 v1 경로이고, v2는 유료 백그라운드 처리에만 연결돼 있기 때문이다.
+
+1. 위 변수로 서버를 켠다.
+2. 설정에서 "보관 서비스 URL"에 `http://127.0.0.1:8788`을 넣고, Google로 로그인하거나 "개발·테스트용 앱 세션 토큰"을 넣는다.
+3. 설정에서 이용 동의 2항목과 클라우드 인식(화면·음성 전송) 동의를 한다.
+4. 사이드 패널을 다시 연다. `/v1/me`의 `features`에 `background`가 있으면 "백그라운드로 처리" 카드가 보인다(`sidepanel.js` `bgInit`).
+5. 지원 사이트(HLS)의 강의 탭에서 "백그라운드로 처리"를 누른다. 결과는 기기에 암호화해 저장할 뿐이고 노트 보기는 아직 없다(§1의 10).
 
 ### 확장 권한
 

@@ -73,14 +73,16 @@ PLAN_FEATURES_JSON={"paid":{"features":["vision","stt","judge","background"]}}
 | `VAULT_BUCKET` | 선택(기본 `vault`). JWT 계정의 보관함 암호문을 두는 Storage 버킷 이름(영문·숫자·`_`·`-`, 63자 이하). **비공개 버킷**이어야 하고 서버가 만들지 않는다 — 대시보드에서 직접 만든다(아래 설정 순서 3) |
 | `PLAN_FEATURES_JSON` | 선택. 등급별 `{features, models}`. 기본값 `free: {features: [], models: [요약 lite 모델]}`, `paid: {features: ["vision","stt","judge","background"], models: ALLOWED_MODELS 전체}`. 빠진 키는 기본값을 유지하고 모르는 기능 이름이나 `ALLOWED_MODELS` 밖의 모델은 기동 거부 |
 
-**설정 순서**
+**설정 순서** (Supabase CLI. 저장소는 `supabase/.temp`로 프로젝트에 연결돼 있고, 원격 설정은 `supabase/config.toml`이 선언한다)
 
-1. Supabase 프로젝트를 만들고(서울 리전 권장) SQL Editor에서 `supabase/schema.sql` → `supabase/schema-v2.sql`을 순서대로 실행한다(둘 다 멱등). `plans` 한도는 자리표시 값(`placeholder=true`)이니 확정 값으로 고친다.
-2. Auth에서 Google 로그인을 켠다. 액세스 토큰 수명은 기본 1시간을 유지한다(짧을수록 탈취 피해가 작다). 익명 로그인은 서버가 거절한다(`is_anonymous`).
-3. Supabase 대시보드 Storage에서 **비공개(Public 끔) 버킷**을 만든다(이름은 `VAULT_BUCKET`, 기본 `vault`). 버킷 파일 크기 제한은 envelope 최대치(약 22 MiB) 이상이어야 한다(기본 50 MB면 충분). 정책(RLS)은 추가하지 않는다 — 접근은 서버의 서비스 롤 키만 쓴다. 버킷이 없으면 JWT 계정의 보관함 저장이 `503 vault_store_failed`로 실패한다.
+1. 스키마: `supabase db query --linked -f supabase/schema.sql` → `supabase db query --linked -f supabase/schema-v2.sql`(둘 다 멱등). `plans` 한도는 자리표시 값(`placeholder=true`)이니 확정 값으로 고친다.
+2. Auth: Google 로그인을 켠다(운영 프로젝트는 이미 켜져 있다). 확장 리디렉트 URL은 `config.toml`의 `auth.additional_redirect_urls`에 넣고 `supabase config diff`로 확인한 뒤 `supabase config push`. `config.toml`이 선언하지 않은 원격 값은 push가 건드리지 않는다. 액세스 토큰 수명은 기본 1시간을 유지한다(짧을수록 탈취 피해가 작다). 익명 로그인은 서버가 거절한다(`is_anonymous`).
+3. 보관함 버킷: `config.toml`의 `[storage.buckets.vault]`(비공개, 50 MiB, `application/json`)를 `supabase seed buckets --linked`로 만든다. 크기 제한은 envelope 최대치(약 22 MiB) 이상이어야 한다. 정책(RLS)은 추가하지 않는다 — 접근은 서버의 서비스 롤 키만 쓴다. 버킷이 없으면 JWT 계정의 보관함 저장이 `503 vault_store_failed`로 실패한다. 이름을 바꾸면 `VAULT_BUCKET`도 같이 바꾼다.
 4. 서버에 `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `USAGE_DIGEST_KEY`를 비밀 관리 도구로 주입한다(HS256 프로젝트면 `SUPABASE_JWT_SECRET`도). `USAGE_DIGEST_KEY`를 바꾸면 그 순간 진행 중이던 requestId의 재시도가 `idempotency_content_mismatch`로 보일 수 있다.
-5. (선택) `PLAN_FEATURES_JSON`. 테스트 계정은 `admin_grant_plan(user, 'paid')`로 등급을 준다.
+5. (선택) `PLAN_FEATURES_JSON`. 테스트 계정 등급: 확장에서 한 번 로그인한 뒤 `supabase db query --linked "insert into entitlements (user_id, plan, starts_at, source) select id, 'paid', now(), 'manual' from auth.users where email = '<이메일>'"`. `admin_grant_plan()`은 어드민 JWT(`is_admin()`)로 부를 때만 통과하므로 CLI에서는 이 insert를 쓴다.
 6. 기동 후 JWT로 `GET /v1/me`를 호출해 `plan`·`features`를 확인한다. 정적 토큰이 더 필요 없으면 `APP_TOKENS_JSON`을 비운다.
+
+운영 프로젝트(`rppknkhbiivyurhvljoi`, 시드니)에는 2026-10-03에 2·3과 `schema-v2.sql`을 적용했다(`schema.sql`은 그 전에 적용돼 있었다).
 
 **토큰 검증** (Node `crypto`만 사용). 서명이 맞은 뒤에만 클레임을 본다:
 
@@ -148,6 +150,8 @@ PLAN_FEATURES_JSON={"paid":{"features":["vision","stt","judge","background"]}}
 제공자에게는 slideDoc 스키마에서 검증 전용 키워드를 뺀 strict JSON Schema(`response_format: json_schema`, 이름 `slide_doc`)를 내리고 `id`·`status`는 서버가 채운다. 형식 실패(출력 잘림·JSON 파손·계약 불일치)는 같은 제공자로 한 번만 재시도한다. 프레임은 zero-retention 제공자(`zdr`, `data_collection:"deny"`, fallback 금지)로만 보내고 서버에는 저장하지 않는다.
 
 ## 음성 인식(STT)
+
+> 2026-10-03 결정(설계 D16): STT는 OpenRouter의 `microsoft/mai-transcribe-2`로 바꾼다. 아래는 바꾸기 전 지금 구현(Groq)의 설명이다. 바꿀 때 달라지는 점(용어 힌트는 `phraseList`, Whisper 품질값 없음, m4a 입력 확인)은 `docs/architecture-v2.md` §6.2에 있다.
 
 `POST /v1/stt`는 Groq Whisper에 오디오 청크를 multipart로 넘겨 전사한다. 본문은 정확히 `{model, requestId, t0, durationSec, lang, prompt, audio}`다. `audio`는 `data:audio/mp4;base64,` 한 덩어리(디코드 후 최대 8 MiB, 길이 최대 330초), `lang`은 `ko`/`en`, `prompt`는 1000자 이하(빈 문자열 허용), 요청 본문 상한은 12 MB다. 응답은 `{transcript, usage:{audioSec,costUsd}, promptVersion, schemaVersion}`이고 `transcript`는 `Contracts.SCHEMAS.transcript`다.
 

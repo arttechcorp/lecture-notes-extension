@@ -119,9 +119,11 @@
 
 확장은 `chrome.identity.launchWebAuthFlow`로 Supabase Auth(구글, PKCE)에 로그인합니다. 프로젝트 URL과 공개 anon 키는 `lib/auth.js`에 있고 `landing/supabase-config.js`와 같은 값입니다.
 
-1. Supabase 대시보드 → Authentication → Providers에서 Google을 켭니다. Google Cloud Console의 OAuth 클라이언트 ID/Secret을 넣고, 그 클라이언트의 승인된 리디렉션 URI에 Supabase가 보여 주는 콜백(`https://<프로젝트 ref>.supabase.co/auth/v1/callback`)을 추가합니다.
-2. Authentication → URL Configuration → Redirect URLs에 `https://<확장 ID>.chromiumapp.org/`를 추가합니다. 목록에 없으면 Supabase가 Site URL로 돌려보내 로그인 창이 끝나지 않습니다.
-3. 확장 ID는 `manifest.json`의 `key`가 없으면 압축 해제 로드 시 폴더 경로에서, 웹스토어 배포 시 웹스토어가 정한 값으로 정해집니다. 개발과 배포의 ID를 같게 고정하려면 `key`가 필요하며, 현재 `manifest.json`에는 `key`가 없습니다. ID가 바뀌면 2번의 URL도 바꿔야 합니다.
+Supabase 설정은 Supabase CLI로 합니다. 원격 설정은 `supabase/config.toml`이 선언하고, 바꾼 뒤 `supabase config diff`로 확인하고 `supabase config push`로 올립니다(서버 쪽 순서는 `server/README.md` "설정 순서").
+
+1. Google 공급자를 켭니다(운영 프로젝트는 이미 켜져 있습니다). Google Cloud Console의 OAuth 클라이언트 ID/Secret이 필요하고, 그 클라이언트의 승인된 리디렉션 URI에 Supabase 콜백(`https://<프로젝트 ref>.supabase.co/auth/v1/callback`)을 추가합니다.
+2. `config.toml`의 `auth.additional_redirect_urls`에 `https://<확장 ID>.chromiumapp.org/`를 넣고 push합니다. 목록에 없으면 Supabase가 Site URL로 돌려보내 로그인 창이 끝나지 않습니다. 저장소 경로(`/Users/giwook/Documents/lecture-summary/lecture-notes-extension`)에서 압축 해제로 불러온 개발용 확장의 ID(`gllijdanodakjamndimlpgmhokaakpod`)는 2026-10-03에 넣었습니다.
+3. 확장 ID는 `manifest.json`의 `key`가 없으면 압축 해제 로드 시 폴더 경로에서, 웹스토어 배포 시 웹스토어가 정한 값으로 정해집니다. 개발과 배포의 ID를 같게 고정하려면 `key`가 필요하며, 현재 `manifest.json`에는 `key`가 없습니다. 폴더를 옮기거나 다른 경로에서 불러와 ID가 바뀌면 2번의 URL과 서버 `EXTENSION_ORIGIN`도 바꿔야 합니다.
 
 액세스 토큰은 Supabase의 JWT 만료 설정(기본 1시간)을 따르고, 확장은 만료 60초 전부터 refresh token으로 갱신합니다. 갱신이 거부되면(폐기·만료) 세션을 지우고 다시 로그인하도록 안내합니다.
 

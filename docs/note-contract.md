@@ -14,7 +14,7 @@
   - `lecture`: 강의 근거가 있는 주장.
   - `derived`: 코드가 검산한 계산값을 쓰는 주장.
   - `pedagogical`: 교육용 거짓 문장.
-- **가상 사례와 강의 밖 보강은 꺼져 있다.** `POLICY`는 동결된 `false`다. v1 스키마에는 `synthetic` 같은 값 자체가 없어서 모델이 만들 수 없다. 켜려면 계약 버전을 올리고 사용자 승인을 받아야 한다.
+- **가상 사례와 강의 밖 보강은 노트 생성 옵션이다**(2026-10-03 결정, §18). 기본은 꺼짐이고 유료 요금제만 켤 수 있다. 지금 실행 계약 `lecture-note-1`에서는 `POLICY`가 동결된 `false`이고 `synthetic` 같은 값 자체가 없어서 모델이 만들 수 없다. 옵션은 계약 버전을 올려 넣는다(6-8).
 - **근거는 줄 단위 ID로 원본까지 거슬러 간다.** `U3.s2`는 슬라이드 블록, `U3.t5`는 발화 세그먼트, `U3.g1`은 도표다. 입력 `unitId`와 출력 `sectionId`·`blockId`는 분리한다.
 - **코드가 맡는 것:**
   - 블록·문항·Point의 ID와 표시 번호
@@ -69,7 +69,7 @@
 4. **ID·번호·답안 투영은 코드가 맡는다.**
    - 모델은 blockId를 지어내지 않는다. 계획을 정규화할 때 코드가 위치로 부여한다.
    - Point·문항 ID는 배열 위치에서 계산한다.
-5. **정책 상수는 동결한다.** `POLICY = {externalAugmentation:false, syntheticExamples:false}`. Plan과 Note는 이 값을 `const:false` 스키마로 싣는다.
+5. **정책 상수는 동결한다**(`lecture-note-1`). `POLICY = {externalAugmentation:false, syntheticExamples:false}`. Plan과 Note는 이 값을 `const:false` 스키마로 싣는다. 6-8에서 계약 버전을 올려 요청별 생성 옵션으로 바꾼다(§18).
 6. **버전 넷을 분리한다**(§13): `schemaVersion`(데이터 구조), `noteSpecVersion`(생성·검증 계약), `promptVersion`(프롬프트), `designVersion`(템플릿·CSS·SVG).
 
 ## 4. ID 체계
@@ -115,7 +115,7 @@ EvidenceItem = { id: evidenceId, unitId, kind: e[slide, speech, figure], t0: num
   - 유닛의 `slideText`는 그 유닛 `slide` 항목 텍스트를 `"\n"`으로 이은 것과 같다.
   - 유닛의 `speech`는 `speech` 항목 텍스트를 `" "`로 이은 것과 같다.
 - 걸러진 블록(`selection:"filtered"`, 예: 학번 워터마크)은 근거가 되지 않는다. 노트로 새어 나갈 경로가 없다.
-- **화자는 기록하지 않는다.** 화자 분리가 없어서 교수·학생 발언을 구분할 수 없다. Writer 규칙: 발화는 "강의에서"로만 귀속하고, 학생 질문을 공지나 결론으로 승격하지 않는다(§18 열린 결정).
+- **화자는 기록하지 않는다.** 화자 분리 STT는 도입하지 않는다(2026-10-03 결정, §18). 그래서 교수·학생 발언을 구분할 수 없다. Writer 규칙: 발화는 "강의에서"로만 귀속하고, 학생 질문을 공지나 결론으로 승격하지 않는다.
 - Writer에는 섹션 유닛의 근거와, Planner가 허용한 교차 유닛(`crossUnitIds`)의 근거만 보낸다. Global Writer는 근거 원문 대신 검증된 섹션 블록을 받는다.
 
 ## 6. 주장(Claim)과 근거 종류
@@ -129,8 +129,8 @@ Claim = { text: s(600), evidenceIds: [Ref](0..8), basis: e[lecture, derived, ped
 | 강의의 사실·수치 | `lecture` | 근거 항목(`U…`) 1개 이상 | 숫자는 인용한 근거 항목 텍스트와 인용한 계산값 안에 있어야 한다 | 모든 주장 슬롯 |
 | 계산 결과 | `derived` | 계산 참조(`…cN`·`…iN`) 1개 이상, 검산 통과한 것만 | 위와 같음. 검산된 값만 허용된다 | 모든 주장 슬롯 |
 | 교육용 거짓 문장 | `pedagogical` | 없어도 됨(빈 배열 허용) | 검사하지 않는다(의도적으로 틀린 문장) | B14 OX 문항의 `prompt` 중 정답이 `X`인 것, B11 `misconception` 중 `origin: structural_check`인 것 |
-| 가상 사례 | (v1에 없음) | — | — | v1 스키마 밖. 켜려면 §18 |
-| 강의 밖 보강 | (v1에 없음) | — | — | v1 스키마 밖 |
+| 가상 사례 | (v1에 없음) | — | — | v1 스키마 밖. 6-8에서 유료 생성 옵션으로 더한다(§18) |
+| 강의 밖 보강 | (v1에 없음) | — | — | v1 스키마 밖. 6-8에서 유료 생성 옵션으로 더한다(§18) |
 | 번호·날짜·처리 정보 | 주장이 아님 | 코드가 만들거나 메타데이터 출처 | 검사 대상이 아님 | B01·B04 번호·고지 |
 
 - **숫자 추출은 `Verify.numbersOf`를 그대로 쓴다.**
@@ -259,7 +259,7 @@ Note = {
   global:   [Block](0..3),                       # B02 → B03 → B13 순
   sections: [{ sectionId, number: int≥1, title, question: s?, stage, unitIds, range: { t0, t1 }, gist: C?, blocks: [Block](1..12), checks: [Check] }],
   registry: [{ id: formulaId, latex: s?, text: s?, status, slideId, t0, display: e[latex, crop, check] }],
-  figures:  [{ id: figureId, evidenceId, kind, title: s?, cells: [[s]]?, t0, display: e[crop, check] }],   # 표 재조판(table)은 θ가 정해진 뒤 추가(§14)
+  figures:  [{ id: figureId, evidenceId, kind, title: s?, cells: [[s]]?, t0, display: e[crop, check] }],   # 간단한 표·그래프의 HTML 표시(table·chart)는 6-6에서 추가(§14)
   sources:  [{ id: evidenceId, kind, t0, t1, slideId: s? }],          # 인용된 근거의 위치만. 텍스트 없음
   notices:  [{ code, count: int?, ids: [s]?, ranges: [{ t0, t1 }]? }],
   dropped:  [{ blockId, type, codes: [code](1..8) }],                 # 내용 없음
@@ -434,9 +434,9 @@ Block = { id: blockId, type, sectionId: sectionId?, status, importance, emphasis
 | B 슬롯, 검증 규칙, 계획 규칙 | `noteSpecVersion` | E~H | 서버와 확장을 동시에 배포. 다르면 409 |
 | 프롬프트 문구 | `promptVersion` | E~H(해당 단계부터) | |
 | 계획·작성 모델 | 모델 id | E~H 또는 F~H | |
-| 템플릿, CSS, SVG, 브랜드 토큰 | `designVersion`(렌더 버전) | **현행 승인 규칙: E~H**(§8 "템플릿만 바뀌면 E~H"). **제안: H만** | 결정 전까지는 현행 규칙을 따른다(§18) |
-| 렌더 옵션(답안 위치, 필기란, 화면/인쇄) | 없음(렌더 입력) | H만 | Note를 바꾸지 않는 표시 옵션이다 |
-| 정책(보강·가상) | `noteSpecVersion` | E~H | v1은 `false`로 고정 |
+| 템플릿, CSS, SVG, 브랜드 토큰 | `designVersion`(렌더 버전) | **H만**(2026-10-03 결정, §18) | LLM 비용 0이고 Note는 그대로다. 새 슬롯이 필요한 변경은 `noteSpecVersion`이 오르므로 E~H |
+| 렌더 옵션(답안 위치, 필기란, 화면/인쇄, 시험 모드) | 없음(렌더 입력) | H만 | Note를 바꾸지 않는 표시 옵션이다 |
+| 생성 옵션(가상 사례·강의 밖 보강) | 요청 옵션(6-8부터) | E~H | 켜고 끄면 내용이 바뀐다. `lecture-note-1`은 `false`로 고정 |
 
 - temperature 0만으로 같은 결과를 보장하지 않는다. **재사용은 버전과 입력 다이제스트로만 판단한다.**
 - 같은 Plan·Note에서 렌더 순서는 코드가 정한다. 같은 입력이면 같은 Note가 나와야 한다(fixture 테스트로 고정).
@@ -450,17 +450,25 @@ Block = { id: blockId, type, sectionId: sectionId?, status, importance, emphasis
 | 수식 그 외(reread·image·unverified) + 크롭 있음 | 원본 크롭 + "원본 이미지로 표시" | `NOTE_FORMULAS_IMAGE` |
 | 수식 그 외 + 크롭 없음 | "수식 확인 필요" 표식 + 원본 시각. OCR 텍스트가 있으면 "인식 원문(미검증)"으로 작게 표시 | `NOTE_FORMULAS_CHECK` |
 | 새 유도식(`derived`) | 블록 검증에서 KaTeX 실패 시 블록 repair → 제외. 렌더 단계에서 미검증 LaTeX가 노출될 일이 없다 | `NOTE_BLOCKS_DROPPED` |
-| 표 도표 + **셀 검증 통과** + 크롭 | HTML 표로 재조판 + "화면 표를 옮겨 적음" | — |
+| 표 도표 + **간단한 표** | 기존 표 양식(B06과 같은 표 스타일·쪽 넘김 규칙)의 HTML 표 + "화면 표를 옮겨 적음" | — |
 | 표 도표 그 외 + 크롭 | 크롭. 그림의 단일 `conf`는 셀별 검증이 아니다 | — |
-| 차트·다이어그램 + 크롭 | 크롭. 설명은 근거가 있는 슬롯(축, 단위, 읽는 법, 해석, 한계)만 쓴다 | — |
+| 그래프 + **간단한 그래프** | 노트 토큰(색·서체·선)만 쓰는 HTML(SVG)로 다시 그림 + "화면 그래프를 옮겨 그림" | — |
+| 그 외 그래프·다이어그램 + 크롭 | 크롭. 설명은 근거가 있는 슬롯(축, 단위, 읽는 법, 해석, 한계)만 쓴다 | — |
 | 도표 + 크롭 없음 | "도표 확인 필요" + 원본 시각 | `NOTE_FIGURES_CHECK` |
 | Free | 도표 탐지가 없음. 수식은 항상 `unverified`이므로 크롭 또는 확인 필요 | `NOTE_FIGURES_NOT_DETECTED` |
 
 - **KaTeX 통과는 문법 검증이다.** 새 유도식의 수학적 타당성이나 숫자 검산을 대신하지 않는다. 숫자 검산은 §7이 맡는다.
-- **표 재조판 기준:**
-  - 셀이 직사각형이다(모든 행의 셀 수가 같음).
+- **간단한 표·그래프만 HTML로, 그 외는 크롭**(2026-10-03 결정, §18). θ 기준은 쓰지 않는다. 크기 상한은 초기값이고 테스트하며 조정한다.
+- **간단한 표:**
+  - 셀이 직사각형이다(병합 셀 없음, 모든 행의 셀 수가 같음). 빈 칸이 없다.
+  - 열 ≤ 5, 행 ≤ 12.
   - 셀 숫자가 같은 영역의 로컬 OCR 숫자와 맞는다(`Formulas.crossCheck`와 같은 방식).
-  - 표 신뢰도 임계값 θ는 Phase 0 A2 벤치에서 정한다. **정하기 전 기본값은 재조판하지 않고 크롭만 쓴다.**
+- **간단한 그래프:**
+  - 막대 또는 꺾은선이다. 계열 ≤ 3, 항목 ≤ 12.
+  - 모든 값이 화면에 숫자로 적혀 있고, 그 숫자가 로컬 OCR과 맞는다. 축 이름과 단위가 읽힌다.
+  - 값이 눈금으로만 보이면 크롭한다. 눈대중으로 값을 복원하지 않는다(`proposal.md` B10: 표에 없는 숫자를 그래프에 생성하지 않는다).
+  - 비전 응답에 그래프 값(`chartData`)이 있어야 한다. 지금 SlideDoc에는 `cells`·`chartSummary`만 있으므로 6-6에서 계약을 넓힌다.
+- 새 차트 라이브러리는 넣지 않는다. HTML로 옮긴 표·그래프도 원본 크롭은 패키지에 남긴다.
 - 크롭 ID는 패키지 `blobs`의 키이고, 렌더러는 `blob:`이나 래스터 `data:`만 받는다(현행 허용 목록). 외부 URL이나 원본 미디어 경로로 대체하지 않는다.
 - 크롭이 없다고 클라우드로 자동 전환하지 않는다(불변식). 그래프도 임의로 복원하지 않는다.
 - **도표 배치는 Planner가 정한다.** 계획 블록의 `figureIds`에 든 도표는 그 블록 바로 뒤에 표시한다. B10 내용의 `figureIds`는 본문에서 다루는 도표다. 고지는 이 둘에 든 도표만 센다.
@@ -477,7 +485,7 @@ Block = { id: blockId, type, sectionId: sectionId?, status, importance, emphasis
 |---|---|---|
 | 웹(사이드 패널 뷰어) | 문항별 `<details>`로 접어 둠. 펼쳐도 Note는 바뀌지 않는다 | — |
 | PDF 표준 | 문항은 점검 파트에, 답안은 문서 끝 "정답과 해설"에 둔다. 답안 머리에 문항 번호와 앵커 링크를 단다 | `answers: "inline"`(P06 점검용 예외: 문항 바로 아래에 해설) |
-| 시험 모드 | 표준과 같고, 정답과 해설 앞에서 쪽을 넘긴다(`break-before: page`) | — |
+| 시험 모드 | 표준과 같고, 정답과 해설 앞에서 쪽을 넘긴다(`break-before: page`). 버튼은 노트 생성 옵션 묶음에 가상 사례·강의 밖 보강과 나란히 둔다(§18) | — |
 
 **PDF 넘김 규칙(자동 흐름 조판, 고정 지면 아님):**
 - `@page { size: A4; margin: 14.3mm }`. 시안의 `@page{margin:0}` + 고정 `paper-sheet`는 정적 지면 전용이므로 쓰지 않는다. 쪽 수는 내용에서 결과로 나온다.
@@ -545,41 +553,29 @@ Block = { id: blockId, type, sectionId: sectionId?, status, importance, emphasis
 | 6-3 | 단계 연결 | `lib/stages.js`(+테스트) | 계획은 `normalizePlan`, 작성은 근거 항목 전송. 검증은 `validateSection` → blockId repair 1회 → `assembleNote`. 잘림은 §12.4. 고지는 §12.3 | 6-2 |
 | 6-4 | 전역 Writer 입력 | `lib/stages.js`, `server/prompts.js` | 살아남은 섹션 블록만 보내고, 큰 노트는 블록 요약(주장 텍스트 + 참조)으로 줄여 입력 상한 안에 둔다. 새 근거 금지 | 6-3 |
 | 6-5 | T5 주장 단위 근거 지지(유료) | `lib/verify.js`, `lib/stages.js` | `checkSupport`를 블록이 아니라 주장 단위로 보낸다(같은 `/v1/judge`) | 6-3 |
-| 6-6 | 도표 레지스트리·크롭 | `lib/figures.js`(신규), `lib/stages.js` | §6.7 크롭(WebP), dHash 중복 제거, `G#` 부여, `display`(§14). 표 재조판은 θ가 정해지기 전에는 끈다 | 6-1 |
-| 6-7 | 프롬프트 v2 | `server/prompts.js` | §9 규칙을 단계 프롬프트로(가상·보강 꺼짐, 정정 기록, 문항 규칙, 강조 근거). `PROMPT_VERSION` 올림 | 6-2 |
+| 6-6 | 도표 레지스트리·크롭 | `lib/figures.js`(신규), `lib/stages.js`, `lib/contracts.js`·`server/prompts.js`(SlideDoc `chartData`) | §6.7 크롭(WebP), dHash 중복 제거, `G#` 부여, `display`(§14). 간단한 표·그래프 판정(§14) | 6-1 |
+| 6-7 | 프롬프트 v2 | `server/prompts.js` | §9 규칙을 단계 프롬프트로(가상·보강은 생성 옵션을 따름, 정정 기록, 문항 규칙, 강조 근거, 질문형 발화를 결론으로 쓰지 않음). `PROMPT_VERSION` 올림 | 6-2 |
+| 6-8 | 생성 옵션(유료) | `lib/note-contract.js`, `lib/note-spec.js`, `server/index.js`·`server/prompts.js`(+테스트) | `noteSpecVersion` 올림. 요청 `options: {syntheticExamples, externalAugmentation}`(기본 `false`). 계정 기능에 `augment`가 없으면 서버가 거절한다(`feature_not_in_account_plan`). 켠 항목만 basis `synthetic`·`external`을 허용하고, 렌더가 라벨("가상 사례", "강의 밖 보강 — 확인 필요")을 붙인다. 이 주장들은 강의 근거 검사와 T5 대상이 아니다. 외부 사실의 출처 표기 방식은 이 단위에서 정한다 | 6-2, 6-7 |
 | 7-1 | B 템플릿·문서 순서 | `lib/note-spec.js`(templates·layout·css) | §15 순서, v3 토큰. 시안 마크업에 ID·앵커를 더한다. 구형 색은 쓰지 않는다 | 6-2 |
-| 7-2 | 수식·도표 표시 | `lib/note-render.js` | `displayOf`를 따른다. "확인 필요" 표식 | 7-1 |
+| 7-2 | 수식·도표 표시 | `lib/note-render.js` | `displayOf`를 따른다. "확인 필요" 표식. 간단한 표·그래프의 HTML 표시(§14) | 7-1 |
 | 7-3 | 답안·필기란 옵션 | `lib/note-render.js`, `lib/note-spec.js` | 웹은 접고, PDF는 끝(기본)·inline(점검용). 시험 모드는 쪽 넘김. B16 | 7-1 |
 | 7-4 | 인쇄·내보내기 | `sandbox.html`, `lib/note-export.js`(신규) | fonts·KaTeX·크롭 준비 후 인쇄. Note → Markdown 어댑터(v1 `noteText` 대체) | 7-1 |
 | 7-5 | 렌더 QA | `tools/note-render-smoke.cjs`(신규) | fixture 노트로 360·768·1280px, A4 인쇄, 긴 표 헤더 반복, 잘림 0 확인(Playwright) | 7-2~7-4 |
 
-## 18. 열린 결정 (사용자)
+## 18. 결정 (2026-10-03, 사용자)
 
-추천은 결정이 아니다. 사용자가 정하기 전에는 현행대로 구현한다.
-
-1. **가상 사례·강의 밖 보강을 켤지.**
-   - 현행: 꺼짐. 켜면 계약 버전 증가, 라벨, 별도 출처 계약이 따라온다.
-   - 위험: 가상 수치는 실제 통계처럼 읽힐 수 있다. 외부 보강은 사실 확인 수단이 없으면 환각이 들어오는 통로가 된다.
-   - 추천: 둘 다 끈 채 출시한다. 가상 예시는 평가 뒤 사용자 옵션으로 검토한다.
-2. **CSS·SVG·토큰만 바뀌었을 때 H만 다시 렌더링할지.**
-   - 현행 승인 규칙: E~H. 강의마다 LLM 비용이 다시 들고, temperature 0이어도 내용이 조금 달라질 수 있다.
-   - H만 하면 비용이 0이고 내용이 그대로다. 새 슬롯이 필요한 변경은 계약 버전이 오르므로 그때는 E~H가 된다(§13).
-   - 추천: H만.
-3. **화자 분리가 없을 때의 귀속 규칙.**
-   - 현행: "강의에서"로만 귀속한다. 토론·질의응답 수업에서는 학생 발언이 교수 주장처럼 정리될 수 있다.
-   - 화자 분리 STT는 Groq turbo 대비 약 4~6배 비싸다(설계 §10.2).
-   - 추천: 현행에 "질문형 발화는 결론으로 쓰지 않는다"는 프롬프트 규칙(6-7)을 더한다. Phase 0 골든셋에서 토론형 강의의 오류를 본 뒤 정한다.
-4. **표 재조판 임계값 θ.**
-   - 현행: 크롭만 쓴다.
-   - 비전 응답은 표 하나에 신뢰도 하나만 준다. 그래서 셀 단위 오독을 거를 수 없다.
-   - 추천: Phase 0 A2의 셀 정확도를 보고 정한다.
-5. **권장량 수치.**
-   - 현행: `proposal.md` §5·§8의 편집 가설.
-   - 넘어도 경고만 내고 자르지 않는다. 다만 프롬프트의 분량 지시에 쓰일 값이라(6-7) 노트 길이와 비용을 움직인다.
-   - 추천: 유지하고, 실제 강의 평가(§14.3) 뒤 조정한다.
-6. **시험 모드를 제품 옵션으로 노출할지.**
-   - 렌더 옵션이라 내용·비용과 무관하다.
-   - 추천: 7-3에서 구현하고 버튼 노출 여부만 정한다.
+1. **가상 사례·강의 밖 보강은 노트를 만들 때 켜는 옵션이다.** 기본은 꺼짐이고 **유료 요금제만** 켤 수 있다.
+   - 서버가 계정 기능(`augment`)으로 막는다. 화면에서 버튼을 비활성으로 두는 것만으로 막지 않는다.
+   - 켠 노트에서도 이 내용은 강의 근거가 있는 주장과 섞지 않고 라벨을 단다("가상 사례", "강의 밖 보강 — 확인 필요"). 가상 수치가 실제 통계처럼, 외부 사실이 검증된 사실처럼 읽히지 않게 하기 위해서다.
+   - 계약 버전을 올려 넣는다(6-8). 그 전까지 실행 계약 `lecture-note-1`은 둘 다 `false`다.
+2. **디자인만 바뀌면 H만 다시 한다**(§13). 새 슬롯이 필요한 변경은 `noteSpecVersion`이 오르므로 E~H다.
+3. **화자 분리 STT는 도입하지 않는다.**
+   - 귀속은 "강의에서"로 둔다.
+   - 토론·질의응답 수업의 위험은 6-7의 프롬프트 규칙(질문형 발화를 결론으로 쓰지 않음)으로 줄인다.
+   - 채택한 STT(MAI-Transcribe 2, 설계 §10.2)는 화자 분리를 옵션으로 지원하지만 켜지 않는다.
+4. **간단한 표·그래프는 기존 양식 안에서 HTML로, 그 외는 크롭한다**(§14). θ 기준은 쓰지 않는다.
+5. **권장량은 지금 값을 쓰고 테스트하며 조정한다.** §14의 표·그래프 크기 상한도 같다.
+6. **시험 모드 버튼은 1번 옵션과 같은 자리(노트 생성 옵션 묶음)에 둔다.** 렌더 옵션이라 등급 제한을 두지 않았다. 생성 뒤에 바꾸면 H만 다시 한다.
 
 정책·출시 쪽 열린 결정은 `docs/policy-drafts-v2.md` §0에, 설계 쪽은 `docs/architecture-v2.md` §22 "남은 결정"에 있다. 남은 구현과 테스트 준비는 `docs/v2-remaining-work.md`에 있다.
 
