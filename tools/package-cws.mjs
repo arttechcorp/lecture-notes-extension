@@ -260,7 +260,8 @@ export function resolveRuntimeClosure() {
 // 압축된 한 줄 코드에서 호출 인자를 파싱하는 것은 취약하다. 번들 미디어 라이브러리를 추가하면 아래 목록에 넣는다.
 // --------------------------------------------------------------------------
 const MEDIA_VENDOR_DIRS = ["lib/vendor/mux/"];
-const isMediaLib = relPath => /^lib\/media-[\w-]+\.m?js$/.test(relPath); // *.test.js 는 점 때문에 걸리지 않는다
+// background-job.js 도 세그먼트 바이트를 다루므로 같은 규칙을 건다.
+const isMediaLib = relPath => /^lib\/(?:media-[\w-]+|background-job)\.m?js$/.test(relPath); // *.test.js 는 점 때문에 걸리지 않는다
 const MEDIA_FORBIDDEN = [
   { name: "Cache Storage(caches.put/open)", re: /\bcaches\s*(?:\.\s*|\[\s*["'`])(?:put|open)\b/ },
   { name: "OPFS(getDirectory)", re: /\bgetDirectory\b/ },
