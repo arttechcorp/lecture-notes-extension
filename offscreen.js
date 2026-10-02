@@ -1,9 +1,9 @@
 // One in-memory session and archive encryption boundary.
-let session=null,generation=0,starting=false,summaryController=null,archiveBusy=false,bg=null; // bg: 실행 중인 백그라운드 작업 {jobId,ctl} — 한 번에 하나
+let session=null,generation=0,starting=false,summaryController=null,archiveBusy=false,bg=null,sink=null; // bg: 실행 중인 백그라운드 작업 {jobId,ctl} — 한 번에 하나
 // 파이프라인 진단 이벤트: 한 버스를 어드민(실시간 포트)과 암호화 로컬 로그가 함께 구독한다. 파이프라인에는 예외를 삼키는 safe 껍데기만 넘긴다.
 const bus=new PipelineEvents.EventBus(),events=PipelineEvents.safe(bus);
 const storeP=PackageStore.indexedDbAdapter().then(PackageStore.createStore); // 로그와 백그라운드 작업이 한 암호화 저장소를 나눠 쓴다
-storeP.then(store=>new PipelineEvents.LogSink(bus,store).start()).catch(()=>events.emit({stage:"system",level:"warn",code:"LOG_STORE_UNAVAILABLE"}));
+storeP.then(store=>(sink=new PipelineEvents.LogSink(bus,store)).start()).catch(()=>events.emit({stage:"system",level:"warn",code:"LOG_STORE_UNAVAILABLE"}));
 const emit=state=>chrome.runtime.sendMessage({target:"panel",type:"SESSION_STATE",state}).catch(()=>{});
 const trusted=(sender,pages=["/background.js","/sidepanel.html","/options.html"])=>{try{const url=new URL(sender.url),base=new URL(chrome.runtime.getURL(""));return sender.id===chrome.runtime.id&&url.protocol===base.protocol&&url.host===base.host&&pages.includes(url.pathname);}catch{return false;}};
 const settingsOf=s=>({openRouterApiKey:String(s?.openRouterApiKey||""),serviceUrl:String(s?.serviceUrl||""),appSessionToken:String(s?.appSessionToken||""),summaryModel:String(s?.summaryModel||""),remoteSummaryConsent:s?.remoteSummaryConsent===true});
@@ -109,6 +109,21 @@ async function bgMessage(message,sender){
     return {ok:true};
   }catch(error){bg=null;throw error;}
 }
+// ── 로컬 데이터 관리(options.html "데이터 관리" 카드) ──
+// 기기 키는 이 문서의 저장소 객체가 메모리에 쥐고 있고 로그 싱크와 백그라운드 작업도 그 객체를 쓴다. 그래서 삭제·열람은 options가 아니라 여기서 한다:
+// wipe()가 이 객체의 key를 새 키로 바꾸므로 옛 키는 어디에도 남지 않고, 싱크를 먼저 멈춰 삭제 뒤에 늦은 쓰기가 끼어들지 못한다. background.js만 보낼 수 있다(BG_*와 같다).
+async function localData(message,sender){
+  if(!trusted(sender,["/background.js"]))throw new Error("허용되지 않은 요청입니다.");
+  const store=await storeP;
+  if(message.type==="LOGS_READ"){await sink?.flush();return {ok:true,events:await store.readLogs()};}
+  if(message.type==="LOGS_CLEAR"){await sink?.flush();await store.adapter.clear("logs");return {ok:true};}
+  if(starting||archiveBusy||summaryController||bg||session&&!["completed","failed","disposed"].includes(session.status))throw new Error("캡처나 백그라운드 작업이 진행 중입니다. 끝난 뒤 다시 시도하세요.");
+  if(message.dryRun)return {ok:true}; // 계정 삭제가 서버를 지우기 전에 이 기기를 지울 수 있는지만 본다
+  archiveBusy=true; // 지우는 동안 새 캡처·작업·보관이 끼어들지 못하게 보관 작업 자리를 쓴다
+  try{await sink?.dispose();await store.wipe();sink=new PipelineEvents.LogSink(bus,store);await sink.start();}
+  finally{archiveBusy=false;}
+  return {ok:true};
+}
 chrome.runtime.onConnect.addListener(port=>{
   if(port.name!=="admin-events")return;
   let ok=false;
@@ -181,6 +196,7 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
       return {ok:true,state:session?.state()||null};
     }
     if(["SAVE_VAULT","LOAD_VAULT","LIST_VAULT","DELETE_VAULT"].includes(message.type))return archive(message);
+    if(["WIPE_LOCAL","LOGS_READ","LOGS_CLEAR"].includes(message.type))return localData(message,sender);
     if(message.type==="START_SESSION"){
       if(starting||archiveBusy||summaryController||bg)throw new Error("현재 작업이 끝난 뒤 다시 시작하세요.");
       if(session&&!["completed","failed","disposed"].includes(session.status))throw new Error("현재 세션을 먼저 중지하세요.");

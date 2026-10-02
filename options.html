@@ -801,6 +801,35 @@
     <p class="note setting-note">로그인하면 서비스 호출(요약·고화질 화면 인식·보관함)에 이 계정을 씁니다. 로그인 정보는 이 기기의 확장 설정에만 저장되며 다른 기기로 동기화하지 않습니다.</p>
   </section>
 
+  <section class="card" aria-labelledby="dataHeading">
+    <div class="section-top">
+      <h2 id="dataHeading">데이터 관리</h2>
+    </div>
+
+    <p class="note" style="margin-top: 0;">노트·전사·슬라이드 텍스트·작업 기록과 진단 로그는 이 기기에 암호화되어 보관됩니다. 삭제하면 기기 키를 폐기해 다시 읽을 수 없습니다. 설정·동의·로그인은 지우지 않습니다.</p>
+
+    <div class="save-row">
+      <button id="wipeBtn" type="button">이 기기의 강의 데이터 모두 삭제</button>
+    </div>
+
+    <p class="note setting-note">진단 파일은 운영자만 열 수 있게 암호화되며 강의 내용은 담기지 않습니다. 직접 내려받아 지원 메일에 첨부해 보내 주세요.</p>
+
+    <div class="save-row">
+      <button id="diagExportBtn" type="button">진단 파일 내보내기</button>
+      <button id="diagClearBtn" type="button">진단 로그 삭제</button>
+    </div>
+
+    <p class="note" id="diagState" role="status" aria-live="polite"></p>
+
+    <div id="accountDeleteBox" hidden>
+      <p class="note setting-note">계정과 서버 보관함(암호문)을 영구 삭제합니다. 사용량 기록은 계정과 분리해 집계만 남깁니다. 끝나면 이 기기의 강의 데이터도 지우고 로그아웃합니다.</p>
+
+      <div class="save-row">
+        <button id="accountDeleteBtn" type="button">계정과 서버 데이터 삭제</button>
+      </div>
+    </div>
+  </section>
+
   <section class="card" aria-labelledby="apiHeading">
     <details>
       <summary class="api-summary">
@@ -882,6 +911,7 @@
   <script src="lib/settings.js"></script>
   <script src="lib/service-client.js"></script>
   <script src="lib/auth.js"></script>
+  <script src="lib/diagnostics.js"></script>
   <script src="lib/openrouter-client.js"></script>
   <script src="options.js"></script>
 </body>
