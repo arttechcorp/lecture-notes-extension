@@ -174,6 +174,14 @@ export function resolveRuntimeClosure() {
         }
       }
 
+      // importScripts("a.js", "b.js") — 서비스 워커·Worker 가 불러오는 로컬 파일. 빠지면 워커가 시작하지 못한다.
+      for (const call of content.matchAll(/\bimportScripts\s*\(([^)]*)\)/g)) {
+        for (const lit of call[1].matchAll(/["']([^"']+)["']/g)) {
+          const rel = lit[1];
+          if (!/^(?:https?:)?\/\//.test(rel)) enqueue(rel.startsWith(".") ? path.join(currentDir, rel).replace(/\\/g, "/") : rel);
+        }
+      }
+
       // audioWorklet.addModule('...')
       const workletMatches = content.matchAll(/addModule\s*\(\s*(?:chrome\.runtime\.getURL\()?\s*["']([^"']+)["']/g);
       for (const match of workletMatches) {
