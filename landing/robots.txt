@@ -1,4 +1,5 @@
 User-agent: *
 Allow: /
+Disallow: /account
 
 Sitemap: https://summrizei.vercel.app/sitemap.xml

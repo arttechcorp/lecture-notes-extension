@@ -85,3 +85,13 @@
 - Referer 값은 background가 `BG_RUN` 때 `chrome.tabs.get`으로 읽은 탭 주소(조각 제외)다. 패널이 보낸 pageUrl은 쓰지 않는다. 규칙은 `tabIds:[-1]`이라 확장 자신의 요청에만 걸린다.
 - 모델 이름은 `offscreen.js`의 `BG_MODELS` 한 곳이다. 서버 allowlist(`ALLOWED_*_MODELS`)와 맞아야 한다.
 - `sidepanel.js`의 `YOUTUBE` 정규식은 `lib/background-job.js`의 것과 같아야 한다(`lib/sidepanel-background.test.js`가 대조한다).
+
+## 계정 메뉴·로그인·결제(grogle)
+
+- 햄버거 메뉴는 두 곳에 있다: 확장 `sidepanel.html`의 `#menuBtn`/`#accountMenu`(인앱 설정 포함), 랜딩·계정 페이지의 `landing/account-menu.js` 서랍(인앱 설정 없음). 항목 순서·문구를 바꾸면 둘을 같이 고친다. `landing/demo-panel.html`의 `.menu-glyph`는 장식용 사본이다.
+- 확장 로그인은 `lib/auth.js` 하나가 맡는다(PKCE). 세션은 `chrome.storage.local`의 `authSession` 한 키에만 있고 `lib/settings.js`의 `loadAuthSession`·`saveAuthSession`만 읽고 쓴다(설정 저장은 이 키를 건드리지 않는다). `lib/account.js`는 패널 계정 메뉴의 표시(`decodeUser`)와 `my_account()` 조회만 하고, 로그인·갱신·로그아웃은 `Auth`에 맡긴다. 두 구현이 따로 로그인하면 세션 형식이 엇갈려 서로를 로그아웃시킨다(2026-10-03 main 병합 때 하나로 합침). 노트·원문은 이 키에 넣지 않는다.
+- 확장은 `tools/package-cws.mjs`가 `landing/`을 빼고 패키징하므로 `landing/supabase-config.js`를 읽지 못한다. 그래서 `lib/auth.js`가 Supabase URL·anon 키를 복제해 둔다 — 프로젝트를 바꾸면 두 파일을 같이 고친다.
+- Supabase Auth의 Redirect URLs에 `https://<확장ID>.chromiumapp.org/`와 `https://summrizei.vercel.app/account/**`가 등록돼 있어야 로그인이 돌아온다. 목록은 `supabase/config.toml`의 `auth.additional_redirect_urls`가 선언하고 `supabase config push`로 올린다.
+- grogle 결제창·고객 포털 주소는 `landing/billing-config.js` 한 곳에만 둔다. 비어 있으면 계정 페이지는 "결제 준비 중"으로 안내한다. 이동할 때 `email`·`client_reference_id`(Supabase user id)를 쿼리로 붙인다 — 웹훅이 구독을 계정에 묶는 키다.
+- `subscriptions`·`usage_monthly`는 클라이언트가 쓰지 않는다. 읽기는 `my_account()`, 쓰기는 이후 서버의 grogle 웹훅(service_role)만 한다.
+- 등급·사용량이 두 군데에 있다. 결제 쪽은 `subscriptions`·`usage_monthly`(`supabase/schema.sql`, 계정 페이지와 패널 메뉴가 `my_account()`로 읽음)이고, 서버 쪽은 `profiles`·`entitlements`·`monthly_usage`(`supabase/schema-v2.sql`, 서버 `effective_plan`이 읽음)다. 서버는 아직 `subscriptions`를 읽지 않으므로 결제를 연결할 때 둘을 하나로 잇는다.
