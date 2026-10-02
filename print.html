@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>노트 PDF 출력</title>
+<style>html,body{margin:0;height:100%}iframe{border:0;width:100%;height:100%}</style>
+</head>
+<body>
+<!-- 사이드 패널은 탭이 아니라서 Chrome이 window.print()를 조용히 무시한다. 인쇄는 이 탭에서 한다. -->
+<iframe id="frame" src="sandbox.html" title="인쇄할 노트" sandbox="allow-scripts allow-forms allow-popups allow-modals"></iframe>
+<script src="print.js"></script>
+</body>
+</html>
