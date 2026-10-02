@@ -105,9 +105,11 @@ const ERRORS={
   auth_unavailable:[503,true,"인증 키를 확인하지 못했습니다. 잠시 후 다시 시도하세요."],
   // JWT 계정의 보관함(Storage·vault_objects)에 닿지 못했다. 보관함 쓰기는 같은 id 로 다시 보내도 안전하다(PUT 은 덮어쓰기, DELETE 는 멱등).
   vault_store_failed:[503,true,"보관함 저장소에 연결하지 못했습니다. 잠시 후 다시 시도하세요."],
-  // DELETE /v1/account 의 세 단계(Storage·RPC·auth 사용자) 중 하나가 실패했다. 단계마다 멱등이라 같은 요청을 그대로 다시 보내면 남은 일을 마친다.
+  // DELETE /v1/account 의 세 단계(RPC·Storage·auth 사용자) 중 하나가 실패했다. 단계마다 멱등이라 같은 요청을 그대로 다시 보내면 남은 일을 마친다.
   account_delete_failed:[503,true,"계정을 모두 삭제하지 못했습니다. 잠시 후 다시 시도하면 남은 부분부터 이어서 지웁니다."],
   // 정적 토큰 계정(운영·개발·테스트)은 Supabase 사용자가 아니라 앱에서 지울 것이 없다.
+  // delete_account_data 가 해지 예약 없는 결제 구독을 보고 아무것도 지우지 않고 거절했다.
+  account_has_active_subscription:[409,false,"결제 중인 구독이 있습니다. 구독을 해지한 뒤 다시 삭제하세요."],
   account_not_deletable:[403,false,"이 계정은 앱에서 삭제할 수 없습니다. 로그인 계정만 삭제할 수 있습니다."],
   client_upgrade_required:[426,false,"확장을 최신 버전으로 업데이트하세요."],
   llm_output_truncated:[422,false,"출력이 길이 한도에 걸려 잘렸습니다. 섹션을 나눠 다시 요청하세요."],
@@ -166,7 +168,7 @@ function config(env){
     supabase={url:u.origin,key:env.SUPABASE_SERVICE_ROLE_KEY,secret:env.SUPABASE_JWT_SECRET||undefined,digestKey:env.USAGE_DIGEST_KEY,bucket};
   }else if(env.SUPABASE_SERVICE_ROLE_KEY||env.SUPABASE_JWT_SECRET)throw new Error("SUPABASE_URL required");
   // JWT 계정의 기능·모델은 DB 등급(effective_plan)을 이 표로 옮겨 정한다. 모르는 등급과 null 은 free 로 닫는다.
-  const lite="google/gemini-2.5-flash-lite",planFeatures={free:{features:[],models:[allow.includes(lite)?lite:allow[0]]},paid:{features:["vision","stt","judge","background"],models:allow}},planIn=JSON.parse(env.PLAN_FEATURES_JSON||"{}"),free0=planFeatures.free;
+  const lite="google/gemini-2.5-flash-lite",planFeatures={free:{features:[],models:[allow.includes(lite)?lite:allow[0]]},essential:{features:["vision","stt","judge","background"],models:allow},professional:{features:["vision","stt","judge","background"],models:allow}},planIn=JSON.parse(env.PLAN_FEATURES_JSON||"{}"),free0=planFeatures.free;
   if(!plain(planIn))throw new Error("invalid_plan_features");
   for(const [name,p]of Object.entries(planIn)){
     if(!/^[a-z][a-z0-9_]{0,31}$/.test(name)||!plain(p)||Object.keys(p).some(k=>!["features","models"].includes(k)))throw new Error("invalid_plan_features");
@@ -223,7 +225,9 @@ function createServer(env=process.env,deps={}){
   // Supabase 호출은 모두 여기를 지난다: 리다이렉트 금지, 5초 제한(init.signal 로 바꿀 수 있다), 응답 256 KiB 제한(max). parse=false 면 본문을 읽지 않는다(profiles upsert).
   const sbHttp=async(url,init,parse=true,max=262144)=>{
     const r=await fetcher(url,{redirect:"error",signal:AbortSignal.timeout(5000),...init});
-    if(!r.ok||!parse){try{await r.body?.cancel();}catch{}if(!r.ok)throw Object.assign(new Error("supabase_http"),{status:r.status});return;}
+    // 오류 본문에는 PostgREST 의 {"code","message"} 가 들어 있다 — delete_account_data 의 'active_subscription' 같은 SQL 가드를 pg 로 올린다.
+    if(!r.ok){const b=await boundedResponse(r,4096).catch(()=>null);throw Object.assign(new Error("supabase_http"),{status:r.status,pg:typeof b?.message==="string"?b.message:null});}
+    if(!parse){try{await r.body?.cancel();}catch{}return;}
     return boundedResponse(r,max);
   };
   const file=fileUsage({state,record,save,month,globalCents:c.globalCents});
@@ -287,12 +291,14 @@ function createServer(env=process.env,deps={}){
     }catch{return fail(res,"vault_store_failed");}
     fail(res,"not_found");
   }
-  // 계정 삭제(JWT 계정만, §9·D8). 순서는 schema-v2.sql 의 delete_account_data 주석과 같다: ① Storage 객체 ② 그 RPC ③ auth 사용자.
-  // ③ 이 마지막이어야 한다 — auth 사용자를 먼저 지우면 FK cascade 로 vault_objects 행이 사라져 지울 객체의 목록을 잃는다.
+  // 계정 삭제(JWT 계정만, §9·D8). 순서는 schema-v2.sql 의 delete_account_data 주석과 같다: ① 그 RPC ② Storage 객체 ③ auth 사용자.
+  // ① 이 맨 앞인 것은 그 함수의 결제 구독 검사가 무엇이든 지우기 전에 거절해야 해서다. ② 는 행이 아니라 "<user>/" 접두사 목록으로 지울 것을 찾으므로 행이 지워진 뒤에도 빠짐없다.
+  // 랜딩의 탈퇴(supabase/functions/delete-account)도 같은 세 단계다.
   // 단계마다 멱등이고 앞 단계가 실패하면 뒤 단계는 부르지 않는다. 어디서 끊겨도 같은 요청을 다시 보내면 남은 일을 마친다.
   // ponytail: 삭제 도중 같은 사용자의 PUT 이 끼면 객체가 남을 수 있다 — DELETE 를 한 번 더 보내면 접두사 목록이 치운다. 요청 자체를 막는 잠금은 두지 않았다.
   async function deleteAccount(res,user){
-    try{await vstore.removeAll(user);await sb.deleteData(user);await sb.deleteAuthUser(user);}catch{return fail(res,"account_delete_failed");}
+    try{await sb.deleteData(user);}catch(e){return fail(res,e?.pg==="active_subscription"?"account_has_active_subscription":"account_delete_failed");}
+    try{await vstore.removeAll(user);await sb.deleteAuthUser(user);}catch{return fail(res,"account_delete_failed");}
     // 지운 사용자의 캐시를 남기지 않는다(등급 캐시·프로필 upsert 기억·분당 요청 버킷). 진행 중이던 요청의 inflight 는 각자 finally 에서 정리한다.
     plans.delete(user);profiles.delete(user);buckets.delete(user);
     send(res,200,{deleted:true});

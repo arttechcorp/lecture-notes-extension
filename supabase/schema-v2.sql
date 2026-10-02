@@ -19,7 +19,8 @@ begin
 end $$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 1. 한도(데이터). 함수에는 숫자를 박지 않는다 — 요금 정책은 아직 미정(§22 남은 결정 1)이라 UPDATE 한 줄로 바꾼다.
+-- 1. 등급 목록(데이터): 이름·가격·한도의 유일한 원본. 서버 한도, 계정 메뉴(my_account), 가격 표(plan_catalog)가 모두 이 표를 읽는다.
+--    한도 숫자는 아직 임시값이라 UPDATE 한 줄로 바꾼다. 가격은 2026-10-03 확정값이고 이 파일이 원본이다(다시 실행하면 덮어쓴다).
 -- ─────────────────────────────────────────────────────────────────────────────
 
 create table if not exists plans (
@@ -27,8 +28,13 @@ create table if not exists plans (
   monthly_cost_cap_micros bigint not null check (monthly_cost_cap_micros >= 0),  -- 비용 상한은 항상 있어야 한다(무제한 없음)
   monthly_request_cap int check (monthly_request_cap >= 0),                      -- null = 무제한
   monthly_minutes_cap int check (monthly_minutes_cap >= 0),                      -- null = 무제한
-  placeholder boolean not null default true                                      -- 요금 정책 확정 전 임시값. 확정하면 false로
+  placeholder boolean not null default true                                      -- 한도 숫자가 임시값. 확정하면 false로
 );
+-- 2026-10-03 일원화로 더한 칸. 이미 만든 DB를 위해 alter로 둔다.
+alter table plans add column if not exists label text not null default '' check (label ~ '^[A-Za-z0-9 ]{0,32}$');  -- 화면 표시 이름
+alter table plans add column if not exists price_krw int not null default 0 check (price_krw >= 0);      -- 월 가격(원)
+alter table plans add column if not exists edu_price_krw int check (edu_price_krw >= 0);                -- 학생 인증 월 가격. null = 학생가 없음
+alter table plans add column if not exists sort smallint not null default 0;                             -- 가격 표 순서
 
 -- 전역 비용 상한. scope='day'(UTC 하루) / 'month'(UTC 달). cap_micros null = 그 범위는 상한 없음.
 -- 서버의 GLOBAL_COST_CENTS는 월 합계로 동작해 왔고 문서(§13)는 "일일 상한"이라 해서 둘 다 모델링한다.
@@ -46,14 +52,17 @@ create table if not exists global_usage (
   primary key (scope, period)
 );
 
--- 임시 시드. 숫자는 확정이 아니다(placeholder = true).
---   paid: 서버의 현재 기본값(MAX_COST_CENTS 1500 = $15, MAX_REQUESTS 10000)을 그대로 옮겼다.
---   free: §18의 Free 원가(강의 1시간 약 20원 = $0.014)로 약 20시간분.
+-- 시드. 가격(원)은 확정값이라 다시 실행하면 덮어쓰고, 한도는 임시값이라 운영자가 고친 값을 덮어쓰지 않는다.
+--   한도(임시): free는 §18의 Free 원가(강의 1시간 약 20원)로 비용 $0.3, 분은 계정 페이지가 알리던 월 100분.
+--   essential·professional은 강의 1시간 원가 약 300원(§18) 기준으로 가격의 절반 안쪽이 되게 잡았다(30시간 $8, 60시간 $14).
+--   분은 클라우드 음성 인식(/v1/stt)만 센다. Free의 실시간 경로가 v2로 옮겨 가기 전까지 Free의 분 한도는 쓰이지 않는다.
 --   전역: GLOBAL_COST_CENTS 기본값 15000 = $150/월. 일일 상한은 정하지 않았다(null).
-insert into plans (plan, monthly_cost_cap_micros, monthly_request_cap, monthly_minutes_cap) values
-  ('free', 300000, 300, 600),
-  ('paid', 15000000, 10000, 6000)
-on conflict (plan) do nothing;
+insert into plans (plan, label, price_krw, edu_price_krw, sort, monthly_cost_cap_micros, monthly_request_cap, monthly_minutes_cap) values
+  ('free', 'Free', 0, null, 0, 300000, 300, 100),
+  ('essential', 'Essential', 24000, 14000, 1, 8000000, 5000, 1800),
+  ('professional', 'Pro', 28900, null, 2, 14000000, 10000, 3600)
+on conflict (plan) do update set label = excluded.label, price_krw = excluded.price_krw,
+  edu_price_krw = excluded.edu_price_krw, sort = excluded.sort;
 
 insert into global_caps (scope, cap_micros) values
   ('day', null),
@@ -85,6 +94,9 @@ create table if not exists entitlements (
   created_at timestamptz not null default now(),
   check (ends_at is null or ends_at > starts_at)
 );
+-- 결제 부여의 구독 상태(2026-10-03, schema.sql의 옛 subscriptions 표를 합쳤다). 결제 웹훅이 쓴다.
+alter table entitlements add column if not exists edu boolean not null default false;                   -- 학생가로 결제
+alter table entitlements add column if not exists cancel_at_period_end boolean not null default false;  -- 해지 예약: ends_at까지 이용
 create index if not exists entitlements_user_idx on entitlements (user_id);
 create unique index if not exists entitlements_external_idx on entitlements (source, external_id) where external_id is not null;
 
@@ -522,9 +534,11 @@ $$;
 
 -- 계정 삭제(§9, D8): 프로필·권리·잔액·예약·보관함 행·피드백을 지우고, usage_events는 user_id만 null로 만들어
 -- 집계를 남긴다. 반환값은 처리한 행 수(내용 없음).
--- 이 함수는 Postgres 행만 다룬다. 보관함 암호문(Storage 객체)과 auth.users 삭제는 앱 계층 몫이다.
--- 권장 순서: ① vault_objects.storage_path를 읽어 Storage 객체 삭제 → ② 이 함수 → ③ auth 사용자 삭제.
--- (① 이후 중단돼도 행이 남아 있어 재시도할 수 있다. 어차피 암호문은 키 없이는 복호화할 수 없다.)
+-- 이 함수는 Postgres 행만 다룬다. 보관함 암호문(Storage 객체)과 auth.users 삭제는 앱 계층 몫이다
+-- (storage.objects는 protect_objects_delete 트리거가 SQL 삭제를 막아 Storage API로만 지울 수 있다).
+-- 순서: ① 이 함수 → ② Storage의 "<user_id>/" 접두사 아래 객체 → ③ auth 사용자. 호출자는 server/index.js(DELETE /v1/account)와
+-- supabase/functions/delete-account(랜딩) 둘이다. 이 함수가 맨 앞인 것은 아래 구독 검사가 무엇이든 지우기 전에 거절해야 해서다.
+-- ②는 행이 아니라 접두사 목록으로 지울 것을 찾으므로 ① 뒤에도 빠짐없이 지운다. 단계마다 멱등이라 어디서 끊겨도 처음부터 다시 부르면 된다.
 -- 삭제 뒤 같은 사용자의 늦은 settle_usage는 not_found가 된다.
 create or replace function delete_account_data(p_user uuid)
 returns json
@@ -543,6 +557,11 @@ declare
 begin
   if p_user is null then
     raise exception 'invalid_user' using errcode = '22023';
+  end if;
+  -- 계정만 지우면 정기결제는 계속 청구된다. 해지 예약 없는 결제 구독이 남아 있으면 아무것도 지우지 않고 거절한다.
+  if exists (select 1 from entitlements where user_id = p_user and source = 'payment' and not cancel_at_period_end
+             and starts_at <= now() and (ends_at is null or ends_at > now())) then
+    raise exception 'active_subscription' using errcode = 'P0001';
   end if;
 
   delete from usage_reservations where user_id = p_user;
@@ -573,6 +592,106 @@ begin
 end;
 $$;
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 6. 계정 메뉴·가격 표 (랜딩 /account, 확장 패널, 랜딩 어드민)
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- 2026-10-03 일원화. schema.sql에 있던 두 번째 등급·사용량 표(subscriptions·usage_monthly)와 'paid' 등급을 없앤다.
+-- 구독 상태는 entitlements(source='payment'), 사용량은 monthly_usage가 맡는다. 행이 남아 있으면 지우지 않고 멈춘다(옮긴 뒤 다시 실행).
+-- 랜딩의 탈퇴 RPC(delete_my_account)도 없앤다: auth 사용자만 지워 Storage의 보관함 암호문이 남았다 → supabase/functions/delete-account.
+do $$
+begin
+  if to_regclass('public.subscriptions') is not null then
+    if exists (select 1 from subscriptions where plan <> 'free') then
+      raise exception 'subscriptions에 유료 행이 있다 — entitlements(source=payment)로 옮긴 뒤 다시 실행하세요';
+    end if;
+    drop table subscriptions;
+  end if;
+  if to_regclass('public.usage_monthly') is not null then
+    if exists (select 1 from usage_monthly) then
+      raise exception 'usage_monthly에 행이 있다 — monthly_usage로 옮긴 뒤 다시 실행하세요';
+    end if;
+    drop table usage_monthly;
+  end if;
+  update profiles set plan = 'essential' where plan = 'paid';
+  update entitlements set plan = 'essential' where plan = 'paid';
+  delete from plans where plan = 'paid';
+end $$;
+drop function if exists delete_my_account();
+
+-- 내 등급·이번 달 사용량. 서버의 한도와 같은 표(effective_plan, plans, monthly_usage)를 읽는다.
+-- 반환 모양은 옛 schema.sql 판과 같다(lib/account.js, landing/account.js). status는 결제 상태를 따로 두지 않아 언제나 'active'다.
+create or replace function my_account()
+returns json
+language plpgsql
+security definer
+stable
+set search_path = public
+as $$
+declare
+  uid uuid := auth.uid();
+  v_plan text;
+  v_cap int;
+  e entitlements%rowtype;
+  used int;
+begin
+  if uid is null then
+    raise exception 'not_authenticated' using errcode = '42501';
+  end if;
+  v_plan := coalesce(effective_plan(uid), 'free');
+  select monthly_minutes_cap into v_cap from plans where plan = v_plan;
+  -- 지금 유효한 그 등급의 결제 부여(결제일·해지 예약·학생가 표시용). 수동 부여만 있으면 결제일이 없다.
+  select * into e from entitlements
+    where user_id = uid and plan = v_plan and source = 'payment' and starts_at <= now() and (ends_at is null or ends_at > now())
+    order by ends_at desc nulls first
+    limit 1;
+  -- 서버가 쓰는 달 키와 같다(UTC 달의 1일, server/index.js month()).
+  select minutes into used from monthly_usage
+    where user_id = uid and month = date_trunc('month', now() at time zone 'utc')::date;
+  return json_build_object(
+    'plan', v_plan,
+    'status', 'active',
+    'edu', coalesce(e.edu, false),
+    'current_period_end', e.ends_at,
+    'cancel_at_period_end', coalesce(e.cancel_at_period_end, false),
+    'minutes_used', coalesce(used, 0),
+    'minutes_limit', v_cap
+  );
+end;
+$$;
+
+-- 공개 가격 표. 로그인 없이도 읽는다(가격은 공개 정보). 내부 비용 상한은 내보내지 않는다.
+create or replace function plan_catalog()
+returns table(plan text, label text, price_krw int, edu_price_krw int, monthly_minutes_cap int)
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select p.plan, p.label, p.price_krw, p.edu_price_krw, p.monthly_minutes_cap from plans p order by p.sort, p.plan;
+$$;
+
+-- 랜딩 어드민의 구독자 수를 결제 부여에서 센다(schema.sql의 정의를 덮어쓴다).
+create or replace function admin_stats()
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not is_admin() then
+    raise exception 'not_admin' using errcode = '42501';
+  end if;
+  return json_build_object(
+    'subscribers', (select count(distinct user_id) from entitlements
+                    where source = 'payment' and starts_at <= now() and (ends_at is null or ends_at > now())),
+    'reservations', (select count(*) from reservations),
+    'codes_issued', (select count(*) from codes),
+    'codes_used', (select count(*) from codes where used_by is not null)
+  );
+end;
+$$;
+
 -- Supabase는 public 스키마의 새 함수에 anon/authenticated/service_role 실행 권한을 기본으로 준다.
 -- 서버 전용 함수는 셋 중 service_role만 남기고, 어드민 함수는 schema.sql과 같이 authenticated(+is_admin 게이트)만 연다.
 revoke all on function effective_plan(uuid, timestamptz) from public, anon, authenticated;
@@ -587,6 +706,12 @@ grant execute on function settle_usage(uuid, text, bigint, text, text, text, tex
 grant execute on function delete_account_data(uuid) to service_role;
 grant execute on function admin_usage(int) to authenticated;
 grant execute on function admin_grant_plan(uuid, text, timestamptz, timestamptz) to authenticated;
+revoke all on function my_account() from public, anon;
+revoke all on function plan_catalog() from public;
+revoke all on function admin_stats() from public, anon;
+grant execute on function my_account() to authenticated;
+grant execute on function plan_catalog() to anon, authenticated;
+grant execute on function admin_stats() to authenticated;
 
 -- 자체 점검: 경계(RLS·정책 0개·실행 권한)와 어드민 게이트가 의도대로인지 확인한다. 데이터는 남기지 않는다.
 do $$
@@ -624,7 +749,7 @@ begin
     when sqlstate '42501' then null;
   end;
   begin
-    perform admin_grant_plan(gen_random_uuid(), 'paid');
+    perform admin_grant_plan(gen_random_uuid(), 'essential');
     raise exception 'FAIL: 비관리자가 등급을 부여했다';
   exception
     when sqlstate '42501' then null;

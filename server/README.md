@@ -37,7 +37,7 @@ SUPABASE_SERVICE_ROLE_KEY=<서비스 롤 키, 서버 전용>
 USAGE_DIGEST_KEY=<32자 이상 난수, 서버 전용>
 SUPABASE_JWT_SECRET=<HS256 프로젝트일 때만>
 VAULT_BUCKET=vault
-PLAN_FEATURES_JSON={"paid":{"features":["vision","stt","judge","background"]}}
+PLAN_FEATURES_JSON={"essential":{"features":["vision","stt","judge","background"]}}
 ```
 
 `OPENROUTER_PROVIDERS_JSON`은 필수다. 값은 공급사 이름이 아니라 **모델별 엔드포인트 태그**이며 모델마다 다르다(`google/gemini-2.5-flash-lite`는 `google-vertex`, `google/gemini-3.8-flash`는 `google-vertex/global`). `https://openrouter.ai/api/v1/models/<model>/endpoints`로 태그·ZDR·구조화 출력 지원을 확인하고 넣는다. 없는 태그를 넣으면 요약 요청이 400으로 실패한다. 임의 공급자 fallback을 허용하지 않는다. 공급자가 없거나 필수 파라미터를 지원하지 않으면 요청이 실패하는 것이 정상이다.
@@ -71,7 +71,7 @@ PLAN_FEATURES_JSON={"paid":{"features":["vision","stt","judge","background"]}}
 | `USAGE_DIGEST_KEY` | 32자 이상. 요청 본문 digest를 HMAC-SHA256으로 만드는 서버 비밀. 없으면 기동 거부 |
 | `SUPABASE_JWT_SECRET` | 선택(32자 이상). 있으면 **HS256만** 받고 JWKS는 쓰지 않는다. 없으면 JWKS의 **ES256/RS256만** 받는다. 레거시 HS256 프로젝트면 설정하고, 비대칭 서명 키로 옮겼다면 지운다 |
 | `VAULT_BUCKET` | 선택(기본 `vault`). JWT 계정의 보관함 암호문을 두는 Storage 버킷 이름(영문·숫자·`_`·`-`, 63자 이하). **비공개 버킷**이어야 하고 서버가 만들지 않는다 — 대시보드에서 직접 만든다(아래 설정 순서 3) |
-| `PLAN_FEATURES_JSON` | 선택. 등급별 `{features, models}`. 기본값 `free: {features: [], models: [요약 lite 모델]}`, `paid: {features: ["vision","stt","judge","background"], models: ALLOWED_MODELS 전체}`. 빠진 키는 기본값을 유지하고 모르는 기능 이름이나 `ALLOWED_MODELS` 밖의 모델은 기동 거부 |
+| `PLAN_FEATURES_JSON` | 선택. 등급별 `{features, models}`. 기본값 `free: {features: [], models: [요약 lite 모델]}`, `essential`·`professional`: `{features: ["vision","stt","judge","background"], models: ALLOWED_MODELS 전체}`. 등급 이름·가격·한도는 `plans` 표(`supabase/schema-v2.sql`)가 원본이다. 빠진 키는 기본값을 유지하고 모르는 기능 이름이나 `ALLOWED_MODELS` 밖의 모델은 기동 거부 |
 
 **설정 순서** (Supabase CLI. 저장소는 `supabase/.temp`로 프로젝트에 연결돼 있고, 원격 설정은 `supabase/config.toml`이 선언한다)
 
@@ -79,7 +79,7 @@ PLAN_FEATURES_JSON={"paid":{"features":["vision","stt","judge","background"]}}
 2. Auth: Google 로그인을 켠다(운영 프로젝트는 이미 켜져 있다). 확장 리디렉트 URL은 `config.toml`의 `auth.additional_redirect_urls`에 넣고 `supabase config diff`로 확인한 뒤 `supabase config push`. `config.toml`이 선언하지 않은 원격 값은 push가 건드리지 않는다. 액세스 토큰 수명은 기본 1시간을 유지한다(짧을수록 탈취 피해가 작다). 익명 로그인은 서버가 거절한다(`is_anonymous`).
 3. 보관함 버킷: `config.toml`의 `[storage.buckets.vault]`(비공개, 50 MiB, `application/json`)를 `supabase seed buckets --linked`로 만든다. 크기 제한은 envelope 최대치(약 22 MiB) 이상이어야 한다. 정책(RLS)은 추가하지 않는다 — 접근은 서버의 서비스 롤 키만 쓴다. 버킷이 없으면 JWT 계정의 보관함 저장이 `503 vault_store_failed`로 실패한다. 이름을 바꾸면 `VAULT_BUCKET`도 같이 바꾼다.
 4. 서버에 `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `USAGE_DIGEST_KEY`를 비밀 관리 도구로 주입한다(HS256 프로젝트면 `SUPABASE_JWT_SECRET`도). `USAGE_DIGEST_KEY`를 바꾸면 그 순간 진행 중이던 requestId의 재시도가 `idempotency_content_mismatch`로 보일 수 있다.
-5. (선택) `PLAN_FEATURES_JSON`. 테스트 계정 등급: 확장에서 한 번 로그인한 뒤 `supabase db query --linked "insert into entitlements (user_id, plan, starts_at, source) select id, 'paid', now(), 'manual' from auth.users where email = '<이메일>'"`. `admin_grant_plan()`은 어드민 JWT(`is_admin()`)로 부를 때만 통과하므로 CLI에서는 이 insert를 쓴다.
+5. (선택) `PLAN_FEATURES_JSON`. 테스트 계정 등급: 확장에서 한 번 로그인한 뒤 `supabase db query --linked "insert into entitlements (user_id, plan, starts_at, source) select id, 'essential', now(), 'manual' from auth.users where email = '<이메일>'"`. `admin_grant_plan()`은 어드민 JWT(`is_admin()`)로 부를 때만 통과하므로 CLI에서는 이 insert를 쓴다.
 6. 기동 후 JWT로 `GET /v1/me`를 호출해 `plan`·`features`를 확인한다. 정적 토큰이 더 필요 없으면 `APP_TOKENS_JSON`을 비운다.
 
 운영 프로젝트(`rppknkhbiivyurhvljoi`, 시드니)에는 2026-10-03에 2·3과 `schema-v2.sql`을 적용했다(`schema.sql`은 그 전에 적용돼 있었다).
@@ -110,13 +110,13 @@ PLAN_FEATURES_JSON={"paid":{"features":["vision","stt","judge","background"]}}
 - 정적 토큰 계정: `VAULT_DIR`의 파일(아래 "데이터와 운영 경계").
 - JWT 계정: 서버 디스크에는 아무것도 쓰지 않는다. envelope JSON은 비공개 Storage 버킷(`VAULT_BUCKET`)의 `<user_id>/<object_id>`에, 목록·용량은 `vault_objects` 행에 둔다. `user_id`는 검증된 토큰의 `sub`뿐이라 다른 사용자의 객체에는 닿을 수 없다. 객체 이름에 `.json`을 붙이지 않는다 — `storage_path`의 CHECK가 `.`을 막고 계정 삭제가 이 칸을 그대로 Storage 경로로 읽는다. 서비스 롤 키로 업로드는 `POST /storage/v1/object/<bucket>/<path>` + `x-upsert: true`, 읽기는 `GET`(행이 있을 때만), 삭제는 `DELETE /storage/v1/object/<bucket>` `{prefixes}`(없는 객체에도 200이라 멱등)이고 행은 PostgREST로 upsert/삭제한다. PUT은 올리기 전에 이 사용자의 행으로 개수·용량(덮어쓸 때는 자기 크기 제외)을 따져 넘으면 `413 archive_quota_exceeded`다. 읽고-쓰기라 같은 사용자의 동시 PUT 몇 개는 한도를 약간 넘길 수 있다.
 - **쓰기 순서는 Storage 먼저, 행은 그다음이다**(PUT도 DELETE도). Storage가 실패하면 표는 그대로라 행이 있으면 객체가 있다. 실패는 `503 vault_store_failed`이고 같은 요청을 그대로 다시 보내도 안전하다. 행 쓰기만 실패하면 객체만 남는데 목록·용량·읽기에 안 잡히고, 같은 id의 PUT 재시도가 덮어쓰고 DELETE가 지운다(표와 버킷을 대조해 치우는 청소는 아직 없다). DELETE에서 Storage 삭제 뒤 행 삭제가 실패하면 행이 남아 읽기가 503이고 DELETE 재시도가 정리한다.
-- 계정 삭제(`delete_account_data`: Storage 객체 → RPC → auth 사용자)는 아래 `DELETE /v1/account`가 부른다. 행 없는 고아 객체도 그때 `<user_id>/` 접두사 목록으로 치운다.
+- 계정 삭제(RPC `delete_account_data` → Storage 객체 → auth 사용자)는 아래 `DELETE /v1/account`가 부른다. 랜딩의 회원 탈퇴는 같은 세 단계를 Edge Function `supabase/functions/delete-account`로 한다(Postgres는 `protect_objects_delete` 트리거 때문에 Storage 객체를 지울 수 없다). 행 없는 고아 객체도 그때 `<user_id>/` 접두사 목록으로 치운다.
 
 **계정 삭제(`DELETE /v1/account`)**: Supabase 로그인(JWT) 계정 전용이다. 본문 없이 호출하고 대상은 토큰의 `sub` 하나뿐이다. 정적 토큰 계정은 `403 account_not_deletable`(재시도 불가)이고 Supabase를 부르지 않는다. 순서는 `schema-v2.sql`의 `delete_account_data` 주석과 같다(`docs/architecture-v2.md` §9, D8).
 
-1. **Storage 객체**: `vault_objects.storage_path`가 가리키는 객체와, `POST /storage/v1/object/list/<버킷>` `{prefix:"<user_id>/",limit:100,offset,sortBy}`로 읽은 `<user_id>/` 아래 객체 전부(행 없는 고아 포함)를 `DELETE /storage/v1/object/<버킷>` `{prefixes}`로 100개씩 일괄 삭제한다. 지울 것이 없으면 삭제를 부르지 않는다(빈 `prefixes`는 Storage가 거절한다).
-2. **RPC `delete_account_data(p_user)`**: 프로필·권리·잔액·예약·보관함 행·피드백을 지우고 `usage_events`는 `user_id`를 null로 만들어 집계만 남긴다.
-3. **auth 사용자**: `DELETE ${SUPABASE_URL}/auth/v1/admin/users/<id>`(서비스 롤 키). 이미 없으면(404) 성공으로 센다. 마지막이어야 한다 — 먼저 지우면 FK cascade로 `vault_objects` 행이 사라져 객체 목록을 잃는다.
+1. **RPC `delete_account_data(p_user)`**: 해지 예약 없는 결제 구독(`entitlements`의 `source='payment'`)이 남아 있으면 아무것도 지우지 않고 `active_subscription`으로 거절한다 → `409 account_has_active_subscription`(재시도 불가). 아니면 프로필·권리·잔액·예약·보관함 행·피드백을 지우고 `usage_events`는 `user_id`를 null로 만들어 집계만 남긴다. 이 검사 때문에 맨 앞이다.
+2. **Storage 객체**: (남아 있으면) `vault_objects.storage_path`가 가리키는 객체와, `POST /storage/v1/object/list/<버킷>` `{prefix:"<user_id>/",limit:100,offset,sortBy}`로 읽은 `<user_id>/` 아래 객체 전부(행 없는 고아 포함)를 `DELETE /storage/v1/object/<버킷>` `{prefixes}`로 100개씩 일괄 삭제한다. 접두사 목록으로 찾으므로 1단계가 행을 지운 뒤에도 빠짐없다. 지울 것이 없으면 삭제를 부르지 않는다(빈 `prefixes`는 Storage가 거절한다).
+3. **auth 사용자**: `DELETE ${SUPABASE_URL}/auth/v1/admin/users/<id>`(서비스 롤 키). 이미 없으면(404) 성공으로 센다.
 
 단계마다 멱등이라 어디서 끊겨도 같은 요청을 다시 보내면 남은 일을 마친다. 한 단계가 실패하면 뒤 단계는 부르지 않고 `503 account_delete_failed`(재시도 가능, 같은 요청 그대로)로 답한다. 성공하면 `{deleted:true}`이고, 그 사용자의 등급 캐시·프로필 upsert 기억·분당 요청 버킷을 서버 메모리에서 지운다. 한계:
 

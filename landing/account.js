@@ -4,11 +4,13 @@
   const page = document.body.dataset.page;
   const cfg = window.SUMMRIZEI_BILLING || { checkout: {}, portal: "", support: "jihwanbu26@gmail.com" };
   const STATUS = { active: "이용 중", trialing: "체험 중", past_due: "결제 실패", canceled: "해지됨" };
-  const PLANS = [
-    { id: "free", name: "Free", price: "무료", edu: null, forWho: "다시 볼 장면을 찾고 싶다면", perks: ["로컬 화면·음성 인식", "개념별 핵심 요약", "월 100분 제한"] },
-    { id: "essential", name: "Essential", price: "21,900원", edu: "12,900원", forWho: "많은 강의를 빠르게 훑고 싶다면", perks: ["Free의 모든 기능", "PDF로 변환해 노트앱에서 이어서 사용"] },
-    { id: "professional", name: "Pro", price: "28,900원", edu: null, forWho: "중요한 강의를 깊이 이해한다면", perks: ["Essential의 모든 기능", "더 많은 사용량"] },
-  ];
+  // 이름·가격·학생가·월 분량은 DB의 plans 표(plan_catalog RPC)가 원본이다. 여기엔 소개 문구만 둔다.
+  const COPY = {
+    free: { forWho: "다시 볼 장면을 찾고 싶다면", perks: ["로컬 화면·음성 인식", "개념별 핵심 요약"] },
+    essential: { forWho: "많은 강의를 빠르게 훑고 싶다면", perks: ["Free의 모든 기능", "PDF로 변환해 노트앱에서 이어서 사용"] },
+    professional: { forWho: "중요한 강의를 깊이 이해한다면", perks: ["Essential의 모든 기능", "더 많은 사용량"] },
+  };
+  const won = (n) => (n ? n.toLocaleString("ko-KR") + "원" : "무료");
 
   const h = (tag, cls, text) => {
     const n = document.createElement(tag);
@@ -92,7 +94,7 @@
 
   function deleteCard(client) {
     const c = h("div", "card");
-    c.append(h("h2", null, "회원 탈퇴"), h("p", "account-note", "탈퇴하면 계정과 구독·사용량 기록이 삭제되며 되돌릴 수 없습니다."));
+    c.append(h("h2", null, "회원 탈퇴"), h("p", "account-note", "탈퇴하면 계정, 구독·사용량 기록, 보관함에 동기화한 노트가 모두 삭제되며 되돌릴 수 없습니다."));
     const open = h("button", "button quiet danger", "회원 탈퇴");
     open.type = "button";
     open.style.marginTop = "14px";
@@ -121,8 +123,15 @@
     open.addEventListener("click", () => { dlg.showModal(); input.focus(); });
     go.addEventListener("click", async () => {
       go.disabled = true;
-      const { error } = await client.rpc("delete_my_account");
-      if (error) { msg.textContent = /active_subscription/.test(error.message || "") ? "유료 구독이 남아 있어요. 구독 설정에서 먼저 해지한 뒤 탈퇴해 주세요." : "탈퇴를 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."; go.disabled = false; return; }
+      // DB 함수만으로는 Storage의 보관함 암호문을 지울 수 없어 Edge Function이 세 단계(행·Storage·계정)를 한다(supabase/functions/delete-account).
+      const { error } = await client.functions.invoke("delete-account", { method: "POST" });
+      if (error) {
+        let code = "";
+        try { code = (await error.context.json()).error; } catch {}
+        msg.textContent = code === "active_subscription" ? "유료 구독이 남아 있어요. 구독 설정에서 먼저 해지한 뒤 탈퇴해 주세요." : "탈퇴를 처리하지 못했습니다. 잠시 후 다시 시도하면 남은 부분부터 이어서 지웁니다.";
+        go.disabled = false;
+        return;
+      }
       await logoutAfter(client);
     });
     c.append(open, dlg);
@@ -186,17 +195,21 @@
     set(...heading("결제 정보", "결제 수단과 영수증을 관리합니다."), summaryCard(acct), c, h("div", "card").appendChild(refund).parentNode);
   }
 
-  function subscriptionView(client, user, acct) {
+  function subscriptionView(client, user, acct, catalog) {
     const edu = isEdu(user.email);
     const grid = h("div", "plans-stack");
-    for (const p of PLANS) {
+    for (const row of catalog) {
+      const copy = COPY[row.plan];
+      if (!copy) continue;
+      const perks = row.plan === "free" && row.monthly_minutes_cap != null ? [...copy.perks, "월 " + row.monthly_minutes_cap + "분 제한"] : copy.perks;
+      const p = { id: row.plan, name: row.label, price: won(row.price_krw), edu: row.edu_price_krw ? won(row.edu_price_krw) : null, forWho: copy.forWho, perks };
       const card = h("article", "plan" + (p.id === acct.plan ? " current" : ""));
       const head = h("div", "plan-heading");
       head.append(h("h3", null, p.name));
       if (p.id === acct.plan) head.append(h("span", "badge-current", "현재 플랜"));
-      else if (p.id === "essential" && edu) head.append(h("span", "tag solid", "EDU 학생가"));
+      else if (p.edu && edu) head.append(h("span", "tag solid", "EDU 학생가"));
       card.append(head, h("p", "plan-for", p.forWho));
-      const showEdu = p.id === "essential" && edu;
+      const showEdu = Boolean(p.edu) && edu;
       const price = h("p", "price", showEdu ? p.edu : p.price);
       if (p.id !== "free") price.append(h("span", null, " / 월"));
       card.append(price);
@@ -210,7 +223,7 @@
         cur.setAttribute("aria-disabled", "true");
         cta.append(cur);
       } else if (p.id !== "free") {
-        const url = withUser(cfg.checkout[showEdu ? "essential_edu" : p.id], user);
+        const url = withUser(cfg.checkout[showEdu ? p.id + "_edu" : p.id], user);
         if (url) {
           const a = h("a", "button dark", p.name + "로 변경");
           a.href = url;
@@ -256,9 +269,9 @@
     const { data } = await client.auth.getSession();
     const user = data.session && data.session.user;
     if (!user) return loginCard(client, ...titles[page]);
-    const { data: acct, error } = await client.rpc("my_account");
-    if (error || !acct) return errorCard("계정 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
-    ({ account: accountView, billing: billingView, subscription: subscriptionView })[page](client, user, acct);
+    const [{ data: acct, error }, cat] = await Promise.all([client.rpc("my_account"), page === "subscription" ? client.rpc("plan_catalog") : { data: [] }]);
+    if (error || !acct || cat.error || !Array.isArray(cat.data)) return errorCard("계정 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
+    ({ account: accountView, billing: billingView, subscription: subscriptionView })[page](client, user, acct, cat.data);
   }
   init();
 })();

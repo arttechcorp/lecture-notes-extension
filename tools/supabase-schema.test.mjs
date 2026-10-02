@@ -246,11 +246,11 @@ async function raceAll(calls) {
 
 // ── 테스트 ───────────────────────────────────────────────────────────────────
 const NEW_TABLES = {
-  plans: "plan monthly_cost_cap_micros monthly_request_cap monthly_minutes_cap placeholder",
+  plans: "plan monthly_cost_cap_micros monthly_request_cap monthly_minutes_cap placeholder label price_krw edu_price_krw sort",
   global_caps: "scope cap_micros",
   global_usage: "scope period cost_micros",
   profiles: "user_id plan consent_version created_at",
-  entitlements: "id user_id plan starts_at ends_at source external_id created_at",
+  entitlements: "id user_id plan starts_at ends_at source external_id created_at edu cancel_at_period_end",
   monthly_usage: "user_id month requests minutes cost_micros",
   usage_reservations: "user_id request_id digest month day reserved_cost_micros reserved_minutes status charged_cost_micros created_at settled_at",
   usage_events: "id user_id job_id request_id stage provider model input_tokens output_tokens audio_seconds images cost_micros cost_reported prompt_version schema_version status error_code latency_ms client_version host created_at",
@@ -299,13 +299,56 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
     }
   });
 
-  test("시드: free/paid 임시 한도는 데이터이고 placeholder 표시가 있다", () => {
-    const plans = qj("select json_object_agg(plan, row_to_json(p)) from (select * from plans where plan in ('free', 'paid')) p");
-    assert.equal(plans.free.placeholder, true);
-    assert.equal(plans.paid.placeholder, true);
-    assert.ok(plans.paid.monthly_cost_cap_micros > plans.free.monthly_cost_cap_micros);
+  test("시드: 등급은 free·essential·professional 하나의 표이고, 가격은 확정값·한도는 임시값(placeholder)이다", () => {
+    const plans = qj("select json_object_agg(plan, row_to_json(p)) from (select * from plans where plan not like 't\\_%') p");
+    assert.deepEqual(Object.keys(plans).sort(), ["essential", "free", "professional"], "옛 'paid' 등급은 없다");
+    assert.deepEqual([plans.free.price_krw, plans.essential.price_krw, plans.essential.edu_price_krw, plans.professional.price_krw], [0, 24000, 14000, 28900]);
+    assert.equal(plans.free.edu_price_krw, null);
+    for (const p of Object.values(plans)) assert.equal(p.placeholder, true);
+    assert.ok(plans.professional.monthly_cost_cap_micros > plans.essential.monthly_cost_cap_micros);
+    assert.ok(plans.essential.monthly_cost_cap_micros > plans.free.monthly_cost_cap_micros);
     assert.equal(q("select cap_micros is null from global_caps where scope = 'day'"), "t");
     assert.equal(q("select cap_micros from global_caps where scope = 'month'"), "150000000");
+    // 옛 두 번째 등급·사용량 표와 Storage를 남기던 탈퇴 RPC는 없다.
+    assert.equal(q("select coalesce(to_regclass('public.subscriptions')::text, '') || coalesce(to_regclass('public.usage_monthly')::text, '')"), "");
+    assert.equal(q("select count(*) from pg_proc where proname = 'delete_my_account'"), "0");
+  });
+
+  test("가격 표(plan_catalog)는 로그인 없이 읽히고 내부 비용 상한은 내보내지 않는다", () => {
+    const rows = qj("select json_agg(c) from plan_catalog() c", { as: "anon" });
+    assert.deepEqual(rows.map((r) => r.plan).filter((p) => !p.startsWith("t_")), ["free", "essential", "professional"]);
+    const pro = rows.find((r) => r.plan === "professional");
+    assert.deepEqual(Object.keys(pro).sort(), ["edu_price_krw", "label", "monthly_minutes_cap", "plan", "price_krw"]);
+    assert.equal(pro.label, "Pro");
+  });
+
+  test("my_account: 로그인만, 서버와 같은 표(등급·한도·이번 달 사용량)를 읽는다", () => {
+    fails("select my_account()", { as: "anon" }, /42501|permission denied/);
+    fails("select my_account()", { as: "authenticated", claims: {} }, /42501.*not_authenticated/s);
+    const u = newUser("free");
+    const me = () => qj("select my_account()::text", { as: "authenticated", claims: { sub: u } });
+    assert.deepEqual(me(), { plan: "free", status: "active", edu: false, current_period_end: null, cancel_at_period_end: false, minutes_used: 0, minutes_limit: 100 });
+    const month = q("select date_trunc('month', now() at time zone 'utc')::date");
+    q(`insert into monthly_usage (user_id, month, minutes) values (${lit(u)}, ${lit(month)}, 42)`);
+    q(`insert into entitlements (user_id, plan, source, edu, ends_at) values (${lit(u)}, 'essential', 'payment', true, now() + interval '20 days')`);
+    const paid = me();
+    assert.equal(paid.plan, "essential");
+    assert.equal(paid.edu, true);
+    assert.ok(paid.current_period_end);
+    assert.equal(paid.minutes_used, 42);
+    assert.equal(paid.minutes_limit, Number(q("select monthly_minutes_cap from plans where plan = 'essential'")));
+  });
+
+  test("delete_account_data: 해지 예약 없는 결제 구독이 있으면 아무것도 지우지 않고 거절한다", () => {
+    const u = newUser("free");
+    q(`insert into vault_objects (user_id, object_id, size, storage_path) values (${lit(u)}, 'o1', 10, '${u}/o1');
+       insert into entitlements (user_id, plan, source, ends_at) values (${lit(u)}, 'essential', 'payment', now() + interval '20 days')`);
+    fails(`select delete_account_data(${lit(u)})`, SVC, /active_subscription/);
+    assert.equal(q(`select count(*) from vault_objects where user_id = ${lit(u)}`), "1");
+    // 해지 예약 뒤(또는 만료 뒤)에는 지운다. 수동 부여는 결제가 아니라 막지 않는다.
+    q(`update entitlements set cancel_at_period_end = true where user_id = ${lit(u)}`);
+    q(`insert into entitlements (user_id, plan) values (${lit(u)}, 'professional')`);
+    assert.equal(qj(`select delete_account_data(${lit(u)})::text`, SVC).entitlements, 2);
   });
 
   test("D2: 새 테이블의 컬럼은 허용 목록과 정확히 같고 제목·URL·본문류 컬럼이 없다", () => {
@@ -374,7 +417,7 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
     assert.equal(reserve(w, "rls-1", 100), "reserved");
     assert.equal(settle(w, "rls-1", 90, "ok", { host: "example.com" }), "settled");
     assert.equal(reserve(w, "rls-2", 100), "reserved");
-    q(`insert into entitlements (user_id, plan) values (${lit(w)}, 'paid');
+    q(`insert into entitlements (user_id, plan) values (${lit(w)}, 'essential');
        insert into vault_objects (user_id, object_id, size, storage_path) values (${lit(w)}, 'o1', 10, '${w}/o1');
        insert into feedback (user_id, job_id, rating) values (${lit(w)}, 'j1', 4)`);
     for (const table of names) {
@@ -383,7 +426,7 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
         assert.equal(q(`select count(*) from ${table}`, { as: role, claims: { sub: w, email: "x@example.com" } }), "0", `${role}가 ${table}를 읽었다`);
       }
     }
-    fails(`insert into profiles (user_id, plan) values (gen_random_uuid(), 'paid')`, { as: "authenticated", claims: { sub: w } }, /42501|row-level security/);
+    fails(`insert into profiles (user_id, plan) values (gen_random_uuid(), 'essential')`, { as: "authenticated", claims: { sub: w } }, /42501|row-level security/);
     // UPDATE/DELETE는 정책이 없으면 오류 없이 0행에 적용된다.
     for (const role of ["anon", "authenticated"]) {
       assert.equal(q("update plans set monthly_cost_cap_micros = 0 returning 1", { as: role }), "", `${role}가 plans를 고쳤다`);
@@ -685,36 +728,36 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
     const user = newUser("free");
     const admin = { ...ADMIN, role: "authenticated" };
     const stranger = { sub: user, email: "nobody@example.com", role: "authenticated" };
-    fails(`select admin_grant_plan(${lit(user)}, 'paid')`, { as: "authenticated", claims: stranger }, /42501.*not_admin/s);
-    fails(`select admin_grant_plan(${lit(user)}, 'paid')`, { as: "anon" }, /42501.*permission denied/s);
+    fails(`select admin_grant_plan(${lit(user)}, 'essential')`, { as: "authenticated", claims: stranger }, /42501.*not_admin/s);
+    fails(`select admin_grant_plan(${lit(user)}, 'essential')`, { as: "anon" }, /42501.*permission denied/s);
     assert.equal(q("select count(*) from entitlements where user_id = " + lit(user)), "0");
 
     const freeCap = Number(q("select monthly_cost_cap_micros from plans where plan = 'free'"));
-    const paidCap = Number(q("select monthly_cost_cap_micros from plans where plan = 'paid'"));
+    const paidCap = Number(q("select monthly_cost_cap_micros from plans where plan = 'essential'"));
     assert.equal(reserve(user, "gp-1", freeCap + 1), "quota_exceeded");
 
-    const id = q(`select admin_grant_plan(${lit(user)}, 'paid')`, { as: "authenticated", claims: admin });
+    const id = q(`select admin_grant_plan(${lit(user)}, 'essential')`, { as: "authenticated", claims: admin });
     assert.match(id, /^\d+$/);
     assert.equal(q(`select source || ',' || (ends_at is null) from entitlements where id = ${id}`), "manual,true");
-    assert.equal(q(`select effective_plan(${lit(user)})`, SVC), "paid");
+    assert.equal(q(`select effective_plan(${lit(user)})`, SVC), "essential");
     assert.equal(reserve(user, "gp-2", freeCap + 1), "reserved", "유료 한도로 올라갔다");
     assert.equal(reserve(user, "gp-3", paidCap), "quota_exceeded");
 
     fails(`select admin_grant_plan(${lit(user)}, 'no_such_plan')`, { as: "authenticated", claims: admin }, /22023|unknown_plan/);
-    fails(`select admin_grant_plan(${lit(user)}, 'paid', now(), now() - interval '1 day')`, { as: "authenticated", claims: admin }, /23514/);
+    fails(`select admin_grant_plan(${lit(user)}, 'essential', now(), now() - interval '1 day')`, { as: "authenticated", claims: admin }, /23514/);
 
     // 기간: 만료·미래 부여는 실효가 아니고, 가장 큰 한도가 이긴다(강등 없음).
     const other = newUser("free");
-    q(`select admin_grant_plan(${lit(other)}, 'paid', now() - interval '3 days', now() - interval '1 day')`, { as: "authenticated", claims: admin });
+    q(`select admin_grant_plan(${lit(other)}, 'essential', now() - interval '3 days', now() - interval '1 day')`, { as: "authenticated", claims: admin });
     assert.equal(q(`select effective_plan(${lit(other)})`, SVC), "free", "만료된 부여");
-    q(`select admin_grant_plan(${lit(other)}, 'paid', now() + interval '1 day', null)`, { as: "authenticated", claims: admin });
+    q(`select admin_grant_plan(${lit(other)}, 'essential', now() + interval '1 day', null)`, { as: "authenticated", claims: admin });
     assert.equal(q(`select effective_plan(${lit(other)})`, SVC), "free", "아직 시작 전인 부여");
-    const paidUser = newUser("paid");
+    const paidUser = newUser("essential");
     q(`insert into entitlements (user_id, plan) values (${lit(paidUser)}, 'free')`);
-    assert.equal(q(`select effective_plan(${lit(paidUser)})`, SVC), "paid", "프로필이 paid면 낮은 부여가 겹쳐도 강등되지 않는다");
+    assert.equal(q(`select effective_plan(${lit(paidUser)})`, SVC), "essential", "프로필이 essential이면 낮은 부여가 겹쳐도 강등되지 않는다");
     // 결제 웹훅 재전송 멱등: (source, external_id) 유일
-    q(`insert into entitlements (user_id, plan, source, external_id) values (${lit(user)}, 'paid', 'payment', 'pay_1')`);
-    fails(`insert into entitlements (user_id, plan, source, external_id) values (${lit(user)}, 'paid', 'payment', 'pay_1')`, {}, /23505|duplicate key/);
+    q(`insert into entitlements (user_id, plan, source, external_id) values (${lit(user)}, 'essential', 'payment', 'pay_1')`);
+    fails(`insert into entitlements (user_id, plan, source, external_id) values (${lit(user)}, 'essential', 'payment', 'pay_1')`, {}, /23505|duplicate key/);
   });
 
   test("D8: delete_account_data는 개인 행을 지우고 원장은 user_id만 비우며 집계는 남는다", () => {
@@ -729,7 +772,7 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
       reserve(user, "del-open", 7000); // 정산 못 한 예약
       q(`insert into vault_objects (user_id, object_id, size, storage_path) values (${lit(user)}, 'o1', 10, '${user}/o1');
          insert into feedback (user_id, job_id, rating, tags) values (${lit(user)}, 'j1', 5, array['good','fast']);
-         insert into entitlements (user_id, plan) values (${lit(user)}, 'paid')`);
+         insert into entitlements (user_id, plan) values (${lit(user)}, 'essential')`);
     };
     seed(u);
     seed(v);

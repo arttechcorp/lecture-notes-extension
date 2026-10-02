@@ -1480,7 +1480,7 @@ function supabaseFake() {
     objects: new Map(), storageCalls: [], failStorage: {}, failRows: {},
     // 계정 삭제: auth 사용자 목록(admin API 가 지운다)과 그 실패 스위치. failStorage.LIST 는 목록 호출만 실패시킨다(업로드는 POST 라 따로).
     authUsers: new Set([UID, UID2]), failAdmin: false,
-    rows: { plans: { free: { monthly_cost_cap_micros: 300000, monthly_request_cap: 300, monthly_minutes_cap: 600 }, paid: { monthly_cost_cap_micros: 15000000, monthly_request_cap: null, monthly_minutes_cap: 6000 } }, usage: null, vault: new Map() },
+    rows: { plans: { free: { monthly_cost_cap_micros: 300000, monthly_request_cap: 300, monthly_minutes_cap: 600 }, essential: { monthly_cost_cap_micros: 15000000, monthly_request_cap: null, monthly_minutes_cap: 6000 } }, usage: null, vault: new Map() },
   };
   f.rpcNamed = name => f.rpcs.filter(r => r.rpc === name);
   f.fetch = async (url, init = {}) => {
@@ -1535,6 +1535,7 @@ function supabaseFake() {
       if (rpc === "effective_plan") { f.planCalls++; return ok(f.plan); }
       if (rpc === "settle_usage") return ok("settled");
       // schema-v2.sql: 행만 지운다(Storage 객체와 auth 사용자는 건드리지 않는다). 반환은 처리한 행 수다.
+      if (rpc === "delete_account_data" && f.activeSubscription) return { ok: false, status: 400, json: async () => ({ code: "P0001", message: "active_subscription" }) };
       if (rpc === "delete_account_data") { let n = 0; for (const [k, r] of f.rows.vault) if (r.user_id === args.p_user) { f.rows.vault.delete(k); n++; } return ok({ vault_objects: n }); }
       if (rpc === "reserve_usage") {
         if (f.reserveResult !== null) return ok(typeof f.reserveResult === "function" ? f.reserveResult(args) : f.reserveResult);
@@ -1604,10 +1605,11 @@ test("supabase config fails closed without its secrets and plan features are val
 
     const defaults = serverConfig(base).planFeatures;
     assert.deepEqual(defaults.free, { features: [], models: [model] });
-    assert.deepEqual(defaults.paid, { features: ["vision", "stt", "judge", "background"], models: [model] });
+    for (const p of ["essential", "professional"]) assert.deepEqual(defaults[p], { features: ["vision", "stt", "judge", "background"], models: [model] }, p);
+    assert.equal(defaults.paid, undefined, "옛 paid 등급은 없다");
     const lite = "anthropic/claude-haiku-4.5", two = { ...base, ALLOWED_MODELS: JSON.stringify([lite, model]), OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["p"], [lite]: ["p"] }) };
     assert.deepEqual(serverConfig(two).planFeatures.free.models, [model], "free 는 lite 요약 모델만");
-    assert.deepEqual(serverConfig(two).planFeatures.paid.models, [lite, model]);
+    assert.deepEqual(serverConfig(two).planFeatures.essential.models, [lite, model]);
     const merged = serverConfig({ ...base, PLAN_FEATURES_JSON: JSON.stringify({ free: { features: ["judge"] }, pro: { features: ["vision"] } }) }).planFeatures;
     assert.deepEqual(merged.free, { features: ["judge"], models: [model] }, "빠진 키는 기본값을 유지한다");
     assert.deepEqual(merged.pro, { features: ["vision"], models: [model] });
@@ -1931,7 +1933,7 @@ test("refund paths settle as refunded with no cost and no usage, and the same re
     assert.equal(sb.rpcNamed("settle_usage").length - before, 2);
     assert.equal(sb.rpcNamed("reserve_usage").filter(r => r.args.p_request_id === "stt-r5").length, 1, "예약은 다시 부르지 않는다");
   }, { setup: sb => {
-    sb.plan = "paid";
+    sb.plan = "essential";
     sb.other = async () => {
       if (mode === "fail") return { ok: false, status: 500, headers: new Map(), json: async () => ({}) };
       if (mode === "busy") return { ok: false, status: 429, headers: new Map([["retry-after", "3"]]), json: async () => ({}) };
@@ -2015,7 +2017,7 @@ test("no lecture content or bare hash reaches Supabase from any route and digest
       assert.equal(Object.hasOwn(args, "p_job_id"), false);
       for (const [k, v] of Object.entries(args)) if (typeof v === "string" && !["p_user", "p_request_id"].includes(k)) assert.match(v, /^[A-Za-z0-9][A-Za-z0-9_./:@-]*$/, k);
     }
-  }, { setup: sb => { sb.plan = "paid"; }, env: { ACCOUNT_RATE_PER_MIN: "1000" } });
+  }, { setup: sb => { sb.plan = "essential"; }, env: { ACCOUNT_RATE_PER_MIN: "1000" } });
 });
 
 test("client-chosen metadata that would violate the ledger CHECKs is dropped instead of failing the settlement", async () => {
@@ -2048,12 +2050,12 @@ test("the DB plan decides features and models, closed by default, and is cached 
 
     // 등급 조회는 사용자별 30초 캐시이고 /v1/me 만 새로 읽는다. 업그레이드는 /v1/me 로 즉시 보인다.
     const calls = sb.planCalls;
-    sb.plan = "paid";
+    sb.plan = "essential";
     await errorOf(await req(url, "/v1/judge", "POST", judgeBody({ requestId: "p-j2" }), jwt), 403, "feature_not_in_account_plan");
     assert.equal(sb.planCalls, calls, "연속 호출은 캐시를 쓴다");
     m = await me();
     assert.equal(sb.planCalls, calls + 1);
-    assert.equal(m.plan, "paid");
+    assert.equal(m.plan, "essential");
     assert.deepEqual(m.features, ["vision", "stt", "judge", "background"]);
     assert.deepEqual(m.models, [model, haiku]);
     assert.equal((await req(url, "/v1/judge", "POST", judgeBody({ requestId: "p-j3" }), jwt)).status, 200, "/v1/me 가 캐시를 갱신했다");
@@ -2125,7 +2127,7 @@ test("/v1/me for a JWT user returns plan, features, DB limits, remote config and
 
     // 한도가 없는 상한(null)은 그대로 null, 상한 줄이 없는 등급은 maxCents 0 으로 닫힌다. 사용 기록이 없으면 0 이다.
     sb.rows.usage = null;
-    sb.plan = "paid";
+    sb.plan = "essential";
     let q = (await (await req(url, "/v1/me", "GET", undefined, jwt)).json()).quota;
     assert.deepEqual(q, { month, requests: 0, maxRequests: null, minutes: 0, maxMinutes: 6000, spentCents: 0, maxCents: 1500 });
     sb.plan = "legacy";
@@ -2137,7 +2139,7 @@ test("/v1/me for a JWT user returns plan, features, DB limits, remote config and
     assert.equal(q.maxCents, 0);
     assert.equal(sb.gets.length - reads, 1, "등급이 없으면 plans 조회는 건너뛰고 사용량만 읽는다");
     // 전역 스위치는 등급과 무관하게 기능을 가린다.
-    sb.plan = "paid";
+    sb.plan = "essential";
     assert.deepEqual((await (await req(url, "/v1/me", "GET", undefined, jwt)).json()).features, ["vision", "stt", "background"]);
   }, { env: { FEATURE_FLAGS_JSON: JSON.stringify({ judge: false }) } });
 });
@@ -2427,12 +2429,12 @@ test("VAULT_BUCKET picks the Storage bucket (default vault) and rejects names th
   } finally { removeTemp(root); }
 });
 
-// ── 계정 삭제 (DELETE /v1/account: ① Storage 객체 → ② delete_account_data RPC → ③ auth 사용자) ──
+// ── 계정 삭제 (DELETE /v1/account: ① delete_account_data RPC → ② Storage 객체 → ③ auth 사용자) ──
 const accountDel = (url, t, body) => req(url, "/v1/account", "DELETE", body, t);
 // 가짜 Supabase 로 나간 호출을 단계 이름으로 줄인다: rows:GET(보관함 행 읽기), list(접두사 목록), storage:DELETE(일괄 삭제), rpc, admin(auth 사용자 삭제).
 const stepOf = c => /\/storage\/v1\/object\/list\//.test(c.url) ? "list" : c.url.includes("/storage/v1/object/") ? "storage:" + c.method
   : c.url.includes("/rpc/") ? "rpc" : c.url.includes("/auth/v1/admin/") ? "admin" : "rows:" + c.method;
-const FULL = ["rows:GET", "list", "storage:DELETE", "rpc", "admin"];
+const FULL = ["rpc", "rows:GET", "list", "storage:DELETE", "admin"];
 // 사용자마다 행 있는 객체 둘과 접두사 아래 행 없는 고아 하나. 경로는 "<user>/<id>" 다.
 function seedAccount(sb, user) {
   for (const id of ["object-one", "object-two"]) { sb.objects.set("vault/" + user + "/" + id, "ciphertext-" + user + id); sb.rows.vault.set(user + ":" + id, vaultRow(user, id, 10)); }
@@ -2441,7 +2443,7 @@ function seedAccount(sb, user) {
 const objectsOf = (sb, user) => [...sb.objects.keys()].filter(k => k.startsWith("vault/" + user + "/")).sort();
 const rowsOf = (sb, user) => [...sb.rows.vault.values()].filter(r => r.user_id === user).length;
 
-test("DELETE /v1/account removes Storage objects (rows and orphans), then the data RPC, then the auth user, and only the caller's", async () => {
+test("DELETE /v1/account runs the data RPC, then removes Storage objects (row paths and orphans), then the auth user, and only the caller's", async () => {
   await withSupabase(async ({ url, sb }) => {
     seedAccount(sb, UID); seedAccount(sb, UID2);
     sb.objects.set("vault/" + UID + "-other/file", "not an object of this user"); // 접두사 "<user>/" 의 슬래시 없이는 걸릴 이름
@@ -2449,15 +2451,15 @@ test("DELETE /v1/account removes Storage objects (rows and orphans), then the da
     const res = await accountDel(url, ec1(), { user: UID2, userId: UID2, user_id: UID2 });
     assert.equal(res.status, 200);
     assert.deepEqual(await res.json(), { deleted: true });
-    assert.deepEqual(sb.calls.map(stepOf), FULL, "순서: Storage → RPC → auth 사용자");
+    assert.deepEqual(sb.calls.map(stepOf), FULL, "순서: RPC → Storage → auth 사용자");
 
-    // ① 행을 읽고, 접두사 "<user>/" 를 목록으로 읽은 뒤, 행 경로와 고아를 한꺼번에 지운다.
-    assert.equal(new URL(sb.calls[0].url).searchParams.get("user_id"), "eq." + UID);
+    // ② 행을 읽고(① 이 이미 지웠다), 접두사 "<user>/" 를 목록으로 읽은 뒤, 찾은 객체를 한꺼번에 지운다.
+    assert.equal(new URL(sb.calls[1].url).searchParams.get("user_id"), "eq." + UID);
     const list = sb.storageCalls.find(c => c.key === "list/vault"), del = sb.storageCalls.find(c => c.method === "DELETE");
     assert.deepEqual(JSON.parse(list.body), { prefix: UID + "/", limit: 100, offset: 0, sortBy: { column: "name", order: "asc" } });
     assert.equal(del.key, "vault");
     assert.deepEqual(JSON.parse(del.body).prefixes.sort(), ["object-one", "object-two", "orphan"].map(x => UID + "/" + x));
-    // ② RPC 인자는 사용자 id 하나, ③ 은 그 사용자의 admin 삭제다.
+    // ① RPC 인자는 사용자 id 하나, ③ 은 그 사용자의 admin 삭제다.
     assert.deepEqual(sb.rpcNamed("delete_account_data").map(r => r.args), [{ p_user: UID }]);
     const admin = sb.calls[4];
     assert.equal(admin.url, SB + "/auth/v1/admin/users/" + UID);
@@ -2511,7 +2513,7 @@ test("DELETE /v1/account fails closed instead of looping or silently skipping wh
     await errorOf(await accountDel(url, ec1()), 503, "account_delete_failed");
     assert.equal(sb.storageCalls.filter(c => c.key === "list/vault").length, 100, "쪽 수에 상한이 있다");
     assert.equal(sb.storageCalls.filter(c => c.method === "DELETE").length, 0, "일부만 지우고 성공하지 않는다");
-    assert.equal(sb.rpcs.length + sb.calls.filter(c => c.url.includes("/auth/v1/admin/")).length, 0);
+    assert.equal(sb.calls.filter(c => c.url.includes("/auth/v1/admin/")).length, 0, "auth 사용자는 남는다(재시도로 이어 지운다)");
     assert.equal(objectsOf(sb, UID).length, 10103);
   });
 });
@@ -2519,10 +2521,10 @@ test("DELETE /v1/account fails closed instead of looping or silently skipping wh
 test("a failure at any step answers 503 account_delete_failed, leaves later steps uncalled, and a retry finishes the job", async () => {
   // [단계, 실패 스위치, 부른 단계, 실패 직후 남은 UID 객체 수·행 수]
   const stages = [
-    ["reading the vault rows", sb => { sb.failRows.GET = true; }, FULL.slice(0, 1), 3, 2],
-    ["listing the prefix", sb => { sb.failStorage.LIST = true; }, FULL.slice(0, 2), 3, 2],
-    ["deleting the objects", sb => { sb.failStorage.DELETE = true; }, FULL.slice(0, 3), 3, 2],
-    ["the data RPC", sb => { sb.failRpc.delete_account_data = 1; }, FULL.slice(0, 4), 0, 2],
+    ["the data RPC", sb => { sb.failRpc.delete_account_data = 1; }, FULL.slice(0, 1), 3, 2],
+    ["reading the vault rows", sb => { sb.failRows.GET = true; }, FULL.slice(0, 2), 3, 0],
+    ["listing the prefix", sb => { sb.failStorage.LIST = true; }, FULL.slice(0, 3), 3, 0],
+    ["deleting the objects", sb => { sb.failStorage.DELETE = true; }, FULL.slice(0, 4), 3, 0],
     ["deleting the auth user", sb => { sb.failAdmin = true; }, FULL, 0, 0],
   ];
   for (const [stage, fail, called, objects, rows] of stages) {
@@ -2558,6 +2560,19 @@ test("a failure at any step answers 503 account_delete_failed, leaves later step
   });
 });
 
+test("DELETE /v1/account with an active payment subscription answers 409 and deletes nothing", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    seedAccount(sb, UID);
+    sb.activeSubscription = true;
+    const err = await errorOf(await accountDel(url, ec1()), 409, "account_has_active_subscription");
+    assert.equal(err.retryable, false);
+    assert.deepEqual(sb.calls.map(stepOf), ["rpc"]);
+    assert.equal(objectsOf(sb, UID).length, 3);
+    assert.equal(rowsOf(sb, UID), 2);
+    assert.ok(sb.authUsers.has(UID));
+  });
+});
+
 test("DELETE /v1/account is idempotent: nothing left to delete is not an error, and an already-deleted auth user counts as done", async () => {
   await withSupabase(async ({ url, sb }) => {
     seedAccount(sb, UID);
@@ -2567,7 +2582,7 @@ test("DELETE /v1/account is idempotent: nothing left to delete is not an error, 
     const again = await accountDel(url, ec1());
     assert.equal(again.status, 200);
     assert.deepEqual(await again.json(), { deleted: true });
-    assert.deepEqual(sb.calls.map(stepOf), ["rows:GET", "list", "rpc", "admin"], "지울 것이 없으면 일괄 삭제(빈 prefixes 는 Storage 가 거절)를 부르지 않는다");
+    assert.deepEqual(sb.calls.map(stepOf), ["rpc", "rows:GET", "list", "admin"], "지울 것이 없으면 일괄 삭제(빈 prefixes 는 Storage 가 거절)를 부르지 않는다");
     // 404 가 아닌 admin 오류는 실패다.
     sb.failAdmin = true;
     await errorOf(await accountDel(url, ec1()), 503, "account_delete_failed");
