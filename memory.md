@@ -70,3 +70,10 @@
 - 이벤트에는 강의 텍스트를 싣지 않는다(AGENTS.md §2 콘텐츠 없는 원격 측정). 고정 코드·수치·짧은 진단 msg만 허용한다.
 - 파이프라인(`session.js`, `offscreen.js`)에는 `PipelineEvents.safe(bus)` 껍데기만 넘긴다 — 잘못된 진단 이벤트의 예외가 캡처를 죽이지 않도록.
 - `admin.html`은 개발 전용이며 `tools/package-cws.mjs`(테스트 + 감사 규칙)가 스토어 패키지에서 배제한다.
+
+## 동의 기록
+
+- 동의 기록은 `chrome.storage.local`의 설정 값에만 산다(`lib/settings.js`): 클라우드 인식은 `visionConsent`+`visionConsentVersion`/`visionConsentAt`, 백그라운드 처리는 `backgroundConsent{personalUse,accessRights,version,at}`.
+- `TERMS_VERSION`은 options.html/sidepanel의 동의 문구나 정책 페이지가 바뀔 때마다 올린다 - 올리면 재동의가 강제되고, 이후 서버 `profiles.consent_version`과도 맞춰야 한다.
+- 버전 없는 `visionConsent:true`는 화면 프레임만 커버하는 레거시 동의다. 장래 음성/클라우드 STT 게이트는 `cloudRecognitionAllowed()`를 쓰고, `session.js`의 기존 화면 전송 게이트(`visionConsent===true`)는 그대로다.
+- `backgroundAllowed()`를 읽는 백그라운드 작업은 아직 없다 - 기록과 게이트 도우미만 먼저 들어갔다.

@@ -19,6 +19,22 @@ function wireSpeedCorrection(initial){
   $('speedWarnCancel')?.addEventListener('click',()=>{modal.close();box.checked=false;});
   modal?.addEventListener('cancel',()=>{box.checked=false;});
 }
+// 백그라운드 처리 사용 동의 2종(D9). 저장된 버전이 TERMS_VERSION과 다르면 체크를 풀어 다시 받는다.
+// 체크 하나가 바뀔 때마다 두 항목·버전·시각을 통째로 저장하고, 실패하면 마지막 저장 상태로 되돌린다.
+function wireBackgroundConsent(settings){
+  const personal=$('bgPersonalCb'),access=$('bgAccessCb'),state=$('bgState');
+  if(!personal||!access)return;
+  let lastSaved=settings;
+  const show=s=>{
+    const c=s.backgroundConsent,current=c.version===TERMS_VERSION;
+    personal.checked=current&&c.personalUse;access.checked=current&&c.accessRights;
+    if(state)state.textContent=backgroundAllowed(s)?'동의했습니다 · '+new Date(c.at).toLocaleString('ko-KR')+' · 문구 버전 '+c.version:c.version&&!current?'동의 문구가 바뀌어 다시 동의가 필요합니다. 두 항목에 모두 체크하세요.':'두 항목에 모두 체크해야 백그라운드 처리를 쓸 수 있습니다.';
+  };
+  const persist=async()=>{try{lastSaved=await saveSettings({backgroundConsent:{personalUse:personal.checked,accessRights:access.checked,version:TERMS_VERSION,at:Date.now()}});show(lastSaved);notice('백그라운드 처리 동의를 저장했습니다.');}catch(error){show(lastSaved);notice(error.message);}};
+  personal.addEventListener('change',persist);
+  access.addEventListener('change',persist);
+  show(lastSaved);
+}
 // 유료 여부는 서버만 안다. chrome.storage 는 사용자가 고칠 수 있으므로 여기서 켜진 토글은
 // 의사 표시일 뿐이고, 실제 호출은 /v1/vision 이 계정 features 로 다시 막는다.
 async function wireVision(settings){
@@ -26,7 +42,7 @@ async function wireVision(settings){
   if(!box)return;
   box.checked=settings.ocrEngine==='vision-cloud'&&settings.visionConsent===true;
   const persist=async on=>{
-    try{await saveSettings({ocrEngine:on?'vision-cloud':'ppocr-v5-wasm',visionConsent:on});notice(on?'고화질 화면 인식을 켰습니다. 다음 캡처부터 적용됩니다.':'고화질 화면 인식을 껐습니다. 기기 안에서만 인식합니다.');}
+    try{await saveSettings({ocrEngine:on?'vision-cloud':'ppocr-v5-wasm',visionConsent:on,visionConsentVersion:on?TERMS_VERSION:'',visionConsentAt:on?Date.now():0});notice(on?'고화질 화면 인식을 켰습니다. 다음 캡처부터 적용됩니다.':'고화질 화면 인식을 껐습니다. 기기 안에서만 인식합니다.');}
     catch(error){box.checked=!on;notice(error.message);}
   };
   box.addEventListener('change',()=>{
@@ -53,6 +69,7 @@ function values(){return Object.fromEntries(fields.map(id=>[id,BOOL_FIELDS.has(i
   for(const id of fields)if(BOOL_FIELDS.has(id))$(id).checked=s[id];else $(id).value=s[id];
   for(const [id,key] of AUTO){const el=$(id);if(!el)continue;if(el.type==='checkbox')el.checked=s[key];else el.value=s[key];}
   wireSpeedCorrection(s.speedCorrection===true);
+  wireBackgroundConsent(s);
   await wireVision(s);
 }catch(error){notice(error.message);}})();
 for(const [id,key] of AUTO){
