@@ -8,7 +8,7 @@ import path from "node:path";
 import zlib from "node:zlib";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { resolveRuntimeClosure, auditSecurityAndInvariants } from "./package-cws.mjs";
+import { resolveRuntimeClosure, auditSecurityAndInvariants, auditMediaSource } from "./package-cws.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -208,4 +208,71 @@ test("5. 감사기가 개발 전용 파일 포함을 오류로 반환", () => {
 test("6. 현재 저장소의 클로저는 보안 감사를 무위반으로 통과", () => {
   const { files } = resolveRuntimeClosure();
   assert.deepEqual(auditSecurityAndInvariants(files), []);
+});
+
+test("7. 미디어 감사가 캐시·OPFS·다운로드·IndexedDB 사용을 오류로 반환", () => {
+  const bad = [
+    "await caches.open('media')",
+    "self.caches.put(req, res)",
+    "caches['open']('x')",
+    "const dir = await navigator.storage.getDirectory();",
+    "chrome.downloads.download({ url })",
+    "const db = indexedDB.open('raw')",
+  ];
+  for (const code of bad) {
+    const errors = auditMediaSource("lib/media-x.js", code);
+    assert.equal(errors.length, 1, code);
+    assert.match(errors[0], /lib\/media-x\.js:1 /);
+  }
+  // 줄 번호
+  assert.match(auditMediaSource("lib/media-x.js", "const a = 1;\n\ncaches.open('x');")[0], /media-x\.js:3 /);
+  // 주석 속 언급과 무관한 이름은 사용이 아니다
+  assert.deepEqual(auditMediaSource("lib/media-x.js", "// caches.open 금지\n/* chrome.downloads,\n indexedDB */\nconst cacheKey = 1; const mycaches = {};"), []);
+});
+
+test("8. 미디어 fetch는 cache:\"no-store\"를 직접 넘겨야 한다", () => {
+  const ok = [
+    'fetch(url, { cache: "no-store" })',
+    "await fetch(url, { credentials: 'include', cache:'no-store', signal })",
+    'globalThis.fetch(url, { headers: { Range: "bytes=0-9" }, cache: "no-store" })',
+    'fetch(`${base}/x?(`, { cache: "no-store" })', // 문자열 안 괄호
+    "const f = createFetcher({ fetch }); prefetch(1); // fetch(url)", // 호출이 아니거나 주석
+  ];
+  const bad = [
+    "fetch(url)",
+    'fetch(url, { credentials: "include" })',
+    "fetch(url, opts)",
+    "globalThis.fetch(u, o)",
+    'fetch(url, { cache: "default" })',
+    'fetch(url, { cache: "no-store"', // 닫히지 않음
+    'fetch(a, { cache: "no-store" }); fetch(b);', // 하나만 어겨도
+  ];
+  for (const code of ok) assert.deepEqual(auditMediaSource("lib/media-x.js", code), [], code);
+  for (const code of bad) {
+    const errors = auditMediaSource("lib/media-x.js", code);
+    assert.equal(errors.length, 1, code);
+    assert.match(errors[0], /no-store/);
+  }
+});
+
+test("9. 감사 범위: lib/media-*.js 와 번들한 미디어 라이브러리에만 적용", () => {
+  // 번들 미디어 라이브러리: 저장소 API는 금지, fetch 규칙은 걸지 않는다
+  assert.equal(auditMediaSource("lib/vendor/mux/x.js", "caches.open('x')", { vendor: true }).length, 1);
+  assert.deepEqual(auditMediaSource("lib/vendor/mux/x.js", "fetch(u)", { vendor: true }), []);
+  // 같은 코드가 다른 vendor(모델 가중치를 caches에 두는 transformers4)나 미디어가 아닌 lib에서는 오류가 아니다
+  assert.deepEqual(auditSecurityAndInvariants(["lib/vendor/transformers4/transformers.min.js", "lib/package-store.js"]), []);
+  // 파일 이름 규칙: 테스트 파일은 미디어 모듈이 아니다
+  const mediaFiles = fs.readdirSync(path.join(ROOT, "lib")).filter(f => /^media-[\w-]+\.m?js$/.test(f));
+  assert.ok(mediaFiles.includes("media-source.js") && mediaFiles.includes("media-demux.js"));
+  assert.ok(!mediaFiles.some(f => f.includes(".test.")));
+});
+
+test("10. 새 미디어 디먹스와 번들한 mux.js는 미디어 감사를 무위반으로 통과", () => {
+  assert.deepEqual(auditSecurityAndInvariants(["lib/media-demux.js", "lib/vendor/mux/mux-mp4.min.js"]), []);
+});
+
+// lib/media-source.js:101 의 `globalThis.fetch(u, o)` 는 주입된 fetch가 없을 때의 기본값이라 옵션을 그대로 넘긴다.
+// 호출부(get)는 항상 cache:"no-store"를 주므로 실질은 안전하지만 규칙은 글자 그대로 검사한다.
+test("11. lib/media-source.js 의 미디어 감사 결과", () => {
+  assert.deepEqual(auditSecurityAndInvariants(["lib/media-source.js"]), []);
 });

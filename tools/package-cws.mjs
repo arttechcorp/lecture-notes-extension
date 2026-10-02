@@ -246,6 +246,52 @@ export function resolveRuntimeClosure() {
 }
 
 // --------------------------------------------------------------------------
+// 미디어 모듈 감사 (docs/architecture-v2.md §20, AGENTS.md §2 "원본 미디어는 메모리에서만")
+// 범위: 우리 코드 lib/media-*.js 와 번들한 미디어 라이브러리 디렉터리. 다른 vendor(transformers4 등)는 모델 가중치 때문에
+// caches/fetch를 정당하게 쓰므로 일부러 제외한다. fetch 규칙은 우리 코드에만 건다 — 번들 라이브러리는 네트워크를 쓰지 않고,
+// 압축된 한 줄 코드에서 호출 인자를 파싱하는 것은 취약하다. 번들 미디어 라이브러리를 추가하면 아래 목록에 넣는다.
+// --------------------------------------------------------------------------
+const MEDIA_VENDOR_DIRS = ["lib/vendor/mux/"];
+const isMediaLib = relPath => /^lib\/media-[\w-]+\.m?js$/.test(relPath); // *.test.js 는 점 때문에 걸리지 않는다
+const MEDIA_FORBIDDEN = [
+  { name: "Cache Storage(caches.put/open)", re: /\bcaches\s*(?:\.\s*|\[\s*["'`])(?:put|open)\b/ },
+  { name: "OPFS(getDirectory)", re: /\bgetDirectory\b/ },
+  { name: "chrome.downloads", re: /\bchrome\s*\.\s*downloads\b/ },
+  { name: "IndexedDB", re: /\bindexedDB\b/ },
+];
+// 주석 속 언급은 사용이 아니다. 줄 수는 보존한다. (// 앞이 공백이거나 줄 처음일 때만 — "https://" 는 건드리지 않는다)
+const stripComments = src => src.replace(/\/\*[\s\S]*?\*\//g, m => m.replace(/[^\n]/g, " ")).replace(/(^|\s)\/\/.*$/gm, "$1");
+// open 위치의 "(" 에서 짝이 맞는 ")" 까지의 인자 텍스트. 문자열 안 괄호는 무시하고, 닫히지 않으면 null.
+function callArgs(src, open) {
+  let depth = 0, quote = null;
+  for (let i = open; i < src.length; i++) {
+    const c = src[i];
+    if (quote) { if (c === "\\") i++; else if (c === quote) quote = null; continue; }
+    if (c === '"' || c === "'" || c === "`") quote = c;
+    else if (c === "(") depth++;
+    else if (c === ")" && --depth === 0) return src.slice(open + 1, i);
+  }
+  return null;
+}
+export function auditMediaSource(relPath, content, { vendor = false } = {}) {
+  const errors = [];
+  const code = vendor ? content : stripComments(content); // 압축 vendor는 주석 제거 없이 원문 그대로 본다
+  const line = i => code.slice(0, i).split("\n").length;
+  for (const { name, re } of MEDIA_FORBIDDEN) {
+    const m = re.exec(code);
+    if (m) errors.push(`[불변식 위반] ${relPath}:${line(m.index)} - 미디어 모듈에서 ${name} 사용 감지 (원본 미디어는 메모리에서만 다룹니다)`);
+  }
+  if (vendor) return errors;
+  for (const m of code.matchAll(/(?<![\w$])fetch\s*\(/g)) {
+    const args = callArgs(code, m.index + m[0].length - 1);
+    if (args === null || !/\bcache\s*:\s*["']no-store["']/.test(args)) {
+      errors.push(`[불변식 위반] ${relPath}:${line(m.index)} - 미디어 fetch에 cache:"no-store"가 없습니다 (HTTP 캐시에 원본 미디어가 남습니다)`);
+    }
+  }
+  return errors;
+}
+
+// --------------------------------------------------------------------------
 // Step 3: 정적 보안 휴리스틱 및 아키텍처 불변식 감사기 (Security Auditor)
 // --------------------------------------------------------------------------
 export function auditSecurityAndInvariants(files) {
@@ -324,6 +370,10 @@ export function auditSecurityAndInvariants(files) {
         }
       }
     }
+
+    // 4-b. 미디어 모듈 불변식(§20): 캐시·OPFS·다운로드·IndexedDB 금지, fetch는 cache:"no-store" 필수
+    const mediaVendor = MEDIA_VENDOR_DIRS.some(dir => relPath.startsWith(dir));
+    if (isMediaLib(relPath) || mediaVendor) errors.push(...auditMediaSource(relPath, content, { vendor: mediaVendor }));
   }
 
   // 5. sandbox.html 격리 규약 점검 (chrome.* API 접근 부재 및 postMessage origin/스키마 검증)
