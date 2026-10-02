@@ -34,6 +34,12 @@
 .codes-panel h2 span{display:flex;gap:8px}
 /* 스크롤해도 어느 열인지 알 수 있어야 한다 */
 .codes-panel thead th{position:sticky;top:0;z-index:1}
+.usage-panel h2{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.usage-panel h2 span{display:flex;gap:8px;align-items:center}
+.usage-panel select{min-height:44px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;font:inherit}
+.usage-panel h3{font:600 14px var(--sans);margin:24px 0 12px}
+.usage-panel .table-wrap{max-height:360px;overflow-y:auto}
+.usage-panel thead th{position:sticky;top:0;z-index:1}
 @media(max-width:760px){.stat-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:540px){.stat-grid{grid-template-columns:1fr}}
 </style>
@@ -88,6 +94,12 @@
           <tbody id="codesBody"><tr><td colspan="6">아직 생성된 코드가 없습니다</td></tr></tbody>
         </table>
       </div>
+    </div>
+    <div class="mint-panel usage-panel">
+      <h2>사용량
+        <span><select id="usagePeriodSelect"><option value="7">7일</option><option value="30" selected>30일</option><option value="90">90일</option></select><button class="button quiet" id="reloadUsageButton" type="button">새로고침</button></span>
+      </h2>
+      <div id="usageContent"></div>
     </div>
   </section>
 </main>

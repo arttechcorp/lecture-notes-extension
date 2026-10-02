@@ -85,6 +85,51 @@
 
   $("reloadCodesButton").addEventListener("click", loadCodes);
 
+  // 표 하나: 제목, 열 이름, 행(셀 문자열 배열). 값은 textContent 로만 넣는다.
+  function usageTable(title, headers, rows) {
+    const section = document.createElement("div"), h3 = document.createElement("h3"), wrap = document.createElement("div");
+    const table = document.createElement("table"), head = table.createTHead().insertRow(), body = table.createTBody();
+    h3.textContent = title;
+    for (const h of headers) head.appendChild(document.createElement("th")).textContent = h;
+    if (!rows.length) rows = [["데이터가 없습니다"]];
+    for (const cells of rows) {
+      const tr = body.insertRow();
+      for (const text of cells) tr.insertCell().textContent = text;
+      if (cells.length === 1) tr.cells[0].colSpan = headers.length;
+    }
+    wrap.className = "table-wrap";
+    wrap.appendChild(table);
+    section.append(h3, wrap);
+    return section;
+  }
+  const dollars = (micros) => ((micros || 0) / 1e6).toFixed(4);
+  const shown = (v) => (v == null || v === "" ? "—" : String(v));
+
+  async function loadUsage() {
+    const content = $("usageContent");
+    content.textContent = "";
+    setStatus("사용량을 불러오는 중입니다...");
+    const { data, error } = await supabase.rpc("admin_usage", { p_days: Number($("usagePeriodSelect").value) });
+    if (error) {
+      // admin_stats와 동일한 규약: 42501만 권한 문제, 그 외는 통신 실패.
+      setStatus(error.code === "42501" ? "" : "사용량을 불러오지 못했습니다. 연결을 확인하고 새로고침해 주세요.");
+      return;
+    }
+    content.append(
+      usageTable("단계·모델별", ["단계", "제공자", "모델", "요청", "원가($)", "오류율(%)", "p50(ms)", "p95(ms)"],
+        (data.by_stage_model || []).map((r) => [shown(r.stage), shown(r.provider), shown(r.model), shown(r.requests), dollars(r.cost_micros),
+          r.error_rate == null ? "—" : (r.error_rate * 100).toFixed(2), shown(r.p50_latency_ms), shown(r.p95_latency_ms)])),
+      usageTable("일별", ["날짜", "요청", "원가($)", "오류"],
+        (data.daily || []).map((r) => [shown(r.day), shown(r.requests), dollars(r.cost_micros), shown(r.errors)])),
+      usageTable("전역 상한", ["범위", "기간", "사용($)", "상한($)"],
+        (data.global || []).map((r) => [shown(r.scope), shown(r.period), dollars(r.cost_micros), r.cap_micros == null ? "무제한" : dollars(r.cap_micros)])),
+    );
+    setStatus("");
+  }
+
+  $("reloadUsageButton").addEventListener("click", loadUsage);
+  $("usagePeriodSelect").addEventListener("change", loadUsage);
+
   $("copyCodesButton").addEventListener("click", async () => {
     if (!loadedCodes.length) { setStatus("복사할 코드가 없습니다."); return; }
     try {
