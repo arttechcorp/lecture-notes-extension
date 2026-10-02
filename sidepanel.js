@@ -109,7 +109,7 @@ window.addEventListener('message',event=>{if(event.source!==els.renderFrame?.con
 els.obConsent.addEventListener('change',()=>els.obDone.disabled=!els.obConsent.checked);els.obDone.addEventListener('click',async()=>{settings=await loadSettings();settings.consentAccepted=els.obConsent.checked;settings.whisperEnabled=els.obWhisper.checked;await saveSettings({consentAccepted:settings.consentAccepted,whisperEnabled:settings.whisperEnabled});setStage('ready');});
 
 // 계정 메뉴. 오류는 메뉴 안에 짧게 알리고 던지지 않는다.
-const menu=$('accountMenu'),menuBtn=$('menuBtn'),amHead=$('amHead'),amErr=$('amErr'),PLANS={free:'Free',essential:'Essential',professional:'Professional'};
+const menu=$('accountMenu'),menuBtn=$('menuBtn'),amHead=$('amHead'),amErr=$('amErr'),PLANS={free:'Free',essential:'Essential',professional:'Pro'};
 const menuItems=()=>[...menu.querySelectorAll('[role=menuitem]:not([hidden])')];
 const amErrShow=msg=>{amErr.textContent=msg||'';amErr.hidden=!msg;};
 function closeMenu(back){menu.hidden=true;menuBtn.setAttribute('aria-expanded','false');if(back)menuBtn.focus();}
