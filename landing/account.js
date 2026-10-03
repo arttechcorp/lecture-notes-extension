@@ -202,6 +202,8 @@
 
   // 학생가는 자격 확인 없이 누구나 고를 수 있다(학생 대상 마케팅, 2026-10-03 결정). edu_eligible RPC는 남아 있지만 화면은 쓰지 않는다.
   async function subscriptionView(client, user, acct, catalog) {
+    // 결제 구독이 살아 있으면(해지 예약 전) 다른 등급 결제를 막는다 — Groble은 두 구독을 따로 매달 청구한다.
+    const locked = acct.plan !== "free" && Boolean(acct.current_period_end) && !acct.cancel_at_period_end;
     const grid = h("div", "plans-stack");
     for (const row of catalog) {
       const copy = COPY[row.plan];
@@ -227,6 +229,10 @@
         const cur = h("span", "button quiet is-disabled", "현재 플랜");
         cur.setAttribute("aria-disabled", "true");
         cta.append(cur);
+      } else if (p.id !== "free" && locked) {
+        const off = h("span", "button quiet is-disabled", "해지 후 변경 가능");
+        off.setAttribute("aria-disabled", "true");
+        cta.append(off, h("p", "plan-soon", "지금 구독을 해지한 뒤 바꿀 수 있어요. 해지해도 결제한 기간까지는 그대로 쓸 수 있어요."));
       } else if (p.id !== "free") {
         const url = withUser(cfg.checkout[p.id], user), eduUrl = p.edu ? withUser(cfg.checkout[p.id + "_edu"], user) : null;
         if (url) {
@@ -259,11 +265,9 @@
         a.rel = "noopener";
         c.append(a);
       } else {
-        const off = h("span", "button quiet is-disabled", "결제 준비 중");
-        off.setAttribute("aria-disabled", "true");
-        c.append(off);
+        c.append(h("p", "account-note", "결제할 때 쓴 계정으로 Groble에 로그인해 구매 내역에서 정기결제를 해지해 주세요."));
       }
-      c.append(h("p", "account-note", "버튼을 누르면 grogle 고객 포털로 이동하며, 한 번에 해지할 수 있습니다. 해지해도 이미 결제한 기간이 끝날 때까지는 계속 이용할 수 있습니다."));
+      c.append(h("p", "account-note", (url ? "버튼을 누르면 Groble로 이동해 해지할 수 있습니다. " : "") + "해지해도 이미 결제한 기간이 끝날 때까지는 계속 이용할 수 있고, 그 뒤 다른 플랜으로 바꿀 수 있습니다."));
       nodes.push(c);
     }
     set(...nodes);
