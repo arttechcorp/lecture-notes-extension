@@ -8,6 +8,7 @@ import path from "node:path";
 import zlib from "node:zlib";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { resolveRuntimeClosure, auditSecurityAndInvariants, auditMediaSource } from "./package-cws.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -28,7 +29,7 @@ test("1. 런타임 의존성 폐쇄 집합 검증", async () => {
     "sandbox.html",
     "offscreen.html",
     "offscreen.js",
-    "landing/product-panel.css",
+    "sidepanel.css",
     "lib/ppocr-runtime.mjs",
     "lib/whisper-webgpu-worker.js",
     "lib/pcm-worklet.js",
@@ -186,4 +187,102 @@ test("3. 결정론적 ZIP 생성(Deterministic Archiving) 무결성 테스트", 
   // 압축 풀기 및 내용 검증
   const decompressedA = zlib.inflateRawSync(zip1.subarray(30 + 5, 30 + 5 + 13)); // a.txt compressed chunk
   assert.equal(decompressedA.toString(), "Hello World");
+});
+
+test("4. 런타임 클로저가 개발 전용 어드민 파일을 포함하지 않음", () => {
+  const { files } = resolveRuntimeClosure();
+  assert.ok(!files.includes("admin.html"), "admin.html은 패키지 대상이 아니어야 함");
+  assert.ok(!files.includes("admin.js"), "admin.js는 패키지 대상이 아니어야 함");
+  // 노트 열람은 웹사이트(landing/library.html)로 옮겼다 — 확장 안 열람 페이지는 다시 들어오면 안 된다
+  for (const rel of ["library.html", "library-page.js", "note.html", "note-page.js"]) assert.ok(!files.includes(rel), `${rel}은 클로저에 들어가면 안 됨`);
+});
+
+test("5. 감사기가 개발 전용 파일 포함을 오류로 반환", () => {
+  // admin.html은 실제로 존재하지 않아도 된다 — 읽기 전에 차단되는지가 검증 대상
+  const errors = auditSecurityAndInvariants(["admin.html"]);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /admin\.html/);
+  const jsErrors = auditSecurityAndInvariants(["admin.js"]);
+  assert.equal(jsErrors.length, 1);
+  assert.match(jsErrors[0], /admin\.js/);
+});
+
+test("6. 현재 저장소의 클로저는 보안 감사를 무위반으로 통과", () => {
+  const { files } = resolveRuntimeClosure();
+  assert.deepEqual(auditSecurityAndInvariants(files), []);
+});
+
+test("7. 미디어 감사가 캐시·OPFS·다운로드·IndexedDB 사용을 오류로 반환", () => {
+  const bad = [
+    "await caches.open('media')",
+    "self.caches.put(req, res)",
+    "caches['open']('x')",
+    "const dir = await navigator.storage.getDirectory();",
+    "chrome.downloads.download({ url })",
+    "const db = indexedDB.open('raw')",
+  ];
+  for (const code of bad) {
+    const errors = auditMediaSource("lib/media-x.js", code);
+    assert.equal(errors.length, 1, code);
+    assert.match(errors[0], /lib\/media-x\.js:1 /);
+  }
+  // 줄 번호
+  assert.match(auditMediaSource("lib/media-x.js", "const a = 1;\n\ncaches.open('x');")[0], /media-x\.js:3 /);
+  // 주석 속 언급과 무관한 이름은 사용이 아니다
+  assert.deepEqual(auditMediaSource("lib/media-x.js", "// caches.open 금지\n/* chrome.downloads,\n indexedDB */\nconst cacheKey = 1; const mycaches = {};"), []);
+});
+
+test("8. 미디어 fetch는 cache:\"no-store\"를 직접 넘겨야 한다", () => {
+  const ok = [
+    'fetch(url, { cache: "no-store" })',
+    "await fetch(url, { credentials: 'include', cache:'no-store', signal })",
+    'globalThis.fetch(url, { headers: { Range: "bytes=0-9" }, cache: "no-store" })',
+    'fetch(`${base}/x?(`, { cache: "no-store" })', // 문자열 안 괄호
+    "const f = createFetcher({ fetch }); prefetch(1); // fetch(url)", // 호출이 아니거나 주석
+  ];
+  const bad = [
+    "fetch(url)",
+    'fetch(url, { credentials: "include" })',
+    "fetch(url, opts)",
+    "globalThis.fetch(u, o)",
+    'fetch(url, { cache: "default" })',
+    'fetch(url, { cache: "no-store"', // 닫히지 않음
+    'fetch(a, { cache: "no-store" }); fetch(b);', // 하나만 어겨도
+  ];
+  for (const code of ok) assert.deepEqual(auditMediaSource("lib/media-x.js", code), [], code);
+  for (const code of bad) {
+    const errors = auditMediaSource("lib/media-x.js", code);
+    assert.equal(errors.length, 1, code);
+    assert.match(errors[0], /no-store/);
+  }
+});
+
+test("9. 감사 범위: lib/media-*.js 와 번들한 미디어 라이브러리에만 적용", () => {
+  // 번들 미디어 라이브러리: 저장소 API는 금지, fetch 규칙은 걸지 않는다
+  assert.equal(auditMediaSource("lib/vendor/mux/x.js", "caches.open('x')", { vendor: true }).length, 1);
+  assert.deepEqual(auditMediaSource("lib/vendor/mux/x.js", "fetch(u)", { vendor: true }), []);
+  // 같은 코드가 다른 vendor(모델 가중치를 caches에 두는 transformers4)나 미디어가 아닌 lib에서는 오류가 아니다
+  assert.deepEqual(auditSecurityAndInvariants(["lib/vendor/transformers4/transformers.min.js", "lib/package-store.js"]), []);
+  // 파일 이름 규칙: 테스트 파일은 미디어 모듈이 아니다
+  const mediaFiles = fs.readdirSync(path.join(ROOT, "lib")).filter(f => /^media-[\w-]+\.m?js$/.test(f));
+  assert.ok(mediaFiles.includes("media-source.js") && mediaFiles.includes("media-demux.js"));
+  assert.ok(!mediaFiles.some(f => f.includes(".test.")));
+});
+
+test("10. 새 미디어 디먹스와 번들한 mux.js는 미디어 감사를 무위반으로 통과", () => {
+  assert.deepEqual(auditSecurityAndInvariants(["lib/media-demux.js", "lib/vendor/mux/mux-mp4.min.js"]), []);
+});
+
+// lib/media-source.js:101 의 `globalThis.fetch(u, o)` 는 주입된 fetch가 없을 때의 기본값이라 옵션을 그대로 넘긴다.
+// 호출부(get)는 항상 cache:"no-store"를 주므로 실질은 안전하지만 규칙은 글자 그대로 검사한다.
+test("11. lib/media-source.js 의 미디어 감사 결과", () => {
+  assert.deepEqual(auditSecurityAndInvariants(["lib/media-source.js"]), []);
+});
+
+test("12. 사이드패널과 런타임 클로저는 landing/ 파일을 참조·포함하지 않음", () => {
+  const html = fs.readFileSync(path.join(ROOT, "sidepanel.html"), "utf8");
+  assert.ok(!html.includes("landing/"), "sidepanel.html은 landing/ 경로를 참조하면 안 됨");
+  const { files } = resolveRuntimeClosure();
+  assert.ok(!files.some(f => f.startsWith("landing/")), "패키징 클로저에 landing/ 파일이 들어가면 안 됨");
+  assert.match(auditSecurityAndInvariants(["landing/product-panel.css"]).join("\n"), /랜딩 파일 포함/);
 });

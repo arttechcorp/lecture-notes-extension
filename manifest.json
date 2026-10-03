@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Summrizei — 강의 노트",
   "version": "1.0.0",
-  "description": "재생 중인 영상 화면에서 학습 노트를 만듭니다. 기본 설정에서는 화면과 음성을 기기 안에서만 처리하며 어디에도 저장하지 않습니다.",
+  "description": "재생 중인 강의 영상의 화면·음성으로 학습 노트를 만듭니다. 완성된 노트는 이 컴퓨터에 암호화해 저장하고 Summrizei 웹사이트에서 엽니다.",
   "permissions": [
     "storage",
     "sidePanel",
@@ -11,14 +11,18 @@
     "tabCapture",
     "offscreen",
     "activeTab",
-    "identity"
+    "identity",
+    "power",
+    "declarativeNetRequestWithHostAccess",
+    "unlimitedStorage",
+    "downloads"
   ],
+  "optional_permissions": ["webRequest"],
   "host_permissions": [
     "<all_urls>",
     "https://huggingface.co/*",
     "https://*.hf.co/*",
-    "https://cdn-lfs.huggingface.co/*",
-    "https://openrouter.ai/*"
+    "https://cdn-lfs.huggingface.co/*"
   ],
   "sandbox": {
     "pages": ["sandbox.html"]

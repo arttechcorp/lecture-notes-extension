@@ -6,7 +6,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Hedvig+Letters+Serif:opsz@12..24&family=Geist+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="landing/product-panel.css">
+<link rel="stylesheet" href="sidepanel.css">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Summrizei</title>
@@ -88,10 +88,6 @@
   .intro h2 { font-size: 22px; line-height: 1.4; letter-spacing: -.05em; margin: 0 0 7px; font-weight: 650; }
   .eyebrow { font-size: 10px; font-weight: 650; letter-spacing: .12em; color: var(--ash); margin: 0 0 8px; }
   .result-title { font-size: 15px; font-weight: 650; margin: -5px 0 0; overflow-wrap: anywhere; }
-  .result-help { border-left: 2px solid var(--rule); padding-left: 11px; }
-  .optional-api { padding: 12px 14px; border: 1px solid var(--rule); border-radius: var(--r-md); background: var(--paper); }
-  .optional-api p { margin: 10px 0; }
-  .optional-api summary { color: var(--ink); font-weight: 600; }
 
   button {
     font: inherit; padding: 8px 12px; border: 1px solid var(--rule); border-radius: var(--r-md);
@@ -118,11 +114,11 @@
   .btnrow { display: flex; gap: 9px; }
   .btnrow button { flex: 1; font-size: 12.5px; padding: 9px 6px; }
 
-  select, textarea, input[type="text"] {
+  select, input[type="text"], input[type="password"] {
     font: inherit; width: 100%; padding: 8px 9px; border-radius: var(--r-md);
     border: 1px solid var(--rule); background: var(--sunk); color: var(--ink); box-shadow: var(--inset);
   }
-  select:focus-visible, textarea:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+  select:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
   label { font-size: 12px; color: var(--ash); display: block; margin-bottom: 4px; }
   .field + .field { margin-top: 18px; }
 
@@ -189,42 +185,7 @@
   }
   .alert b { font-weight: 600; }
 
-  #result { width: 100%; height: 380px; min-height: 220px; padding: 16px; background: var(--paper); font: 13px/1.85 system-ui, sans-serif; resize: vertical; box-shadow: var(--lift-1); }
-
-  .note-view-tabs { display: flex; gap: 6px; background: var(--sunk); padding: 3px; border-radius: var(--r-md); border: 1px solid var(--rule); margin-bottom: 2px; }
-  .tab-pill { flex: 1; border: none; background: transparent; padding: 7px 10px; font-size: 12px; font-weight: 500; cursor: pointer; border-radius: 6px; color: var(--ash); transition: all 120ms; }
   .preview-frame { width: 100%; height: 220px; min-height: 140px; max-height: 70vh; border: 1px solid var(--rule); border-radius: var(--r-md); background: var(--paper); box-shadow: var(--lift-1); display: block; transition: height 120ms ease; }
-  .export-section { margin: 8px 0; display: flex; flex-direction: column; gap: 6px; }
-  .pdf-ratio-bar {
-    display: flex; align-items: center; justify-content: space-between;
-    background: var(--sunk); padding: 4px 6px; border-radius: var(--r-md);
-    border: 1px solid var(--rule);
-  }
-  .pdf-ratio-bar .ratio-label {
-    font-size: 11px; font-weight: 600; color: var(--ash); margin-left: 4px;
-  }
-  .pdf-ratio-bar .ratio-pills {
-    display: flex; gap: 4px;
-  }
-  .ratio-pill {
-    border: 1px solid transparent; background: transparent; padding: 4px 8px;
-    font-size: 11px; font-weight: 500; cursor: pointer; border-radius: 5px;
-    color: var(--ash); transition: all 120ms ease;
-  }
-  .ratio-pill:hover { background: rgba(0,0,0,0.04); color: var(--ink); }
-  .ratio-pill.active {
-    background: var(--paper); color: var(--ink); border-color: var(--rule);
-    font-weight: 600; box-shadow: var(--lift-1);
-  }
-  .export-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0; }
-  .export-row button {
-    display: inline-flex; align-items: center; justify-content: center; gap: 5px;
-    padding: 8px 10px; font-size: 12px; font-weight: 600; border-radius: var(--r-md);
-    border: 1px solid var(--rule); background: var(--paper); color: var(--ink);
-    cursor: pointer; transition: all 120ms ease; box-shadow: var(--lift-1);
-  }
-  .export-row button:hover { background: var(--sunk); border-color: var(--ink); }
-  .export-row button:active { transform: translateY(1px); }
 
   details { font-size: 12px; }
   details summary { cursor: pointer; color: var(--ash); }
@@ -258,69 +219,6 @@
   .step .why { font-size: 12px; color: var(--ash); }
   .checkline { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; }
   .checkline input { margin-top: 3px; accent-color: var(--ink); }
-
-  /* 노션 복사 안내 모달 */
-  dialog.notion-modal {
-    border: 1px solid var(--rule);
-    border-radius: var(--r-lg);
-    background: var(--paper);
-    color: var(--ink);
-    padding: 22px 18px;
-    max-width: 320px;
-    width: 90%;
-    box-shadow: var(--lift-2);
-    position: fixed;
-    inset: 0;
-    margin: auto;
-  }
-  dialog.notion-modal::backdrop {
-    background: rgba(0, 0, 0, 0.45);
-    backdrop-filter: blur(2px);
-  }
-  .notion-modal-body {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    gap: 10px;
-  }
-  .notion-modal-icon {
-    font-size: 30px;
-    line-height: 1;
-  }
-  .notion-modal-title {
-    margin: 0;
-    font-size: 13.5px;
-    font-weight: 700;
-    color: var(--ink);
-    line-height: 1.5;
-    word-break: keep-all;
-  }
-  .notion-modal-tip {
-    margin: 4px 0 6px;
-    font-size: 11.5px;
-    color: var(--ash);
-    background: var(--sunk);
-    border: 1px solid var(--rule);
-    border-radius: var(--r-md);
-    padding: 8px 10px;
-    line-height: 1.5;
-    word-break: keep-all;
-  }
-  .notion-modal-tip kbd {
-    display: inline-block;
-    padding: 1px 4px;
-    font-family: ui-monospace, monospace;
-    font-size: 10.5px;
-    background: var(--paper);
-    border: 1px solid var(--rule);
-    border-radius: 4px;
-    box-shadow: 0 1px 0 rgba(0,0,0,0.1);
-  }
-  #notionModalClose {
-    width: 100%;
-    margin-top: 4px;
-  }
 </style>
 </head>
 <body>
@@ -335,6 +233,7 @@
         <div class="am-head" id="amHead"></div>
         <p class="am-err" id="amErr" role="alert" hidden></p>
         <button role="menuitem" type="button" data-path="/account">사용자 정보</button>
+        <button role="menuitem" type="button" data-path="/library">내 노트 (웹)</button>
         <button role="menuitem" type="button" data-path="/account/billing">결제 정보</button>
         <button role="menuitem" type="button" data-act="options">인앱 설정</button>
         <button role="menuitem" type="button" data-path="/account/subscription">구독 설정</button>
@@ -347,40 +246,60 @@
     </div>
   </div>
 </div>
-<nav class="stage-steps" aria-label="노트 만들기 단계"><span id="stepReady" class="active">01 준비</span><i aria-hidden="true"></i><span id="stepLive">02 캡처</span><i aria-hidden="true"></i><span id="stepDone">03 노트</span></nav>
+<nav class="stage-steps" aria-label="노트 만들기 단계"><span id="stepReady" class="active">01 준비</span><i aria-hidden="true"></i><span id="stepLive">02 인식</span><i aria-hidden="true"></i><span id="stepDone">03 노트</span></nav>
 
-<!-- ── 온보딩 (첫 실행 시에만) ─────────────────────────────────── -->
+<!-- ── 온보딩 (첫 실행·재동의: 필요한 단계만 보인다) ─────────────── -->
 <div id="onboard" hidden>
-  <div class="intro"><p class="eyebrow">WELCOME TO YOUR NOTES</p><h2>첫 노트를 준비해 볼까요?</h2><p class="detail">API 키 없이도 원문 타임라인을 만들 수 있어요.</p></div>
+  <div class="intro"><p class="eyebrow">WELCOME TO YOUR NOTES</p><h2>노트를 만들 준비를 해볼까요?</h2><p class="detail">로그인, 동의, 보관함 암호만 준비하면 바로 시작할 수 있습니다.</p></div>
 
-  <div class="step">
+  <section class="step" data-step="account">
     <span class="n">1</span>
     <span class="c">
-      <b>어떻게 동작하는지</b>
-      <span class="why">재생 중인 영상의 화면과 소리를 읽어 시간순 노트를 만듭니다. 기본 인식은 기기 안에서 처리합니다. 직접 API 요약을 선택하면 인식된 텍스트가 해당 AI 제공자에게 전송됩니다. 패널을 닫기 전 필요한 노트를 저장하세요.</span>
-      <label class="checkline"><input type="checkbox" id="obConsent" />
-        <span>개인 학습용으로만 쓰고, 소속 기관의 원격수업 지침을 따르겠습니다.</span></label>
+      <b>계정</b>
+      <span class="why">노트는 Summrizei 서비스에서 만들기 때문에 로그인이 필요합니다. Free는 매월 사용 한도가 있습니다.</span>
+      <button id="obLogin" type="button">Google로 로그인</button>
+      <span class="why" id="obAccount" hidden></span>
+      <span class="why" id="obAccountErr" role="alert" hidden></span>
     </span>
-  </div>
+  </section>
 
-  <div class="step">
+  <section class="step" data-step="consent">
     <span class="n">2</span>
     <span class="c">
-      <b>화면 글자 읽기</b>
-      <span class="why">Tesseract가 기기 안에서 화면 글자를 읽습니다. 정확도는 화면 선명도와 글자 크기에 따라 달라집니다.</span>
+      <b>동의</b>
+      <label class="checkline"><input type="checkbox" id="obSummary" />
+        <span><b>[필수] 외부 요약 처리</b><br>화면·음성을 기기에서 글자로 바꾼 뒤, 그 텍스트만 Summrizei 서비스를 거쳐 AI 모델로 보내 노트를 만듭니다. 원본 영상·음성은 보내지 않습니다(유료 클라우드 인식을 켠 경우 제외). 서비스와 모델 제공자는 처리 중에만 내용을 보고 저장하지 않습니다.</span></label>
+      <label class="checkline" id="obCloudRow"><input type="checkbox" id="obCloud" />
+        <span><b>[유료·선택] 클라우드 인식</b><br>백그라운드 처리와 고화질 인식을 위해 강의 화면·음성 조각을 서비스를 거쳐 무보존 AI 제공자로 보냅니다. 학번·이름 같은 반복 워터마크 영역은 가린 뒤 보냅니다.</span></label>
+      <label class="checkline" id="obPersonalRow"><input type="checkbox" id="obPersonal" />
+        <span><b>[유료·선택] 이용 동의</b><br><strong>개인 소장·학습 목적으로만</strong> 사용합니다. 받은 영상·음성과 만든 노트를 다른 사람에게 배포하거나 판매하지 않습니다.</span></label>
+      <label class="checkline" id="obAccessRow"><input type="checkbox" id="obAccess" />
+        <span><b>[유료·선택] 이용 동의</b><br><strong>내가 접근할 권한이 있는 콘텐츠에만</strong> 사용합니다. 내가 수강 중인 강의처럼 열람이 허용된 영상·음성에 한하며, 접근 제한이나 복제 방지(DRM 등)를 우회하지 않습니다.</span></label>
     </span>
-  </div>
+  </section>
 
-  <div class="step">
+  <section class="step" data-step="passphrase">
     <span class="n">3</span>
     <span class="c">
+      <b>보관함 암호</b>
+      <span class="why">완성된 노트는 이 컴퓨터의 다운로드/Summrizei 폴더에 이 암호로 암호화해 저장합니다. 노트는 Summrizei 웹사이트에서 이 암호를 넣어야만 열 수 있습니다. 암호를 잊으면 우리도 복구할 수 없습니다.</span>
+      <input id="obPass" type="password" minlength="12" autocomplete="new-password" placeholder="보관함 암호 (12자 이상)" />
+      <input id="obPass2" type="password" minlength="12" autocomplete="new-password" placeholder="암호 다시 입력" />
+      <span class="why" id="obPassErr" role="alert" hidden></span>
+    </span>
+  </section>
+
+  <section class="step" data-step="engine">
+    <span class="n">4</span>
+    <span class="c">
       <b>말소리 받아쓰기</b>
-      <span class="why">Whisper Tiny가 기기 안에서 강의 음성을 글로 옮깁니다. 처음 켜면 모델을 다운로드하며, 처리 속도는 기기 성능에 따라 달라집니다.</span>
+      <span class="why">Whisper가 기기 안에서 강의 음성을 글로 옮깁니다. 처음 켜면 모델을 내려받습니다.<br>화면 글자는 기기 안의 PP-OCRv5로 읽습니다.</span>
       <label class="checkline"><input type="checkbox" id="obWhisper" />
         <span>말소리도 받아쓰기 (권장)</span></label>
     </span>
-  </div>
+  </section>
 
+  <p class="why" id="obError" role="alert" hidden></p>
   <button class="primary" id="obDone" type="button" disabled>시작하기</button>
 </div>
 
@@ -400,9 +319,17 @@
       <span class="mark" id="markTab">·</span><span class="what">영상 탭</span>
       <span class="val" id="tabState">—</span>
     </div>
+    <div class="checkrow">
+      <span class="mark" id="markAccount">·</span><span class="what">계정</span>
+      <span class="val" id="accountState">—</span>
+      <button class="link" id="accountLoginBtn" type="button" hidden>로그인</button>
+    </div>
+    <div class="checkrow">
+      <span class="mark" id="markStore">·</span><span class="what">노트 저장</span>
+      <span class="val" id="storeState">—</span>
+      <button class="link" id="storePassBtn" type="button" hidden>정하기</button>
+    </div>
   </div>
-  <p class="detail" id="engineDetail" hidden></p>
-
   <div class="settingbar">
     <span class="summary" id="settingsSummary">—</span>
     <button class="link" id="settingsToggle" type="button" aria-controls="settingsDrawer">변경</button>
@@ -411,7 +338,25 @@
   <div class="alert warn" id="readyAlert" role="alert" hidden></div>
   <button class="primary" id="startBtn" type="button" aria-describedby="capturePermissionHint" disabled>캡처 시작</button>
   <p class="detail" id="capturePermissionHint">일반 탭은 확장 아이콘으로 여세요. LearnUs 팝업은 강의 창을 클릭한 뒤 <b>Alt+Shift+S</b>를 누르면 해당 강의를 선택한 캡처 창이 열립니다.</p>
-  <p class="detail">화면 인식과 원문 타임라인은 기기 안에서 무료로 동작합니다.<br>AI 요약은 설정에서 요약 서비스를 연결해야 사용할 수 있어요.</p>
+  <p class="detail">화면·음성 인식은 기기 안에서 하고, 노트는 로그인한 계정으로 Summrizei 서비스가 만듭니다.</p>
+
+  <!-- 백그라운드로 처리: 계정 features에 "background"가 있을 때만 보인다(sidepanel.js bgInit). 작업은 offscreen이 하고 여기는 누르고 보여 줄 뿐이다. -->
+  <div id="bgBox" class="readycard" hidden>
+    <div class="checkrow"><span class="what">백그라운드로 처리</span><span class="val">유료</span></div>
+    <p class="detail">영상을 받아 화면·음성을 서비스로 보내 노트를 만듭니다. 사용 동의가 필요하고, 브라우저는 켜 두세요.</p>
+    <p class="detail" id="bgStatus" role="status" aria-live="polite" style="white-space:pre-wrap;"></p>
+    <div class="statusline"><progress id="bgBar" max="9" value="0" style="flex:1;" hidden></progress><span class="sub" id="bgTime" hidden></span></div>
+    <p class="detail" id="bgProgress"></p>
+    <button class="link" id="bgSummaryLink" type="button" hidden>동의하기</button>
+    <div id="bgSave" hidden></div>
+    <button id="bgBtn" type="button">백그라운드로 처리</button>
+    <div class="btnrow"><button id="bgRetryBtn" type="button" hidden>다시 시도</button><button id="bgCancelBtn" type="button" hidden>취소</button></div>
+    <button id="bgLiveBtn" type="button" hidden>실시간 모드로 시작</button>
+    <button id="bgConsentBtn" type="button" hidden>동의하고 계속</button>
+    <button id="bgMakeBtn" type="button" hidden>노트 만들기</button>
+    <button id="bgDiscardBtn" type="button" hidden>작업 버리기</button>
+    <a href="#" id="bgBilling" target="_blank" rel="noopener" hidden>요금제 보기</a>
+  </div>
 </div>
 
 <!-- ── 설정 서랍 (준비/완료 양쪽에서 같은 것을 연다) ───────────── -->
@@ -487,6 +432,7 @@
 </div>
 
 <!-- ── 완료 ────────────────────────────────────────────────── -->
+<!-- 노트는 패널에 보여 주지 않는다: 암호화 파일로 저장되고 웹사이트 보관함에서 보관함 암호를 넣어 연다. -->
 <div id="stageDone" hidden>
   <div class="statusline">
     <span class="pill ok" id="donePill">노트 완성</span>
@@ -495,76 +441,51 @@
   <div class="alert warn" id="doneAlert" hidden></div>
   <h2 class="result-title" id="resultTitle">나의 강의 노트</h2>
 
-  <div class="note-view-tabs" role="tablist">
-    <button id="viewRenderedBtn" type="button" class="tab-pill active">📖 서식 보기 (수식·그래프)</button>
-    <button id="viewRawBtn" type="button" class="tab-pill">✏️ 마크다운 편집</button>
-  </div>
-  <iframe id="renderFrame" src="sandbox.html" class="preview-frame" title="노트 서식 미리보기" sandbox="allow-scripts allow-forms allow-popups allow-modals"></iframe>
-  <textarea id="result" aria-label="강의 노트 내용" placeholder="노트가 여기 표시됩니다. 인식된 내용을 직접 검토해 주세요." hidden></textarea>
-  <p class="detail result-help" id="resultHint">서식 보기에서는 수식과 다이어그램이 렌더링되며, 마크다운 편집 탭에서 원문을 직접 수정할 수 있습니다.</p>
-  <div class="export-section" id="exportRow" hidden>
-    <div class="pdf-ratio-bar">
-      <span class="ratio-label">PDF 용지 비율:</span>
-      <div class="ratio-pills" role="radiogroup" aria-label="PDF 용지 비율 선택">
-        <button type="button" class="ratio-pill active" id="pdfRatioA4" data-ratio="a4" title="기본 A4 세로 문서 규격">A4 (세로)</button>
-        <button type="button" class="ratio-pill" id="pdfRatio169" data-ratio="16:9" title="PPT 슬라이드 및 굿노트 가로 최적화 규격 (16:9)">16:9 (PPT·굿노트)</button>
-      </div>
-    </div>
-    <div class="export-row">
-      <button id="pdfBtn" type="button" title="선택한 비율로 노트를 고화질 PDF로 인쇄 또는 저장합니다">📄 PDF 출력</button>
-      <button id="notionBtn" type="button" title="노션(Notion)에 붙여넣기 위한 형식으로 복사합니다">📝 노션으로 복사</button>
-    </div>
-  </div>
+  <div id="saveBox" class="readycard" hidden></div>
+  <ul class="detail" id="doneNotices" style="margin:0; padding-left:18px;" hidden></ul>
 
-  <details class="optional-api"><summary>OpenRouter 요약 연결하기 · 선택</summary><p class="detail">OpenRouter API 키를 설정하고 외부 전송에 동의한 뒤 ‘다시 만들기’를 누르세요. 이미지와 오디오는 전송하지 않습니다.</p><button id="summarySettingsBtn" type="button">연결 설정</button></details>
+  <div id="recognitionBox" class="readycard" hidden>
+    <p class="detail">외부 요약 처리에 동의하지 않아 인식 결과만 있습니다.</p>
+    <button id="makeNoteBtn" type="button">노트 만들기</button>
+  </div>
+  <iframe id="renderFrame" src="sandbox.html" class="preview-frame" title="인식 결과 미리보기" sandbox="allow-scripts allow-forms allow-popups allow-modals" hidden></iframe>
+
+  <div id="genBox" class="readycard" hidden>
+    <label class="checkline"><input type="checkbox" id="genSynthetic" /><span>가상 사례 포함</span></label>
+    <label class="checkline"><input type="checkbox" id="genAugment" /><span>강의 밖 보강 포함</span></label>
+    <button id="genAgainBtn" type="button">이 옵션으로 다시 만들기</button>
+    <p class="detail">시험 모드·답안 위치는 웹에서 노트를 열 때 고릅니다.</p>
+  </div>
 
   <div class="btnrow">
-    <button id="notesBtn" type="button" disabled title="재캡처 없이 선택한 형태로 다시 만듭니다">다시 만들기</button>
+    <button id="notesBtn" type="button" disabled title="재캡처 없이 노트를 다시 만듭니다">노트 다시 만들기</button>
   </div>
 
   <button id="againBtn" type="button" style="width:100%;">새로 캡처하기</button>
-
-  <details class="optional-api">
-    <summary>암호화 보관함</summary>
-    <p class="detail">보관 암호는 기기에서만 사용합니다. 원문 캡처나 오디오는 보관하지 않습니다.</p>
-    <input id="vaultPassphrase" type="password" minlength="12" autocomplete="off" placeholder="보관 암호 (12자 이상)">
-    <div class="btnrow"><button id="saveVaultBtn" type="button">현재 노트 보관</button><button id="refreshVaultBtn" type="button">목록 새로고침</button></div>
-    <select id="vaultList" aria-label="암호화 보관 목록"></select>
-    <div class="btnrow"><button id="loadVaultBtn" type="button">불러오기</button><button id="deleteVaultBtn" type="button">보관본 삭제</button></div>
-  </details>
 </div>
 
 <!-- ── 공통 ────────────────────────────────────────────────── -->
-<div id="working" class="working" hidden role="status" aria-live="polite"><span class="working-ring" aria-hidden="true"></span><span>노트 필기중. 만약 노트가 생성되지 않았으면 다시 생성해주세요</span></div>
+<div id="working" class="working" hidden role="status" aria-live="polite"><span class="working-ring" aria-hidden="true"></span><span id="workingText">노트를 만드는 중입니다. 몇 분 걸릴 수 있습니다.</span></div>
 <div id="status" class="detail" role="status" aria-live="polite" style="min-height:1.4em; white-space:pre-wrap;"></div>
 
-<details id="rawEvidence" hidden>
-  <summary>인식된 텍스트 전체 (메모리에만 존재)</summary>
-  <pre id="rawScript"></pre>
-</details>
 <details id="debugDetails">
   <summary>디버그 로그</summary>
   <pre id="debugLog"></pre>
 </details>
 
-<dialog id="notionModal" class="notion-modal" aria-labelledby="notionModalTitle">
-  <div class="notion-modal-body">
-    <div class="notion-modal-icon" aria-hidden="true">📋</div>
-    <h3 class="notion-modal-title" id="notionModalTitle">복사 완료! 이제 노션에 복사하셔서 사용하시면 됩니다!</h3>
-    <p class="notion-modal-tip">💡 노션(Notion) 빈 페이지에서 <kbd>Ctrl</kbd> + <kbd>V</kbd> (Mac은 <kbd>Cmd</kbd> + <kbd>V</kbd>)를 누르면 제목·개념·표·수식이 노션 블록으로 깔끔하게 들어갑니다.</p>
-    <button type="button" id="notionModalClose" class="primary">확인</button>
-  </div>
-</dialog>
-
 <footer>
   <p class="legal">
-    개인 학습용 도구입니다. 캡처물의 보관·재배포는 하지 마세요.
+    개인 학습용 도구입니다. 만든 노트를 다른 사람에게 배포하지 마세요.
     <a href="#" id="optionsLink">설정 열기</a>
   </p>
 </footer>
 
   <script src="lib/settings.js"></script>
+  <script src="lib/media-source.js"></script>
+  <script src="lib/auth.js"></script>
   <script src="lib/account.js"></script>
+  <script src="lib/package-store.js"></script>
+  <script src="lib/note-file.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

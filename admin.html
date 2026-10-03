@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<!-- 개발 전용 관찰 화면. manifest에서 도달할 수 없어 웹스토어 패키지에는 들어가지 않는다. -->
+<meta charset="utf-8">
+<title>Summrizei Admin (개발용)</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font: 13px/1.5 system-ui, sans-serif; margin: 0; padding: 16px; background: #f5f5f4; color: #1c1c1c; }
+  header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  h1 { font-size: 16px; margin: 0; }
+  h1 small { font-weight: normal; color: #777; }
+  #connStatus { padding: 2px 8px; border-radius: 10px; background: #ddd; }
+  #connStatus.ok { background: #d3ead3; }
+  #connStatus.bad { background: #f3d5d5; }
+  .counters { color: #555; }
+  #loadNote { color: #777; }
+  button { font: inherit; padding: 4px 10px; border: 1px solid #bbb; border-radius: 6px; background: #fff; cursor: pointer; }
+  nav.tabs { display: flex; gap: 4px; margin: 12px 0; }
+  .tab.active { background: #1c1c1c; color: #fff; border-color: #1c1c1c; }
+  table { border-collapse: collapse; background: #fff; }
+  th, td { border: 1px solid #ddd; padding: 3px 8px; text-align: left; }
+  h2 { font-size: 13px; margin: 14px 0 6px; }
+  #openSpans { margin: 0; padding-left: 18px; }
+  #gantt { background: #fff; border: 1px solid #ddd; padding: 6px; }
+  .lane { display: flex; align-items: center; gap: 8px; margin: 2px 0; }
+  .lane .lab { width: 90px; flex: none; text-align: right; color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lane .track { position: relative; flex: 1; height: 16px; background: #f0efee; border-radius: 3px; }
+  .bar { position: absolute; top: 2px; bottom: 2px; border-radius: 2px; min-width: 2px; }
+  .bar.running { background: #4a90d9; }
+  .bar.done { background: #58a05c; }
+  .bar.failed { background: #d05555; }
+  .bar.skipped { background: #d8a13c; }
+  .filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+  input, select { font: inherit; padding: 3px 6px; border: 1px solid #bbb; border-radius: 4px; }
+  #logWrap { max-height: 60vh; overflow: auto; border: 1px solid #ddd; background: #fff; }
+  #logTable { font: 12px/1.45 ui-monospace, Menlo, monospace; width: 100%; }
+  #logTable th, #logTable td { border: none; border-bottom: 1px solid #eee; padding: 2px 8px; white-space: nowrap; }
+  #logTable td.msg { white-space: normal; }
+  tr.lv-warn { background: #fdf3e0; }
+  tr.lv-error { background: #fbe4e4; }
+  .note { color: #777; margin: 6px 0; }
+  .srcCard { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 8px 10px; margin: 8px 0; max-width: 680px; }
+  .srcHead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .srcHead b { margin-right: auto; }
+  .verdict { padding: 1px 8px; border-radius: 10px; font-size: 12px; }
+  .verdict.ok { background: #d3ead3; }
+  .verdict.warn { background: #fdf3e0; }
+  .verdict.bad { background: #f3d5d5; }
+  .srcCard dl { display: grid; grid-template-columns: max-content 1fr; gap: 1px 10px; margin: 6px 0 0; }
+  .srcCard dt { color: #555; }
+  .srcCard dd { margin: 0; overflow-wrap: anywhere; white-space: pre-line; }
+  #jobTable { font: 12px/1.45 ui-monospace, Menlo, monospace; }
+  #jobTable tr.sel td { background: #e8eefb; }
+  #jobTable tbody tr { cursor: pointer; }
+  #jobDetail { margin: 0; padding-left: 18px; }
+  details { background: #fff; border: 1px solid #ddd; margin: 4px 0; padding: 4px 8px; max-width: 720px; }
+  details summary { cursor: pointer; }
+  .recJson { font: 11px/1.4 ui-monospace, Menlo, monospace; max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .slideBox { position: relative; width: 100%; max-width: 640px; aspect-ratio: 16/9; background: #f0efee; border: 1px solid #ccc; margin: 6px 0; }
+  .bbox { position: absolute; border: 1px solid #2a7; }
+  .bbox .bboxLab { position: absolute; top: -14px; left: 0; font-size: 9px; color: #444; white-space: nowrap; }
+  .bbox.weak { border-style: dashed; border-color: #c60; }
+  .bbox.weak .bboxLab, .bbox.cut .bboxLab { text-decoration: line-through; }
+  .bbox.cut { border-color: #999; }
+  .bbox.frm { border-color: #34d; }
+  .bbox.fig { border-color: #a3a; }
+  .cropImg { max-width: 320px; display: block; margin: 6px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Summrizei 파이프라인 관찰 <small>(개발용)</small></h1>
+  <span id="connStatus">연결 중…</span>
+  <span class="counters">이벤트 <b id="eventCount">0</b> · 오류 <b id="errorCount">0</b></span>
+  <button id="loadLogs" type="button">저장된 로그 불러오기 (24시간)</button>
+  <span id="loadNote"></span>
+</header>
+<nav class="tabs">
+  <button id="tabPipeline" type="button" class="tab active">파이프라인</button>
+  <button id="tabLogs" type="button" class="tab">로그</button>
+  <button id="tabSource" type="button" class="tab">소스 진단</button>
+  <button id="tabJobs" type="button" class="tab">작업</button>
+  <button id="tabArtifacts" type="button" class="tab">산출물</button>
+</nav>
+<section id="viewPipeline">
+  <table id="stageTable">
+    <thead><tr><th>단계</th><th>대기</th><th>실행</th><th>완료</th><th>실패</th><th>건너뜀</th></tr></thead>
+    <tbody id="stageRows"></tbody>
+  </table>
+  <h2>진행 중인 스팬</h2>
+  <ul id="openSpans"></ul>
+  <h2>타임라인 (최근 10분)</h2>
+  <div id="gantt"></div>
+</section>
+<section id="viewLogs" hidden>
+  <div class="filters">
+    <select id="fLevel">
+      <option value="debug">전체</option>
+      <option value="info">info 이상</option>
+      <option value="warn">warn 이상</option>
+      <option value="error">error만</option>
+    </select>
+    <input id="fStage" placeholder="단계">
+    <input id="fJob" placeholder="jobId">
+    <input id="fText" placeholder="텍스트 검색" size="24">
+    <label><input id="follow" type="checkbox" checked> 실시간 따라가기</label>
+    <button id="exportJson" type="button">JSON 내보내기</button>
+  </div>
+  <div id="logWrap">
+    <table id="logTable">
+      <thead><tr><th>시각</th><th>level</th><th>stage</th><th>status</th><th>unit</th><th>ms</th><th>code</th><th>msg</th></tr></thead>
+      <tbody id="logRows"></tbody>
+    </table>
+  </div>
+</section>
+<section id="viewSource" hidden>
+  <p class="note">개발 전용: 탭을 고르고 [진단]을 누른 뒤 10초 안에 그 탭에서 영상을 재생하세요. 선택한 탭의 미디어 요청만 관찰하며 아무것도 저장하지 않습니다.</p>
+  <div class="filters">
+    <select id="srcTab"></select>
+    <button id="srcRefresh" type="button">목록 새로고침</button>
+    <button id="srcRun" type="button">진단</button>
+    <button id="srcRelease" type="button">webRequest 권한 해제</button>
+  </div>
+  <p class="note" id="srcStatus" role="status" aria-live="polite"></p>
+  <div id="srcResults"></div>
+</section>
+<section id="viewJobs" hidden>
+  <table id="jobTable">
+    <thead><tr><th>jobId</th><th>시작</th><th>소요</th><th>호출</th><th>비용</th><th>모델</th><th>상태</th><th>오류</th></tr></thead>
+    <tbody id="jobRows"></tbody>
+  </table>
+  <h2>단계별</h2>
+  <ul id="jobDetail"></ul>
+</section>
+<section id="viewArtifacts" hidden>
+  <p class="note">개발 전용: 암호화된 강의 패키지를 이 페이지 안에서만 복호화해 검사합니다. 내용은 어디에도 보내지 않습니다.</p>
+  <div class="filters">
+    <select id="pkgPick"></select>
+    <button id="pkgRefresh" type="button">목록 새로고침</button>
+    <button id="pkgLoad" type="button">불러오기</button>
+  </div>
+  <p class="note" id="pkgStatus" role="status" aria-live="polite"></p>
+  <div id="pkgRecords"></div>
+</section>
+<script src="lib/package-store.js"></script>
+<script src="lib/media-source.js"></script>
+<script src="lib/library.js"></script>
+<script src="admin.js"></script>
+</body>
+</html>

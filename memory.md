@@ -4,16 +4,16 @@
 
 ## 제품 패널과 랜딩 체험
 
-- `sidepanel.html`과 `landing/demo-panel.html`은 `landing/product-panel.css`를 공유한다. 이 CSS의 제품 패널 규칙은 두 화면에 함께 영향을 준다.
-- 제품은 `landing/vendor/markdown-it.min.js`와 `landing/note-viewer.js`를 직접 로드한다. 랜딩의 부모 문서(`landing/index.html`, `hero-mockup.html`)도 두 파일을 로드하고, 같은 출처의 `demo-panel.html` iframe 문서에 `NoteViewer`를 연결해 조작한다.
+- 확장과 랜딩은 파일을 공유하지 않는다(2026-10-03 분리). 확장 사이드 패널은 루트 `sidepanel.css`를, 랜딩 히어로 목업(`landing/demo-panel.html`)은 `landing/product-panel.css`를 쓴다. 분리 시점에 둘은 같은 규칙이었고 이후 따로 바뀐다 — 패널을 고쳐도 목업은 그대로다. 패키저는 `landing/` 파일을 예외 없이 막는다.
+- 랜딩의 부모 문서(`landing/index.html`, `hero-mockup.html`)는 `landing/vendor/markdown-it.min.js`와 `landing/note-viewer.js`를 로드하고, 같은 출처의 `demo-panel.html` iframe 문서에 `NoteViewer`를 연결해 조작한다. 확장은 이 두 파일을 쓰지 않는다.
 - 데모 iframe은 `sandbox="allow-same-origin"`이라 내부 스크립트는 실행되지 않는다. 부모의 `hero-mockup.js`가 `contentDocument`를 통해 준비된 체험을 제어한다.
 - `landing/demo-panel.html`(캡처 없는 데모)에서는 `#result` textarea가 여전히 canonical Markdown을 보존하고, `#notePreview`가 안전하게 렌더링된 HTML을 표시한다. 데모의 읽기·편집·복사·다운로드와 요약/타임라인 전환은 이 Markdown을 기준으로 동작한다.
 - 실제 제품 `sidepanel.html`은 다르다. 캡처 상태의 canonical 소유자는 `offscreen.js`의 `CaptureSession`/`EvidenceStore`다. `sidepanel.js`는 화면·제어만 담당하는 thin RPC adapter이며, 그 안의 `#result` textarea는 `SESSION_STATE` 메시지로 받은 `state.summary`를 매번 다시 렌더링한 표시용 사본일 뿐 편집 가능한 canonical 원본이 아니다.
-- PDF는 `sandbox.html`의 `@media print`가 만든다. 배경(형광펜·표머리)은 `print-color-adjust: exact` 없이는 브라우저가 통째로 빼버린다. 인쇄 색은 `--print-*` 토큰으로만 두고 `:root[data-theme="dark"]`에서 값만 갈아끼운다. 다크로 뽑을 때는 `@page` 여백을 0으로 두고 그만큼을 `body` 패딩으로 옮긴다 — 브라우저가 페이지 여백에는 배경을 찍지 않아서 안 그러면 종이 가장자리가 흰 테두리로 남는다. `@page`는 CSS만으로 테마 분기를 못 해서 `applyPrintRatio()`가 JS로 만들고, `applyTheme()`이 테마가 바뀔 때마다 다시 부른다.
-- 노트의 형광펜은 `==…==` 한 문법으로만 흐른다. `sidepanel.js`의 `noteText`가 `importance:"critical"` 항목에만 붙이고(`## 핵심 결론`은 예외 — 거기선 거의 전부 critical 이라 섹션이 통째로 칠해진다), `sandbox.html`의 marked 인라인 확장이 `<mark>`로 바꾸고, `product-panel.css`의 `--brand-highlight`가 칠한다. 셋 중 하나만 고치면 편집 탭·노션 복사본에 `==`가 맨살로 남거나 칠이 사라진다. critical이 드문 건 프롬프트 약속이다(`lib/openrouter-client.js` "Keep critical rare").
-- 노트에서 인용(`>`)을 내는 건 둘뿐이다: `sidepanel.js` `noteText` 의 핵심 결론(`> **결론**` + 빈 줄 + `detail` 문단)과 `lib/summary.js` 의 ⚠ 경고. 그래서 `product-panel.css` 의 `blockquote` 규칙 하나가 둘의 콜아웃 상자(주황 세로줄 + `--brand-subtle` 바탕)를 같이 칠한다. 인쇄 바탕은 형광펜과 마찬가지로 `sandbox.html` 의 `@media print` 에 따로 있어야 한다 — `print-color-adjust: exact` 없이는 빠진다.
-- 핵심 결론의 `detail`(결론 아래 자세한 설명)은 `lib/openrouter-client.js` 스키마에서 keyConclusions 항목에만 있고 `required` 다. `lib/summary.js` 의 `item()` 이 통과시켜야 노트까지 온다 — 다른 필드처럼 조용히 잘리면 상자에 결론 한 줄만 남는다.
-- 읽기 탭의 `sandbox.html`(샌드박스 iframe)도 `landing/product-panel.css`를 읽고 본문을 `#stageDone > .note-document`로 감싼다. 노트 타이포그래피의 단일 원천은 그 파일이며 sandbox.html의 `<style>`에는 렌더러 전용 상자(mermaid·수식·워크플로 폴백)와 인쇄 규칙만 둔다. 샌드박스라 `chrome.storage`를 못 읽으므로 테마는 `sidepanel.js`가 `RENDER`/`PRINT`/`THEME` 메시지에 실어 보내고 sandbox가 `[data-theme]`과 mermaid 테마에 함께 적용한다.
+- v2 노트의 타이포그래피·인쇄 규칙 단일 원천은 `lib/note-spec.js`의 `NoteSpec.css`다 — `sandbox.html`이 한 번 `<style>`에 주입한다(제품 패널의 sidepanel.css와는 별개). PDF는 `PRINT_NOTE` 메시지가 `medium:"print"`로 다시 렌더한 뒤 폰트·이미지 디코드를 기다려 `window.print()`로 찍는다 — 비율 선택이나 테마 분기는 없다.
+- 패널의 `sidepanel.js`는 노트를 보여 주지 않는다. 인식만 끝난 결과만 `RENDER_RECOGNITION`으로 sandbox에 보내 화면에 띄우고(내보내기 없음), 완성 노트는 offscreen이 보관함 암호로 암호화해 `LIB_EXPORT`(offscreen만 보낼 수 있음)로 background에 넘기고 background가 `chrome.downloads`로 Downloads/Summrizei/`<제목>-<packageId>.summrizei`에 덮어쓴다. 패널은 `summary.saved`("file"|"no-passphrase"|"failed")로 저장 결과만 알린다.
+- 노트 열람은 웹사이트 `landing/library.html`(/library)에서만 한다. 사용자가 폴더나 파일을 고르고 보관함 암호를 넣으면 브라우저 안에서 `NoteFile`로 복호화해 렌더한다. CSP `connect-src 'none'`이라 아무것도 서버로 가지 않는다. 생성 옵션 다시 만들기·인식만 끝난 강의의 노트 만들기는 패널(`LIB_REGENERATE`)에서 한다.
+- 보관함 파일: 웹 페이지는 `landing/vendor/summrizei/`(note-file·note-contract·note-spec·note-render·note-export)와 `landing/vendor/katex/`의 바이트 동일 사본을 쓴다. `tools/landing-copies.test.mjs`가 어긋남을 잡는다 — `lib/`을 고치면 사본을 다시 복사한다. 파일 형식을 바꾸면 `NoteFile.VERSION`을 올리고 두 사본을 같이 바꾼다.
+- 보관함 키는 IndexedDB `summrizei`의 `keys` 스토어 `library` 레코드에 추출 불가 CryptoKey(+salt)로만 있다. 암호 자체는 저장·전송하지 않는다. "이 기기 데이터 모두 삭제"(`store.wipe`)가 이 키도 지우고, 이미 내려받은 파일은 건드리지 않는다.
 - `hero-mockup.js`는 실제 캡처나 녹음 없이 직접 작성한 샘플과 스트리밍 연출을 제공한다. `landing/index.html`의 메인 figure와 `hero-mockup.html`의 standalone figure는 동작·마크업 parity를 유지한다.
 - 데모 후반의 PDF→AirDrop→태블릿 장면(`share`/`tablet` state)은 `.mock-canvas` 안의 `.share-sheet`/`.tablet-scene` 오버레이로 구현되며, 시퀀스·타이밍·좌표 규칙은 `docs/hero-demo-sequence.md`에 정리해 둔다.
 - 갱신된 랜딩 자산의 `src`에는 버전 쿼리를 붙인다. `landing/hero-mockup.css`는 브라우저와 강의 화면 레이아웃을 맡고, 제품 패널 스타일은 `product-panel.css`가 맡는다.
@@ -64,11 +64,35 @@
 - GSAP + ScrollTrigger는 `landing/gsap-animations.js` 한 파일에서만 쓴다. 사용처와 유지 이유는 그 파일 머리말에 적어뒀다. 두 연출(히어로 진입 타임라인, ScrollTrigger 1회 등장)을 쓰지 않게 되면 `landing/index.html`의 CDN `<script>` 두 줄과 함께 통째로 지운다.
 - 히어로 진입의 초기 상태(`opacity: 0`)는 세 곳에 나뉘어 있다. `index.html` head의 인라인 스크립트가 `html.gsap-enter`를 붙이고(2초 안전장치 포함), `landing.css`가 그 클래스로 숨기고, `gsap-animations.js`가 `gsap.set()`으로 시작값을 고정한 뒤 클래스를 걷는다. 셋 중 하나만 고치면 히어로가 영영 안 보이거나 페인트 후 깜빡인다.
 
+## 파이프라인 이벤트 스트림
+
+- 진단 이벤트는 오프스크린의 단일 `PipelineEvents.EventBus`(`lib/events.js`)에서 나오고 세 곳이 구독한다: `admin-events` 포트의 `admin.html`(`offscreen.js` onConnect — 송신자가 이 확장의 `/admin.html`인지 검증), `LogSink`→`PackageStore` "logs" 스토어의 암호화 로컬 로그, 이후 진행 UI.
+- 이벤트에는 강의 텍스트를 싣지 않는다(AGENTS.md §2 콘텐츠 없는 원격 측정). 고정 코드·수치·짧은 진단 msg만 허용한다.
+- 파이프라인(`session.js`, `offscreen.js`)에는 `PipelineEvents.safe(bus)` 껍데기만 넘긴다 — 잘못된 진단 이벤트의 예외가 캡처를 죽이지 않도록.
+- `admin.html`은 개발 전용이며 `tools/package-cws.mjs`(테스트 + 감사 규칙)가 스토어 패키지에서 배제한다.
+
+## 동의 기록
+
+- 동의 기록은 `chrome.storage.local`의 설정 값에만 산다(`lib/settings.js`): 클라우드 인식은 `visionConsent`+`visionConsentVersion`/`visionConsentAt`, 백그라운드 처리는 `backgroundConsent{personalUse,accessRights,version,at}`.
+- `TERMS_VERSION`은 options.html/sidepanel의 동의 문구나 정책 페이지가 바뀔 때마다 올린다 - 올리면 재동의가 강제되고, 이후 서버 `profiles.consent_version`과도 맞춰야 한다.
+- 버전 없는 `visionConsent:true`는 화면 프레임만 커버하는 레거시 동의다. 장래 음성/클라우드 STT 게이트는 `cloudRecognitionAllowed()`를 쓰고, `session.js`의 기존 화면 전송 게이트(`visionConsent===true`)는 그대로다.
+- `backgroundAllowed()`·`cloudRecognitionAllowed()`는 패널(시작 전 확인)과 `lib/background-job.js`의 게이트(네트워크 전)가 읽는다. 후자는 이 함수들을 전역에서 찾으므로 `offscreen.html`이 `lib/settings.js`를 싣는다(저장소를 읽는 함수는 offscreen.js가 부르지 않는다). offscreen에 넘기는 설정은 패널이 보낸 값이 아니라 background가 저장소에서 읽은 것이다.
+
+## 유료 백그라운드 작업 배선
+
+- 메시지: 패널 → background `BG_RUN`·`BG_LIST`·`BG_CANCEL` → offscreen(`target:"session"`, 송신자는 `/background.js`만). offscreen → background `BG_REFERER`(새 호스트를 Referer 규칙에 더함)·`BG_DONE`(결말, 이 둘은 offscreen 문서만 보낼 수 있다). background → 패널 `BG_DONE`, offscreen → 패널 `BG_PROGRESS`(단계 이름과 개수만).
+- `BG_DONE`을 빠뜨리면 절전 방지(`chrome.power`)와 Referer 규칙(DNR 세션 규칙 900002, admin 소스 진단은 900001)이 풀리지 않는다 - background가 둘 다 `BG_DONE`에서만 푼다. offscreen은 어떤 결말이든 `BG_DONE`을 보내야 한다.
+- Referer 값은 background가 `BG_RUN` 때 `chrome.tabs.get`으로 읽은 탭 주소(조각 제외)다. 패널이 보낸 pageUrl은 쓰지 않는다. 규칙은 `tabIds:[-1]`이라 확장 자신의 요청에만 걸린다.
+- 모델 이름은 `offscreen.js`의 `BG_MODELS` 한 곳이다. 서버 allowlist(`ALLOWED_*_MODELS`)와 맞아야 한다.
+- `sidepanel.js`의 `YOUTUBE` 정규식은 `lib/background-job.js`의 것과 같아야 한다(`lib/sidepanel-background.test.js`가 대조한다).
+
 ## 계정 메뉴·로그인·결제(grogle)
 
 - 햄버거 메뉴는 두 곳에 있다: 확장 `sidepanel.html`의 `#menuBtn`/`#accountMenu`(인앱 설정 포함), 랜딩·계정 페이지의 `landing/account-menu.js` 서랍(인앱 설정 없음). 항목 순서·문구를 바꾸면 둘을 같이 고친다. `landing/demo-panel.html`의 `.menu-glyph`는 장식용 사본이다.
-- 확장은 `tools/package-cws.mjs`가 `landing/`을 빼고 패키징하므로 `landing/supabase-config.js`를 읽지 못한다. 그래서 `lib/account.js`가 Supabase URL·anon 키를 복제해 둔다 — 프로젝트를 바꾸면 두 파일을 같이 고친다.
-- 확장 로그인 토큰은 설정이 아니라 자격증명이라 `lib/settings.js`를 거치지 않고 `chrome.storage.local`의 `authSession` 키에만 둔다. 노트·원문은 여기 넣지 않는다.
-- Supabase Auth의 Redirect URLs에 `https://<확장ID>.chromiumapp.org/`와 `https://summrizei.vercel.app/account/**`가 등록돼 있어야 로그인이 돌아온다.
-- grogle 결제창·고객 포털 주소는 `landing/billing-config.js` 한 곳에만 둔다. 비어 있으면 계정 페이지는 "결제 준비 중"으로 안내한다. 이동할 때 `email`·`client_reference_id`(Supabase user id)를 쿼리로 붙인다 — 웹훅이 구독을 계정에 묶는 키다.
-- `subscriptions`·`usage_monthly`는 클라이언트가 쓰지 않는다. 읽기는 `my_account()`, 쓰기는 이후 서버의 grogle 웹훅(service_role)만 한다.
+- 확장 로그인은 `lib/auth.js` 하나가 맡는다(PKCE). 세션은 `chrome.storage.local`의 `authSession` 한 키에만 있고 `lib/settings.js`의 `loadAuthSession`·`saveAuthSession`만 읽고 쓴다(설정 저장은 이 키를 건드리지 않는다). `lib/account.js`는 패널 계정 메뉴의 표시(`decodeUser`)와 `my_account()` 조회만 하고, 로그인·갱신·로그아웃은 `Auth`에 맡긴다. 두 구현이 따로 로그인하면 세션 형식이 엇갈려 서로를 로그아웃시킨다(2026-10-03 main 병합 때 하나로 합침). 노트·원문은 이 키에 넣지 않는다.
+- 확장은 `tools/package-cws.mjs`가 `landing/`을 빼고 패키징하므로 `landing/supabase-config.js`를 읽지 못한다. 그래서 `lib/auth.js`가 Supabase URL·anon 키를 복제해 둔다 — 프로젝트를 바꾸면 두 파일을 같이 고친다.
+- Supabase Auth의 Redirect URLs에 `https://<확장ID>.chromiumapp.org/`와 `https://summrizei.vercel.app/account/**`가 등록돼 있어야 로그인이 돌아온다. 목록은 `supabase/config.toml`의 `auth.additional_redirect_urls`가 선언하고 `supabase config push`로 올린다.
+- grogle 결제창·고객 포털 주소는 `landing/billing-config.js` 한 곳에만 둔다. 비어 있으면 계정 페이지는 "결제 준비 중"으로 안내한다. 이동할 때 `?ref=<Supabase user id>`를 쿼리로 붙인다(`landing/account.js` `withUser`) — 웹훅이 `sellerReference`로 받아 구독을 계정에 묶는 키다.
+- 등급·가격·사용량은 `supabase/schema-v2.sql` 한 벌이다(2026-10-03 일원화). 이름·가격·한도는 `plans`(free·essential·professional), 사용자 등급은 `profiles`+`entitlements`(결제는 `source='payment'`, 학생가 `edu`, 해지 예약 `cancel_at_period_end`)를 `effective_plan`이 합치고, 사용량은 `monthly_usage`다. 서버 한도, 계정 페이지·패널 메뉴(`my_account()`), 가격 표(`plan_catalog()`)가 모두 이 표를 읽는다. 클라이언트는 쓰지 않고, 쓰기는 서버(service_role)와 이후 grogle 웹훅만 한다.
+- 랜딩의 정적 가격(`landing/index.html`·`llms.txt`·`thanks.html`)은 `plans` 시드와 같아야 한다(`tools/plan-prices.test.mjs`). 가격을 바꾸면 시드와 정적 문구를 같이 고친다.
+- 계정 삭제는 두 곳(확장 설정 → 서버 `DELETE /v1/account`, 랜딩 → Edge Function `delete-account`)이고 순서가 같다: `delete_account_data`(결제 구독 검사) → Storage `<user_id>/` → auth 사용자. Postgres는 Storage 객체를 지울 수 없다(`protect_objects_delete`).

@@ -52,6 +52,7 @@
   logout.hidden = true;
   list.append(
     link("사용자 정보", "/account"),
+    link("내 노트 (웹)", "/library"),
     link("결제 정보", "/account/billing"),
     link("구독 설정", "/account/subscription"),
     el("hr", "drawer-divider"),

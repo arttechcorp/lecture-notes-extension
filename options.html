@@ -624,22 +624,23 @@
       <span class="badge-tech">SETTINGS</span>
     </div>
     <h1>나에게 맞는 기록 방식.</h1>
-    <p class="lead">무료 타임라인부터 온디바이스 AI 요약까지, 필요한 기능만 설정하세요.</p>
+    <p class="lead">온디바이스 인식과 Summrizei 노트까지, 필요한 기능만 설정하세요.</p>
   </header>
 
   <div class="free-banner">
     <div class="free-banner-badge-row">
       <span class="badge-orange">
         <span class="badge-orange-dot"></span>
-        100% 온디바이스 AI 구동
+        온디바이스 인식
       </span>
-      <span class="badge-mono-pill">ZERO CLOUD API</span>
+      <span class="badge-mono-pill">암호화 노트 파일</span>
     </div>
-    <strong class="free-banner-title">완전 무료 · 기기 안에서 직접 구동되는 인식</strong>
-    <p class="free-banner-desc">화면 글자와 음성을 기기 안에서 Tesseract와 Whisper로 인식해 원문 타임라인을 만듭니다. 외부 전송이나 API 키 없이 무료로 이용할 수 있습니다. 구조화된 요약을 만들려면 아래에서 요약 서비스를 연결하세요.</p>
+    <strong class="free-banner-title">화면과 음성은 기기 안에서 인식합니다</strong>
+    <p class="free-banner-desc">화면 글자는 PP-OCRv5, 강의 음성은 Whisper가 이 기기 안에서 읽습니다. 로그인하고 동의하면 Summrizei 서비스가 인식된 텍스트로 노트를 정리합니다(무료 플랜은 월별 한도). 완성된 노트는 보관함 암호로 암호화해 이 컴퓨터의 Downloads/Summrizei 폴더에 자동 저장합니다.</p>
     <div class="free-banner-features">
-      <span class="feature-tag">Tesseract OCR</span>
-      <span class="feature-tag">Whisper Speech-to-Text</span>
+      <span class="feature-tag">PP-OCRv5 화면 읽기</span>
+      <span class="feature-tag">Whisper 음성 인식</span>
+      <span class="feature-tag">Summrizei 노트 정리</span>
     </div>
   </div>
 
@@ -679,7 +680,7 @@
       </div>
     </label>
 
-    <p class="note">현재 OCR 엔진은 Tesseract.js(경량 로컬)로 고정되어 있습니다.</p>
+    <p class="note">화면 글자는 이 기기 안에서 PP-OCRv5(WASM)로 읽습니다.</p>
   </section>
 
   <section class="card" aria-labelledby="voiceHeading">
@@ -751,24 +752,108 @@
     </div>
   </dialog>
 
-  <dialog id="visionWarn" class="warn-modal" aria-labelledby="visionWarnTitle">
-    <h2 id="visionWarnTitle">강의 화면을 인식 모델로 보낼까요?</h2>
-    <p>켜는 동안 <strong>강의 슬라이드 화면이 기기 밖으로 나갑니다.</strong> 자체 서비스를 거쳐 인식 모델에 전달되며, 전송 구간은 HTTPS로 보호되지만 모델은 인식하는 순간 화면을 봅니다.</p>
-    <p>화면은 어디에도 저장하지 않습니다. 인식이 끝나면 사라지고, 사용량 기록에는 계정과 비용만 남습니다.</p>
-    <p><strong>비공개 사내 교육 자료나 기밀 강의에는 켜지 마세요.</strong> 끄면 지금처럼 기기 안에서만 인식합니다.</p>
-    <p class="note">음성은 이 설정과 무관하게 항상 기기 안에서만 처리됩니다.</p>
-    <div class="warn-actions">
-      <button type="button" id="visionWarnCancel">취소</button>
-      <button type="button" id="visionWarnOk" class="primary">이해했고 켜기</button>
+  <section class="card" aria-labelledby="consentHeading">
+    <div class="section-top">
+      <h2 id="consentHeading">이용 동의</h2>
+      <span class="badge">사이드 패널에서 동의</span>
     </div>
-  </dialog>
+
+    <p class="note" style="margin-top: 0;">각 동의는 사이드 패널에서 기능을 처음 쓸 때 받습니다. 여기서는 상태를 확인하고 철회만 할 수 있습니다. 동의 기록(동의 문구 버전과 시각)은 이 기기의 확장 설정에만 저장되며, 동의 문구가 바뀌면 다시 동의를 받습니다.</p>
+
+    <div class="form-field">
+      <span class="field-label">외부 요약 처리</span>
+      <p class="note" id="summaryConsentState" role="status" aria-live="polite" style="margin-top: 0;"></p>
+      <button type="button" id="summaryWithdrawBtn" hidden>철회</button>
+    </div>
+
+    <div class="form-field">
+      <span class="field-label">클라우드 인식 (화면·음성 전송)</span>
+      <p class="note" id="visionConsentState" role="status" aria-live="polite" style="margin-top: 0;"></p>
+      <button type="button" id="visionWithdrawBtn" hidden>철회</button>
+    </div>
+
+    <div class="form-field">
+      <span class="field-label">백그라운드 처리</span>
+      <p class="note" id="bgState" role="status" aria-live="polite" style="margin-top: 0;"></p>
+      <button type="button" id="bgWithdrawBtn" hidden>철회</button>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="accountHeading">
+    <div class="section-top">
+      <h2 id="accountHeading">계정</h2>
+      <span class="badge">Google 로그인</span>
+    </div>
+
+    <p class="note" id="authState" role="status" aria-live="polite" style="margin-top: 0;">로그인하지 않았습니다.</p>
+
+    <div class="save-row">
+      <button id="loginBtn" type="button">Google로 로그인</button>
+      <button id="logoutBtn" type="button" hidden>로그아웃</button>
+    </div>
+
+    <p class="note setting-note">로그인하면 서비스 호출(요약·고화질 화면 인식·보관함)에 이 계정을 씁니다. 로그인 정보는 이 기기의 확장 설정에만 저장되며 다른 기기로 동기화하지 않습니다.</p>
+  </section>
+
+  <section class="card" aria-labelledby="keyHeading">
+    <div class="section-top">
+      <h2 id="keyHeading">보관함 암호</h2>
+      <span class="badge" id="keyState">확인 중</span>
+    </div>
+
+    <p class="note" style="margin-top: 0;">완성된 노트는 이 암호로 암호화되어 이 컴퓨터의 Downloads/Summrizei 폴더에 자동 저장됩니다. 저장된 노트는 노트 보관함 웹 페이지에서 암호를 입력해 엽니다. 암호는 이 기기에만 저장되며, 잊어버리면 누구도 복구할 수 없습니다.</p>
+
+    <form id="keyForm">
+      <div class="form-field">
+        <label for="keyPass1" class="field-label">새 암호 (12자 이상)</label>
+        <input id="keyPass1" type="password" minlength="12" autocomplete="new-password" required />
+      </div>
+      <div class="form-field">
+        <label for="keyPass2" class="field-label">새 암호 확인</label>
+        <input id="keyPass2" type="password" minlength="12" autocomplete="new-password" required />
+      </div>
+      <div class="save-row">
+        <button id="keySaveBtn" type="submit">암호 정하기</button>
+        <a class="key-link" href="https://summrizei.vercel.app/library" target="_blank" rel="noopener">웹에서 노트 열기</a>
+      </div>
+    </form>
+  </section>
+
+  <section class="card" aria-labelledby="dataHeading">
+    <div class="section-top">
+      <h2 id="dataHeading">데이터 관리</h2>
+    </div>
+
+    <p class="note" style="margin-top: 0;">노트·전사·슬라이드 텍스트·작업 기록과 진단 로그는 이 기기에 암호화되어 보관됩니다. 삭제하면 기기 키를 폐기해 다시 읽을 수 없고, 저장된 보관함 암호 키도 함께 지워집니다. 설정·동의·로그인은 지우지 않습니다. 이미 Downloads/Summrizei 폴더에 저장된 노트 파일은 지워지지 않으니 필요하면 직접 삭제하세요.</p>
+
+    <div class="save-row">
+      <button id="wipeBtn" type="button">이 기기의 강의 데이터 모두 삭제</button>
+    </div>
+
+    <p class="note setting-note">진단 파일에는 처리 단계·시간·오류 코드만 담기고 강의 내용은 담기지 않습니다. 내려받아 지원 메일에 첨부해 보내 주세요.</p>
+
+    <div class="save-row">
+      <button id="diagExportBtn" type="button">진단 파일 내보내기</button>
+      <button id="diagClearBtn" type="button">진단 로그 삭제</button>
+    </div>
+
+    <p class="note" id="diagState" role="status" aria-live="polite"></p>
+
+    <div id="accountDeleteBox" hidden>
+      <p class="note setting-note">계정과 서버 보관함(암호문)을 영구 삭제합니다. 사용량 기록은 계정과 분리해 집계만 남깁니다. 끝나면 이 기기의 강의 데이터도 지우고 로그아웃합니다.</p>
+
+      <div class="save-row">
+        <button id="accountDeleteBtn" type="button">계정과 서버 데이터 삭제</button>
+      </div>
+    </div>
+  </section>
 
   <section class="card" aria-labelledby="apiHeading">
     <details>
       <summary class="api-summary">
         <div class="api-summary-main">
-          <h2 id="apiHeading">OpenRouter API 키 연결 (선택 사항)</h2>
-          <span class="badge">클라우드 AI</span>
+          <h2 id="apiHeading">요약 서비스 연결</h2>
+          <span class="badge">Summrizei 서비스</span>
         </div>
         <span class="chevron" aria-hidden="true">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
@@ -776,46 +861,22 @@
       </summary>
 
       <div class="api-content">
-        <p class="note" style="margin-top: 0; margin-bottom: 16px;">로컬 인식 결과의 텍스트만 OpenRouter로 보내 요약합니다. 이미지와 오디오는 전송하지 않으며, 키는 이 기기의 확장 설정에만 저장합니다.</p>
+        <p class="note" style="margin-top: 0; margin-bottom: 16px;">로컬 인식 결과의 텍스트만 요약 서비스로 보냅니다. 이미지와 오디오는 전송하지 않습니다.</p>
 
         <div class="form-field">
-          <label for="openRouterApiKey" class="field-label">OpenRouter API 키</label>
-          <input id="openRouterApiKey" type="password" placeholder="sk-or-v1-…" autocomplete="off" spellcheck="false" class="mono-input" />
-          <p class="note">키는 <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">OpenRouter 키 페이지</a>에서 발급합니다. 이 채팅이나 로그에 키를 붙여 넣지 마세요.</p>
-        </div>
-        
-        <div class="form-field">
-          <label for="serviceUrl" class="field-label">보관 서비스 URL (선택)</label>
+          <label for="serviceUrl" class="field-label">서비스 URL (개발용)</label>
           <div class="select-wrap">
-            <input id="serviceUrl" type="url" placeholder="https://service.example" autocomplete="url" />
+            <input id="serviceUrl" type="url" placeholder="https://rppknkhbiivyurhvljoi.supabase.co/functions/v1/api" autocomplete="url" />
           </div>
+          <p class="note">기본 운영 서비스를 씁니다. 로컬 개발 서버(http://127.0.0.1:8788)로 시험할 때만 바꾸고, 비우면 기본값으로 돌아갑니다.</p>
         </div>
 
         <div class="form-field">
           <div class="label-row">
-            <label for="appSessionToken" class="field-label">보관 서비스 앱 세션 토큰</label>
+            <label for="appSessionToken" class="field-label">개발·테스트용 앱 세션 토큰</label>
           </div>
-          <input id="appSessionToken" type="password" placeholder="발급받은 앱 세션 토큰" autocomplete="off" spellcheck="false" aria-describedby="apiHelp" class="mono-input" />
-        </div>
-
-        <div class="form-field">
-          <label for="summaryModel" class="field-label">요약 모델</label>
-          <div class="select-wrap">
-            <select id="summaryModel">
-              <option value="google/gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite · 비용 우선</option>
-              <option value="google/gemini-3.8-flash">Gemini 3.8 Flash · 기본 추천</option>
-              <option value="google/gemini-2.5-pro">Gemini 2.5 Pro · 플래그십 심층 분석</option>
-              <option value="anthropic/claude-haiku-4.5">Claude Haiku 4.5</option>
-              <option value="anthropic/claude-sonnet-4.6">Claude Sonnet 4.6 · 상세 노트</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="checklist">
-          <label class="check-label">
-            <input type="checkbox" id="remoteSummaryConsent" class="check-input">
-            <span>인식된 텍스트가 위 요약 서비스로 전송되며, 처리 중 모델이 이를 일시적으로 볼 수 있다는 점에 동의합니다. 종단간 암호화가 아닙니다.</span>
-          </label>
+          <input id="appSessionToken" type="password" placeholder="개발 서버에서 발급한 토큰" autocomplete="off" spellcheck="false" aria-describedby="tokenNote" class="mono-input" />
+          <p class="note" id="tokenNote">위에서 Google로 로그인했다면 로그인한 계정이 우선 쓰입니다. 로그인하지 않았을 때만 이 토큰을 씁니다.</p>
         </div>
 
         <div class="save-row">
@@ -823,7 +884,7 @@
           <button id="saveBtn" type="button">연결 설정 저장</button>
         </div>
 
-        <p class="note setting-note" id="apiHelp">OpenRouter 키를 입력하지 않으면 인식만 로컬에서 완료됩니다. 외부 요약은 위 동의 항목을 켠 경우에만 실행됩니다.</p>
+        <p class="note setting-note" id="apiHelp">인식은 이 기기에서 완료됩니다. 요약은 로그인과 '외부 요약 처리' 동의가 있을 때만 Summrizei 서비스가 만듭니다. 동의는 사이드 패널에서 기능을 처음 쓸 때 받습니다.</p>
       </div>
     </details>
   </section>
@@ -832,7 +893,7 @@
     <div class="footer-shield" aria-hidden="true">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
     </div>
-    <p>캡처한 내용과 노트는 자동으로 보관하지 않습니다. 필요한 노트는 패널을 닫기 전에 직접 저장해 주세요.</p>
+    <p>완성된 노트는 보관함 암호로 암호화해 이 컴퓨터의 Downloads/Summrizei 폴더에 자동 저장합니다. summrizei.vercel.app/library 에서 암호를 입력해 열 수 있습니다.</p>
   </footer>
 
   <div id="saved" role="status" aria-live="polite" hidden class="save-toast">
@@ -842,7 +903,10 @@
 
   <script src="lib/settings.js"></script>
   <script src="lib/service-client.js"></script>
-  <script src="lib/openrouter-client.js"></script>
+  <script src="lib/auth.js"></script>
+  <script src="lib/diagnostics.js"></script>
+  <script src="lib/package-store.js"></script>
+  <script src="lib/note-file.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

@@ -1,0 +1,61 @@
+{
+  "notice": "Design examples only. Not actual lecture evidence.",
+  "examples": [
+    {
+      "id": "social",
+      "title": "규칙은 왜 지켜지는가",
+      "blocks": [
+        "B01",
+        "B02",
+        "B04",
+        "B05",
+        "B06",
+        "B08",
+        "B11",
+        "B13",
+        "B14",
+        "B15"
+      ],
+      "origin": "synthetic_example"
+    },
+    {
+      "id": "humanities",
+      "title": "도시 정책 자료 해석",
+      "blocks": [
+        "B09",
+        "B07",
+        "B14",
+        "B15"
+      ],
+      "origin": "synthetic_example"
+    },
+    {
+      "id": "business",
+      "title": "손익분기 분석",
+      "blocks": [
+        "B10",
+        "B08",
+        "B11",
+        "B14",
+        "B15"
+      ],
+      "origin": "synthetic_example",
+      "assumptions": {
+        "price": 12000,
+        "variableCost": 7000,
+        "fixedCost": 1000000,
+        "currency": "KRW",
+        "unit": "item"
+      },
+      "expected": {
+        "contribution": 5000,
+        "breakEven": 200
+      },
+      "scenario": {
+        "price": 11000,
+        "contribution": 4000,
+        "breakEven": 250
+      }
+    }
+  ]
+}

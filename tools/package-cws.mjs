@@ -1,7 +1,7 @@
 // Chrome Web Store (CWS) 배포용 보안 패키징 및 릴리스 파이프라인
 // PRD v1.1.0 (review.md 피드백 반영 완료)
 // 1) 교차 플랫폼 사전 테스트 게이트 (node --test)
-// 2) 런타임 의존성 폐쇄(Dependency Closure) 재귀 수집 (landing/product-panel.css, .mjs, 워커, ONNX 가중치 포함)
+// 2) 런타임 의존성 폐쇄(Dependency Closure) 재귀 수집 (sidepanel.css, .mjs, 워커, ONNX 가중치 포함)
 // 3) 정적 보안 휴리스틱(API Key/시크릿) 및 AGENTS.md 불변식 정적 감사
 // 4) 순수 JS 결정론적 ZIP 아카이빙 (고정 타임스탬프, 알파벳 경로 정렬, 쉘 호출 배제)
 // 5) 사후 무결성 언팩 CRC32 검증 및 외부 build-provenance.json / SHA-256 생성
@@ -11,7 +11,7 @@ import path from "node:path";
 import zlib from "node:zlib";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -21,11 +21,17 @@ const args = process.argv.slice(2);
 const IS_DRY_RUN = args.includes("--dry-run");
 const SKIP_TESTS = args.includes("--skip-tests");
 
-console.log("\n============================================================");
-console.log("🔒 Summrizei — Chrome Web Store 배포 보안 패키징 파이프라인");
-console.log(`   모드: ${IS_DRY_RUN ? "🔍 DRY-RUN (검사만 수행)" : "📦 PRODUCTION PACKAGING"}`);
-console.log(`   테스트 게이트: ${SKIP_TESTS ? "⚠️ 건너뜀 (UNVERIFIED)" : "✅ 필수 실행"}`);
-console.log("============================================================\n");
+// 테스트에서 import 해도 파이프라인이 돌지 않도록 직접 실행 여부를 구분한다.
+// Node는 진입 모듈의 심볼릭 링크를 풀어 import.meta.url을 만들므로 realpath로 비교해야 한다 — 아니면 링크 경로로 실행할 때 감사가 조용히 건너뛰어진다.
+const isMain = (() => { try { return import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1])).href; } catch { return false; } })();
+
+if (isMain) {
+  console.log("\n============================================================");
+  console.log("🔒 Summrizei — Chrome Web Store 배포 보안 패키징 파이프라인");
+  console.log(`   모드: ${IS_DRY_RUN ? "🔍 DRY-RUN (검사만 수행)" : "📦 PRODUCTION PACKAGING"}`);
+  console.log(`   테스트 게이트: ${SKIP_TESTS ? "⚠️ 건너뜀 (UNVERIFIED)" : "✅ 필수 실행"}`);
+  console.log("============================================================\n");
+}
 
 // --------------------------------------------------------------------------
 // Step 1: 교차 플랫폼 사전 테스트 게이트 (Cross-Platform Pre-flight Gate)
@@ -63,7 +69,7 @@ function runPreflightTests() {
 // --------------------------------------------------------------------------
 // Step 2: 런타임 의존성 폐쇄 수집 엔진 (Runtime Dependency Closure)
 // --------------------------------------------------------------------------
-function resolveRuntimeClosure() {
+export function resolveRuntimeClosure() {
   console.log("▶ [Step 2/5] 런타임 의존성 폐쇄(Closure) 집합 계산 중...");
   const manifestPath = path.join(ROOT, "manifest.json");
   if (!fs.existsSync(manifestPath)) {
@@ -119,7 +125,7 @@ function resolveRuntimeClosure() {
 
     if (currentRel.endsWith(".html")) {
       const content = fs.readFileSync(currentAbs, "utf8");
-      // <link rel="stylesheet" href="..."> (e.g. landing/product-panel.css)
+      // <link rel="stylesheet" href="..."> (e.g. sidepanel.css)
       const cssMatches = content.matchAll(/<link\s+[^>]*href=["']([^"'#?]+)[^"']*["'][^>]*>/gi);
       for (const match of cssMatches) {
         const href = match[1].trim();
@@ -165,6 +171,14 @@ function resolveRuntimeClosure() {
         if (!rel.startsWith("http")) {
           const resolved = rel.startsWith(".") ? path.join(currentDir, rel).replace(/\\/g, "/") : rel;
           enqueue(resolved);
+        }
+      }
+
+      // importScripts("a.js", "b.js") — 서비스 워커·Worker 가 불러오는 로컬 파일. 빠지면 워커가 시작하지 못한다.
+      for (const call of content.matchAll(/\bimportScripts\s*\(([^)]*)\)/g)) {
+        for (const lit of call[1].matchAll(/["']([^"']+)["']/g)) {
+          const rel = lit[1];
+          if (!/^(?:https?:)?\/\//.test(rel)) enqueue(rel.startsWith(".") ? path.join(currentDir, rel).replace(/\\/g, "/") : rel);
         }
       }
 
@@ -223,7 +237,7 @@ function resolveRuntimeClosure() {
     if (file.startsWith("server/") || file.startsWith("tools/") || file.startsWith("docs/")) {
       continue;
     }
-    if (file.startsWith("landing/") && file !== "landing/product-panel.css") {
+    if (file.startsWith("landing/")) {
       // 마케팅용 랜딩 파일(demo-panel.html, index.html 등) 배제
       continue;
     }
@@ -232,7 +246,7 @@ function resolveRuntimeClosure() {
 
   finalFiles.sort();
   console.log(`✅ [Step 2/5 통과] 런타임 의존성 폐쇄 집합: 총 ${finalFiles.length}개 파일 식별.`);
-  console.log(`   - 필수 런타임 포함 확인: landing/product-panel.css: ${finalFiles.includes("landing/product-panel.css") ? "OK" : "MISSING"}`);
+  console.log(`   - 필수 런타임 포함 확인: sidepanel.css: ${finalFiles.includes("sidepanel.css") ? "OK" : "MISSING"}`);
   console.log(`   - 필수 런타임 포함 확인: offscreen.html: ${finalFiles.includes("offscreen.html") ? "OK" : "MISSING"}`);
   console.log(`   - 필수 런타임 포함 확인: lib/ppocr-runtime.mjs: ${finalFiles.includes("lib/ppocr-runtime.mjs") ? "OK" : "MISSING"}\n`);
 
@@ -240,9 +254,56 @@ function resolveRuntimeClosure() {
 }
 
 // --------------------------------------------------------------------------
+// 미디어 모듈 감사 (docs/architecture-v2.md §20, AGENTS.md §2 "원본 미디어는 메모리에서만")
+// 범위: 우리 코드 lib/media-*.js 와 번들한 미디어 라이브러리 디렉터리. 다른 vendor(transformers4 등)는 모델 가중치 때문에
+// caches/fetch를 정당하게 쓰므로 일부러 제외한다. fetch 규칙은 우리 코드에만 건다 — 번들 라이브러리는 네트워크를 쓰지 않고,
+// 압축된 한 줄 코드에서 호출 인자를 파싱하는 것은 취약하다. 번들 미디어 라이브러리를 추가하면 아래 목록에 넣는다.
+// --------------------------------------------------------------------------
+const MEDIA_VENDOR_DIRS = ["lib/vendor/mux/"];
+// background-job.js 도 세그먼트 바이트를 다루므로 같은 규칙을 건다.
+const isMediaLib = relPath => /^lib\/(?:media-[\w-]+|background-job)\.m?js$/.test(relPath); // *.test.js 는 점 때문에 걸리지 않는다
+const MEDIA_FORBIDDEN = [
+  { name: "Cache Storage(caches.put/open)", re: /\bcaches\s*(?:\.\s*|\[\s*["'`])(?:put|open)\b/ },
+  { name: "OPFS(getDirectory)", re: /\bgetDirectory\b/ },
+  { name: "chrome.downloads", re: /\bchrome\s*\.\s*downloads\b/ },
+  { name: "IndexedDB", re: /\bindexedDB\b/ },
+];
+// 주석 속 언급은 사용이 아니다. 줄 수는 보존한다. (// 앞이 공백이거나 줄 처음일 때만 — "https://" 는 건드리지 않는다)
+const stripComments = src => src.replace(/\/\*[\s\S]*?\*\//g, m => m.replace(/[^\n]/g, " ")).replace(/(^|\s)\/\/.*$/gm, "$1");
+// open 위치의 "(" 에서 짝이 맞는 ")" 까지의 인자 텍스트. 문자열 안 괄호는 무시하고, 닫히지 않으면 null.
+function callArgs(src, open) {
+  let depth = 0, quote = null;
+  for (let i = open; i < src.length; i++) {
+    const c = src[i];
+    if (quote) { if (c === "\\") i++; else if (c === quote) quote = null; continue; }
+    if (c === '"' || c === "'" || c === "`") quote = c;
+    else if (c === "(") depth++;
+    else if (c === ")" && --depth === 0) return src.slice(open + 1, i);
+  }
+  return null;
+}
+export function auditMediaSource(relPath, content, { vendor = false } = {}) {
+  const errors = [];
+  const code = vendor ? content : stripComments(content); // 압축 vendor는 주석 제거 없이 원문 그대로 본다
+  const line = i => code.slice(0, i).split("\n").length;
+  for (const { name, re } of MEDIA_FORBIDDEN) {
+    const m = re.exec(code);
+    if (m) errors.push(`[불변식 위반] ${relPath}:${line(m.index)} - 미디어 모듈에서 ${name} 사용 감지 (원본 미디어는 메모리에서만 다룹니다)`);
+  }
+  if (vendor) return errors;
+  for (const m of code.matchAll(/(?<![\w$])fetch\s*\(/g)) {
+    const args = callArgs(code, m.index + m[0].length - 1);
+    if (args === null || !/\bcache\s*:\s*["']no-store["']/.test(args)) {
+      errors.push(`[불변식 위반] ${relPath}:${line(m.index)} - 미디어 fetch에 cache:"no-store"가 없습니다 (HTTP 캐시에 원본 미디어가 남습니다)`);
+    }
+  }
+  return errors;
+}
+
+// --------------------------------------------------------------------------
 // Step 3: 정적 보안 휴리스틱 및 아키텍처 불변식 감사기 (Security Auditor)
 // --------------------------------------------------------------------------
-function auditSecurityAndInvariants(files) {
+export function auditSecurityAndInvariants(files) {
   console.log("▶ [Step 3/5] 정적 보안 휴리스틱 및 아키텍처 불변식 감사 중...");
   const errors = [];
 
@@ -257,6 +318,16 @@ function auditSecurityAndInvariants(files) {
   ];
 
   for (const relPath of files) {
+    // 개발 전용 파일은 내용과 무관하게 패키지에 들어가면 안 되므로 읽기 전에 차단한다
+    if (/^admin\.(html|js)$/.test(relPath)) {
+      errors.push(`[개발 전용 파일 포함] ${relPath} - 어드민 페이지는 웹스토어 패키지에 들어가면 안 됩니다`);
+      continue;
+    }
+    // 랜딩 마케팅 파일도 예외 없이 전부 차단한다
+    if (relPath.startsWith("landing/")) {
+      errors.push(`[랜딩 파일 포함] ${relPath} - 랜딩 페이지 파일은 웹스토어 패키지에 들어가면 안 됩니다`);
+      continue;
+    }
     const absPath = path.join(ROOT, relPath);
     // 텍스트 파일만 내용 스캔
     if (!/\.(js|mjs|html|css|json|txt|yml|yaml)$/i.test(relPath)) continue;
@@ -313,24 +384,23 @@ function auditSecurityAndInvariants(files) {
         }
       }
     }
+
+    // 4-b. 미디어 모듈 불변식(§20): 캐시·OPFS·다운로드·IndexedDB 금지, fetch는 cache:"no-store" 필수
+    const mediaVendor = MEDIA_VENDOR_DIRS.some(dir => relPath.startsWith(dir));
+    if (isMediaLib(relPath) || mediaVendor) errors.push(...auditMediaSource(relPath, content, { vendor: mediaVendor }));
   }
 
   // 5. sandbox.html 격리 규약 점검 (chrome.* API 접근 부재 및 postMessage origin/스키마 검증)
   if (files.includes("sandbox.html")) {
     const sandboxContent = fs.readFileSync(path.join(ROOT, "sandbox.html"), "utf8");
-    if (/\bchrome\.(runtime|storage|tabs)\b/.test(sandboxContent)) {
+    // 라인 주석 속 언급("chrome.storage 를 못 읽는다" 등)은 API 접근이 아니므로 검사 대상에서 제외
+    const sandboxCode = sandboxContent.split("\n").filter(line => !line.trimStart().startsWith("//")).join("\n");
+    if (/\bchrome\.(runtime|storage|tabs)\b/.test(sandboxCode)) {
       errors.push("[격리 위반] sandbox.html 내부에서 직접 chrome.* 확장 API 접근 감지");
     }
   }
 
-  if (errors.length > 0) {
-    console.error("\n❌ [Step 3/5 실패] 보안 감사에서 다음 위반 사항이 발견되었습니다:");
-    for (const err of errors) console.error(`   - ${err}`);
-    console.error("\n보안 위험으로 인해 패키징을 강제 중단합니다.");
-    process.exit(1);
-  }
-
-  console.log("✅ [Step 3/5 통과] 시크릿 스캔, MV3 정책 및 아키텍처 불변식 정적 감사 완료 (위반 0건).\n");
+  return errors;
 }
 
 // --------------------------------------------------------------------------
@@ -511,7 +581,7 @@ function verifyAndGenerateProvenance(zipBuffer, zipFilePath, fileManifest, versi
   }
 
   // 3. 필수 엔트리포인트 검사
-  const requiredFiles = ["manifest.json", "offscreen.html", "offscreen.js", "landing/product-panel.css"];
+  const requiredFiles = ["manifest.json", "offscreen.html", "offscreen.js", "sidepanel.css"];
   for (const req of requiredFiles) {
     if (!unpackedNames.includes(req)) {
       throw new Error(`무결성 실패: 필수 파일 누락 in ZIP -> ${req}`);
@@ -598,17 +668,26 @@ for (let i = 0; i < 256; i++) {
 // --------------------------------------------------------------------------
 // 파이프라인 진입점 (Main)
 // --------------------------------------------------------------------------
-try {
-  const testStatus = runPreflightTests();
-  const { manifest, files } = resolveRuntimeClosure();
-  auditSecurityAndInvariants(files);
-  const { zipBuffer, zipFilePath, fileManifest } = buildZipArchive(files, manifest.version);
-  verifyAndGenerateProvenance(zipBuffer, zipFilePath, fileManifest, manifest.version, testStatus);
+if (isMain) {
+  try {
+    const testStatus = runPreflightTests();
+    const { manifest, files } = resolveRuntimeClosure();
+    const auditErrors = auditSecurityAndInvariants(files);
+    if (auditErrors.length > 0) {
+      console.error("\n❌ [Step 3/5 실패] 보안 감사에서 다음 위반 사항이 발견되었습니다:");
+      for (const err of auditErrors) console.error(`   - ${err}`);
+      console.error("\n보안 위험으로 인해 패키징을 강제 중단합니다.");
+      process.exit(1);
+    }
+    console.log("✅ [Step 3/5 통과] 시크릿 스캔, MV3 정책 및 아키텍처 불변식 정적 감사 완료 (위반 0건).\n");
+    const { zipBuffer, zipFilePath, fileManifest } = buildZipArchive(files, manifest.version);
+    verifyAndGenerateProvenance(zipBuffer, zipFilePath, fileManifest, manifest.version, testStatus);
 
-  console.log("🎉 [완료] Chrome Web Store 제출 준비가 완벽하게 완료되었습니다!");
-  console.log(`   제출용 파일: ${zipFilePath}`);
-  console.log("============================================================\n");
-} catch (err) {
-  console.error(`\n❌ [오류 발생]: ${err.message}`);
-  process.exit(1);
+    console.log("🎉 [완료] Chrome Web Store 제출 준비가 완벽하게 완료되었습니다!");
+    console.log(`   제출용 파일: ${zipFilePath}`);
+    console.log("============================================================\n");
+  } catch (err) {
+    console.error(`\n❌ [오류 발생]: ${err.message}`);
+    process.exit(1);
+  }
 }
