@@ -1,6 +1,6 @@
 # 노트 계약 v2 (`lecture-note-2`): 노트 양식 v3를 파이프라인 v2에 연결
 
-작성 2026-10-02, 2026-10-03에 `lecture-note-2`로 갱신 · 브랜치 `w/dev` (기준 HEAD `7213f6b`) · 실행 계약: `lib/note-contract.js` · 합성 fixture: `tools/note-fixture/`
+작성 2026-10-02, 2026-10-03에 `lecture-note-2`로 갱신 · 브랜치 `w/dev` (기준 HEAD `fcc2f79`) · 실행 계약: `lib/note-contract.js` · 합성 fixture: `tools/note-fixture/`
 
 이 문서는 `docs/note-format-study-2026-10-02/`의 노트 양식 v3(내용 구조와 시안)를 파이프라인 v2의 Note 스펙으로 바꾼 **실행 가능한 계약**이다. 계약의 원본은 `lib/note-contract.js`이며 이 문서와 어긋나면 코드와 테스트를 기준으로 고친다. 디자인 시안은 실제 강의 검증이나 브라우저 검증을 마친 결과물이 아니다. 이 계약도 합성 fixture로만 검증했다.
 
@@ -555,23 +555,23 @@ Block = { id: blockId, type, sectionId: sectionId?, status, importance, emphasis
 
 검증 결과는 §19에 적는다.
 
-## 17. Phase 6/7 구현 단위 — 전부 완료 (2026-10-03, `w/dev` `7213f6b`)
+## 17. Phase 6/7 구현 단위 — 전부 완료 (2026-10-03, `w/dev` `fcc2f79`)
 
 | # | 단위 | 완료 커밋 | 비고 |
 |---|---|---|---|
 | 6-1 | 근거 인덱스 | `2841ad5` | §5 |
-| 6-2 | 슬롯 교체 | `938ccc2`, `108df9e` | `lecture-note-2` 계약 + 요청별 section·repair 스키마 + `server/prompts.js` v2. 옛 `lib/note-spec.js`의 계획·출력 스키마 내보내기는 삭제됐다 |
-| 6-3 | 단계 연결 | `ff85fef`, `1156501`, `673d176` | `lib/stages.js`: 계획 정규화 → 근거 전송 → blockId repair 1회 → 조립. 잘림은 §12.4 |
-| 6-4 | 전역 Writer 입력 | `ff85fef`, `673d176` | 살아남은 블록을 주장 텍스트+참조로 줄여 보냄(`globalSections`) |
-| 6-5 | T5 주장 단위 근거 지지 | `ff85fef`, `673d176` | `basis:"lecture"`만 `/v1/judge` `support`로. 낮은 지지 → 블록 `null` + `NOTE_CLAIMS_UNSUPPORTED` |
-| 6-6 | 도표 레지스트리·크롭 | `e8603c7`, `c0d1c84`, `393e0e0` | `lib/figures.js`(dHash 병합·G#·`display`), SlideDoc `chartData`. `393e0e0`은 저장소 id 규칙에 어긋난 크롭 키 수정 |
-| 6-7 | 프롬프트 v2 | `938ccc2`, `108df9e` | `PROMPT_VERSION = "note-v2"` |
-| 6-8 | 생성 옵션(유료) | `938ccc2`, `108df9e`, `568e31f` | 요청 `options`, 서버 `augment` 기능 검사, `restrictBasis`, 렌더 라벨, `note.html`의 "다시 만들기" UI. 외부 사실의 출처 표기는 라벨("강의 밖 보강 — 확인 필요")로 정했다 |
-| 7-1 | B 템플릿·문서 순서 | `7d73b47`, `fc359be`, `023ddaf` | `NoteSpec.templates`·`layout`·`css`, `render-4` |
-| 7-2 | 수식·도표 표시 | `7d73b47`, `023ddaf` | `displayOf` 준수, 간단한 표·그래프 HTML(음수 막대 포함), "확인 필요" |
-| 7-3 | 답안·필기란 옵션 | `7d73b47`, `1991e99` | 웹 `<details>`, 인쇄 끝 `a-N`/`q-N` 앵커, 시험 쪽 넘김, B16 |
-| 7-4 | 인쇄·내보내기 | `58462be`, `1991e99`, `c64a563`, `8f23608`, `7213f6b` | `PRINT_NOTE`(fonts·img.decode 뒤 인쇄, `afterprint` 복원), `lib/note-export.js` Markdown |
-| 7-5 | 렌더 QA | `80b8009` | `tools/note-render-smoke.cjs`: 패키지 클로저를 localhost에 서빙해 fixture 노트 1280·400px 렌더 + A4 PDF를 CDP로 확인. Playwright·언팩 확장 없이 돌린다 — `chrome-extension://` 경계는 미검증(`docs/v2-remaining-work.md` §3) |
+| 6-2 | 슬롯 교체 | `fc991ad`, `fc991ad` | `lecture-note-2` 계약 + 요청별 section·repair 스키마 + `server/prompts.js` v2. 옛 `lib/note-spec.js`의 계획·출력 스키마 내보내기는 삭제됐다 |
+| 6-3 | 단계 연결 | `b88343f`, `b88343f`, `b88343f` | `lib/stages.js`: 계획 정규화 → 근거 전송 → blockId repair 1회 → 조립. 잘림은 §12.4 |
+| 6-4 | 전역 Writer 입력 | `b88343f`, `b88343f` | 살아남은 블록을 주장 텍스트+참조로 줄여 보냄(`globalSections`) |
+| 6-5 | T5 주장 단위 근거 지지 | `b88343f`, `b88343f` | `basis:"lecture"`만 `/v1/judge` `support`로. 낮은 지지 → 블록 `null` + `NOTE_CLAIMS_UNSUPPORTED` |
+| 6-6 | 도표 레지스트리·크롭 | `6ee674f`, `d6c60ed`, `7caadd5` | `lib/figures.js`(dHash 병합·G#·`display`), SlideDoc `chartData`. `7caadd5`은 저장소 id 규칙에 어긋난 크롭 키 수정 |
+| 6-7 | 프롬프트 v2 | `fc991ad`, `fc991ad` | `PROMPT_VERSION = "note-v2"` |
+| 6-8 | 생성 옵션(유료) | `fc991ad`, `fc991ad`, `56a913c` | 요청 `options`, 서버 `augment` 기능 검사, `restrictBasis`, 렌더 라벨, `note.html`의 "다시 만들기" UI. 외부 사실의 출처 표기는 라벨("강의 밖 보강 — 확인 필요")로 정했다 |
+| 7-1 | B 템플릿·문서 순서 | `e6a9382`, `98039a2`, `d4fbee1` | `NoteSpec.templates`·`layout`·`css`, `render-4` |
+| 7-2 | 수식·도표 표시 | `e6a9382`, `d4fbee1` | `displayOf` 준수, 간단한 표·그래프 HTML(음수 막대 포함), "확인 필요" |
+| 7-3 | 답안·필기란 옵션 | `e6a9382`, `0e7823b` | 웹 `<details>`, 인쇄 끝 `a-N`/`q-N` 앵커, 시험 쪽 넘김, B16 |
+| 7-4 | 인쇄·내보내기 | `f7a236e`, `0e7823b`, `69bd788`, `4cf96d7`, `fcc2f79` | `PRINT_NOTE`(fonts·img.decode 뒤 인쇄, `afterprint` 복원), `lib/note-export.js` Markdown |
+| 7-5 | 렌더 QA | `84f36d3` | `tools/note-render-smoke.cjs`: 패키지 클로저를 localhost에 서빙해 fixture 노트 1280·400px 렌더 + A4 PDF를 CDP로 확인. Playwright·언팩 확장 없이 돌린다 — `chrome-extension://` 경계는 미검증(`docs/v2-remaining-work.md` §3) |
 
 ## 18. 결정 (2026-10-03, 사용자)
 

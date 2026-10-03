@@ -1,6 +1,6 @@
 # v2 남은 작업과 테스트 준비
 
-확인 기준: `w/dev`, 2026-10-03 두 번째 묶음까지(HEAD `7213f6b`). 코드가 바뀌면 다시 대조한다.
+확인 기준: `w/dev`, 2026-10-03 두 번째 묶음까지(HEAD `fcc2f79`). 코드가 바뀌면 다시 대조한다.
 
 - 확정된 결정은 여기 두지 않는다. 노트는 `docs/note-contract.md` §18, 정책·출시는 `docs/policy-drafts-v2.md` §0, 설계는 `docs/architecture-v2.md` §3(D16~D18)과 §22에 있다.
 - 구현 범위는 `README.md` "구현 현황"이 기준이다.
@@ -51,19 +51,19 @@
 - P1: 요약 동의 없이는 백그라운드를 시작하지 않음(인식 결과 보기 화면이 없어서). 완료 고지를 한국어와 시각 구간으로 표시. 일시정지 사유별 버튼. DRM(EME 계열)은 실시간 모드를 권하지 않음(`SRC_DRM`).
 - 판정 기능 스위치: 서버가 `judge`를 끄면 유료 작업이 판정 없이 진행(`NOTE_JUDGE_SKIPPED`).
 
-### 두 번째 묶음 (같은 날, `7213f6b`)
+### 두 번째 묶음 (같은 날, `fcc2f79`)
 
-- **노트 계약 `lecture-note-2`**(`938ccc2`, `108df9e`): 요청별 생성 옵션 `options:{syntheticExamples, externalAugmentation}`(기본 꺼짐·유료 전용). 서버는 계정 기능 `augment`로 막고(`feature_not_in_account_plan`), 켠 항목의 basis(`synthetic`·`external`)만 출력 스키마와 코드 검사가 허용한다(`lib/note-contract.js` §6).
-- **파이프라인 단계 재작성**(`ff85fef`, `1156501`, `673d176`): `lib/stages.js`가 계획 정규화 → 섹션별 근거 전송 → blockId repair 1회 → 주장 단위 T5 지지(낮으면 블록 보류 + `NOTE_CLAIMS_UNSUPPORTED`) → 전역 입력 요약(6-4) → 조립까지 돌린다. 도표 레지스트리·크롭은 `lib/figures.js`와 캡처 쪽 크롭 저장이 맡는다(`e8603c7`, `c0d1c84`, `393e0e0` — `~` 구분자가 저장소 id 규칙에 안 맞아 크롭 블롭 쓰기·읽기가 둘 다 실패하던 것을 고침).
+- **노트 계약 `lecture-note-2`**(`fc991ad`, `fc991ad`): 요청별 생성 옵션 `options:{syntheticExamples, externalAugmentation}`(기본 꺼짐·유료 전용). 서버는 계정 기능 `augment`로 막고(`feature_not_in_account_plan`), 켠 항목의 basis(`synthetic`·`external`)만 출력 스키마와 코드 검사가 허용한다(`lib/note-contract.js` §6).
+- **파이프라인 단계 재작성**(`b88343f`, `b88343f`, `b88343f`): `lib/stages.js`가 계획 정규화 → 섹션별 근거 전송 → blockId repair 1회 → 주장 단위 T5 지지(낮으면 블록 보류 + `NOTE_CLAIMS_UNSUPPORTED`) → 전역 입력 요약(6-4) → 조립까지 돌린다. 도표 레지스트리·크롭은 `lib/figures.js`와 캡처 쪽 크롭 저장이 맡는다(`6ee674f`, `d6c60ed`, `7caadd5` — `~` 구분자가 저장소 id 규칙에 안 맞아 크롭 블롭 쓰기·읽기가 둘 다 실패하던 것을 고침).
 - **Free 월 분 한도를 `/v1/plan`에서 센다**: 로컬 인식만 쓰는 계정은 STT에 안 걸려 한도가 항상 0분이던 구멍을 메웠다(유닛 시각 범위를 올림한 분).
-- **노트 렌더**(`7d73b47`, `fc359be`, `023ddaf`): `lib/note-spec.js`(`render-4` 템플릿·문서 순서·css)와 `lib/note-render.js`(결정적 HTML + 경고 집계), `lib/note-export.js`(Markdown, `58462be`), `lib/library.js` 암호화 보관함(`4f5394d`). 노트는 항상 밝은 종이 토큰으로 그리고 인쇄는 A4만 낸다.
-- **보관함·노트 화면**(`1991e99`, `568e31f`, `7213f6b`): `library.html` 목록과 `note.html` 뷰어가 기기 암호화 저장소를 직접 읽는다. Markdown 내보내기, PDF(`PRINT_NOTE` → 인쇄 매체 렌더 → 인쇄), 시험 모드·답안 위치·필기 공간 옵션, 유료 노트의 생성 옵션 "다시 만들기", 인식만 끝난 패키지의 "노트 만들기"(요약 동의 필요 안내 포함).
-- **사이드 패널 v2**(`c64a563`): 노트·인식 결과 렌더를 `sandbox.html`에 위임(`RENDER_NOTE`·`PRINT_NOTE`·`RENDER_RECOGNITION`). `product-panel.css`는 나누지 않았다 — 샌드박스가 안 읽고 `NoteSpec.css`를 쓴다. 인식 결과는 화면에만 보이고 Markdown·PDF로 내보내지 않는다. 외부 요약 동의 없는 백그라운드는 막지 않고 인식만 돌려 `recognition-only`로 저장한다(`CONSENT_SUMMARY_REQUIRED` 고지).
-- **v1 BYOK 경로 제거**(`849e57d`, `68d9b32`): OpenRouter 키 입력란, `openrouter.ai` 호스트 권한, `lib/summary.js`, `lib/openrouter-client.js`, 서버 `/v1/summary` 라우트. 남은 경로는 `/v1/plan`·`/v1/write`뿐이다.
-- **전역 공급자 동시성**(`d5b01de`): `provider_slots` 표 + `acquire_provider_slot`/`release_provider_slot` RPC로 Edge 워커 수와 무관하게 모델별 공급자 상한을 공유한다. 워커가 죽어도 슬롯은 TTL(요청 타임아웃+30초)로 회수된다.
-- **Groble 결제 웹훅**(`ffba000`, `c0d1c84`): `billing-webhook` 함수가 HMAC 서명을 확인하고 `apply_billing_event`가 `billing_events` 멱등 원장을 거쳐 `entitlements`에 반영한다. 학생가 자격은 `edu_eligible` RPC(확인된 로그인 메일이 `.ac.kr`·`.edu`).
-- **어드민 작업·산출물 탭**(`9e7f908`), **정책 문서 v2 반영**(`b16d4b8`, 랜딩 게시 페이지 시행 2026.10.11·공고 10.03).
-- **브라우저 렌더 스모크**(`80b8009`, `8f23608`): `tools/note-render-smoke.cjs`가 패키지 클로저를 `http://localhost`에 서빙하고 CDP로 fixture 노트 렌더·1280/400px·A4 PDF를 확인한다.
+- **노트 렌더**(`e6a9382`, `98039a2`, `d4fbee1`): `lib/note-spec.js`(`render-4` 템플릿·문서 순서·css)와 `lib/note-render.js`(결정적 HTML + 경고 집계), `lib/note-export.js`(Markdown, `f7a236e`), `lib/library.js` 암호화 보관함(`a23047d`). 노트는 항상 밝은 종이 토큰으로 그리고 인쇄는 A4만 낸다.
+- **보관함·노트 화면**(`0e7823b`, `56a913c`, `fcc2f79`): `library.html` 목록과 `note.html` 뷰어가 기기 암호화 저장소를 직접 읽는다. Markdown 내보내기, PDF(`PRINT_NOTE` → 인쇄 매체 렌더 → 인쇄), 시험 모드·답안 위치·필기 공간 옵션, 유료 노트의 생성 옵션 "다시 만들기", 인식만 끝난 패키지의 "노트 만들기"(요약 동의 필요 안내 포함).
+- **사이드 패널 v2**(`69bd788`): 노트·인식 결과 렌더를 `sandbox.html`에 위임(`RENDER_NOTE`·`PRINT_NOTE`·`RENDER_RECOGNITION`). `product-panel.css`는 나누지 않았다 — 샌드박스가 안 읽고 `NoteSpec.css`를 쓴다. 인식 결과는 화면에만 보이고 Markdown·PDF로 내보내지 않는다. 외부 요약 동의 없는 백그라운드는 막지 않고 인식만 돌려 `recognition-only`로 저장한다(`CONSENT_SUMMARY_REQUIRED` 고지).
+- **v1 BYOK 경로 제거**(`27f7382`, `03acc4b`): OpenRouter 키 입력란, `openrouter.ai` 호스트 권한, `lib/summary.js`, `lib/openrouter-client.js`, 서버 `/v1/summary` 라우트. 남은 경로는 `/v1/plan`·`/v1/write`뿐이다.
+- **전역 공급자 동시성**(`a94d0b2`): `provider_slots` 표 + `acquire_provider_slot`/`release_provider_slot` RPC로 Edge 워커 수와 무관하게 모델별 공급자 상한을 공유한다. 워커가 죽어도 슬롯은 TTL(요청 타임아웃+30초)로 회수된다.
+- **Groble 결제 웹훅**(`5fd753e`, `d6c60ed`): `billing-webhook` 함수가 HMAC 서명을 확인하고 `apply_billing_event`가 `billing_events` 멱등 원장을 거쳐 `entitlements`에 반영한다. 학생가 자격은 `edu_eligible` RPC(확인된 로그인 메일이 `.ac.kr`·`.edu`).
+- **어드민 작업·산출물 탭**(`ef248f3`), **정책 문서 v2 반영**(`a998b87`, 랜딩 게시 페이지 시행 2026.10.11·공고 10.03).
+- **브라우저 렌더 스모크**(`84f36d3`, `4cf96d7`): `tools/note-render-smoke.cjs`가 패키지 클로저를 `http://localhost`에 서빙하고 CDP로 fixture 노트 렌더·1280/400px·A4 PDF를 확인한다.
 
 ## 3. 아직 구현하지 않은 것
 
@@ -86,7 +86,6 @@
 8. **PR #14 병합 시점**: 병합하면 랜딩 가격(24,000원·14,000원)과 탈퇴 방식이 바로 바뀐다. 함수 배포와 DB 적용 뒤에 병합한다.
 9. **`AGENTS.md`의 미커밋 변경**(Devin·aside 사용, 저렴한 모델 서브에이전트 지시): 메인 체크아웃에 아직 미커밋으로 있다. 커밋할지.
 10. **학생가 인증 수준**: 도메인 확인만으로 충분한지, 학교 이메일 인증·재학 증빙 같은 절차를 둘지.
-11. **`wip(...)` 커밋 정리**: `wip(note)`·`wip(stages)`·`wip(v2)`가 히스토리에 남아 있다. push 전에 정리(`git reset --soft`로 다시 묶기)할지.
 
 ## 5. 오늘 코드가 반영한 결정 (사용자가 뒤집을 수 있는 것)
 
