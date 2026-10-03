@@ -16,6 +16,13 @@ async function hmac(secret,msg){
   return hex(await crypto.subtle.sign("HMAC",k,new TextEncoder().encode(msg)));
 }
 
+// 결제 금액·쿠폰: 모양이 어긋난 값은 버린다(원장 체크에 걸려 503·재시도가 되지 않게).
+const won=v=>Number.isSafeInteger(v)&&v>=0?v:null;
+const pricing=o=>{
+  const p=o.pricing||{},code=p.coupon?.code;
+  return {p_amount:won(p.finalAmount),p_coupon:typeof code==="string"&&code.length>0&&code.length<=64?code:null,p_coupon_discount:won(p.couponDiscountAmount)};
+};
+
 export async function handle(req,env,fetchImpl=fetch){
   if(req.method!=="POST")return fail(405,"method_not_allowed");
   env=env||{};
@@ -82,7 +89,7 @@ export async function handle(req,env,fetchImpl=fetch){
     else if(type==="subscription.terminated")p_ends=o.termination?.terminatedAt||new Date(now).toISOString();
     else if(type==="subscription_payment.refunded")p_ends=new Date(now).toISOString();
     const rpc=await fetchImpl(url+"/rest/v1/rpc/apply_billing_event",{method:"POST",headers:json,body:JSON.stringify({
-      p_event_id:eventId,p_type:type,p_user:user,p_plan:plan?plan.plan:null,p_edu:plan?!!plan.edu:null,p_external_id:ext,p_starts,p_ends,p_merchant:merchant})});
+      p_event_id:eventId,p_type:type,p_user:user,p_plan:plan?plan.plan:null,p_edu:plan?!!plan.edu:null,p_external_id:ext,p_starts,p_ends,p_merchant:merchant,...pricing(o)})});
     if(!rpc.ok)return fail(503,"apply_failed"); // Groble이 재시도하게 503
     const result=await rpc.json().catch(()=>null);
     return ok(result==="unknown_user"?{ignored:"unknown_user"}:{result}); // 지워진 계정은 재시도해도 안 풀리니 승인한다

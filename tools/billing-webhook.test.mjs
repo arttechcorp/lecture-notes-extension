@@ -272,3 +272,12 @@ test("완료: 결제번호를 함께 남기고, 결제번호로 못 찾으면 �
   assert.deepEqual(calls.map(c => c[1].replace(URL0, "").split("?")[0]), ["/rest/v1/billing_events", "/auth/v1/admin/users", "/rest/v1/rpc/apply_billing_event"]);
   assert.equal(calls[2][2].p_user, UID);
 });
+
+test("결제 금액·쿠폰을 RPC에 넘기고, 모양이 어긋난 값은 null", async () => {
+  let { fetch, calls } = fakeFetch();
+  await handle(post(ev("subscription_payment.completed", OBJ({ pricing: { currency: "KRW", originalAmount: 24000, finalAmount: 2400, couponDiscountAmount: 21600, coupon: { code: "a0nw8a", name: "테스트2" } } }))), ENV, fetch);
+  assert.deepEqual([calls[0][2].p_amount, calls[0][2].p_coupon, calls[0][2].p_coupon_discount], [2400, "a0nw8a", 21600]);
+  ({ fetch, calls } = fakeFetch());
+  await handle(post(ev("subscription_payment.completed", OBJ({ pricing: { finalAmount: -1, couponDiscountAmount: "5", coupon: { code: "" } } }))), ENV, fetch);
+  assert.deepEqual([calls[0][2].p_amount, calls[0][2].p_coupon, calls[0][2].p_coupon_discount], [null, null, null]);
+});

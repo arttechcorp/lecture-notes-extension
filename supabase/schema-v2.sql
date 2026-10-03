@@ -779,14 +779,20 @@ alter table billing_events enable row level security;
 grant select, insert on billing_events to service_role;
 -- 결제번호(merchantUid). 환불 이벤트에는 sellerReference 가 없어서, 완료 때 남긴 번호로 계정을 되찾는다.
 alter table billing_events add column if not exists merchant_uid text check (char_length(merchant_uid) between 1 and 128);
+-- 결제 금액(원, pricing.finalAmount)과 쿠폰(code·할인액). 결제 이벤트에만 있고 해지·환불 이벤트는 비어 있다.
+alter table billing_events add column if not exists amount_krw integer check (amount_krw >= 0);
+alter table billing_events add column if not exists coupon_code text check (char_length(coupon_code) between 1 and 64);
+alter table billing_events add column if not exists coupon_discount_krw integer check (coupon_discount_krw >= 0);
 create index if not exists billing_events_merchant_idx on billing_events (merchant_uid) where merchant_uid is not null;
 
 -- 구독 이벤트 하나를 entitlements 에 반영한다. 같은 이벤트 id 는 한 번만 적용한다('duplicate').
 -- 결제 완료: (payment, external_id) 줄을 만들거나 기간을 늘린다. 해지 요청: ends_at 까지 쓰고 끝나도록 표시. 해지 완료·환불: 기간을 닫는다.
 drop function if exists apply_billing_event(text, text, uuid, text, boolean, text, timestamptz, timestamptz);
+drop function if exists apply_billing_event(text, text, uuid, text, boolean, text, timestamptz, timestamptz, text);
 create or replace function apply_billing_event(
   p_event_id text, p_type text, p_user uuid, p_plan text, p_edu boolean,
-  p_external_id text, p_starts timestamptz, p_ends timestamptz, p_merchant text default null
+  p_external_id text, p_starts timestamptz, p_ends timestamptz, p_merchant text default null,
+  p_amount integer default null, p_coupon text default null, p_coupon_discount integer default null
 ) returns text
 language plpgsql security definer set search_path = public as $$
 begin
@@ -797,7 +803,8 @@ begin
   if p_user is not null and not exists (select 1 from auth.users u where u.id = p_user) then
     return 'unknown_user';
   end if;
-  insert into billing_events (id, type, user_id, merchant_uid) values (p_event_id, p_type, p_user, p_merchant) on conflict (id) do nothing;
+  insert into billing_events (id, type, user_id, merchant_uid, amount_krw, coupon_code, coupon_discount_krw)
+    values (p_event_id, p_type, p_user, p_merchant, p_amount, p_coupon, p_coupon_discount) on conflict (id) do nothing;
   if not found then return 'duplicate'; end if;
   if p_type = 'subscription_payment.completed' then
     if p_user is null or p_plan is null or p_ends is null then raise exception 'invalid_billing_event' using errcode = '22023'; end if;
@@ -823,8 +830,8 @@ language sql stable security definer set search_path = public, auth as $$
   select coalesce((select u.email_confirmed_at is not null and lower(split_part(u.email, '@', 2)) ~ '(\.ac\.kr|\.edu)$'
                      from auth.users u where u.id = auth.uid()), false)
 $$;
-revoke all on function apply_billing_event(text, text, uuid, text, boolean, text, timestamptz, timestamptz, text) from public, anon, authenticated;
-grant execute on function apply_billing_event(text, text, uuid, text, boolean, text, timestamptz, timestamptz, text) to service_role;
+revoke all on function apply_billing_event(text, text, uuid, text, boolean, text, timestamptz, timestamptz, text, integer, text, integer) from public, anon, authenticated;
+grant execute on function apply_billing_event(text, text, uuid, text, boolean, text, timestamptz, timestamptz, text, integer, text, integer) to service_role;
 revoke all on function edu_eligible() from public, anon;
 grant execute on function edu_eligible() to authenticated;
 
@@ -849,7 +856,7 @@ begin
     'reserve_usage(uuid, text, text, bigint, date, int)'::regprocedure,
     'settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text)'::regprocedure,
     'delete_account_data(uuid)'::regprocedure,
-    'apply_billing_event(text, text, uuid, text, boolean, text, timestamptz, timestamptz, text)'::regprocedure,
+    'apply_billing_event(text, text, uuid, text, boolean, text, timestamptz, timestamptz, text, integer, text, integer)'::regprocedure,
     'acquire_provider_slot(text, int, int)'::regprocedure,
     'release_provider_slot(uuid)'::regprocedure
   ] loop
