@@ -40,7 +40,7 @@ const PKG_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 async function bgDone({ jobId, status, code, reason, suggest, message, stats, notices, packageId }) {
   chrome.power.releaseKeepAwake();
   await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [BG_RULE] }).catch(() => {});
-  chrome.runtime.sendMessage({ target: "panel", type: "BG_DONE", jobId, status, code, reason, suggest, message, stats, notices, packageId: PKG_ID.test(packageId || "") ? packageId : null }).catch(() => {});
+  chrome.runtime.sendMessage({ target: "panel", type: "BG_DONE", jobId, status, code, reason, suggest, message, stats, notices, packageId: typeof packageId === "string" && PKG_ID.test(packageId) ? packageId : null }).catch(() => {});
   return { ok: true };
 }
 const captureError = error => {
@@ -131,7 +131,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     if (message.type === "LIB_REGENERATE") {
       // 모양만 검사해 넘긴다 — 동의·요금제 판정은 offscreen이 한다. 노트를 다시 만드는 몇 분 동안 절전 방지를 든다.
       const o = message.options, opts = o && typeof o === "object" && !Array.isArray(o) && Object.keys(o).length === 2 && typeof o.syntheticExamples === "boolean" && typeof o.externalAugmentation === "boolean";
-      if (!PKG_ID.test(message.packageId || "") || !opts) return { ok: false, error: "다시 만들기 요청이 올바르지 않습니다." };
+      if (typeof message.packageId !== "string" || !PKG_ID.test(message.packageId) || !opts) return { ok: false, error: "다시 만들기 요청이 올바르지 않습니다." };
       chrome.power.requestKeepAwake("system");
       const reply = await ensureOffscreen().then(async () => chrome.runtime.sendMessage({ target: "session", type: "LIB_REGENERATE", packageId: message.packageId, options: { syntheticExamples: o.syntheticExamples, externalAugmentation: o.externalAugmentation }, settings: await bgSettings() })).catch(error => ({ ok: false, error: error.message }));
       if (!reply?.busy) chrome.power.releaseKeepAwake(); // busy면 진행 중인 작업(또는 다른 재생성)의 절전 방지가 남아 있어 놓지 않는다

@@ -45,16 +45,20 @@
 
     // 렌더러 반환 HTML은 모델 문자열이 이미 이스케이프된 것이라 innerHTML로 둔다.
     // 인식 결과는 계약 밖의 문자열이라 innerHTML로 넣지 않는다 — textContent만.
+    let lastWeb = null; // 인쇄용으로 덮어쓴 뒤 되돌릴 마지막 웹 렌더
     function renderNote(note, crops, options) {
+      lastWeb = { note, crops, options };
       const { html, warnings } = NoteRender.renderNote(note, { katex, crops: crops || {}, options: { ...(options || {}), medium: 'web' } });
       content.innerHTML = html;
       notifyParentHeight();
       requestAnimationFrame(notifyParentHeight);
       window.parent.postMessage({ type: 'RENDER_WARNINGS', warnings }, '*');
     }
+    const restoreWeb = () => { if (lastWeb) renderNote(lastWeb.note, lastWeb.crops, lastWeb.options); };
 
     const fmt = s => { s = Math.max(0, Math.floor(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
     function renderRecognition(recognition) {
+      lastWeb = null; // 지금 보이는 건 노트가 아니다 — 인쇄 뒤에 엉뚱한 노트를 되살리지 않게
       content.textContent = '';
       const note = document.createElement('p');
       note.className = 'recog-note';
@@ -98,6 +102,7 @@
         window.print();
       } catch (err) {
         window.parent.postMessage({ type: 'PRINT_ERROR', error: String(err && err.message ? err.message : err) }, '*');
+        restoreWeb(); // 인쇄 마크업이 화면에 남지 않게
       }
     }
 
@@ -110,6 +115,7 @@
     });
 
     window.addEventListener('afterprint', () => {
+      restoreWeb(); // 인쇄 마크업이 화면에 남지 않게
       window.parent.postMessage({ type: 'PRINT_COMPLETE' }, '*');
     });
 
