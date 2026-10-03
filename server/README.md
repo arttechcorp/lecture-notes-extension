@@ -141,7 +141,7 @@ supabase functions deploy delete-account --use-api
 
 **등급·기능**: JWT 계정은 `effective_plan(user)`가 돌려준 등급 이름을 `PLAN_FEATURES_JSON`(기본값 포함)으로 옮겨 모델·기능을 정한다. 모르는 등급과 `null`은 `free`로 닫힌다. 장부를 쓰는 POST 라우트는 사용자별로 30초 캐시한 등급을 쓰고 `GET /v1/me`는 항상 새로 읽는다. 한도 자체는 매 예약마다 DB가 판정하므로 캐시가 한도를 늦추지 않는다. `FEATURE_FLAGS_JSON`은 등급과 무관하게 계속 우선한다.
 
-**`GET /v1/me`**: 모든 계정이 `{accountId, models, features, config, quota, noteSpecVersion, promptVersion}`을 받는다. `noteSpecVersion`·`promptVersion`은 `/v1/plan`·`/v1/write` 응답과 같은 값(`lib/note-spec.js`, `server/prompts.js`의 `PROMPT_VERSION`)이라 클라이언트가 호출 전에 맞는지 본다(`config.promptVersion`은 비전·판정용 원격 설정으로 별개다). JWT 계정은 `accountId`가 `sub`이고 `plan`이 더해지며 `quota`는 DB 값이다: `{month, requests, maxRequests, minutes, maxMinutes, spentCents, maxCents}`(상한이 `null`이면 무제한, 등급 줄이 없으면 `maxCents` 0). 정적 계정의 `quota`는 기존 모양이다. 첫 `/v1/me`에서 `profiles` 줄을 `on_conflict=user_id` + `resolution=ignore-duplicates`로 한 번 만든다(이미 있는 등급은 건드리지 않고, 실패해도 `/v1/me`는 막지 않으며 다음 호출이 다시 시도한다).
+**`GET /v1/me`**: 모든 계정이 `{accountId, models, features, config, quota, noteSpecVersion, promptVersion}`을 받는다. `noteSpecVersion`·`promptVersion`은 `/v1/plan`·`/v1/write` 응답과 같은 값(`lib/note-contract.js`의 `NOTE_SPEC_VERSION`, `server/prompts.js`의 `PROMPT_VERSION`)이라 클라이언트가 호출 전에 맞는지 본다(`config.promptVersion`은 비전·판정용 원격 설정으로 별개다). JWT 계정은 `accountId`가 `sub`이고 `plan`이 더해지며 `quota`는 DB 값이다: `{month, requests, maxRequests, minutes, maxMinutes, spentCents, maxCents}`(상한이 `null`이면 무제한, 등급 줄이 없으면 `maxCents` 0). 정적 계정의 `quota`는 기존 모양이다. 첫 `/v1/me`에서 `profiles` 줄을 `on_conflict=user_id` + `resolution=ignore-duplicates`로 한 번 만든다(이미 있는 등급은 건드리지 않고, 실패해도 `/v1/me`는 막지 않으며 다음 호출이 다시 시도한다).
 
 **보관함(`/v1/vault`)**: 요청·응답 모양, 검증(`lib/vault.js`), 상태 코드, 오류 코드, 한도(항목 100개, 200 MiB)는 계정 종류와 무관하게 같고 저장소만 다르다.
 
@@ -217,10 +217,10 @@ supabase functions deploy delete-account --use-api
 
 - `plan`: `{model, requestId, noteSpecVersion, ir:{units:[Unit]}, formulas:[{id:"F12", status}]}` → `{plan, usage, promptVersion, schemaVersion, noteSpecVersion}`. 유닛은 `Contracts.SCHEMAS.unit`으로 검증한다.
 - `write`: `{model, requestId, noteSpecVersion, stage, …}` → `{blocks, usage, promptVersion, schemaVersion, noteSpecVersion}`. `stage`별 추가 필드는 `section`: `{section, units, registry:[{id, latex|null, status}]}`, `global`: `{sections:[{sectionId, title, blocks}]}`, `repair`: `{section, units, registry, repair:[{index, block, errors:[{code, detail}]}]}`다. `repair`는 정확히 `repair.length`개의 블록을 같은 순서로 돌려준다.
-- 노트 양식(블록 종류, 스키마, 한도, 프롬프트 형식 규칙)은 `lib/note-spec.js` 한 곳에서만 온다. 지금은 자리표시자(`NOTE_SPEC_VERSION="placeholder-0"`)이고, 양식 설계 산출물이 이 파일을 대체해도 라우트는 바뀌지 않는다. 버전이 다른 요청은 모양 검사 전에 `409 note_spec_mismatch`다. 프롬프트·요청/출력 스키마·생성 파라미터는 `server/prompts.js`(`PROMPT_VERSION`)가 관리한다.
+- 노트 양식(블록 종류, 스키마, 요청/출력 계약)은 `lib/note-contract.js`에서, 프롬프트 형식 규칙·한도·생성 파라미터는 `server/prompts.js`(`PROMPT_VERSION`)에서 온다. 버전이 다른 요청은 모양 검사 전에 `409 note_spec_mismatch`다. 프롬프트·요청/출력 스키마·생성 파라미터는 `server/prompts.js`(`PROMPT_VERSION`)가 관리한다.
 - 호출 방식은 요약과 같다: OpenRouter strict `json_schema`(검증 전용 키워드는 뺀 스키마), `temperature:0`, 지원 모델(Anthropic 제외)에는 `seed`, `zdr`·`data_collection:"deny"`·fallback 금지. 시스템 본문이 앞이고 입력이 뒤이며 캐시 모델에는 `cache_control`을 찍는다. 출력은 `Contracts.validate`로 검증하고 형식 실패(`repair` 개수 불일치 포함)만 같은 모델로 한 번 재시도한다.
 - `finish_reason=length`는 한도를 키워 재시도하지 않고 `422 llm_output_truncated`(재시도 불가)로 답한다. 클라이언트가 섹션을 나눠 새 requestId로 다시 보낸다. 환불이 아니다: 제공자가 보고한 금액만 청구하고(미보고면 예약 유지) 같은 requestId는 다시 쓸 수 없다.
-- 입력 토큰은 바이트/4로 어림해 plan 40k, write 12k를 넘으면 `request_too_large`다. 출력 상한은 plan 8k, write 4k 토큰(`NoteSpec.limits.tokens`). 알 수 없는 필드는 `unexpected_field`, 모양 위반은 `request_rejected`다.
+- 입력 토큰은 바이트/4로 어림해 plan 40k, write 16k·global 24k를 넘으면 `request_too_large`다. 출력 상한은 plan 8k, write 8k·global 4k 토큰(`server/prompts.js`의 `LIMITS.tokens`). 알 수 없는 필드는 `unexpected_field`, 모양 위반은 `request_rejected`다.
 
 ## 확인
 
