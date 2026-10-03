@@ -13,7 +13,7 @@
 *(영문 스토어: `Summrizei — AI Lecture Notes & Summarizer`)*
 
 **Short Description** [REQUIRED] (최대 132자)  
-`재생 중인 영상 화면과 음성에서 핵심 학습 노트를 생성합니다. 기본 설정에서는 온디바이스 AI로 개인정보를 안전하게 보호합니다.`
+`강의 영상의 화면과 음성을 인식해 요약 노트로 자동 변환합니다. 기기 내 처리와 클라우드 인식 옵션 모두 지원합니다.`
 
 **Detailed Description** [REQUIRED] (스토어 본문 설명)  
 ```text
@@ -24,18 +24,19 @@ Summrizei는 강의 영상을 시청하는 동안 화면의 슬라이드와 강�
 ✨ 주요 핵심 기능
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-1. 사이드패널 실시간 인식
-- 영상을 가리지 않는 Chrome 사이드패널에서 강의 흐름을 방해하지 않고 동작합니다.
+1. 유연한 인식 모드: 실시간 & 백그라운드
+- 사이드패널에서 영상을 보며 실시간으로 노트를 작성하거나, 백그라운드에서 자동으로 캡처하고 정리할 수 있습니다.
 - 화면의 슬라이드 변화(OCR)와 음성(Speech)을 동시에 감지하여 중요한 내용을 놓치지 않습니다.
+- 다른 작업을 하면서도 강의를 동시에 정리할 수 있습니다.
 
 2. 완벽하게 구조화된 학습 노트
 - 단순 요약이 아닌 대제목, 소제목, 글머리 기호, 핵심 비교 표(Table)로 체계화된 노트를 만듭니다.
 - 공학/수학/경영 공식(LaTeX) 및 프로세스/의사결정 트리 다이어그램까지 지원합니다.
 
-3. 무료 & 개인정보 보호 온디바이스 인식 (기본 설정)
-- 기본 설정에서는 Chrome 내장 온디바이스 AI(Gemini Nano)와 로컬 Whisper·PP-OCR 모델을 활용하여 외부 서버 전송 없이 기기 내부에서 노트를 생성할 수 있습니다. 음성은 어떤 모드에서도 기기 안에서만 처리합니다.
-- 수식·표가 많은 강의를 위한 유료 '고화질 화면 인식' 옵션은 사용자가 켜고 별도 전송 동의를 한 경우에만 슬라이드 프레임을 운영 서비스(HTTPS)를 거쳐 인식 모델로 보냅니다. 프레임은 어디에도 저장되지 않습니다.
-- 민감한 사내 교육이나 비공개 강의도 안심하고 정리하세요.
+3. 개인정보 보호 & 선택 가능한 인식 방식
+- Free 플랜은 로컬 Whisper·PP-OCR 모델로 기기 안에서 인식하고, 요약할 때만 정리된 텍스트를 운영 서비스로 보냅니다(외부 요약 동의 필요). 화면 이미지와 음성은 기기 밖으로 나가지 않습니다.
+- Essential·Pro 플랜에서는 클라우드 인식을 선택할 수 있습니다. 사용자가 켜고 별도 동의를 한 경우에만 슬라이드 프레임과 음성 조각을 운영 서비스를 거쳐 인식 제공자에게 보냅니다. 데이터는 인식 용도로만 처리되고 저장되지 않습니다.
+- 기기 내 인식만 사용하면 민감한 사내 교육이나 비공개 강의도 안심하고 정리할 수 있습니다.
 
 4. 클라우드 고품질 요약 지원 (명시적 동의 기반)
 - 더 깊이 있는 학술 분석이 필요한 경우 사용자의 명시적 동의 하에 안전한 전송 구간 암호화(HTTPS)를 거쳐 고성능 모델로 정밀 노트를 제작할 수 있습니다.
@@ -61,7 +62,7 @@ Summrizei는 강의 영상을 시청하는 동안 화면의 슬라이드와 강�
 `Productivity` (생산성)
 
 **Single Purpose** [REQUIRED] (단일 목적 선언)  
-`재생 중인 영상 강의의 화면 텍스트와 음성을 인식하여 학습 노트를 자동 생성합니다.`
+`브라우저 탭에서 재생 중인 영상·음성을 요약 노트로 바꿉니다.`
 
 **Primary Language** [REQUIRED]  
 `한국어 (Korean)`
@@ -94,21 +95,28 @@ Summrizei는 강의 영상을 시청하는 동안 화면의 슬라이드와 강�
 | `tabCapture` | permissions | 사용자가 명시적으로 녹화를 시작한 강의 탭의 내부 오디오 스트림을 캡처하여 브라우저 로컬에서 음성 인식을 수행하기 위해 필요합니다. *(Required to capture the internal audio stream of the lecture tab explicitly selected by the user for on-device local speech-to-text processing.)* |
 | `offscreen` | permissions | Manifest V3 Service Worker에서 직접 접근할 수 없는 WebGPU 가속 및 AudioWorklet 기반 로컬 음성 인식(Whisper) 워커를 백그라운드 오프스크린 문서에서 격리 실행하기 위해 필요합니다. *(Required to execute WebGPU-accelerated and AudioWorklet-based local speech recognition (Whisper) workers in an isolated offscreen document, which is inaccessible directly from the MV3 Service Worker.)* |
 | `activeTab` | permissions | 단축키(Alt+Shift+S) 또는 확장 프로그램 아이콘 클릭 시, 사용자가 현재 보고 있는 강의 탭에 대한 최소한의 임시 권한을 부여받아 즉각적인 캡처 패널을 활성화하기 위해 필요합니다. *(Granted temporarily when the user clicks the action icon or presses the shortcut (Alt+Shift+S) to interact with the active educational video tab.)* |
+| `webRequest` | permissions | 백그라운드 모드에서 사용자가 시작한 탭의 미디어 요청(m3u8·mpd·mp4)을 찾기 위해 **관찰 전용**으로 사용합니다. 요청을 차단하거나 수정하지 않으며, 작업 대상 탭 외의 요청이나 브라우징 기록을 수집하지 않습니다. *(Observes the media requests of the user-started tab to locate the lecture stream. Not used to block or modify requests, nor to collect browsing history.)* |
+| `declarativeNetRequestWithHostAccess` | permissions | Referer를 요구하는 미디어 CDN에 한해, 사용자가 보고 있던 페이지의 Referer를 재현하는 임시 세션 규칙을 걸고 작업 종료 시 제거합니다. 다른 출처로 위장하거나 광고·트래커 차단·임의 헤더 조작에는 사용하지 않습니다. *(Sets a temporary session rule reproducing the viewed page's Referer for the media CDN only, removed after the job. Not used to spoof other origins or modify arbitrary headers.)* |
+| `identity` | permissions | Supabase 계정의 구글 로그인(`chrome.identity.launchWebAuthFlow`)에 사용합니다. 로그인 결과(인증 토큰·계정 식별자·이메일) 외에 Chrome 프로필의 신원 정보를 읽지 않습니다. *(Used for Google sign-in via launchWebAuthFlow. Does not read Chrome profile identity beyond the sign-in result (auth token, account identifier, e-mail).)* |
+| `power` | permissions | 사용자가 시작한 백그라운드 작업이 진행되는 동안만 `chrome.power.requestKeepAwake("system")`으로 유휴 절전을 막습니다. 상시 절전 방지나 화면 켜짐 유지에는 사용하지 않습니다. *(Prevents system idle sleep only while a user-started background job runs. Not used for display keep-awake or persistent wake locks.)* |
+| `unlimitedStorage` | permissions | 강의당 약 4MB(추정)로 암호화된 강의 패키지가 브라우저 스토리지 축출로 삭제되지 않게 합니다. 원본 영상·음성은 저장하지 않습니다. *(Keeps encrypted lecture packages (est. ~4MB per lecture) from browser storage eviction. No raw media is stored.)* |
 | `<all_urls>` | host_permissions | 사용자는 YouTube, Coursera, 대학 온라인 LMS, 웨비나 등 다양한 웹사이트에서 강의를 수강합니다. Manifest V3 사이드패널 UI의 버튼 클릭은 브라우저 보안 규격상 `activeTab` 권한을 임시 승계받지 못하므로, 사용자가 선택한 임의의 강의 페이지에 캡처 스크립트를 주입하기 위해 광범위한 호스트 권한이 기술적으로 불가피합니다. 캡처는 사용자가 [캡처 시작]을 누른 탭에서만 동작합니다. *(Users attend lectures on various educational platforms (YouTube, Coursera, university LMS, webinars). Under Manifest V3, side panel interactions do not inherit activeTab privileges; hence host permissions are technically required to inject capture scripts into user-selected educational sites. Capture is strictly confined to user-initiated sessions.)* |
 | `https://huggingface.co/*`<br>`https://*.hf.co/*`<br>`https://cdn-lfs.huggingface.co/*` | host_permissions | 외부 서버로 음성을 유출하지 않고 기기 내부에서 100% 로컬로 음성을 인식하기 위해, 오픈소스 Whisper ONNX 모델 가중치 바이너리를 브라우저 캐시로 다운로드하는 데 사용됩니다. *(Required to download open-source Whisper ONNX speech recognition model weights to the browser cache for 100% local, privacy-safe on-device audio transcription.)* |
-| `https://openrouter.ai/*` | host_permissions | 사용자가 명시적으로 동의한 경우에만 로컬에서 인식한 구조화 텍스트를 OpenRouter 요약 API로 전송합니다. 이 경로로는 화면 이미지·오디오를 전송하지 않으며, 사용자의 API 키로 직접 인증합니다. *(Used only after explicit consent to send locally recognized structured text to OpenRouter for summarization; screen images and audio are never sent over this route.)* |
+
+- `<all_urls>`는 유지합니다. 사유는 현행과 같습니다 — 임의의 강의 페이지에서 사용자가 시작한 캡처·소스 식별에 필요합니다.
+- **설치 경고·`optional_permissions` 검토**: 계획서 17은 설치 경고를 일으키는 권한을 `optional_permissions`로 옮길 수 있는지 패키징 단계에서 확인하라고 하며 결과가 없습니다. Chrome이 실제로 보여주는 설치 경고 문구는 여기서 단정하지 않습니다.
 
 ---
 
 ## 4. Privacy & Compliance (개인정보 및 규정 준수 체크)
 
 ### Data Use Disclosures (데이터 사용 공개 선언)
-- **개인 식별 정보(PII)**: 수집 안 함 (`No`)
+- **개인 식별 정보(PII)**: Yes (구글 로그인 이메일·식별자를 계정 관리 목적으로 저장)
 - **위치 정보**: 수집 안 함 (`No`)
 - **금융 및 결제 정보**: 수집 안 함 (`No`)
-- **웹 브라우징 기록**: 수집 안 함 (`No`)
+- **웹 브라우징 기록**: 호스트명만 사용량 통계 목적으로 저장 (`Yes` - 강의 제목·URL 경로·내용 제외)
 - **사용자 활동(키 입력 등)**: 수집 안 함 (`No`)
-- **웹사이트 콘텐츠**: 사용자가 캡처를 승인한 비디오 탭의 화면/음성을 처리함 (`Yes` - 처리 목적: 강의 노트 요약 생성, 외부 서버 영구 저장 없음; 유료 고화질 화면 인식 동의 시 슬라이드 프레임을 인식 목적으로 운영 서비스에 전송·비저장)
+- **웹사이트 콘텐츠**: Yes - 사용자가 캡처를 승인한 비디오 탭의 화면/음성을 처리합니다. 처리 목적: 강의 노트 요약 생성. Free 플랜은 인식을 기기 안에서 하고, 요약용 텍스트만 운영 서비스로 보냅니다. Essential/Pro 플랜은 사용자가 클라우드 인식에 동의한 경우에만 슬라이드 프레임과 오디오 청크를 인식 제공자에게 전송하며, 데이터는 저장되지 않습니다.
 
 ### Data Use Certification (데이터 사용 보증 확인)
 - [x] 사용자 데이터를 제3자에게 판매하지 않음 (Not sold to third parties)
