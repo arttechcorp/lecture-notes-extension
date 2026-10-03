@@ -5,5 +5,15 @@ import Server from "./server.bundle.js";
 import { adapt } from "./adapter.js";
 
 // 워커마다 한 번 만든다. 보관함·사용량은 Supabase(JWT 계정)로 가고, 정적 토큰 계정의 파일 장부만 /tmp(워커 수명)에 둔다.
-const server = Server.createServer({ VAULT_DIR: "/tmp/summrizei-data", ...Deno.env.toObject() });
-Deno.serve(adapt(server.handle));
+// 비밀값이 빠지면 createServer가 설정 오류를 던진다. 워커가 죽어 WORKER_ERROR만 보이지 않게, 무엇이 빠졌는지(이름만, 값은 없음) 503으로 답한다.
+let handler;
+try {
+  const server = Server.createServer({ VAULT_DIR: "/tmp/summrizei-data", ...Deno.env.toObject() });
+  handler = adapt(server.handle);
+} catch (e) {
+  const detail = String(e?.message || "config_error").slice(0, 100);
+  console.error("api config error:", detail);
+  handler = () => new Response(JSON.stringify({ error: { code: "service_misconfigured", message: "서비스 설정이 끝나지 않았습니다.", detail, retryable: false } }),
+    { status: 503, headers: { "content-type": "application/json", "access-control-allow-origin": "*" } });
+}
+Deno.serve(handler);
