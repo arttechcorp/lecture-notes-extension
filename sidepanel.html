@@ -270,7 +270,7 @@
       <label class="checkline"><input type="checkbox" id="obSummary" />
         <span><b>[필수] 외부 요약 처리</b><br>화면·음성을 기기에서 글자로 바꾼 뒤, 그 텍스트만 Summrizei 서비스를 거쳐 AI 모델로 보내 노트를 만듭니다. 원본 영상·음성은 보내지 않습니다(유료 클라우드 인식을 켠 경우 제외). 서비스와 모델 제공자는 처리 중에만 내용을 보고 저장하지 않습니다.</span></label>
       <label class="checkline" id="obCloudRow"><input type="checkbox" id="obCloud" />
-        <span><b>[유료·선택] 클라우드 인식</b><br>백그라운드 처리와 고화질 인식을 위해 강의 화면·음성 조각을 서비스를 거쳐 무보존 AI 제공자로 보냅니다. 학번·이름 같은 반복 워터마크 영역은 가린 뒤 보냅니다.</span></label>
+        <span><b>[유료·선택] 클라우드 인식</b><br>유료 요금제에서는 강의 화면과 음성을 Summrizei 서비스로 보내 인식합니다. 서비스와 모델 제공자는 인식할 때만 내용을 보고 저장하지 않습니다. 학번·이름 같은 반복 워터마크 영역은 가린 뒤 보냅니다.</span></label>
       <label class="checkline" id="obPersonalRow"><input type="checkbox" id="obPersonal" />
         <span><b>[유료·선택] 이용 동의</b><br><strong>개인 소장·학습 목적으로만</strong> 사용합니다. 받은 영상·음성과 만든 노트를 다른 사람에게 배포하거나 판매하지 않습니다.</span></label>
       <label class="checkline" id="obAccessRow"><input type="checkbox" id="obAccess" />
@@ -369,7 +369,7 @@
     </div>
   </div>
 
-  <div class="field">
+  <div class="field" id="ocrField">
     <label class="checkline" style="cursor: pointer;">
       <input type="checkbox" id="ocrEnabledToggle" />
       <span style="font-weight: 600; color: var(--ink);">화면 글자 읽기 (OCR)</span>
@@ -461,6 +461,7 @@
     <button id="notesBtn" type="button" disabled title="재캡처 없이 노트를 다시 만듭니다">노트 다시 만들기</button>
   </div>
 
+  <button class="primary" id="retryNoteBtn" type="button" hidden>다시 시도</button>
   <button id="againBtn" type="button" style="width:100%;">새로 캡처하기</button>
 </div>
 
