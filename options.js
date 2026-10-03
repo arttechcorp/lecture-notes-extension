@@ -1,9 +1,9 @@
 const $=id=>document.getElementById(id);
+const ymd=t=>{const d=new Date(t);return Number.isFinite(d.getTime())?`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`:'';};
 // Explicit-save fields: gathered by the API section's own Save/Test buttons.
-const fields=['serviceUrl','appSessionToken','remoteSummaryConsent'];
+const fields=['serviceUrl','appSessionToken'];
 // Auto-save fields: each persists immediately on change (elements below carry the "자동 저장" badge).
 const AUTO=[['themeSelect','theme'],['ocrEnabledCb','ocrEnabled'],['whisperCb','whisperEnabled'],['whisperModel','whisperModel'],['whisperLang','whisperLang']];
-const BOOL_FIELDS=new Set(['remoteSummaryConsent']);
 // Speed correction is the one auto-saved toggle that is NOT wired through AUTO: turning it on changes what the
 // listener hears, so it is only persisted after the warning dialog is acknowledged.
 function wireSpeedCorrection(initial){
@@ -19,21 +19,34 @@ function wireSpeedCorrection(initial){
   $('speedWarnCancel')?.addEventListener('click',()=>{modal.close();box.checked=false;});
   modal?.addEventListener('cancel',()=>{box.checked=false;});
 }
-// 백그라운드 처리 사용 동의 2종(D9). 저장된 버전이 TERMS_VERSION과 다르면 체크를 풀어 다시 받는다.
-// 체크 하나가 바뀔 때마다 두 항목·버전·시각을 통째로 저장하고, 실패하면 마지막 저장 상태로 되돌린다.
-function wireBackgroundConsent(settings){
-  const personal=$('bgPersonalCb'),access=$('bgAccessCb'),state=$('bgState');
-  if(!personal||!access)return;
-  let lastSaved=settings;
-  const show=s=>{
-    const c=s.backgroundConsent,current=c.version===TERMS_VERSION;
-    personal.checked=current&&c.personalUse;access.checked=current&&c.accessRights;
-    if(state)state.textContent=backgroundAllowed(s)?'동의했습니다 · '+new Date(c.at).toLocaleString('ko-KR')+' · 문구 버전 '+c.version:c.version&&!current?'동의 문구가 바뀌어 다시 동의가 필요합니다. 두 항목에 모두 체크하세요.':'두 항목에 모두 체크해야 백그라운드 처리를 쓸 수 있습니다.';
+// 이용 동의 3종(외부 요약 처리·클라우드 인식·백그라운드 처리)은 사이드 패널에서 기능을 처음 쓸 때만 받는다.
+// 이 페이지는 저장된 기록을 보여 주고 철회만 한다 - 철회하면 동의 플래그와 함께 버전·시각 기록도 지워진다(lib/settings.js).
+function wireConsents(settings){
+  const show=(ok,at,stateId,btnId)=>{
+    const state=$(stateId),btn=$(btnId);if(!state)return;
+    state.textContent=ok?'동의함'+(ymd(at)?' · '+ymd(at):''):'동의하지 않음 — 사이드 패널에서 처음 사용할 때 동의합니다';
+    if(btn)btn.hidden=!ok;
   };
-  const persist=async()=>{try{lastSaved=await saveSettings({backgroundConsent:{personalUse:personal.checked,accessRights:access.checked,version:TERMS_VERSION,at:Date.now()}});show(lastSaved);notice('백그라운드 처리 동의를 저장했습니다.');}catch(error){show(lastSaved);notice(error.message);}};
-  personal.addEventListener('change',persist);
-  access.addEventListener('change',persist);
-  show(lastSaved);
+  const withdraw=(id,ask,patch,done)=>{
+    const btn=$(id);if(!btn)return;
+    btn.addEventListener('click',async()=>{
+      if(!confirm(ask))return;
+      btn.disabled=true;
+      try{const s=await saveSettings(patch);await done(s);notice('동의를 철회했습니다.');}
+      catch(error){notice(error.message);}finally{btn.disabled=false;}
+    });
+  };
+  // summaryAllowed 는 settings.js 가 제공한다(버전·시각 포함 판정). 없는 빌드에서는 플래그만 본다.
+  const sumOk=s=>typeof summaryAllowed==='function'?summaryAllowed(s):s.remoteSummaryConsent===true;
+  const showAll=s=>{
+    show(sumOk(s),s.summaryConsentAt,'summaryConsentState','summaryWithdrawBtn');
+    show(cloudRecognitionAllowed(s),s.visionConsentAt,'visionConsentState','visionWithdrawBtn');
+    show(backgroundAllowed(s),s.backgroundConsent?.at,'bgState','bgWithdrawBtn');
+  };
+  showAll(settings);
+  withdraw('summaryWithdrawBtn','철회하면 인식된 텍스트가 더 이상 요약 서비스로 전송되지 않아 새 노트 요약을 만들 수 없습니다. 계속할까요?',{remoteSummaryConsent:false},showAll);
+  withdraw('visionWithdrawBtn','철회하면 고화질 화면 인식이 꺼지고 강의 화면·음성이 기기 밖으로 나가지 않습니다. 백그라운드 처리도 쓸 수 없습니다. 계속할까요?',{visionConsent:false,ocrEngine:'ppocr-v5-wasm'},async s=>{showAll(s);await refreshVision();});
+  withdraw('bgWithdrawBtn','철회하면 탭을 닫아도 노트를 만드는 백그라운드 처리를 쓸 수 없습니다. 계속할까요?',{backgroundConsent:{personalUse:false,accessRights:false,version:'',at:0}},showAll);
 }
 // 서비스 호출에 쓸 토큰: 로그인한 계정이 우선이고, 로그아웃 상태일 때만 개발·테스트용 정적 토큰을 쓴다(offscreen의 tokenProvider와 같은 순서).
 async function serviceToken(s){return (await Auth.token())||s.appSessionToken;}
@@ -42,30 +55,25 @@ let refreshVision=async()=>{};
 // 유료 여부는 서버만 안다. chrome.storage 는 사용자가 고칠 수 있으므로 여기서 켜진 토글은
 // 의사 표시일 뿐이고, 실제 호출은 /v1/vision 이 계정 features 로 다시 막는다.
 async function wireVision(settings){
-  const box=$('visionCb'),state=$('visionState'),modal=$('visionWarn');
+  const box=$('visionCb'),state=$('visionState');
   if(!box)return;
-  box.checked=settings.ocrEngine==='vision-cloud'&&settings.visionConsent===true;
+  // 스위치는 엔진 선택(ocrEngine)만 바꾼다. 클라우드 인식 동의(visionConsent)는 사이드 패널이 따로 받는다.
+  box.checked=settings.ocrEngine==='vision-cloud';
   const persist=async on=>{
-    try{await saveSettings({ocrEngine:on?'vision-cloud':'ppocr-v5-wasm',visionConsent:on,visionConsentVersion:on?TERMS_VERSION:'',visionConsentAt:on?Date.now():0});notice(on?'고화질 화면 인식을 켰습니다. 다음 캡처부터 적용됩니다.':'고화질 화면 인식을 껐습니다. 기기 안에서만 인식합니다.');}
+    try{await saveSettings({ocrEngine:on?'vision-cloud':'ppocr-v5-wasm'});notice(on?'고화질 화면 인식을 켰습니다. 다음 캡처부터 적용됩니다.':'고화질 화면 인식을 껐습니다. 기기 안에서만 인식합니다.');}
     catch(error){box.checked=!on;notice(error.message);}
   };
-  box.addEventListener('change',()=>{
-    if(!box.checked)return persist(false);
-    if(modal?.showModal)modal.showModal();else persist(true);
-  });
-  $('visionWarnOk')?.addEventListener('click',()=>{modal.close();persist(true);});
-  $('visionWarnCancel')?.addEventListener('click',()=>{modal.close();box.checked=false;});
-  modal?.addEventListener('cancel',()=>{box.checked=false;});
+  box.addEventListener('change',()=>persist(box.checked));
   const check=async s=>{
     try{
       const token=s.serviceUrl&&await serviceToken(s);
       if(!token){state.textContent='서비스 연결을 먼저 설정하세요.';return;}
       const me=await ServiceClient.me({baseUrl:s.serviceUrl,token,timeoutMs:15000});
-      const allowed=Array.isArray(me.features)&&me.features.includes('vision');
-      box.disabled=!allowed;
-      state.textContent=allowed?'사용 가능한 플랜입니다.':'유료 플랜에서 사용할 수 있습니다.';
-      // 플랜이 끝났는데 설정만 남아 있으면 세션 시작이 403 으로 죽는다. 조용히 로컬로 되돌린다.
-      if(!allowed&&box.checked){box.checked=false;await saveSettings({ocrEngine:'ppocr-v5-wasm',visionConsent:false});}
+      const allowed=Array.isArray(me.features)&&me.features.includes('vision'),consented=cloudRecognitionAllowed(s);
+      box.disabled=!(allowed&&consented);
+      state.textContent=!consented?'사이드 패널에서 클라우드 인식에 동의한 뒤 켤 수 있습니다.':allowed?'사용 가능한 플랜입니다.':'유료 플랜에서 사용할 수 있습니다.';
+      // 플랜이 끝났거나 동의가 없어졌는데 설정만 남아 있으면 세션 시작이 막힌다. 조용히 로컬로 되돌린다.
+      if(!(allowed&&consented)&&box.checked){box.checked=false;await saveSettings({ocrEngine:'ppocr-v5-wasm'});}
     }catch(error){state.textContent='사용 가능 여부를 확인하지 못했습니다 · '+error.message;}
   };
   refreshVision=()=>loadSettings().then(check);
@@ -118,17 +126,40 @@ function wireData(){
   run('accountDeleteBtn','계정과 서버에 저장된 데이터(보관함 포함)를 영구 삭제합니다. 되돌릴 수 없습니다.\n\n삭제가 끝나면 이 기기의 강의 데이터도 모두 지우고 로그아웃합니다. 계속할까요?',async()=>{await deleteAccount();return '계정과 서버 데이터를 삭제했습니다. 이 기기의 강의 데이터도 지우고 로그아웃했습니다.';});
   if(!Diagnostics.OPERATOR_KEYS.length){$('diagExportBtn').disabled=true;$('diagState').textContent='운영자 키가 아직 설정되지 않아 내보낼 수 없습니다';}
 }
+// 보관함 암호: NoteFile(lib/note-file.js)이 암호에서 내보낸 키를 이 기기의 암호화 저장소에 둔다.
+// 바꾸면 이 기기에 남아 있는 노트 파일을 background가 새 키로 다시 저장한다(LIB_EXPORT_ALL).
+async function wireLibraryKey(){
+  const state=$('keyState'),form=$('keyForm'),p1=$('keyPass1'),p2=$('keyPass2'),btn=$('keySaveBtn');
+  if(!form||!state)return;
+  if(typeof NoteFile==='undefined'||typeof PackageStore==='undefined'){state.textContent='이 기능을 쓸 수 없습니다.';for(const el of[p1,p2,btn])if(el)el.disabled=true;return;}
+  const refresh=async()=>{const rec=await NoteFile.loadLibraryKey(await PackageStore.indexedDbAdapter());state.textContent=rec?'설정됨'+(ymd(rec.at)?' · '+ymd(rec.at):''):'설정 안 됨';if(btn)btn.textContent=rec?'암호 바꾸기':'암호 정하기';};
+  await refresh();
+  form.addEventListener('submit',async e=>{
+    e.preventDefault();
+    const a=p1.value,b=p2.value;p1.value='';p2.value=''; // 입력은 어떤 결말이든 비운다
+    if(a!==b||a.length<12)return notice('암호가 서로 다르거나 12자 미만입니다.');
+    if(!confirm('새 암호로 이 기기에 남아 있는 노트 파일을 모두 다시 저장합니다. 예전 암호로 저장된 다른 파일은 예전 암호로 열어야 합니다.'))return;
+    btn.disabled=true;
+    try{
+      await NoteFile.saveLibraryKey(await PackageStore.indexedDbAdapter(),a);
+      const r=await local('LIB_EXPORT_ALL');
+      notice(`노트 파일 ${r.count??0}개를 새 암호로 다시 저장했습니다.`+(r.failed?` 실패 ${r.failed}개.`:''));
+      await refresh();
+    }catch(error){notice(error.message);}finally{btn.disabled=false;}
+  });
+}
 function notice(message){$('saved').hidden=false;$('saved').textContent=message;}
-function values(){return Object.fromEntries(fields.map(id=>[id,BOOL_FIELDS.has(id)?$(id).checked:$(id).value]));}
+function values(){return Object.fromEntries(fields.map(id=>[id,$(id).value]));}
 (async()=>{try{
   const s=await loadSettings();
-  for(const id of fields)if(BOOL_FIELDS.has(id))$(id).checked=s[id];else $(id).value=s[id];
+  for(const id of fields)$(id).value=s[id];
   for(const [id,key] of AUTO){const el=$(id);if(!el)continue;if(el.type==='checkbox')el.checked=s[key];else el.value=s[key];}
   wireSpeedCorrection(s.speedCorrection===true);
-  wireBackgroundConsent(s);
+  wireConsents(s);
   wireAuth();
   wireData();
   await showAuth();
+  await wireLibraryKey();
   await wireVision(s);
 }catch(error){notice(error.message);}})();
 for(const [id,key] of AUTO){
