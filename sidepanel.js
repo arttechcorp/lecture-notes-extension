@@ -113,17 +113,46 @@ const BG_STATE={created:'준비',acquiring_source:'소스 확인',ingesting:'수
 let bg=null; // {jobId,source?,code?}. 패널을 닫으면 사라진다 — 이어 할 작업은 BG_LIST가 다시 알려 준다.
 // 요약 동의도 시작 전에 본다: 인식만 끝난 결과를 볼 화면이 아직 없어서, 동의 없이 시작하면 클라우드 인식 비용만 쓰고 멈춘다.
 const bgConsented=()=>backgroundAllowed(settings)&&cloudRecognitionAllowed(settings)&&settings?.remoteSummaryConsent===true;
-function bgShow({text='',progress='',busy=false,cancel=false,retry=false,live=false,options=false}={}){
+function bgShow({text='',progress='',busy=false,cancel=false,retry=false,live=false,options=false,retryLabel}={}){
   bgEl.bgStatus.textContent=text;bgEl.bgProgress.textContent=progress;
-  bgEl.bgBtn.disabled=busy;bgEl.bgCancelBtn.hidden=!cancel;bgEl.bgRetryBtn.hidden=!retry;bgEl.bgLiveBtn.hidden=!live;bgEl.bgOptionsLink.hidden=!options;
+  bgEl.bgBtn.disabled=busy;bgEl.bgCancelBtn.hidden=!cancel;bgEl.bgRetryBtn.hidden=!retry;bgEl.bgRetryBtn.textContent=retryLabel||'다시 시도';bgEl.bgLiveBtn.hidden=!live;bgEl.bgOptionsLink.hidden=!options;
 }
 // BG_DONE → 화면. 안내 문구는 offscreen이 파이프라인 CODES의 userMessage로 실어 보낸다. 실시간 모드 버튼은 suggest:"live"일 때만 나온다.
+const BG_NOTE={ // 완료 고지 코드 → 사용자 문장. n은 건수(없으면 1). NOTE_ADVISORY_*는 렌더러 힌트라 여기 없다
+  NOTE_CAPTURE_GAP:n=>`인식하지 못한 구간 ${n}곳`,
+  NOTE_SECTIONS_FAILED:n=>`요약하지 못한 단원 ${n}개`,
+  NOTE_BLOCKS_DROPPED:n=>`검증을 통과하지 못해 뺀 내용 ${n}건`,
+  NOTE_UNITS_UNCITED:n=>`노트에 반영되지 않은 강의 구간 ${n}곳`,
+  NOTE_GLOBAL_FAILED:()=>'강의 전체 요약을 만들지 못했습니다',
+  NOTE_JUDGE_SKIPPED:()=>'중요도 판정 없이 만들었습니다',
+  NOTE_FORMULAS_IMAGE:n=>`원본 이미지로 표시한 수식 ${n}개`,
+  NOTE_FORMULAS_CHECK:n=>`확인이 필요한 수식 ${n}개`,
+  NOTE_FORMULAS_UNVERIFIED:n=>`확인이 필요한 수식 ${n}개`,
+  NOTE_FIGURES_CHECK:n=>`확인이 필요한 도표 ${n}개`,
+  NOTE_FIGURES_NOT_DETECTED:()=>'도표는 찾지 않았습니다(Free)',
+};
+const BG_NOTE_PRUNED=new Set(['NOTE_ITEMS_PRUNED','NOTE_TARGET_DROPPED','NOTE_REVIEW_DROPPED','NOTE_CALC_DROPPED','NOTE_DEPENDENCY_DROPPED','NOTE_ANCHOR_DROPPED']); // 연결된 내용이 빠져 함께 뺀 항목 — 코드가 여럿이어도 한 줄로 합산
+const bgClock=s=>{s=Math.floor(s||0);const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?`${h}:${String(m).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`:`${m}:${String(s%60).padStart(2,'0')}`;};
+const bgRanges=rs=>{if(!rs?.length)return'';const shown=rs.slice(0,3).map(r=>`${bgClock(r.t0)}–${bgClock(r.t1)}`).join(', ');return` (${shown}${rs.length>3?` 외 ${rs.length-3}곳`:''})`;};
+function bgNoticeLines(notices){
+  const lines=[];let pruned=0,at=-1;
+  for(const n of notices||[]){
+    const code=n?.code||'',count=n?.count||1; // ids는 절대 화면에 싣지 않는다
+    if(BG_NOTE_PRUNED.has(code)){if(at<0)at=lines.length;pruned+=count;continue;}
+    if(code.startsWith('NOTE_ADVISORY_'))continue;
+    lines.push((BG_NOTE[code]?BG_NOTE[code](count):`기타 고지: ${code}×${count}`)+bgRanges(n?.ranges));
+  }
+  if(pruned)lines.splice(at,0,`연결된 내용이 빠져 함께 뺀 항목 ${pruned}건`);
+  return lines;
+}
 function bgDoneView(d){
-  const notices=d.notices||[];
-  if(['complete','partial','done'].includes(d.status))return {text:`노트 준비됨${d.status==='partial'?' (일부 섹션 제외)':''} · 슬라이드 ${d.stats?.slides??'-'} · 음성 구간 ${d.stats?.chunks??'-'}\n고지 ${notices.length}건${notices.length?': '+notices.map(n=>n.code+(n.count?`×${n.count}`:'')).join(' · '):''}\n암호화해 이 기기에 저장했습니다. v2 노트 보기는 노트 양식이 정해진 뒤에 제공됩니다.`};
+  if(['complete','partial','done'].includes(d.status))return {text:[`노트 준비됨${d.status==='partial'?' (일부 섹션 제외)':''} · 슬라이드 ${d.stats?.slides??'-'} · 음성 구간 ${d.stats?.chunks??'-'}`,...bgNoticeLines(d.notices),'암호화해 이 기기에 저장했습니다. v2 노트 보기는 노트 양식이 정해진 뒤에 제공됩니다.'].join('\n')};
   if(d.status==='cancelled')return {text:'백그라운드 처리를 취소했습니다.'};
-  const text=d.message||`백그라운드 처리를 마치지 못했습니다${d.code?` (${d.code})`:''}.`;
-  if(d.status==='paused')return {text,retry:true,options:/^CONSENT_/.test(d.code||'')};
+  const text=d.message||`백그라운드 처리를 마치지 못했습니다. 같은 문제가 반복되면 메뉴의 고객지원으로 문의해 주세요.${d.code?` (코드: ${d.code})`:''}`;
+  if(d.status==='paused'){
+    if(d.code==='QUOTA_EXCEEDED')return {text}; // 할당량 초과는 다시 시도해도 성공할 수 없다
+    return {text,retry:true,options:/^CONSENT_/.test(d.code||''),retryLabel:d.code==='SRC_AUTH_EXPIRED'?'강의 탭을 연 뒤 다시 시도':undefined};
+  }
   return {text,live:d.suggest==='live'};
 }
 // webRequest(선택 권한)는 사용자가 누른 뒤에만 요청한다. 고른 강의 탭의 media·xhr 응답만 몇 초 보고 바로 해제하며, 주소와 MIME만 분류하고 내용은 보지 않는다.
