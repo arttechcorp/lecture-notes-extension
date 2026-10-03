@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "noteSpecVersion": "lecture-note-1",
+  "noteSpecVersion": "lecture-note-2",
   "promptVersion": null,
   "status": "partial",
   "tier": "paid",
@@ -1218,6 +1218,7 @@
           "어떻게 감시하나"
         ]
       ],
+      "chartData": null,
       "t0": 560,
       "display": "check"
     },
@@ -1227,6 +1228,7 @@
       "kind": "chart",
       "title": "응답 점포 매출 변화",
       "cells": null,
+      "chartData": null,
       "t0": 900,
       "display": "crop"
     }
