@@ -19,14 +19,13 @@
     return n;
   };
   const date = (iso) => (iso ? new Date(iso).toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" }) : "—");
-  const isEdu = (email) => /\.(ac\.kr|edu)$/i.test((email || "").split("@")[1] || "");
-  // grogle 주소에 이메일과 사용자 id를 붙인다. 주소가 비었거나 잘못되면 null.
+  // Groble 결제창 주소에 사용자 id를 ref로 붙인다 — 웹훅(supabase/functions/billing-webhook)이 sellerReference로 받아 이 계정에 등급을 준다.
+  // 주소가 비었거나 잘못되면 null.
   function withUser(url, user) {
     if (!url) return null;
     try {
       const u = new URL(url);
-      u.searchParams.set("email", user.email || "");
-      u.searchParams.set("client_reference_id", user.id);
+      u.searchParams.set("ref", user.id);
       return u.href;
     } catch { return null; }
   }
@@ -195,8 +194,10 @@
     set(...heading("결제 정보", "결제 수단과 영수증을 관리합니다."), summaryCard(acct), c, h("div", "card").appendChild(refund).parentNode);
   }
 
-  function subscriptionView(client, user, acct, catalog) {
-    const edu = isEdu(user.email);
+  // 학생가 자격은 서버가 정한다(edu_eligible: 확인된 학교 도메인 메일). 확인하지 못하면 학생가를 보여 주지 않는다.
+  async function subscriptionView(client, user, acct, catalog) {
+    const { data: eduOk } = await Promise.resolve(client.rpc("edu_eligible")).catch(() => ({ data: false }));
+    const edu = eduOk === true;
     const grid = h("div", "plans-stack");
     for (const row of catalog) {
       const copy = COPY[row.plan];
@@ -271,7 +272,7 @@
     if (!user) return loginCard(client, ...titles[page]);
     const [{ data: acct, error }, cat] = await Promise.all([client.rpc("my_account"), page === "subscription" ? client.rpc("plan_catalog") : { data: [] }]);
     if (error || !acct || cat.error || !Array.isArray(cat.data)) return errorCard("계정 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
-    ({ account: accountView, billing: billingView, subscription: subscriptionView })[page](client, user, acct, cat.data);
+    await ({ account: accountView, billing: billingView, subscription: subscriptionView })[page](client, user, acct, cat.data);
   }
   init();
 })();

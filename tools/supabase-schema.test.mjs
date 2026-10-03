@@ -159,7 +159,7 @@ alter default privileges for role postgres in schema public grant all on tables 
 alter default privileges for role postgres in schema public grant all on sequences to anon, authenticated, service_role;
 alter default privileges for role postgres in schema public grant all on functions to anon, authenticated, service_role;
 create schema auth authorization supabase_admin;
-create table auth.users (id uuid primary key default gen_random_uuid(), email text, created_at timestamptz not null default now());
+create table auth.users (id uuid primary key default gen_random_uuid(), email text, email_confirmed_at timestamptz, created_at timestamptz not null default now());
 create function auth.jwt() returns jsonb language sql stable
   as $$ select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb $$;
 create function auth.uid() returns uuid language sql stable
@@ -256,6 +256,7 @@ const NEW_TABLES = {
   usage_events: "id user_id job_id request_id stage provider model input_tokens output_tokens audio_seconds images cost_micros cost_reported prompt_version schema_version status error_code latency_ms client_version host created_at",
   vault_objects: "user_id object_id size updated_at storage_path",
   feedback: "user_id job_id rating tags created_at",
+  billing_events: "id type user_id received_at",
 };
 const SERVICE_FUNCTIONS = [
   "effective_plan(uuid, timestamptz)",
@@ -349,6 +350,41 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
     q(`update entitlements set cancel_at_period_end = true where user_id = ${lit(u)}`);
     q(`insert into entitlements (user_id, plan) values (${lit(u)}, 'professional')`);
     assert.equal(qj(`select delete_account_data(${lit(u)})::text`, SVC).entitlements, 2);
+  });
+
+  test("결제 웹훅: apply_billing_event 는 service_role 전용이고 같은 이벤트를 한 번만 반영한다", () => {
+    const u = newUser("free"), ext = `c1:${u}`;
+    const apply = (id, type, ends, extra = {}) => q(`select apply_billing_event(${lit(id)}, ${lit(type)}, ${lit(u)}, ${lit(extra.plan ?? "essential")},
+      ${extra.edu ? "true" : "false"}, ${lit(ext)}, now(), ${ends === null ? "null" : `now() + interval '${ends}'`})`, SVC);
+    fails(`select apply_billing_event('e0', 'subscription_payment.completed', ${lit(u)}, 'essential', false, ${lit(ext)}, now(), now() + interval '30 days')`,
+      { as: "authenticated", claims: { sub: u, role: "authenticated" } }, /permission denied/);
+    assert.equal(apply("e1", "subscription_payment.completed", "30 days", { edu: true }), "applied");
+    assert.equal(apply("e1", "subscription_payment.completed", "30 days"), "duplicate");
+    assert.equal(q(`select effective_plan(${lit(u)})`, SVC), "essential");
+    assert.equal(q(`select edu::text from entitlements where external_id = ${lit(ext)}`), "true");
+    // 갱신은 같은 줄의 기간을 늘린다(줄이 늘지 않는다)
+    assert.equal(apply("e2", "subscription_payment.completed", "60 days"), "applied");
+    assert.equal(q(`select count(*) from entitlements where user_id = ${lit(u)}`), "1");
+    // 해지 요청은 기간 끝까지 쓰게 두고, 활성 구독이 아니므로 탈퇴를 막지 않는다
+    assert.equal(apply("e3", "subscription.cancel_requested", null), "applied");
+    assert.equal(q(`select cancel_at_period_end::text from entitlements where external_id = ${lit(ext)}`), "true");
+    assert.equal(q(`select effective_plan(${lit(u)})`, SVC), "essential");
+    // 해지 완료는 기간을 닫는다
+    assert.equal(apply("e4", "subscription.terminated", null), "applied");
+    assert.equal(q(`select effective_plan(${lit(u)}, now() + interval '1 minute')`, SVC), "free");
+    assert.equal(apply("e5", "subscription_payment.failed", null), "ignored");
+    assert.equal(q(`select count(*) from billing_events where user_id = ${lit(u)}`), "4");
+  });
+
+  test("학생가 자격: 확인된 학교 도메인 메일만 참이고 로그인 사용자만 부른다", () => {
+    const mk = (email, confirmed) => { const id = crypto.randomUUID(); q(`insert into auth.users (id, email, email_confirmed_at) values ('${id}', ${lit(email)}, ${confirmed ? "now()" : "null"})`); return id; };
+    const as = id => ({ as: "authenticated", claims: { sub: id, role: "authenticated" } });
+    assert.equal(q(`select edu_eligible()::text`, as(mk("kim@snu.ac.kr", true))), "true");
+    assert.equal(q(`select edu_eligible()::text`, as(mk("lee@mit.edu", true))), "true");
+    assert.equal(q(`select edu_eligible()::text`, as(mk("park@snu.ac.kr", false))), "false");
+    assert.equal(q(`select edu_eligible()::text`, as(mk("choi@gmail.com", true))), "false");
+    assert.equal(q(`select edu_eligible()::text`, as(mk("x@ac.kr.evil.com", true))), "false");
+    fails(`select edu_eligible()`, { as: "anon" }, /permission denied/);
   });
 
   test("D2: 새 테이블의 컬럼은 허용 목록과 정확히 같고 제목·URL·본문류 컬럼이 없다", () => {

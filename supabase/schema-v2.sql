@@ -713,6 +713,61 @@ grant execute on function my_account() to authenticated;
 grant execute on function plan_catalog() to anon, authenticated;
 grant execute on function admin_stats() to authenticated;
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 7. 결제 웹훅(Groble)·학생가 자격
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 받은 웹훅 이벤트의 멱등 원장. 내용은 없다(이벤트 id·종류·계정만). Edge Function billing-webhook 이 서명을 확인한 뒤 apply_billing_event 로만 쓴다.
+create table if not exists billing_events (
+  id text primary key check (id ~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'),
+  type text not null check (type ~ '^[a-z_.]{1,64}$'),
+  user_id uuid references auth.users(id) on delete set null,
+  received_at timestamptz not null default now()
+);
+alter table billing_events enable row level security;
+grant select, insert on billing_events to service_role;
+
+-- 구독 이벤트 하나를 entitlements 에 반영한다. 같은 이벤트 id 는 한 번만 적용한다('duplicate').
+-- 결제 완료: (payment, external_id) 줄을 만들거나 기간을 늘린다. 해지 요청: ends_at 까지 쓰고 끝나도록 표시. 해지 완료·환불: 기간을 닫는다.
+create or replace function apply_billing_event(
+  p_event_id text, p_type text, p_user uuid, p_plan text, p_edu boolean,
+  p_external_id text, p_starts timestamptz, p_ends timestamptz
+) returns text
+language plpgsql security definer set search_path = public as $$
+begin
+  if p_type not in ('subscription_payment.completed', 'subscription.cancel_requested', 'subscription.terminated', 'subscription_payment.refunded') then
+    return 'ignored';
+  end if;
+  insert into billing_events (id, type, user_id) values (p_event_id, p_type, p_user) on conflict (id) do nothing;
+  if not found then return 'duplicate'; end if;
+  if p_type = 'subscription_payment.completed' then
+    if p_user is null or p_plan is null or p_ends is null then raise exception 'invalid_billing_event' using errcode = '22023'; end if;
+    insert into entitlements (user_id, plan, starts_at, ends_at, source, external_id, edu, cancel_at_period_end)
+    values (p_user, p_plan, coalesce(p_starts, now()), p_ends, 'payment', p_external_id, coalesce(p_edu, false), false)
+    on conflict (source, external_id) where external_id is not null
+    do update set plan = excluded.plan, ends_at = greatest(entitlements.ends_at, excluded.ends_at), edu = excluded.edu, cancel_at_period_end = false;
+  elsif p_type = 'subscription.cancel_requested' then
+    update entitlements set cancel_at_period_end = true, ends_at = coalesce(p_ends, ends_at)
+     where source = 'payment' and external_id = p_external_id;
+  else
+    update entitlements set cancel_at_period_end = true,
+           ends_at = greatest(starts_at + interval '1 second', least(coalesce(ends_at, 'infinity'), coalesce(p_ends, now())))
+     where source = 'payment' and external_id = p_external_id;
+  end if;
+  return 'applied';
+end $$;
+
+-- 학생가 자격: 로그인 이메일이 확인된 학교 도메인(.ac.kr·.edu)인가. Google 로그인은 메일 소유를 확인한 계정만 들어온다.
+-- 계정 페이지는 이 값이 참일 때만 학생가 결제창을 보여 준다(화면의 정규식만으로 판단하지 않는다).
+create or replace function edu_eligible() returns boolean
+language sql stable security definer set search_path = public, auth as $$
+  select coalesce((select u.email_confirmed_at is not null and lower(split_part(u.email, '@', 2)) ~ '(\.ac\.kr|\.edu)$'
+                     from auth.users u where u.id = auth.uid()), false)
+$$;
+revoke all on function apply_billing_event(text, text, uuid, text, boolean, text, timestamptz, timestamptz) from public, anon, authenticated;
+grant execute on function apply_billing_event(text, text, uuid, text, boolean, text, timestamptz, timestamptz) to service_role;
+revoke all on function edu_eligible() from public, anon;
+grant execute on function edu_eligible() to authenticated;
+
 -- 자체 점검: 경계(RLS·정책 0개·실행 권한)와 어드민 게이트가 의도대로인지 확인한다. 데이터는 남기지 않는다.
 do $$
 declare
@@ -720,7 +775,7 @@ declare
   f regprocedure;
 begin
   foreach t in array array['plans', 'global_caps', 'global_usage', 'profiles', 'entitlements', 'monthly_usage',
-                           'usage_reservations', 'usage_events', 'vault_objects', 'feedback'] loop
+                           'usage_reservations', 'usage_events', 'vault_objects', 'feedback', 'billing_events'] loop
     if not (select relrowsecurity from pg_class where oid = ('public.' || t)::regclass) then
       raise exception 'FAIL: % 의 RLS가 꺼져 있다', t;
     end if;
@@ -733,7 +788,8 @@ begin
     'effective_plan(uuid, timestamptz)'::regprocedure,
     'reserve_usage(uuid, text, text, bigint, date, int)'::regprocedure,
     'settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text)'::regprocedure,
-    'delete_account_data(uuid)'::regprocedure
+    'delete_account_data(uuid)'::regprocedure,
+    'apply_billing_event(text, text, uuid, text, boolean, text, timestamptz, timestamptz)'::regprocedure
   ] loop
     if has_function_privilege('anon', f, 'execute') or has_function_privilege('authenticated', f, 'execute')
        or not has_function_privilege('service_role', f, 'execute') then

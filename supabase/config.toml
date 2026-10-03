@@ -442,3 +442,9 @@ entrypoint = "./functions/delete-account/index.js"
 [functions.api]
 verify_jwt = false
 entrypoint = "./functions/api/index.js"
+
+# Groble 결제 웹훅. 게이트웨이 JWT 검사는 끄고 함수가 X-Groble-Signature(HMAC-SHA256)로 직접 확인한다.
+# 비밀값: GROBLE_WEBHOOK_SECRET(필수), GROBLE_WEBHOOK_SECRET_PREVIOUS(키 교체 중에만), GROBLE_PLANS_JSON(옵션·상품 id → 등급). 배포: supabase functions deploy billing-webhook --use-api
+[functions.billing-webhook]
+verify_jwt = false
+entrypoint = "./functions/billing-webhook/index.js"

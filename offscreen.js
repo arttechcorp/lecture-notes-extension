@@ -6,7 +6,8 @@ const storeP=PackageStore.indexedDbAdapter().then(PackageStore.createStore); // 
 storeP.then(store=>(sink=new PipelineEvents.LogSink(bus,store)).start()).catch(()=>events.emit({stage:"system",level:"warn",code:"LOG_STORE_UNAVAILABLE"}));
 const emit=state=>chrome.runtime.sendMessage({target:"panel",type:"SESSION_STATE",state}).catch(()=>{});
 const trusted=(sender,pages=["/background.js","/sidepanel.html","/options.html"])=>{try{const url=new URL(sender.url),base=new URL(chrome.runtime.getURL(""));return sender.id===chrome.runtime.id&&url.protocol===base.protocol&&url.host===base.host&&pages.includes(url.pathname);}catch{return false;}};
-const settingsOf=s=>({openRouterApiKey:String(s?.openRouterApiKey||""),serviceUrl:String(s?.serviceUrl||""),appSessionToken:String(s?.appSessionToken||""),summaryModel:String(s?.summaryModel||""),remoteSummaryConsent:s?.remoteSummaryConsent===true});
+const settingsOf=s=>({serviceUrl:String(s?.serviceUrl||""),appSessionToken:String(s?.appSessionToken||""),remoteSummaryConsent:s?.remoteSummaryConsent===true,
+  noteOptions:{syntheticExamples:s?.noteOptions?.syntheticExamples===true,externalAugmentation:s?.noteOptions?.externalAugmentation===true}});
 // 서비스 호출 직전에 쓸 토큰을 정한다. offscreen에는 chrome.storage가 없어 background에 묻는다: 로그인 토큰(만료 전 갱신됨)을 우선하고, 로그아웃 상태면 설정의 개발용 정적 토큰(fallback)을 쓴다. 갱신 실패 같은 오류는 조용히 넘기지 않고 그대로 올린다.
 const tokenProvider=async fallback=>{
   const reply=await chrome.runtime.sendMessage({target:"background",type:"AUTH_TOKEN"}).catch(()=>null);
@@ -47,6 +48,48 @@ async function paintMasks(blob,boxes){
   }
   return LectureDecode.jpeg(canvas,0.8);
 }
+// ── v2 노트 공통(실시간·백그라운드) ──
+// 계획·작성 모델은 계정 모델 목록(/v1/me)에서 고른다: BG_MODELS 가 목록에 있으면 그것, 없으면 첫 모델. 판정은 judge 기능이 켜진 계정만.
+const noteModels=me=>{const ms=Array.isArray(me?.models)?me.models:[],pick=m=>ms.includes(m)?m:ms[0];return {plan:pick(BG_MODELS.plan),write:pick(BG_MODELS.write),judge:(me?.features||[]).includes("judge")?BG_MODELS.judge:null};};
+const hostOf=url=>{try{return new URL(url).hostname;}catch{return null;}};
+// 슬라이드 한 장의 도표·수식 영역을 메모리 안에서 잘라 WebP 바이트로 돌려준다(6-6). 슬라이드 전체는 자르지 않는다(D2). 도표는 dHash 도 낸다.
+async function cropRegions(blob,doc){
+  const bmp=await createImageBitmap(blob),crops={},hashes={},formulas=[],canvas=(w,h)=>new OffscreenCanvas(w,h);
+  const bytes=async b=>new Uint8Array(await b.arrayBuffer());
+  try{
+    for(const f of (doc.figures||[]).filter(f=>["table","chart","diagram"].includes(f.kind)&&f.bbox&&f.id).slice(0,3)){
+      const key=`${doc.slideId}/${f.id}`;crops[key]=await bytes(await Figures.cropFigure(bmp,f.bbox,{createCanvas:canvas}));
+      const c=canvas(9,8),g=c.getContext("2d",{willReadFrequently:true});
+      g.drawImage(bmp,f.bbox.x*bmp.width,f.bbox.y*bmp.height,Math.max(1,f.bbox.w*bmp.width),Math.max(1,f.bbox.h*bmp.height),0,0,9,8);
+      hashes[key]=Figures.dHash({width:9,height:8,data:g.getImageData(0,0,9,8).data,channels:4});
+    }
+    for(const f of (doc.formulas||[]).filter(f=>f.bbox&&f.id).slice(0,4)){
+      const key=`${doc.slideId}/${f.id}`;crops[key]=await bytes(await Figures.cropFigure(bmp,f.bbox,{createCanvas:canvas,maxSide:900}));formulas.push(key);
+    }
+  }finally{bmp.close();}
+  return {crops,hashes,formulas};
+}
+// 끝난 노트(또는 인식 결과만)를 로컬 보관함에 둔다: 메타·재생성 입력·노트·크롭(F#·G# 키로 옮김). 강의 내용은 기기 안 암호문으로만 남는다.
+async function saveLibrary(pkg,input,res,{source,host}){
+  const store=await storeP,crops={},note=res.note||null;
+  for(const [id,key] of Object.entries(res.cropMap||{})){const b=await store.getBytes("blobs",`${pkg}:c:${key.replace("/","~")}`).catch(()=>null);if(b)crops[id]=b;}
+  const questions=note?note.sections.flatMap(s=>s.blocks).filter(b=>b.type==="B14").reduce((n,b)=>n+b.content.items.length,0):0;
+  await NoteLibrary.saveResult(store,{packageId:pkg,input,note,crops,meta:{packageId:pkg,title:input.meta?.title??null,host,source,tier:input.tier,
+    status:res.status==="recognition-only"?"recognition-only":note?.status||"partial",durationSec:note?Math.max(0,note.meta.processed.t1-note.meta.processed.t0):null,
+    noteSpecVersion:note?.noteSpecVersion??null,options:{...NoteContract.policyOf(input.options),exam:false},counts:note?{sections:note.sections.length,questions}:null}});
+}
+// 실시간 세션 → runNote 입력(Free 와 유료의 실시간 모드). 슬라이드 t1 은 다음 슬라이드의 시작이고, 발화는 기기 Whisper 의 근거 항목에서 만든다(화자 없음).
+// ponytail: 탐색(epoch)이 바뀌어도 시각을 그대로 쓴다 — 앞뒤로 옮겨 다니며 본 강의는 시각이 겹칠 수 있다. 필요하면 epoch 마다 이어 붙인다.
+function liveInput(cur,{tier,models,consent,options}){
+  const docs=[...(cur.slideDocs||[])].sort((a,b)=>a.t0-b.t0),lang=cur.options.whisperLang==="en"?"en":"ko";
+  const asr=cur.store.snapshot().filter(e=>e.source==="asr"&&String(e.text||"").trim());
+  return {
+    slides:docs.map((d,i)=>({...d,t1:Math.max(d.t0,docs[i+1]?.t0??d.t1??d.t0)})),
+    transcript:{schemaVersion:1,engine:"whisper",model:String(cur.options.whisperModel||"local").slice(0,64),lang,
+      segments:asr.map((e,i)=>({id:"a"+(i+1),t0:e.t0,t1:Math.max(e.t0,e.t1??e.t0),text:String(e.text).slice(0,4000),words:[],noSpeechProb:null,avgLogprob:null,compressionRatio:null,status:"kept"}))},
+    gaps:cur.gaps||[],tier,models,consent,recognition:"local",options,meta:{title:null,lang},
+  };
+}
 // 진행: 이 작업의 이벤트에서 단계 이름과 끝난 개수만 모아 1초에 한 번 패널에 민다(주소·시각·내용 없음).
 function bgProgress(jobId){
   const counts={};let state="created",timer=null;
@@ -62,7 +105,7 @@ function bgProgress(jobId){
 // BG_DONE의 본문: 코드·수치·고지 개수뿐이다(res.note는 강의 내용이라 싣지 않는다). 요약 동의가 없어 멈춘 작업(recognition-only)은 사용자 사유의 일시정지로 보인다.
 function bgResult(jobId,res){
   const wait=res.status==="recognition-only",code=res.code??(wait?"CONSENT_SUMMARY_REQUIRED":null);
-  return {jobId,status:wait?"paused":res.status,code,reason:res.reason??(wait?"user":null),suggest:res.suggest??null,message:Pipeline.CODES[code]?.userMessage??null,
+  return {jobId,packageId:res.packageId??null,status:wait?"paused":res.status,code,reason:res.reason??(wait?"user":null),suggest:res.suggest??null,message:Pipeline.CODES[code]?.userMessage??null,
     stats:res.stats&&{slides:res.stats.slides,chunks:res.stats.chunks,gaps:res.stats.gaps},notices:(res.notices||[]).map(({code,count})=>({code,count:count??null}))};
 }
 async function bgJob(job,source,settings,me,ctl){
@@ -73,8 +116,13 @@ async function bgJob(job,source,settings,me,ctl){
       fetch:refererFetch(source.pageUrl),decode:LectureDecode,paint:paintMasks,
       // 강의가 길면 기본 200장을 넘는다. 진짜 상한은 서버의 월 비용 한도다.
       vision:VisionClient.createVisionEngine({baseUrl:base,token,model:BG_MODELS.vision,maxCalls:Infinity,signal:ctl.signal}),
-      stt:{stt:svc("stt")},settings,features:me,models:BG_MODELS,signal:ctl.signal,
-      runNote:(j,input,o)=>NoteStages.runNote(j,input,{...o,service:{plan:svc("plan"),write:svc("write"),judge:svc("judge")},katex}),
+      stt:{stt:svc("stt")},settings,features:me,models:{...BG_MODELS,...noteModels(me),judge:BG_MODELS.judge},signal:ctl.signal,crop:cropRegions,options:settingsOf(settings).noteOptions,
+      // 끝나면(인식 결과만 있어도) 로컬 보관함에 둔다. 저장 실패는 노트를 잃게 하지 않도록 코드만 남기고 결말은 그대로 알린다.
+      runNote:async(j,input,o)=>{
+        const res=await NoteStages.runNote(j,input,{...o,service:{plan:svc("plan"),write:svc("write"),judge:svc("judge")},katex});
+        if(["complete","partial","recognition-only"].includes(res.status))await saveLibrary(j.packageId,input,res,{source:"background",host:hostOf(source.pageUrl)}).catch(()=>events.emit({stage:"library",jobId:j.jobId,level:"warn",code:"LIBRARY_SAVE_FAILED"}));
+        return {...res,packageId:j.packageId};
+      },
     });
     done=bgResult(job.jobId,res);
   }catch(error){done={jobId:job.jobId,status:"failed",code:Pipeline.codeOf(error,"SRC")||"UNKNOWN"};} // 코드 없는 오류(버그)도 체크포인트는 마지막 정상 상태에 남아 BG_LIST에서 이어 갈 수 있다
@@ -160,13 +208,9 @@ async function archiveRun(message){
     const value=await LectureVault.decrypt(envelope,message.passphrase,context);
     if(value?.version!==1)throw new Error("지원하지 않는 보관 문서입니다.");
     const restored=new EvidenceStore();restored.restore(value.evidence);
+    // 보관된 요약은 v2 결과({version:2, note|recognition})만 받는다. 노트는 노트 계약 스키마로 다시 검증한다.
     const note=value.summary;
-    if(note?.sections?.length){
-      const summaryEvidence=restored.snapshot().filter(item=>item.selection!=="filtered"&&item.status!=="superseded");
-      Object.assign(note,SummaryPipeline.validateSummary(note,summaryEvidence,{requireCoverage:note.status!=="partial",maxItems:2000,maxSections:2000,maxQuestions:2000}));
-      note.evidenceRefs=restored.items.map(({id,t0,t1,source,selection,selectionReason,relatedEvidenceIds})=>({id,t0,t1,source,selection,selectionReason,relatedEvidenceIds}));
-    }
-    else if(note&&note.status!=="recognition-only")throw new Error("보관 노트의 형식을 확인할 수 없습니다.");
+    if(note&&!(note.version===2&&(note.note==null||Contracts.validate(NoteContract.schemas.note,note.note).ok)))throw new Error("이전 형식의 보관 노트라 열 수 없습니다. 인식 자료만 불러오려면 새로 요약하세요.");
     await session?.dispose();
     session=new CaptureSession({id:crypto.randomUUID(),generation:++generation,stream:null,options:{},emit,events});
     session.store=restored;session.summary=note;session.status="completed";session.closed=true;
@@ -227,17 +271,22 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
     if(message.type==="GENERATE_NOTES"){
       if(!["completed","failed"].includes(session.status))throw new Error("캡처 처리를 마친 뒤 요약하세요.");
       const current=session;summaryController=new AbortController();current.status="summarizing";current.error=null;current.publish();
-      current.summaryCache||=new Map();current.summaryAttempt=(current.summaryAttempt||0)+1;
+      current.summaryAttempt=(current.summaryAttempt||0)+1;
       const span=events.span({stage:"summary",jobId:current.id});
       try{
-        const config=settingsOf(message.settings),byok=Boolean(config.openRouterApiKey);
-        // 서비스 경로는 청크마다 토큰을 새로 받는다(요약은 몇 분 걸릴 수 있다). 시작 때 한 번 풀어 두는 건 연결 여부 판단용이다.
-        if(!byok&&config.serviceUrl)config.appSessionToken=await tokenProvider(config.appSessionToken);
-        const summaryService=byok?OpenRouterClient:{summary:async o=>ServiceClient.summary({...o,token:await tokenProvider(o.token)})};
-        current.log(`[요약] 연결 확인 · ${config.openRouterApiKey?"OpenRouter API 키 입력됨":config.serviceUrl&&config.appSessionToken?"보관 서비스 설정됨":"연결 설정 없음"} · 동의 ${config.remoteSummaryConsent?"완료":"미확인"} · 모델 ${config.summaryModel||"기본"}`);
-        current.summary=await SummaryPipeline.generate(current.store.snapshot(),{sessionId:current.id,gaps:current.gaps,settings:config,service:summaryService,signal:summaryController.signal,cache:current.summaryCache,attempt:current.summaryAttempt,onProgress:progress=>{current.progress=progress;current.publish();}});
+        // v2 단계(lib/stages.js): 인식은 이미 기기에서 끝났다(recognition local). 서버는 계획·작성만 하고, 월 분 한도는 계획 요청이 센다.
+        const config=settingsOf(message.settings),token=()=>tokenProvider(config.appSessionToken),svc=name=>async o=>ServiceClient[name]({baseUrl:config.serviceUrl,token:await token(),...o});
+        const me=await ServiceClient.me({baseUrl:config.serviceUrl,token:await token(),timeoutMs:15000,signal:summaryController.signal});
+        const paid=(me.features||[]).includes("background"),store=await storeP,pkg=current.packageId||=NoteLibrary.packageIdFor({});
+        const job=await Pipeline.createJob({jobId:`live-${current.id}-${current.summaryAttempt}`.replace(/[^A-Za-z0-9-]/g,"").slice(0,64),packageId:pkg,store,events});
+        const input=liveInput(current,{tier:paid?"paid":"free",models:noteModels(me),consent:{summary:config.remoteSummaryConsent},options:paid?config.noteOptions:{}});
+        current.log(`[요약] v2 · ${paid?"유료":"Free"} · 슬라이드 ${input.slides.length} · 발화 ${input.transcript.segments.length} · 동의 ${config.remoteSummaryConsent?"완료":"미확인"}`);
+        const res=await NoteStages.runNote(job,input,{service:{plan:svc("plan"),write:svc("write"),judge:svc("judge")},katex,events,signal:summaryController.signal,sleep:ms=>new Promise(r=>setTimeout(r,ms))});
+        if(!["complete","partial","recognition-only"].includes(res.status))throw Object.assign(new Error(Pipeline.CODES[res.code]?.userMessage||"요약을 마치지 못했습니다."),{code:res.code});
+        await saveLibrary(pkg,input,res,{source:"live",host:hostOf(current.options.pageUrl)});
+        current.summary={version:2,packageId:pkg,status:res.status,note:res.note??null,recognition:res.recognition??null,notices:res.notices??[]};
         span.done();
-      }catch(error){if(error.partial?.sections.length)current.summary=error.partial;current.error=error.name==="AbortError"?"요약을 취소했습니다. 완료한 구간은 유지됩니다.":error.message;if(error.name==="AbortError")span.skip({msg:"cancelled"});else span.fail("SUMMARY_FAILED");}
+      }catch(error){current.error=error.name==="AbortError"?"요약을 취소했습니다. 완료한 호출은 다시 요약할 때 재사용됩니다.":error.message;if(error.name==="AbortError")span.skip({msg:"cancelled"});else span.fail(error.code||"SUMMARY_FAILED");}
       finally{summaryController=null;current.status="completed";current.progress=null;current.publish();}
       return {ok:!current.error,state:current.state(),error:current.error};
     }
