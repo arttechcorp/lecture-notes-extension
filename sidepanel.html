@@ -233,6 +233,7 @@
         <div class="am-head" id="amHead"></div>
         <p class="am-err" id="amErr" role="alert" hidden></p>
         <button role="menuitem" type="button" data-path="/account">사용자 정보</button>
+        <button role="menuitem" type="button" data-path="/library">내 노트 (웹)</button>
         <button role="menuitem" type="button" data-path="/account/billing">결제 정보</button>
         <button role="menuitem" type="button" data-act="options">인앱 설정</button>
         <button role="menuitem" type="button" data-path="/account/subscription">구독 설정</button>
@@ -245,7 +246,7 @@
     </div>
   </div>
 </div>
-<nav class="stage-steps" aria-label="노트 만들기 단계"><span id="stepReady" class="active">01 준비</span><i aria-hidden="true"></i><span id="stepLive">02 캡처</span><i aria-hidden="true"></i><span id="stepDone">03 노트</span></nav>
+<nav class="stage-steps" aria-label="노트 만들기 단계"><span id="stepReady" class="active">01 준비</span><i aria-hidden="true"></i><span id="stepLive">02 인식</span><i aria-hidden="true"></i><span id="stepDone">03 노트</span></nav>
 
 <!-- ── 온보딩 (첫 실행·재동의: 필요한 단계만 보인다) ─────────────── -->
 <div id="onboard" hidden>
@@ -318,6 +319,16 @@
       <span class="mark" id="markTab">·</span><span class="what">영상 탭</span>
       <span class="val" id="tabState">—</span>
     </div>
+    <div class="checkrow">
+      <span class="mark" id="markAccount">·</span><span class="what">계정</span>
+      <span class="val" id="accountState">—</span>
+      <button class="link" id="accountLoginBtn" type="button" hidden>로그인</button>
+    </div>
+    <div class="checkrow">
+      <span class="mark" id="markStore">·</span><span class="what">노트 저장</span>
+      <span class="val" id="storeState">—</span>
+      <button class="link" id="storePassBtn" type="button" hidden>정하기</button>
+    </div>
   </div>
   <div class="settingbar">
     <span class="summary" id="settingsSummary">—</span>
@@ -327,7 +338,7 @@
   <div class="alert warn" id="readyAlert" role="alert" hidden></div>
   <button class="primary" id="startBtn" type="button" aria-describedby="capturePermissionHint" disabled>캡처 시작</button>
   <p class="detail" id="capturePermissionHint">일반 탭은 확장 아이콘으로 여세요. LearnUs 팝업은 강의 창을 클릭한 뒤 <b>Alt+Shift+S</b>를 누르면 해당 강의를 선택한 캡처 창이 열립니다.</p>
-  <p class="detail">화면 인식과 원문 타임라인은 기기 안에서 무료로 동작합니다.<br>AI 요약은 설정에서 요약 서비스를 연결해야 사용할 수 있어요.</p>
+  <p class="detail">화면·음성 인식은 기기 안에서 하고, 노트는 로그인한 계정으로 Summrizei 서비스가 만듭니다.</p>
 
   <!-- 백그라운드로 처리: 계정 features에 "background"가 있을 때만 보인다(sidepanel.js bgInit). 작업은 offscreen이 하고 여기는 누르고 보여 줄 뿐이다. -->
   <div id="bgBox" class="readycard" hidden>
