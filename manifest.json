@@ -21,8 +21,7 @@
     "<all_urls>",
     "https://huggingface.co/*",
     "https://*.hf.co/*",
-    "https://cdn-lfs.huggingface.co/*",
-    "https://openrouter.ai/*"
+    "https://cdn-lfs.huggingface.co/*"
   ],
   "sandbox": {
     "pages": ["sandbox.html"]

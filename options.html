@@ -834,7 +834,7 @@
     <details>
       <summary class="api-summary">
         <div class="api-summary-main">
-          <h2 id="apiHeading">OpenRouter API 키 연결 (선택 사항)</h2>
+          <h2 id="apiHeading">요약 서비스 연결</h2>
           <span class="badge">클라우드 AI</span>
         </div>
         <span class="chevron" aria-hidden="true">
@@ -843,14 +843,8 @@
       </summary>
 
       <div class="api-content">
-        <p class="note" style="margin-top: 0; margin-bottom: 16px;">로컬 인식 결과의 텍스트만 OpenRouter로 보내 요약합니다. 이미지와 오디오는 전송하지 않으며, 키는 이 기기의 확장 설정에만 저장합니다.</p>
+        <p class="note" style="margin-top: 0; margin-bottom: 16px;">로컬 인식 결과의 텍스트만 요약 서비스로 보냅니다. 이미지와 오디오는 전송하지 않습니다.</p>
 
-        <div class="form-field">
-          <label for="openRouterApiKey" class="field-label">OpenRouter API 키</label>
-          <input id="openRouterApiKey" type="password" placeholder="sk-or-v1-…" autocomplete="off" spellcheck="false" class="mono-input" />
-          <p class="note">키는 <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">OpenRouter 키 페이지</a>에서 발급합니다. 이 채팅이나 로그에 키를 붙여 넣지 마세요.</p>
-        </div>
-        
         <div class="form-field">
           <label for="serviceUrl" class="field-label">서비스 URL (개발용)</label>
           <div class="select-wrap">
@@ -867,19 +861,6 @@
           <p class="note" id="tokenNote">위에서 Google로 로그인했다면 로그인한 계정이 우선 쓰입니다. 로그인하지 않았을 때만 이 토큰을 씁니다.</p>
         </div>
 
-        <div class="form-field">
-          <label for="summaryModel" class="field-label">요약 모델</label>
-          <div class="select-wrap">
-            <select id="summaryModel">
-              <option value="google/gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite · 비용 우선</option>
-              <option value="google/gemini-3.8-flash">Gemini 3.8 Flash · 기본 추천</option>
-              <option value="google/gemini-2.5-pro">Gemini 2.5 Pro · 플래그십 심층 분석</option>
-              <option value="anthropic/claude-haiku-4.5">Claude Haiku 4.5</option>
-              <option value="anthropic/claude-sonnet-4.6">Claude Sonnet 4.6 · 상세 노트</option>
-            </select>
-          </div>
-        </div>
-
         <div class="checklist">
           <label class="check-label">
             <input type="checkbox" id="remoteSummaryConsent" class="check-input">
@@ -892,7 +873,7 @@
           <button id="saveBtn" type="button">연결 설정 저장</button>
         </div>
 
-        <p class="note setting-note" id="apiHelp">OpenRouter 키를 입력하지 않으면 인식만 로컬에서 완료됩니다. 외부 요약은 위 동의 항목을 켠 경우에만 실행됩니다.</p>
+        <p class="note setting-note" id="apiHelp">인식은 이 기기에서 완료됩니다. 외부 요약은 위 동의 항목을 켠 경우에만 실행됩니다.</p>
       </div>
     </details>
   </section>
@@ -913,7 +894,6 @@
   <script src="lib/service-client.js"></script>
   <script src="lib/auth.js"></script>
   <script src="lib/diagnostics.js"></script>
-  <script src="lib/openrouter-client.js"></script>
   <script src="options.js"></script>
 </body>
 </html>
