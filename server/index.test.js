@@ -359,11 +359,10 @@ test("oversized bodies report request_too_large and preflight advertises the ver
   } finally { await close(server); removeTemp(root); }
 });
 
-// ── STT (Groq Whisper) ──
+// ── STT (OpenRouter MAI Transcribe) ──
 const sttEnv = root => ({
   ...config(root),
-  ALLOWED_STT_MODELS: JSON.stringify(["whisper-large-v3-turbo", "whisper-large-v3"]),
-  GROQ_API_KEY: "mock-groq-key",
+  ALLOWED_STT_MODELS: JSON.stringify(["microsoft/mai-transcribe-2"]),
   ALLOWED_VISION_MODELS: JSON.stringify([model]),
   ACCOUNT_LIMITS_JSON: JSON.stringify({
     A: { models: [model], maxRequests: 50, maxCostCents: 500, features: ["stt", "vision"] },
@@ -371,52 +370,52 @@ const sttEnv = root => ({
   }),
 });
 const audio = size => "data:audio/mp4;base64," + Buffer.alloc(size, 7).toString("base64");
-const groqRaw = () => ({
-  duration: 12.4,
+const wav = size => "data:audio/wav;base64," + Buffer.alloc(size, 7).toString("base64");
+const maiRaw = () => ({
+  text: "등가 회로를 먼저 그립니다. 전류 법칙을 적용합니다.", language: "ko", duration: 12.4,
   segments: [
-    { start: 0, end: 5.2, text: "  등가 회로를 먼저 그립니다.  ", avg_logprob: -0.2, compression_ratio: 1.1, no_speech_prob: 0.01 },
-    { start: 5.8, end: 12.4, text: "전류 법칙을 적용합니다.", avg_logprob: -0.3, compression_ratio: 1.4, no_speech_prob: 0.02 },
+    { id: 0, start: 0, end: 5.2, text: "  등가 회로를 먼저 그립니다.  " },
+    { id: 1, start: 5.8, end: 12.4, text: "전류 법칙을 적용합니다." },
   ],
   words: [
-    { word: " 등가 ", start: 0.1, end: 0.5 }, { word: "회로를", start: 0.6, end: 1.2 },
-    { word: "그리고", start: 5.4, end: 5.7 }, { word: "전류", start: 6.0, end: 6.6 },
+    { word: " 등가 ", start: 0.1, end: 0.5, confidence: 0.9 }, { word: "회로를", start: 0.6, end: 1.2 },
+    { word: "그리고", start: 5.4, end: 5.7 }, { word: "전류", start: 6.0, end: 6.6, confidence: 0.8 },
   ],
+  usage: { cost: 0.004, seconds: 12.4 },
 });
-const sttBody = o => ({ model: "whisper-large-v3-turbo", requestId: "stt-x", t0: 100, durationSec: 60, lang: "ko", prompt: "강의 전사", audio: audio(4096), ...o });
+const sttBody = o => ({ model: "microsoft/mai-transcribe-2", requestId: "stt-x", t0: 100, durationSec: 60, lang: "ko", prompt: "강의 전사", audio: audio(4096), ...o });
 const settle = usd => Math.ceil(usd * 1e6) / 1e4;
 
-test("stt forwards multipart audio to Groq and bills provider-measured seconds", async () => {
+test("stt posts base64 audio to OpenRouter and bills the reported cost", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
-  let calls = 0, sentUrl, sent, reply = groqRaw();
+  let calls = 0, sentUrl, sent, reply = maiRaw();
   const server = createServer(sttEnv(root), { fetch: async (u, o) => { calls++; sentUrl = u; sent = o; return { ok: true, json: async () => reply }; } });
   await new Promise(r => server.listen(0, "127.0.0.1", r));
   const url = "http://127.0.0.1:" + server.address().port;
   try {
-    const res = await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-one" }));
+    const res = await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-one", prompt: "등가 회로, KCL ,, KCL" }));
     assert.equal(res.status, 200);
     assert.equal(calls, 1);
-    assert.equal(sentUrl, "https://api.groq.com/openai/v1/audio/transcriptions");
+    assert.equal(sentUrl, "https://openrouter.ai/api/v1/audio/transcriptions");
     assert.equal(sent.method, "POST");
-    assert.equal(sent.headers.authorization, "Bearer mock-groq-key");
-    assert.equal(sent.headers["content-type"], undefined, "multipart 경계는 fetch 가 붙인다");
-    const form = sent.body;
-    assert.ok(form instanceof FormData);
-    assert.equal(form.get("model"), "whisper-large-v3-turbo");
-    assert.equal(form.get("response_format"), "verbose_json");
-    assert.deepEqual(form.getAll("timestamp_granularities[]"), ["word", "segment"]);
-    assert.equal(form.get("language"), "ko");
-    assert.equal(form.get("prompt"), "강의 전사");
-    assert.equal(form.get("temperature"), "0");
-    const file = form.get("file");
-    assert.equal(file.type, "audio/mp4");
-    assert.equal(file.name, "chunk.m4a");
-    assert.equal(file.size, 4096, "디코드한 바이트 수와 같아야 한다");
+    assert.equal(sent.headers.authorization, "Bearer mock-operator-key", "운영자 OpenRouter 키로 나간다");
+    assert.equal(sent.headers["content-type"], "application/json");
+    const body = JSON.parse(sent.body);
+    assert.equal(body.model, "microsoft/mai-transcribe-2");
+    assert.equal(body.input_audio.format, "m4a");
+    assert.equal(body.input_audio.data, audio(4096).split(",")[1], "data URI 가 아니라 raw base64 다");
+    assert.equal(body.language, "ko");
+    assert.equal(body.response_format, "verbose_json");
+    assert.deepEqual(body.timestamp_granularities, ["segment", "word"]);
+    assert.equal(body.prompt, undefined, "이 모델이 무시하는 필드는 빼고");
+    assert.equal(body.temperature, undefined, "temperature 도 보내지 않는다");
+    assert.deepEqual(body.provider, { options: { azure: { phraseList: { phrases: ["등가 회로", "KCL"] } } } }, "prompt 는 구문 목록으로 내린다");
 
     const data = await res.json();
     const checked = Contracts.validate(Contracts.SCHEMAS.transcript, data.transcript);
     assert.ok(checked.ok, JSON.stringify(checked.errors));
-    assert.equal(data.transcript.engine, "groq-whisper");
-    assert.equal(data.transcript.model, "whisper-large-v3-turbo");
+    assert.equal(data.transcript.engine, "openrouter-mai");
+    assert.equal(data.transcript.model, "microsoft/mai-transcribe-2");
     assert.equal(data.transcript.lang, "ko");
     const [s0, s1] = data.transcript.segments;
     assert.equal(s0.id, "100000-0");
@@ -424,33 +423,36 @@ test("stt forwards multipart audio to Groq and bills provider-measured seconds",
     assert.equal(s1.t0, 105.8); assert.equal(s1.t1, 112.4);
     assert.equal(s0.text, "등가 회로를 먼저 그립니다.");
     assert.deepEqual(s0.words.map(w => w.w), ["등가", "회로를"]);
-    assert.deepEqual(s1.words.map(w => w.w), ["그리고", "전류"], "끊긴 구간의 단어는 다음 세그먼트로 간다");
-    assert.equal(s0.words[0].t0, 100.1);
-    assert.equal(s0.noSpeechProb, 0.01);
-    assert.equal(s0.avgLogprob, -0.2);
-    assert.equal(s0.compressionRatio, 1.1);
+    assert.deepEqual(s1.words.map(w => w.w), ["전류"], "틈새의 단어는 어느 세그먼트에도 붙지 않는다");
+    assert.deepEqual(s0.words[0], { w: "등가", t0: 100.1, t1: 100.5 }, "단어 confidence 는 계약에 없어 버린다");
+    assert.equal(s0.noSpeechProb, null, "MAI 에는 품질 점수가 없다");
     assert.equal(s0.status, "kept");
     assert.equal(data.usage.audioSec, 60, "선언 60초가 제공자 측정 13초보다 길다");
-    assert.equal(data.usage.costUsd, 0.04 * 60 / 3600);
+    assert.equal(data.usage.costUsd, 0.004, "제공자가 보고한 usage.cost 를 그대로 쓴다");
     assert.equal(data.promptVersion, "v1");
     assert.equal(data.schemaVersion, 1);
 
-    // 빈 prompt 는 필드를 빼고, 선언+제공자 길이가 10초 미만이면 최소 과금 10초가 적용된다.
+    // 빈 prompt 는 provider 를 빼고, usage.cost 가 없으면 시간 단가로 되돌린다(최소 과금 10초).
     reply = { duration: 4, segments: [{ start: 0, end: 3.5, text: "짧은 음성" }] };
     const short = await (await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-two", durationSec: 3, prompt: "" }))).json();
-    assert.equal(sent.body.get("prompt"), null, "빈 prompt 는 보내지 않는다");
+    assert.equal(JSON.parse(sent.body).provider, undefined, "구문이 없으면 provider 를 보내지 않는다");
     assert.equal(short.usage.audioSec, 10);
-    assert.equal(short.usage.costUsd, 0.04 * 10 / 3600);
+    assert.equal(short.usage.costUsd, 0.10 * 10 / 3600);
 
-    // 제공자가 잰 길이가 선언보다 길면 제공자 값으로 정산한다. 모델 단가도 갈아 탄다.
-    reply = groqRaw();
-    const v3 = await (await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-three", model: "whisper-large-v3", durationSec: 3 }))).json();
-    assert.equal(v3.usage.audioSec, 13);
-    assert.equal(v3.usage.costUsd, 0.111 * 13 / 3600);
+    // 제공자가 잰 길이가 선언보다 길면 그 값까지 올려 정산한다.
+    reply = { ...maiRaw(), usage: {} };
+    const long = await (await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-three", durationSec: 3 }))).json();
+    assert.equal(long.usage.audioSec, 13);
+    assert.equal(long.usage.costUsd, 0.10 * 13 / 3600);
+
+    // wav 도 받아들인다.
+    reply = maiRaw();
+    assert.equal((await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-wav", audio: wav(1024) }))).status, 200);
+    assert.equal(JSON.parse(sent.body).input_audio.format, "wav");
 
     const me = await (await req(url, "/v1/me")).json();
-    assert.equal(me.quota.requests, 3);
-    const expected = settle(0.04 * 60 / 3600) + settle(0.04 * 10 / 3600) + settle(0.111 * 13 / 3600);
+    assert.equal(me.quota.requests, 4);
+    const expected = settle(0.004) + settle(0.10 * 10 / 3600) + settle(0.10 * 13 / 3600) + settle(0.004);
     assert.ok(Math.abs(me.quota.spentCents - expected) < 1e-9, "예약 1센트는 정산에서 되돌아간다: " + me.quota.spentCents);
   } finally { await close(server); removeTemp(root); }
 });
@@ -463,18 +465,18 @@ test("stt bills the last segment end when the provider omits duration", async ()
   try {
     const data = await (await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-nodur", durationSec: 20 }))).json();
     assert.equal(data.usage.audioSec, 150, "선언 20초보다 실제 150초 분량이 정산된다");
-    assert.equal(data.usage.costUsd, 0.04 * 150 / 3600);
+    assert.equal(data.usage.costUsd, 0.10 * 150 / 3600);
   } finally { await close(server); removeTemp(root); }
 });
 
 test("stt validates fields, audio size and the paid feature gate", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
   let calls = 0;
-  const server = createServer(sttEnv(root), { fetch: async () => { calls++; return { ok: true, json: async () => groqRaw() }; } });
+  const server = createServer(sttEnv(root), { fetch: async () => { calls++; return { ok: true, json: async () => maiRaw() }; } });
   await new Promise(r => server.listen(0, "127.0.0.1", r));
   const url = "http://127.0.0.1:" + server.address().port;
   const offRoot = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
-  const off = createServer({ ...sttEnv(offRoot), FEATURE_FLAGS_JSON: JSON.stringify({ stt: false }) }, { fetch: async () => ({ ok: true, json: async () => groqRaw() }) });
+  const off = createServer({ ...sttEnv(offRoot), FEATURE_FLAGS_JSON: JSON.stringify({ stt: false }) }, { fetch: async () => ({ ok: true, json: async () => maiRaw() }) });
   await new Promise(r => off.listen(0, "127.0.0.1", r));
   const offUrl = "http://127.0.0.1:" + off.address().port;
   const expect = async (body, status, code, auth) => {
@@ -490,14 +492,15 @@ test("stt validates fields, audio size and the paid feature gate", async () => {
     for (const [i, patch] of [{ durationSec: 0 }, { durationSec: 331 }, { t0: -1 }, { lang: "fr" }, { prompt: "x".repeat(1001) }].entries())
       await expect(sttBody({ requestId: "v-params-" + i, ...patch }), 400, "invalid_stt_params");
     await expect(sttBody({ requestId: "v-mime", audio: "data:image/jpeg;base64,AAAA" }), 400, "invalid_audio");
+    await expect(sttBody({ requestId: "v-ogg", audio: "data:audio/ogg;base64,AAAA" }), 400, "invalid_audio");
     await expect(sttBody({ requestId: "v-garbage", audio: "not-audio" }), 400, "invalid_audio");
     assert.equal(calls, 0, "검증 실패는 제공자를 호출하지 않는다");
 
-    await expect(sttBody({ requestId: "v-big", audio: audio(8 * 1024 * 1024 + 1) }), 413, "audio_too_large");
-    assert.equal((await req(url, "/v1/stt", "POST", sttBody({ requestId: "v-max", audio: audio(8 * 1024 * 1024) }))).status, 200, "8 MiB 정확히는 통과한다");
-    const huge = await req(url, "/v1/stt", "POST", sttBody({ requestId: "v-huge", audio: audio(9 * 1024 * 1024) }));
+    await expect(sttBody({ requestId: "v-big", audio: audio(12 * 1024 * 1024 + 1) }), 413, "audio_too_large");
+    assert.equal((await req(url, "/v1/stt", "POST", sttBody({ requestId: "v-max", audio: audio(12 * 1024 * 1024) }))).status, 200, "12 MiB 정확히는 통과한다");
+    const huge = await req(url, "/v1/stt", "POST", sttBody({ requestId: "v-huge", audio: audio(13 * 1024 * 1024) }));
     assert.equal(huge.status, 413);
-    assert.equal((await huge.json()).error.code, "request_too_large", "12 MB 본문 상한이 먼저 걸린다");
+    assert.equal((await huge.json()).error.code, "request_too_large", "17 MB 본문 상한이 먼저 걸린다");
 
     assert.equal((await req(url, "/v1/stt", "POST", sttBody({ requestId: "v-dup" }))).status, 200);
     const before = calls;
@@ -523,8 +526,8 @@ test("stt refunds provider HTTP errors but keeps the reservation on bad output",
     if (mode === "fail") return { ok: false, status: 500, headers: new Map(), json: async () => ({}) };
     if (mode === "busy") return { ok: false, status: 429, headers: new Map([["retry-after", "3"]]), json: async () => ({}) };
     if (mode === "malformed") return { ok: true, json: async () => ({ duration: 1, text: "no segments" }) };
-    if (mode === "huge") return { ok: true, json: async () => ({ ...groqRaw(), pad: "x".repeat(2 * 1024 * 1024) }) };
-    return { ok: true, json: async () => groqRaw() };
+    if (mode === "huge") return { ok: true, json: async () => ({ ...maiRaw(), pad: "x".repeat(2 * 1024 * 1024) }) };
+    return { ok: true, json: async () => maiRaw() };
   }});
   await new Promise(r => server.listen(0, "127.0.0.1", r));
   const url = "http://127.0.0.1:" + server.address().port;
@@ -548,7 +551,7 @@ test("stt refunds provider HTTP errors but keeps the reservation on bad output",
     assert.equal(e.retryAfterMs, 3000);
     me = await (await req(url, "/v1/me")).json();
     assert.equal(me.quota.requests, 1, "앞의 성공 1건만 남는다");
-    assert.ok(Math.abs(me.quota.spentCents - settle(0.04 * 60 / 3600)) < 1e-9);
+    assert.ok(Math.abs(me.quota.spentCents - settle(0.004)) < 1e-9);
 
     mode = "malformed";
     r = await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-bad" }));
@@ -570,7 +573,7 @@ test("stt keeps audio out of the ledger and error bodies", async () => {
   let mode = "ok";
   const server = createServer(sttEnv(root), { fetch: async () => mode === "fail"
     ? { ok: false, status: 500, headers: new Map(), json: async () => ({}) }
-    : { ok: true, json: async () => groqRaw() } });
+    : { ok: true, json: async () => maiRaw() } });
   await new Promise(r => server.listen(0, "127.0.0.1", r));
   const url = "http://127.0.0.1:" + server.address().port;
   try {
@@ -585,24 +588,25 @@ test("stt keeps audio out of the ledger and error bodies", async () => {
   } finally { await close(server); removeTemp(root); }
 });
 
-test("toTranscript maps groq verbose_json into the contract deterministically", () => {
-  const opts = { t0: 10, model: "whisper-large-v3-turbo", lang: "ko" };
+test("toTranscript maps mai verbose_json into the contract deterministically", () => {
+  const opts = { t0: 10, model: "microsoft/mai-transcribe-2", lang: "ko" };
   const t = toTranscript({ segments: [{ start: 0, end: 2, text: "a" }, { start: 4, end: 6, text: "b" }], words: [
-    { word: "w0", start: 0, end: 1 },
-    { word: "boundary", start: 1.9, end: 2.1 },
+    { word: "w0", start: 0, end: 1, confidence: 0.9 },
+    { word: "edge", start: 1.9, end: 2.1 },
+    { word: "inside", start: 4.5, end: 5 },
     { word: "gap", start: 2.5, end: 3 },
     { word: "tail", start: 9, end: 10 },
     { word: "  ", start: 0, end: 1 },
     { word: 5, start: 0, end: 1 },
   ] }, opts);
   assert.equal(t.schemaVersion, Contracts.CONTRACT_VERSION);
-  assert.equal(t.engine, "groq-whisper");
+  assert.equal(t.engine, "openrouter-mai");
   assert.equal(t.segments[0].id, "10000-0");
   assert.equal(t.segments[0].t0, 10);
-  assert.deepEqual(t.segments[0].words.map(w => w.w), ["w0"]);
-  assert.deepEqual(t.segments[1].words.map(w => w.w), ["boundary", "gap", "tail"], "경계·틈새·마지막 이후 단어는 뒤 세그먼트로 간다");
-  assert.equal(t.segments[1].words[2].t0, 19, "단어 시각에도 t0 를 더한다");
-  assert.equal(t.segments[0].noSpeechProb, null, "없는 점수는 null");
+  assert.deepEqual(t.segments[0].words.map(w => w.w), ["w0", "edge"], "중간 시각을 품는 세그먼트에 붙는다(경계 포함)");
+  assert.deepEqual(t.segments[1].words.map(w => w.w), ["inside"], "틈새·마지막 이후 단어는 버린다");
+  assert.deepEqual(t.segments[0].words[0], { w: "w0", t0: 10, t1: 11 }, "confidence 는 계약에 없어 버리고 단어 시각에도 t0 를 더한다");
+  assert.equal(t.segments[0].noSpeechProb, null, "MAI 에는 품질 점수가 없다");
   assert.equal(t.segments[0].avgLogprob, null);
   assert.equal(t.segments[0].compressionRatio, null);
 
@@ -610,9 +614,9 @@ test("toTranscript maps groq verbose_json into the contract deterministically", 
   assert.deepEqual(noWords.segments[0].words, []);
   const empty = toTranscript({ segments: [], words: [{ word: "a", start: 0, end: 1 }] }, opts);
   assert.deepEqual(empty.segments, [], "세그먼트가 없으면 단어는 버린다");
-  const ranged = toTranscript({ segments: [{ start: 0, end: 1, text: "x", no_speech_prob: 1.5, compression_ratio: -0.5 }] }, opts);
-  assert.equal(ranged.segments[0].noSpeechProb, null, "범위 밖 점수는 null");
-  assert.equal(ranged.segments[0].compressionRatio, null);
+  const ranged = toTranscript({ segments: [{ start: 0, end: 1, text: "x", no_speech_prob: 1.5, avg_logprob: -0.2 }] }, opts);
+  assert.equal(ranged.segments[0].noSpeechProb, null, "Whisper 점수가 섞여 와도 계약 필드는 null 로 둔다");
+  assert.equal(ranged.segments[0].avgLogprob, null);
   assert.throws(() => toTranscript({ segments: [{ end: 1, text: "x" }] }, opts), /invalid_stt_output/);
   assert.throws(() => toTranscript({ segments: "x" }, opts));
   assert.throws(() => toTranscript(null, opts));
@@ -621,17 +625,17 @@ test("toTranscript maps groq verbose_json into the contract deterministically", 
 test("ServiceClient.stt round-trips through the real client and sends its version", async () => {
   const ServiceClient = require("../lib/service-client.js");
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
-  const server = createServer(sttEnv(root), { fetch: async () => ({ ok: true, json: async () => groqRaw() }) });
+  const server = createServer(sttEnv(root), { fetch: async () => ({ ok: true, json: async () => maiRaw() }) });
   await new Promise(r => server.listen(0, "127.0.0.1", r));
   const url = "http://127.0.0.1:" + server.address().port;
   const strictRoot = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
-  const strict = createServer({ ...sttEnv(strictRoot), REMOTE_CONFIG_JSON: JSON.stringify({ minClientVersion: "9.0.0" }) }, { fetch: async () => ({ ok: true, json: async () => groqRaw() }) });
+  const strict = createServer({ ...sttEnv(strictRoot), REMOTE_CONFIG_JSON: JSON.stringify({ minClientVersion: "9.0.0" }) }, { fetch: async () => ({ ok: true, json: async () => maiRaw() }) });
   await new Promise(r => strict.listen(0, "127.0.0.1", r));
   const strictUrl = "http://127.0.0.1:" + strict.address().port;
   globalThis.chrome = { runtime: { getManifest: () => ({ version: "1.2.3" }) } };
   try {
-    const data = await ServiceClient.stt({ baseUrl: url, token, model: "whisper-large-v3-turbo", requestId: "cli-stt", t0: 0, durationSec: 10, lang: "ko", audio: audio(512) });
-    assert.equal(data.transcript.engine, "groq-whisper");
+    const data = await ServiceClient.stt({ baseUrl: url, token, model: "microsoft/mai-transcribe-2", requestId: "cli-stt", t0: 0, durationSec: 10, lang: "ko", audio: audio(512) });
+    assert.equal(data.transcript.engine, "openrouter-mai");
     assert.equal(data.transcript.segments.length, 2);
     let err;
     try { await ServiceClient.stt({ baseUrl: url, token, model: "nope", requestId: "cli-bad", t0: 0, durationSec: 10, lang: "ko", audio: audio(512) }); } catch (e) { err = e; }
@@ -1454,7 +1458,7 @@ test("the note format is one slot: swapping lib/note-spec.js changes validation,
 });
 
 // ── Supabase 인증·장부 (docs/architecture-v2.md §11, supabase/schema-v2.sql) ──
-// 키는 테스트 안에서 만든다. Supabase는 가짜 fetch 하나가 JWKS 엔드포인트와 PostgREST RPC·테이블을 흉내 낸다(OpenRouter·Groq는 sb.other 로 넘긴다).
+// 키는 테스트 안에서 만든다. Supabase는 가짜 fetch 하나가 JWKS 엔드포인트와 PostgREST RPC·테이블을 흉내 낸다(OpenRouter 호출은 sb.other 로 넘긴다).
 const SB = "https://proj.supabase.co", SERVICE_KEY = "service-role-key-".padEnd(40, "s"), DIGEST_KEY = "usage-digest-key-".padEnd(40, "d"), JWT_SECRET = "jwt-secret-".padEnd(40, "j");
 const UID = "7b1f3c52-0a4e-4d19-9c8e-5e2a6f1d3b70", UID2 = "0d9c4a1e-2b7f-4e55-8a31-9f6c7d2e1b44";
 const EC1 = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" }), EC2 = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" }), RSA1 = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -1571,7 +1575,7 @@ function supabaseFake() {
 const sbEnv = root => ({
   ...config(root), SUPABASE_URL: SB, SUPABASE_SERVICE_ROLE_KEY: SERVICE_KEY, USAGE_DIGEST_KEY: DIGEST_KEY,
   OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], [judgeModel]: ["test-provider"] }),
-  ALLOWED_VISION_MODELS: JSON.stringify([model]), ALLOWED_STT_MODELS: JSON.stringify(["whisper-large-v3-turbo"]), GROQ_API_KEY: "mock-groq-key",
+  ALLOWED_VISION_MODELS: JSON.stringify([model]), ALLOWED_STT_MODELS: JSON.stringify(["microsoft/mai-transcribe-2"]),
 });
 // clock.t 를 올리면 서버의 JWT 만료·JWKS cooldown·등급 캐시 시계가 같이 간다.
 async function withSupabase(run, { env = {}, setup } = {}) {
@@ -1897,7 +1901,7 @@ test("refund paths settle as refunded with no cost and no usage, and the same re
     assert.equal(e.retryable, true);
     assert.equal(sb.rpcNamed("reserve_usage")[0].args.p_minutes, 1, "60초 청크는 1분으로 센다");
     assert.deepEqual(settledOf(sb, 0), {
-      p_user: UID, p_request_id: "stt-r1", p_actual_cost_micros: null, p_status: "refunded", p_stage: "stt", p_provider: "groq", p_model: "whisper-large-v3-turbo",
+      p_user: UID, p_request_id: "stt-r1", p_actual_cost_micros: null, p_status: "refunded", p_stage: "stt", p_provider: "openrouter", p_model: "microsoft/mai-transcribe-2",
       p_input_tokens: null, p_output_tokens: null, p_audio_seconds: null, p_images: null, p_prompt_version: null, p_schema_version: null,
       p_error_code: "provider_failed_or_invalid_output", p_latency_ms: settledOf(sb, 0).p_latency_ms, p_client_version: null, p_host: null,
     });
@@ -1914,7 +1918,7 @@ test("refund paths settle as refunded with no cost and no usage, and the same re
     const done = settledOf(sb, 2);
     assert.equal(done.p_status, "ok");
     assert.equal(done.p_audio_seconds, 60, "정산은 제공자가 잰 길이와 선언 중 큰 값이다");
-    assert.equal(done.p_actual_cost_micros, Math.ceil(0.04 * 60 / 3600 * 1e6));
+    assert.equal(done.p_actual_cost_micros, Math.ceil(0.004 * 1e6), "제공자가 보고한 usage.cost 가 정산된다");
     assert.equal(done.p_prompt_version, "v1");
     assert.equal(done.p_schema_version, 1);
     assert.equal(done.p_error_code, null);
@@ -1937,7 +1941,7 @@ test("refund paths settle as refunded with no cost and no usage, and the same re
     sb.other = async () => {
       if (mode === "fail") return { ok: false, status: 500, headers: new Map(), json: async () => ({}) };
       if (mode === "busy") return { ok: false, status: 429, headers: new Map([["retry-after", "3"]]), json: async () => ({}) };
-      return { ok: true, json: async () => groqRaw() };
+      return { ok: true, json: async () => maiRaw() };
     };
   } });
 });
@@ -1983,7 +1987,7 @@ test("no lecture content or bare hash reaches Supabase from any route and digest
   await withSupabase(async ({ url, sb }) => {
     const jwt = ec1(), items = judgeBody({ requestId: "leak-judge" }).items;
     sb.other = async (u, o) => {
-      if (u.includes("groq")) return { ok: true, json: async () => groqRaw() };
+      if (u.includes("audio/transcriptions")) return { ok: true, json: async () => maiRaw() };
       const b = JSON.parse(o.body), schemaName = b.response_format?.json_schema?.name;
       if (b.logprobs) return judgeReply();
       if (schemaName === "slide_doc") return slideProvider();

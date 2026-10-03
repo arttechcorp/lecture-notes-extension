@@ -435,3 +435,10 @@ enabled = true
 [functions.delete-account]
 verify_jwt = false
 entrypoint = "./functions/delete-account/index.js"
+
+# 확장의 운영 서비스(/v1/*). server/index.js를 tools/build-edge.mjs로 묶은 server.bundle.js를 adapter.js가 Deno에서 돌린다.
+# 확장은 Supabase 로그인 JWT 외에 개발용 정적 토큰도 보내므로 게이트웨이 검사는 끄고 서버가 직접 검증한다.
+# 배포: node tools/build-edge.mjs && supabase functions deploy api --use-api (비밀값은 server/README.md "Supabase Edge Function 배포")
+[functions.api]
+verify_jwt = false
+entrypoint = "./functions/api/index.js"

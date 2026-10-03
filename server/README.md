@@ -60,6 +60,45 @@ PLAN_FEATURES_JSON={"essential":{"features":["vision","stt","judge","background"
 
 `FEATURE_FLAGS_JSON`은 기능별 전역 스위치다. `false`로 지정한 기능은 계정 권한과 무관하게 `/v1/me` 목록과 라우트에서 꺼진다(기본 `{}` = 모두 켬). `REMOTE_CONFIG_JSON`은 클라이언트에 내려가는 원격 설정으로 기본값 `{concurrency:{download:4,decode:1,stt:4,vision:8,judge:2,write:8},throughputMbps:50,minClientVersion:"0.0.0",promptVersion:"v1",schemaVersion:1}` 위에 병합된다. 알 수 없는 키나 0 이하 수치는 기동을 거부한다. `minClientVersion`보다 낮은 `x-client-version` 헤더의 클라이언트는 426을 받는다. `ACCOUNT_CONCURRENCY`는 계정당 동시 진행 요청 상한(기본 12), `PROVIDER_CONCURRENCY_JSON`은 모델별 제공자 동시 슬롯(기본 16), `PROVIDER_QUEUE_MS`는 슬롯 대기 상한(기본 10000, 넘으면 `provider_busy`), `ACCOUNT_RATE_PER_MIN`은 계정당 분당 POST 상한(기본 300)이다.
 
+## Supabase Edge Function 배포 (확장만 불러와 테스트할 때)
+
+확장의 기본 서비스 주소는 `https://rppknkhbiivyurhvljoi.supabase.co/functions/v1/api`다(`lib/settings.js` `SERVICE_URL`). 로컬 node 서버 없이, 저장소 폴더를 Chrome에 "압축해제된 확장 프로그램"으로 불러와 Google로 로그인하면 이 함수를 쓴다.
+
+- 코드: `supabase/functions/api/index.js`(진입) → `adapter.js`(Deno `Request` ↔ 서버 처리기의 Node 모양 req/res) → `server.bundle.js`(`server/index.js`와 그 의존 `server/*`·`lib/*`를 묶은 생성 파일).
+- 서버 코드를 고치면 묶음을 다시 만든다: `node tools/build-edge.mjs`. 커밋된 묶음이 소스와 다르면 `tools/edge-api.test.mjs`가 실패한다.
+- 함수 설정은 `supabase/config.toml` `[functions.api]`다. 게이트웨이 JWT 검사는 끄고 서버가 직접 검증한다(Supabase 로그인 JWT와 개발용 정적 토큰을 함께 받기 위해).
+- `SUPABASE_URL`·`SUPABASE_SERVICE_ROLE_KEY`는 Edge 런타임이 넣어 준다. 나머지는 비밀값으로 한 번 넣는다(값은 셸 기록에 남지 않게 `--env-file`을 권한다).
+
+```bash
+supabase secrets set --env-file <저장소 밖의 env 파일>
+```
+
+| 이름 | 값 |
+|---|---|
+| `OPENROUTER_API_KEY` | 운영자 OpenRouter 키 |
+| `OPENROUTER_PROVIDERS_JSON` | 요약·계획·작성·비전·판정 모델별 ZDR 공급자 태그(아래 "설정"과 같다) |
+| `ALLOWED_MODELS` | 요약·계획·작성 모델 목록(JSON 배열) |
+| `ALLOWED_VISION_MODELS` | 비전 모델 목록 |
+| `ALLOWED_STT_MODELS` | `["microsoft/mai-transcribe-2"]` |
+| `ALLOWED_JUDGE_MODELS` | 선택. 판정 모델 |
+| `EXTENSION_ORIGIN` | `chrome-extension://gllijdanodakjamndimlpgmhokaakpod`(저장소 경로에서 계산한 개발용 ID. `chrome://extensions`에서 확인) |
+| `USAGE_DIGEST_KEY` | 32자 이상 무작위 문자열(요청 본문 해시용 HMAC 키) |
+
+배포(Docker 불필요):
+
+```bash
+node tools/build-edge.mjs
+supabase functions deploy api --use-api
+supabase functions deploy delete-account --use-api
+```
+
+배포 뒤 확인: 확장 설정 → Google 로그인 → 사이드 패널 계정 메뉴에 등급이 보이고, 유료 등급(`entitlements`에 `essential`)이면 "백그라운드로 처리" 카드가 나온다.
+
+한계:
+- 워커는 짧게 살아서 서버 메모리의 캐시·동시성 세마포어·분당 버킷은 워커마다 따로다. 한도·중복 요청은 Postgres가 판정하므로 정확성에는 영향이 없다.
+- 요청 하나는 150초 안에 응답해야 한다(Edge 유휴 제한). 제공자 호출 상한은 120초다.
+- 정적 토큰 계정(`APP_TOKENS_JSON`)의 파일 장부와 보관함은 `/tmp`(워커 수명)라 남지 않는다. Edge에서는 Supabase 로그인 계정으로 시험한다.
+
 ## Supabase 계정과 장부
 
 `SUPABASE_URL`을 설정하면 정적 토큰 계정에 더해 JWT 계정이 생긴다. 정적 토큰이 먼저 비교되고 일치하지 않으면 JWT로 검증한다. Supabase를 켠 배포는 `APP_TOKENS_JSON` 없이(JWT 계정만) 기동할 수 있다. 키 없이 켜면 기동을 거부한다.

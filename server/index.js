@@ -9,10 +9,10 @@ const RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1
 const VISION_RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"mistralai/ministral-8b-2512":[.15,.15],"qwen/qwen3-vl-8b-instruct":[.12,.45]};
 // 구조화 출력은 상자 좌표까지 JSON으로 나가 순수 텍스트보다 길다.
 const VISION_MAX_TOKENS=8192;
-// Groq Whisper 는 오디오 시간당 과금이다. 예약은 클라이언트 선언 길이로 잡되 정산은 제공자가 잰
+// MAI Transcribe 는 오디오 시간당 과금이다. 예약은 클라이언트 선언 길이로 잡되 정산은 제공자가 잰
 // 길이까지 올린다 — 선언만 믿으면 실제 음성보다 짧게 청구한 몫이 운영자 손해가 된다.
-const STT_RATES={"whisper-large-v3-turbo":0.04,"whisper-large-v3":0.111};
-const STT_MIN_BILLED_SEC=10,STT_MAX_SEC=330,STT_MAX_BYTES=8*1024*1024;
+const STT_RATES={"microsoft/mai-transcribe-2":0.10};
+const STT_MIN_BILLED_SEC=10,STT_MAX_SEC=330,STT_MAX_BYTES=12*1024*1024;
 // 판정은 모델의 "호출 방식"(via)을 레지스트리로 분리한다 — 생성형이 아닌 판정 API를 얹어도
 // 여기에 항목만 더하면 되고 클라이언트 계약은 안 바뀐다. rates 는 USD/백만 입력·출력 토큰.
 const JUDGE_MODELS={"openai/gpt-4.1-nano":{via:"logprob",rates:[.1,.4]}};
@@ -133,7 +133,6 @@ function config(env){
   for(const m of visionModels)if(!Array.isArray(providers[m])||!providers[m].length)throw new Error("explicit_provider_allowlist_required");
   const sttModels=JSON.parse(env.ALLOWED_STT_MODELS||"[]");
   if(!Array.isArray(sttModels)||sttModels.some(m=>!STT_RATES[m]))throw new Error("invalid_stt_model_allowlist");
-  if(sttModels.length&&!env.GROQ_API_KEY)throw new Error("GROQ_API_KEY required");
   // 변수가 없으면 gpt-4.1-nano 제공자 목록이 설정됐을 때만 기본으로 켠다 — 목록이 없는데
   // 켜면 모든 판정 요청이 제공자를 못 찾아 실패하므로 차라리 꺼 둔다.
   const judgeModels=env.ALLOWED_JUDGE_MODELS===undefined?(Array.isArray(providers["openai/gpt-4.1-nano"])&&providers["openai/gpt-4.1-nano"].length?["openai/gpt-4.1-nano"]:[]):JSON.parse(env.ALLOWED_JUDGE_MODELS);
@@ -191,7 +190,7 @@ function config(env){
   if(!plain(providerConcurrency)||Object.values(providerConcurrency).some(v=>!Number.isInteger(v)||v<=0))throw new Error("invalid_provider_concurrency");
   // 요청 수·분당 호출 수는 거친 안전망이다. 진짜 상한은 비용 캡(MAX_COST_CENTS, GLOBAL_COST_CENTS)이다 —
   // v2 유료 작업은 강의 1시간에 150회 안팎을 부르고 비전 8레인만으로도 분당 120회에 닿아서 예전 기본값이 정상 작업을 막았다.
-  return {tokens,allow,providers,key:env.OPENROUTER_API_KEY,groqKey:env.GROQ_API_KEY,origin:env.EXTENSION_ORIGIN,root:path.resolve(env.VAULT_DIR||"server-data"),stateFile:env.USAGE_STATE_FILE?path.resolve(env.USAGE_STATE_FILE):null,
+  return {tokens,allow,providers,key:env.OPENROUTER_API_KEY,origin:env.EXTENSION_ORIGIN,root:path.resolve(env.VAULT_DIR||"server-data"),stateFile:env.USAGE_STATE_FILE?path.resolve(env.USAGE_STATE_FILE):null,
     accountLimits,visionModels,sttModels,judgeModels,featureFlags,remoteConfig,supabase,planFeatures,providerConcurrency,maxCents:positive(env.MAX_COST_CENTS,1500),maxRequests:positive(env.MAX_REQUESTS,10000),globalCents:positive(env.GLOBAL_COST_CENTS,15000),timeout:Math.min(positive(env.OPENROUTER_TIMEOUT_MS,120000),120000),accountConcurrency:positive(env.ACCOUNT_CONCURRENCY,12),providerQueueMs:positive(env.PROVIDER_QUEUE_MS,10000),ratePerMin:positive(env.ACCOUNT_RATE_PER_MIN,300),maxFiles:100,maxArchiveBytes:200*1024*1024};
 }
 function atomic(file,data){fs.mkdirSync(path.dirname(file),{recursive:true});const temp=file+"."+crypto.randomUUID()+".tmp";fs.writeFileSync(temp,JSON.stringify(data),{mode:0o600,flag:"wx"});fs.renameSync(temp,file);}
@@ -449,24 +448,23 @@ function createServer(env=process.env,deps={}){
     const fields=["model","requestId","t0","durationSec","lang","prompt","audio"];
     if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)))return fail(res,"unexpected_field");
     if(!Number.isFinite(input.t0)||input.t0<0||input.t0>360000||!Number.isFinite(input.durationSec)||input.durationSec<=0||input.durationSec>STT_MAX_SEC||!["ko","en"].includes(input.lang)||typeof input.prompt!=="string"||input.prompt.length>1000)return fail(res,"invalid_stt_params");
-    const match=/^data:audio\/mp4;base64,([A-Za-z0-9+/]+={0,2})$/.exec(String(input.audio||""));
+    const match=/^data:audio\/(mp4|wav);base64,([A-Za-z0-9+/]+={0,2})$/.exec(String(input.audio||""));
     if(!match)return fail(res,"invalid_audio");
-    // 디코드 전에 base64 길이로만 바이트 수를 잰다 — 한도를 넘는 덩어리를 통째로 메모리에 올리지 않는다.
-    const b64=match[1],decodedSize=Math.floor(b64.length*3/4)-(b64.endsWith("==")?2:b64.endsWith("=")?1:0);
+    // 디코드하지 않고 base64 길이로만 바이트 수를 잰다 — 한도를 넘는 덩어리를 통째로 메모리에 올리지 않는다.
+    const b64=match[2],decodedSize=Math.floor(b64.length*3/4)-(b64.endsWith("==")?2:b64.endsWith("=")?1:0);
     if(decodedSize>STT_MAX_BYTES)return fail(res,"audio_too_large");
     if(!decodedSize)return fail(res,"invalid_audio");
-    const bytes=Buffer.from(b64,"base64");
     // digest 에는 오디오 해시만 들어간다. 원장·로그·오류 본문에 음성이 남으면 안 된다.
     const digest=digestOf(account,JSON.stringify({route:"stt",model:input.model,lang:input.lang,t0:input.t0,durationSec:input.durationSec,prompt:input.prompt,audio:crypto.createHash("sha256").update(b64).digest("hex")}));
+    // 최상위 prompt 는 이 모델이 무시하는 필드라 구문 목록(phraseList)으로 내린다.
+    const phrases=[...new Set(input.prompt.split(",").map(p=>p.trim()).filter(Boolean))].slice(0,100).map(p=>p.slice(0,50));
     const reserve=Math.ceil(STT_RATES[input.model]*Math.max(STT_MIN_BILLED_SEC,input.durationSec)/3600*100*1.2);
     // 월 인식 분량 한도(plans.monthly_minutes_cap)는 선언 길이를 올림한 분으로 센다 — 비용은 따로 제공자가 잰 길이로 정산한다.
-    return await withReservation({account,requestId:input.requestId,digest,reserve,minutes:Math.ceil(input.durationSec/60),model:input.model,res,meta:{stage:"stt",provider:"groq",model:input.model,audioSeconds:input.durationSec}},async signal=>{
-      const form=new FormData();
-      form.append("file",new Blob([bytes],{type:"audio/mp4"}),"chunk.m4a");
-      form.append("model",input.model);form.append("response_format","verbose_json");
-      form.append("timestamp_granularities[]","word");form.append("timestamp_granularities[]","segment");
-      form.append("language",input.lang);if(input.prompt)form.append("prompt",input.prompt);form.append("temperature","0");
-      const response=await fetcher("https://api.groq.com/openai/v1/audio/transcriptions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.groqKey},body:form});
+    return await withReservation({account,requestId:input.requestId,digest,reserve,minutes:Math.ceil(input.durationSec/60),model:input.model,res,meta:{stage:"stt",provider:"openrouter",model:input.model,audioSeconds:input.durationSec}},async signal=>{
+      const response=await fetcher("https://openrouter.ai/api/v1/audio/transcriptions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
+        model:input.model,input_audio:{data:b64,format:match[1]==="mp4"?"m4a":"wav"},language:input.lang,response_format:"verbose_json",timestamp_granularities:["segment","word"],
+        ...(phrases.length?{provider:{options:{azure:{phraseList:{phrases}}}}}:{})
+      })});
       // 제공자 HTTP 오류는 요청이 처리되지 않았다고 확정할 수 있으므로 refund — 예약을 정확히 되돌린다.
       if(!response.ok){const h=response.headers?.get?.("retry-after"),s=Number(h);throw Object.assign(new Error("provider_rejected"),{refund:true,code:response.status===429?"provider_busy":"provider_failed_or_invalid_output",retryAfterMs:response.status===429?(h==null||!Number.isFinite(s)?2000:Math.min(Math.max(Math.round(s*1000),1000),30000)):undefined});}
       const raw=await boundedResponse(response,2*1024*1024);
@@ -474,7 +472,9 @@ function createServer(env=process.env,deps={}){
       const transcript=Contracts.assertValid(Contracts.SCHEMAS.transcript,toTranscript(raw,{t0:input.t0,model:input.model,lang:input.lang}),"전사 결과");
       // duration 이 응답에서 빠져도 마지막 세그먼트의 끝 시각이 실제 음성 길이의 하한이다 — 선언만으로 정산하지 않는다.
       const measured=Math.max(Number.isFinite(raw.duration)?raw.duration:0,...raw.segments.map(s=>s.end));
-      const billedSec=Math.max(STT_MIN_BILLED_SEC,input.durationSec,Math.ceil(measured)),amount=STT_RATES[input.model]*billedSec/3600;
+      const billedSec=Math.max(STT_MIN_BILLED_SEC,input.durationSec,Math.ceil(measured)),u=raw.usage||{};
+      // 제공자가 비용을 보고하면 그 금액으로 정산하고 없으면 시간 단가로 되돌린다.
+      const amount=typeof u.cost==="number"&&Number.isFinite(u.cost)&&u.cost>=0?u.cost:STT_RATES[input.model]*billedSec/3600;
       return {amount,reported:true,payload:{transcript,usage:{audioSec:billedSec,costUsd:amount},promptVersion:c.remoteConfig.promptVersion,schemaVersion:c.remoteConfig.schemaVersion}};
     });
   }
@@ -565,7 +565,8 @@ function createServer(env=process.env,deps={}){
   }
   const plan=(input,account,res)=>noteRoute(input,account,res,"plan");
   const write=(input,account,res)=>["section","global","repair"].includes(input.stage)?noteRoute(input,account,res,input.stage):fail(res,"invalid_model_or_stage");
-  const server=http.createServer(async(req,res)=>{
+  // handle 은 런타임과 무관한 요청 처리기다. 로컬은 http 서버가, 배포는 supabase/functions/api 의 Deno 어댑터가 같은 함수를 부른다.
+  const handle=async(req,res)=>{
     try{
       if(req.headers.origin&&req.headers.origin!==c.origin)return fail(res,"origin_not_allowed");
       if(req.method==="OPTIONS")return send(res,204,{});
@@ -609,14 +610,15 @@ function createServer(env=process.env,deps={}){
       }
       if(req.url==="/v1/summary"&&req.method==="POST")return await summary(await body(req,64000),who,req,res);
       if(req.url==="/v1/vision"&&req.method==="POST")return await vision(await body(req,2200000),who,res);
-      if(req.url==="/v1/stt"&&req.method==="POST")return await stt(await body(req,12000000),who,res);
+      if(req.url==="/v1/stt"&&req.method==="POST")return await stt(await body(req,17000000),who,res);
       if(req.url==="/v1/judge"&&req.method==="POST")return await judge(await body(req,70000),who,res);
       if(req.url==="/v1/plan"&&req.method==="POST")return await plan(await body(req,256*1024),who,res);
       if(req.url==="/v1/write"&&req.method==="POST")return await write(await body(req,64*1024),who,res);
       fail(res,"not_found");
     }catch(e){fail(res,e&&e.message==="request_too_large"?"request_too_large":"request_rejected");}
-  });
-  // 11 MB 음성 업로드가 느린 회선에서는 30초를 넘는다 — STT 본문 상한에 맞춰 올린다.
+  };
+  const server=http.createServer(handle);server.handle=handle;
+  // 12 MiB 음성의 base64 본문(약 17 MB)이 느린 회선에서는 30초를 넘는다 — STT 본문 상한에 맞춰 올린다.
   server.requestTimeout=60000;server.headersTimeout=15000;
   server.on("close",()=>{for(const controller of active)controller.abort();});
   return server;
@@ -632,24 +634,18 @@ function toSlideDoc(parsed,{slideId,t0,t1,model,mode}){
     formulas:parsed.formulas.map((f,i)=>({id:"f"+(i+1),latex:stripDollar(f.latex),text:f.text,bbox:box(f.bbox),conf:clamp01(f.conf),status:mode==="reread"?"reread":"unverified"})),
     figures:parsed.figures.map((g,i)=>({id:"g"+(i+1),bbox:box(g.bbox),kind:g.kind,title:g.title,cells:g.cells,chartSummary:g.chartSummary,conf:clamp01(g.conf)}))};
 }
-// Groq verbose_json(청크 기준 초)을 계약 전사로 옮긴다. 환청 필터는 클라이언트가 점수를 보고
-// 돌리므로 여기서는 점수를 그대로 싣고 세그먼트를 걸러내지 않는다.
+// MAI verbose_json(청크 기준 초)을 계약 전사로 옮긴다. 단어는 세그먼트 안이 아니라 최상위 배열로 온다 —
+// 중간 시각을 품는 세그먼트에 붙이고 어느 구간에도 안 드는 단어는 버린다. 품질 점수는 이 모델에 없다.
 function toTranscript(raw,{t0,model,lang}){
   if(!raw||typeof raw!=="object"||!Array.isArray(raw.segments)||raw.segments.some(s=>!s||!Number.isFinite(s.start)||!Number.isFinite(s.end)||typeof s.text!=="string"))throw new Error("invalid_stt_output");
   const at=v=>Math.max(0,Math.round((t0+v)*1000)/1000);
-  const segments=raw.segments.slice(0,20000).map((s,i)=>({id:Math.round(t0*1000)+"-"+i,t0:at(s.start),t1:at(s.end),text:s.text.trim().slice(0,4000),words:[],
-    noSpeechProb:Number.isFinite(s.no_speech_prob)&&s.no_speech_prob>=0&&s.no_speech_prob<=1?s.no_speech_prob:null,
-    avgLogprob:Number.isFinite(s.avg_logprob)?s.avg_logprob:null,
-    compressionRatio:Number.isFinite(s.compression_ratio)&&s.compression_ratio>=0?s.compression_ratio:null,
-    status:"kept"}));
-  let j=0;
+  const segments=raw.segments.slice(0,20000).map((s,i)=>({id:Math.round(t0*1000)+"-"+i,t0:at(s.start),t1:at(s.end),text:s.text.trim().slice(0,4000),words:[],noSpeechProb:null,avgLogprob:null,compressionRatio:null,status:"kept"}));
   for(const w of Array.isArray(raw.words)?raw.words:[]){
     if(!w||typeof w.word!=="string"||!Number.isFinite(w.start)||!Number.isFinite(w.end))continue;
-    while(j<segments.length-1&&(w.start+w.end)/2>=raw.segments[j].end)j++;
-    const word=w.word.trim().slice(0,100),seg=segments[j];
+    const mid=(w.start+w.end)/2,seg=segments.find((_,i)=>mid>=raw.segments[i].start&&mid<=raw.segments[i].end),word=w.word.trim().slice(0,100);
     if(word&&seg&&seg.words.length<2000)seg.words.push({w:word,t0:at(w.start),t1:at(w.end)});
   }
-  return {schemaVersion:Contracts.CONTRACT_VERSION,engine:"groq-whisper",model,lang,segments};
+  return {schemaVersion:Contracts.CONTRACT_VERSION,engine:"openrouter-mai",model,lang,segments};
 }
 // top_logprobs에서 라벨 알파벳 토큰("A", " A", "a" 같은 변형)의 확률 질량만 모아 라벨끼리 정규화한다.
 // 상위 10개 안에 라벨 글자가 하나도 없으면 "판정 없음"을 돌려 클라이언트가 플래너로 넘기게 한다.
