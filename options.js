@@ -1,5 +1,5 @@
 const $=id=>document.getElementById(id);
-const ymd=t=>{const d=new Date(t);return Number.isFinite(d.getTime())?`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`:'';};
+const ymd=t=>{if(!Number.isFinite(t)||t<=0)return '';const d=new Date(t);return Number.isFinite(d.getTime())?`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`:'';};
 // Explicit-save fields: gathered by the API section's own Save/Test buttons.
 const fields=['serviceUrl','appSessionToken'];
 // Auto-save fields: each persists immediately on change (elements below carry the "자동 저장" badge).
@@ -52,6 +52,8 @@ function wireConsents(settings){
 async function serviceToken(s){return (await Auth.token())||s.appSessionToken;}
 // 로그인·로그아웃 뒤에 고화질 인식 가능 여부를 다시 확인한다(wireVision이 채운다).
 let refreshVision=async()=>{};
+// 모두 삭제가 기기 키까지 지우면 보관함 암호 카드도 다시 그린다(wireLibraryKey가 채운다).
+let refreshLibraryKey=async()=>{};
 // 유료 여부는 서버만 안다. chrome.storage 는 사용자가 고칠 수 있으므로 여기서 켜진 토글은
 // 의사 표시일 뿐이고, 실제 호출은 /v1/vision 이 계정 features 로 다시 막는다.
 async function wireVision(settings){
@@ -67,7 +69,7 @@ async function wireVision(settings){
   const check=async s=>{
     try{
       const token=s.serviceUrl&&await serviceToken(s);
-      if(!token){state.textContent='서비스 연결을 먼저 설정하세요.';return;}
+      if(!token){box.disabled=true;state.textContent='서비스 연결을 먼저 설정하세요.';return;}
       const me=await ServiceClient.me({baseUrl:s.serviceUrl,token,timeoutMs:15000});
       const allowed=Array.isArray(me.features)&&me.features.includes('vision'),consented=cloudRecognitionAllowed(s);
       box.disabled=!(allowed&&consented);
@@ -120,7 +122,7 @@ function wireData(){
     const button=$(id);button.disabled=true;
     try{notice(await work());}catch(error){notice(error.message);}finally{button.disabled=false;}
   });
-  run('wipeBtn','이 기기에 보관된 노트·전사·슬라이드 텍스트·작업 기록과 진단 로그를 모두 삭제합니다. 되돌릴 수 없습니다.\n\n설정·동의·로그인은 지우지 않습니다. 계속할까요?',async()=>{await local('WIPE_LOCAL');return '이 기기의 강의 데이터를 모두 삭제했습니다.';});
+  run('wipeBtn','이 기기에 보관된 노트·전사·슬라이드 텍스트·작업 기록과 진단 로그를 모두 삭제합니다. 되돌릴 수 없습니다.\n\n설정·동의·로그인은 지우지 않습니다. 계속할까요?',async()=>{await local('WIPE_LOCAL');await refreshLibraryKey().catch(()=>{});return '이 기기의 강의 데이터를 모두 삭제했습니다.';});
   run('diagClearBtn',null,async()=>{await local('LOGS_CLEAR');return '진단 로그를 삭제했습니다.';});
   run('diagExportBtn',null,exportDiagnostics);
   run('accountDeleteBtn','계정과 서버에 저장된 데이터(보관함 포함)를 영구 삭제합니다. 되돌릴 수 없습니다.\n\n삭제가 끝나면 이 기기의 강의 데이터도 모두 지우고 로그아웃합니다. 계속할까요?',async()=>{await deleteAccount();return '계정과 서버 데이터를 삭제했습니다. 이 기기의 강의 데이터도 지우고 로그아웃했습니다.';});
@@ -131,9 +133,11 @@ function wireData(){
 async function wireLibraryKey(){
   const state=$('keyState'),form=$('keyForm'),p1=$('keyPass1'),p2=$('keyPass2'),btn=$('keySaveBtn');
   if(!form||!state)return;
-  if(typeof NoteFile==='undefined'||typeof PackageStore==='undefined'){state.textContent='이 기능을 쓸 수 없습니다.';for(const el of[p1,p2,btn])if(el)el.disabled=true;return;}
+  const unavailable=()=>{state.textContent='이 기능을 쓸 수 없습니다.';for(const el of[p1,p2,btn])if(el)el.disabled=true;};
+  if(typeof NoteFile==='undefined'||typeof PackageStore==='undefined')return unavailable();
   const refresh=async()=>{const rec=await NoteFile.loadLibraryKey(await PackageStore.indexedDbAdapter());state.textContent=rec?'설정됨'+(ymd(rec.at)?' · '+ymd(rec.at):''):'설정 안 됨';if(btn)btn.textContent=rec?'암호 바꾸기':'암호 정하기';};
-  await refresh();
+  try{await refresh();}catch{return unavailable();}
+  refreshLibraryKey=refresh;
   form.addEventListener('submit',async e=>{
     e.preventDefault();
     const a=p1.value,b=p2.value;p1.value='';p2.value=''; // 입력은 어떤 결말이든 비운다
