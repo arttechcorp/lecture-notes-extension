@@ -67,7 +67,7 @@
 
 ## 3. 아직 구현하지 않은 것
 
-2. **고객 포털 주소**: `landing/billing-config.js`의 결제창 3개(Essential `u9m5dR`·Edu `a5DgpJ`·Pro `grxETv`)는 채웠다. `portal`은 Groble에 고객 포털이 없어 비어 있다 — 해지·영수증은 Groble 구매 내역에서 한다.
+2. **고객 포털 주소**: `landing/billing-config.js`의 결제창 3개(Essential `u9m5dR`·Edu `a5DgpJ`·Pro `grxETv`)는 채웠다. `portal`은 아직 비어 있다 — Groble이 구매자용 해지·영수증 주소를 주는지 확인해 넣는다.
 2. **결제창·포털 주소**: `landing/billing-config.js`의 `checkout`·`portal`이 비어 있다. 사용자가 Groble에서 결제 링크를 만들어 넣어야 학생가를 포함한 결제 경로가 연다.
 3. **학생가 자격의 실제 인증 없음**: `edu_eligible`은 확인된 로그인 메일의 도메인(`.ac.kr`·`.edu`)만 본다. 재학 증빙 같은 진짜 인증 절차는 없다(§4).
 4. **실서비스 종단 검증**: 배포한 함수와 실제 강의로 백그라운드 작업을 끝까지 한 번 돌린다. 확인할 것 — MAI-Transcribe 2의 한국어 품질, WAV 업로드 크기(5분 약 9.6 MB), Edge 150초 제한 안에 응답이 오는지.
