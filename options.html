@@ -663,7 +663,7 @@
     </div>
   </section>
 
-  <section class="card" aria-labelledby="ocrHeading">
+  <section class="card" id="ocrCard" aria-labelledby="ocrHeading">
     <div class="section-top">
       <h2 id="ocrHeading">화면 글자 읽기 (OCR)</h2>
       <span class="badge">자동 저장</span>
@@ -689,7 +689,12 @@
       <span class="badge">자동 저장</span>
     </div>
 
-    <label class="toggle-card">
+    <div id="serverRecog" hidden>
+      <p class="note" style="margin-top: 0;">화면과 음성을 서버에서 인식합니다.</p>
+      <p class="note" id="serverConsentState" role="status" aria-live="polite"></p>
+    </div>
+
+    <label class="toggle-card" id="whisperToggle">
       <div class="toggle-text">
         <strong class="toggle-title">Whisper 사용</strong>
         <span class="toggle-note">강의 음성을 기기 안에서 텍스트로 옮깁니다. 처음 사용할 때 모델 다운로드가 필요합니다.</span>
@@ -700,7 +705,7 @@
       </div>
     </label>
 
-    <div class="form-field">
+    <div class="form-field" id="whisperModelField">
       <label for="whisperModel" class="field-label">인식 모델 크기</label>
       <div class="select-wrap">
         <select id="whisperModel">
@@ -712,7 +717,7 @@
     </div>
 
     <div class="form-field">
-      <label for="whisperLang" class="field-label">음성 인식 언어</label>
+      <label for="whisperLang" class="field-label">강의 언어</label>
       <div class="select-wrap">
         <select id="whisperLang">
           <option value="auto">자동 감지(한국어 우선)</option>
@@ -723,21 +728,33 @@
       <p class="note" id="voiceSaved" role="status" aria-live="polite">변경 사항은 다음 캡처부터 적용됩니다.</p>
     </div>
 
-    <div class="form-field">
+    <div class="form-field" id="speedField">
       <label class="check-label">
         <input type="checkbox" id="speedCorrectionCb" class="check-input">
         <span>배속 인식 보정 <span class="badge">자동 저장</span></span>
       </label>
       <p class="note">2배속 이상으로 듣는 경우에만 켜세요. 캡처 중 강의 영상의 음정 보정을 끄고 인식 직전에 원래 속도로 되돌립니다. <strong>재생 중 목소리가 높게 들립니다.</strong></p>
     </div>
+  </section>
+
+  <section class="card" id="noteOptsCard" aria-labelledby="noteOptsHeading" hidden>
+    <div class="section-top">
+      <h2 id="noteOptsHeading">노트 옵션</h2>
+      <span class="badge">자동 저장</span>
+    </div>
+
+    <div class="form-field" style="margin-top: 0;">
+      <label class="check-label">
+        <input type="checkbox" id="noteSyntheticCb" class="check-input">
+        <span>이해를 돕는 예시를 만들어 넣기 (예시임을 표시)</span>
+      </label>
+    </div>
 
     <div class="form-field">
       <label class="check-label">
-        <input type="checkbox" id="visionCb" class="check-input" disabled>
-        <span>고화질 화면 인식 <span class="badge">유료 플랜</span></span>
+        <input type="checkbox" id="noteAugmentCb" class="check-input">
+        <span>강의 밖 일반 지식으로 보강 (출처를 표시)</span>
       </label>
-      <p class="note" id="visionState" role="status" aria-live="polite">연결을 확인하면 사용 가능 여부를 알려드립니다.</p>
-      <p class="note">수식·표·그래프가 많은 강의에서 켜세요. 기기에서 인식 모델을 돌리지 않아 저사양 노트북에서도 느려지지 않습니다. <strong>켜는 동안 강의 화면이 자체 서비스를 거쳐 인식 모델로 전달됩니다.</strong></p>
     </div>
   </section>
 
@@ -787,12 +804,20 @@
 
     <p class="note" id="authState" role="status" aria-live="polite" style="margin-top: 0;">로그인하지 않았습니다.</p>
 
+    <div id="accountPlanBox" hidden>
+      <p class="note" id="planState" role="status" aria-live="polite" style="margin-top: 0;"></p>
+      <div class="save-row">
+        <a class="key-link" id="billingLink" href="https://summrizei.vercel.app/account/billing" target="_blank" rel="noopener">결제 관리</a>
+        <a class="key-link" id="libraryLink" href="https://summrizei.vercel.app/library" target="_blank" rel="noopener">내 노트 (웹)</a>
+      </div>
+    </div>
+
     <div class="save-row">
       <button id="loginBtn" type="button">Google로 로그인</button>
       <button id="logoutBtn" type="button" hidden>로그아웃</button>
     </div>
 
-    <p class="note setting-note">로그인하면 서비스 호출(요약·고화질 화면 인식·보관함)에 이 계정을 씁니다. 로그인 정보는 이 기기의 확장 설정에만 저장되며 다른 기기로 동기화하지 않습니다.</p>
+    <p class="note setting-note">로그인하면 서비스 호출(요약·서버 인식·보관함)에 이 계정을 씁니다. 로그인 정보는 이 기기의 확장 설정에만 저장되며 다른 기기로 동기화하지 않습니다.</p>
   </section>
 
   <section class="card" aria-labelledby="keyHeading">
@@ -848,12 +873,12 @@
     </div>
   </section>
 
-  <section class="card" aria-labelledby="apiHeading">
+  <section class="card" id="devCard" aria-labelledby="devHeading" hidden>
     <details>
       <summary class="api-summary">
         <div class="api-summary-main">
-          <h2 id="apiHeading">요약 서비스 연결</h2>
-          <span class="badge">Summrizei 서비스</span>
+          <h2 id="devHeading">개발자 설정</h2>
+          <span class="badge">요약 서비스 연결</span>
         </div>
         <span class="chevron" aria-hidden="true">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
@@ -904,6 +929,7 @@
   <script src="lib/settings.js"></script>
   <script src="lib/service-client.js"></script>
   <script src="lib/auth.js"></script>
+  <script src="lib/account.js"></script>
   <script src="lib/diagnostics.js"></script>
   <script src="lib/package-store.js"></script>
   <script src="lib/note-file.js"></script>

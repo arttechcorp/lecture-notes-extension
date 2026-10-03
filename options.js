@@ -1,4 +1,6 @@
 const $=id=>document.getElementById(id);
+// sidepanel.js 계정 메뉴와 같은 플랜 표기. 목록에 없는 id(edu 변형 등)는 id 그대로 보여 준다.
+const PLANS={free:'Free',essential:'Essential',professional:'Pro'};
 const ymd=t=>{if(!Number.isFinite(t)||t<=0)return '';const d=new Date(t);return Number.isFinite(d.getTime())?`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`:'';};
 // Explicit-save fields: gathered by the API section's own Save/Test buttons.
 const fields=['serviceUrl','appSessionToken'];
@@ -45,42 +47,49 @@ function wireConsents(settings){
   };
   showAll(settings);
   withdraw('summaryWithdrawBtn','철회하면 인식된 텍스트가 더 이상 요약 서비스로 전송되지 않아 새 노트 요약을 만들 수 없습니다. 계속할까요?',{remoteSummaryConsent:false},showAll);
-  withdraw('visionWithdrawBtn','철회하면 고화질 화면 인식이 꺼지고 강의 화면·음성이 기기 밖으로 나가지 않습니다. 백그라운드 처리도 쓸 수 없습니다. 계속할까요?',{visionConsent:false,ocrEngine:'ppocr-v5-wasm'},async s=>{showAll(s);await refreshVision();});
+  withdraw('visionWithdrawBtn','철회하면 고화질 화면 인식이 꺼지고 강의 화면·음성이 기기 밖으로 나가지 않습니다. 백그라운드 처리도 쓸 수 없습니다. 계속할까요?',{visionConsent:false,ocrEngine:'ppocr-v5-wasm'},async s=>{showAll(s);await refreshAccount();});
   withdraw('bgWithdrawBtn','철회하면 탭을 닫아도 노트를 만드는 백그라운드 처리를 쓸 수 없습니다. 계속할까요?',{backgroundConsent:{personalUse:false,accessRights:false,version:'',at:0}},showAll);
 }
 // 서비스 호출에 쓸 토큰: 로그인한 계정이 우선이고, 로그아웃 상태일 때만 개발·테스트용 정적 토큰을 쓴다(offscreen의 tokenProvider와 같은 순서).
 async function serviceToken(s){return (await Auth.token())||s.appSessionToken;}
-// 로그인·로그아웃 뒤에 고화질 인식 가능 여부를 다시 확인한다(wireVision이 채운다).
-let refreshVision=async()=>{};
+// 로그인·로그아웃·동의 철회 뒤에 플랜 표시와 인식 카드를 다시 그린다(wireAccount가 채운다).
+let refreshAccount=async()=>{};
 // 모두 삭제가 기기 키까지 지우면 보관함 암호 카드도 다시 그린다(wireLibraryKey가 채운다).
 let refreshLibraryKey=async()=>{};
-// 유료 여부는 서버만 안다. chrome.storage 는 사용자가 고칠 수 있으므로 여기서 켜진 토글은
-// 의사 표시일 뿐이고, 실제 호출은 /v1/vision 이 계정 features 로 다시 막는다.
-async function wireVision(settings){
-  const box=$('visionCb'),state=$('visionState');
-  if(!box)return;
-  // 스위치는 엔진 선택(ocrEngine)만 바꾼다. 클라우드 인식 동의(visionConsent)는 사이드 패널이 따로 받는다.
-  box.checked=settings.ocrEngine==='vision-cloud';
-  const persist=async on=>{
-    try{await saveSettings({ocrEngine:on?'vision-cloud':'ppocr-v5-wasm'});notice(on?'고화질 화면 인식을 켰습니다. 다음 캡처부터 적용됩니다.':'고화질 화면 인식을 껐습니다. 기기 안에서만 인식합니다.');}
-    catch(error){box.checked=!on;notice(error.message);}
+// 플랜은 서버(my_account)만 안다. 무료가 아닌 모든 플랜(essential·professional·edu 변형 등)은 화면·음성을 서버에서 인식하므로
+// 온디바이스 설정(OCR·Whisper·배속 보정)을 숨기고 서버 인식 상태와 노트 옵션만 보여 준다.
+// 계정을 못 읽으면 '확인 못 함'만 표시하고 온디바이스 설정은 그대로 둔다 - 플랜을 모르는 채 서버 인식으로 바꾸지 않는다.
+async function wireAccount(settings){
+  if(typeof Account==='undefined'||typeof Auth==='undefined')return;
+  for(const[id,path]of[['billingLink','/account/billing'],['libraryLink','/library']]){const a=$(id);if(a)a.href=Account.SITE+path;}
+  const apply=(signed,acc,s)=>{
+    const paid=Boolean(acc&&acc.plan&&acc.plan!=='free');
+    const box=$('accountPlanBox');if(box)box.hidden=!signed;
+    const planEl=$('planState');
+    if(planEl)planEl.textContent=!signed?'':acc?.plan?(PLANS[acc.plan]||acc.plan)+' 플랜'+(acc.minutes_limit!=null?` · 이번 달 ${acc.minutes_used??0}/${acc.minutes_limit}분`:''):'플랜: 확인 못 함';
+    for(const id of['ocrCard','whisperToggle','whisperModelField','speedField']){const el=$(id);if(el)el.hidden=paid;}
+    const srv=$('serverRecog');if(srv)srv.hidden=!paid;
+    const cs=$('serverConsentState');if(cs)cs.textContent=paid?'클라우드 인식 동의: '+(cloudRecognitionAllowed(s)?'완료':'필요 — 사이드 패널에서 동의'):'';
+    const nc=$('noteOptsCard');if(nc)nc.hidden=!paid;
   };
-  box.addEventListener('change',()=>persist(box.checked));
-  const check=async s=>{
-    try{
-      const token=s.serviceUrl&&await serviceToken(s);
-      if(!token){box.disabled=true;state.textContent='서비스 연결을 먼저 설정하세요.';return;}
-      const me=await ServiceClient.me({baseUrl:s.serviceUrl,token,timeoutMs:15000});
-      const allowed=Array.isArray(me.features)&&me.features.includes('vision'),consented=cloudRecognitionAllowed(s);
-      box.disabled=!(allowed&&consented);
-      state.textContent=!consented?'사이드 패널에서 클라우드 인식에 동의한 뒤 켤 수 있습니다.':allowed?'사용 가능한 플랜입니다.':'유료 플랜에서 사용할 수 있습니다.';
-      // 플랜이 끝났거나 동의가 없어졌는데 설정만 남아 있으면 세션 시작이 막힌다. 조용히 로컬로 되돌린다.
-      if(!(allowed&&consented)&&box.checked){box.checked=false;await saveSettings({ocrEngine:'ppocr-v5-wasm'});}
-    }catch(error){state.textContent='사용 가능 여부를 확인하지 못했습니다 · '+error.message;}
+  const refresh=async s=>{
+    const user=await Auth.user().catch(()=>null);
+    const token=user?await Auth.token().catch(()=>null):null;
+    const acc=token?await Account.fetchAccount({access_token:token}).catch(()=>null):null;
+    apply(Boolean(user),acc,s);
   };
-  refreshVision=()=>loadSettings().then(check);
-  await check(settings);
+  refreshAccount=async()=>{await refresh(await loadSettings());};
+  await refresh(settings);
 }
+// 노트 옵션(유료 플랜 카드만 보인다): 노트 생성 시 예시 합성·외부 지식 보강.
+function wireNoteOptions(s){
+  const a=$('noteSyntheticCb'),b=$('noteAugmentCb');if(!a||!b)return;
+  a.checked=s.noteOptions?.syntheticExamples===true;b.checked=s.noteOptions?.externalAugmentation===true;
+  const save=async()=>{try{await saveSettings({noteOptions:{syntheticExamples:a.checked,externalAugmentation:b.checked}});notice('설정이 저장되었습니다');}catch(error){notice(error.message);}};
+  a.addEventListener('change',save);b.addEventListener('change',save);
+}
+// 개발자 카드: 스토어 배포 빌드(manifest에 update_url)에서는 숨기고, 압축 풀린 개발 빌드에서만 연다.
+function wireDevCard(){const card=$('devCard');if(card)card.hidden='update_url'in(chrome.runtime.getManifest?.()??{});}
 // 계정 카드: 이메일만 보여 주고 토큰은 읽지 않는다.
 async function showAuth(){
   const user=await Auth.user().catch(()=>null);
@@ -90,7 +99,7 @@ async function showAuth(){
 function wireAuth(){
   for(const [id,work,done] of [['loginBtn',Auth.signIn,'로그인했습니다.'],['logoutBtn',Auth.signOut,'로그아웃했습니다.']]){
     const button=$(id);
-    button.addEventListener('click',async()=>{button.disabled=true;try{await work();await showAuth();await refreshVision();notice(done);}catch(error){notice(error.message);}finally{button.disabled=false;}});
+    button.addEventListener('click',async()=>{button.disabled=true;try{await work();await showAuth();await refreshAccount();notice(done);}catch(error){notice(error.message);}finally{button.disabled=false;}});
   }
 }
 // 데이터 관리 카드. 암호화 저장소와 기기 키는 offscreen 문서가 쥐고 있어 삭제·열람은 background를 거쳐 거기서 한다(진행 중인 캡처·작업이 있으면 offscreen이 거절한다).
@@ -103,7 +112,7 @@ async function deleteAccount(){
   if((await ServiceClient.deleteAccount({baseUrl:s.serviceUrl,token}))?.deleted!==true)throw new Error('서버가 삭제를 확인하지 않았습니다. 다시 시도하세요.');
   try{await local('WIPE_LOCAL');}
   catch(error){throw new Error('계정은 삭제했지만 이 기기의 데이터는 지우지 못했습니다. "이 기기의 강의 데이터 모두 삭제"를 다시 실행하세요. ('+error.message+')');}
-  finally{await Auth.signOut();await showAuth();await refreshVision();}
+  finally{await Auth.signOut();await showAuth();await refreshAccount();}
 }
 // 진단 파일: 허용 필드뿐인 로그를 평문 JSON으로 Blob 링크로 내려받는다(chrome.downloads 권한 없음). 강의 내용은 애초에 로그에 없다.
 async function exportDiagnostics(){
@@ -162,9 +171,11 @@ function values(){return Object.fromEntries(fields.map(id=>[id,$(id).value]));}
   wireConsents(s);
   wireAuth();
   wireData();
-  await showAuth();
+  wireDevCard();
+  wireNoteOptions(s);
   await wireLibraryKey();
-  await wireVision(s);
+  await wireAccount(s);
+  await showAuth();
 }catch(error){notice(error.message);}})();
 for(const [id,key] of AUTO){
   const el=$(id);
