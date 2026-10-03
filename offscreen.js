@@ -185,12 +185,14 @@ async function libExportAll(){
   if(starting||archiveBusy||summaryController||bg||session&&!["completed","failed","disposed"].includes(session.status))return {ok:false,busy:true,error:"다른 처리가 진행 중입니다. 끝난 뒤 다시 시도하세요."};
   const store=await storeP;
   if(!await NoteFile.loadLibraryKey(store.adapter).catch(()=>null))return {ok:false,error:"보관함 암호를 먼저 정하세요."};
-  let count=0,failed=0;
-  for(const meta of await NoteLibrary.list(store)){
-    const data=await NoteLibrary.load(store,meta.packageId).catch(()=>null);
-    if(!data?.note)continue;
-    if(await exportNote(store,meta.packageId,meta,data.note)==="file")count++;else failed++;
-  }
+  let count=0,failed=0;archiveBusy=true; // 내보내는 동안 지우기·새 작업이 끼어들지 못하게 한다
+  try{
+    for(const meta of await NoteLibrary.list(store)){
+      const data=await NoteLibrary.load(store,meta.packageId).catch(()=>null);
+      if(!data?.note)continue;
+      if(await exportNote(store,meta.packageId,meta,data.note)==="file")count++;else failed++;
+    }
+  }finally{archiveBusy=false;}
   return {ok:true,count,failed};
 }
 async function bgList(settings){
@@ -211,7 +213,7 @@ async function bgMessage(message,sender){
   if(message.type==="LIB_EXPORT_ALL")return libExportAll();
   if(message.type==="BG_DISCARD"){
     const{jobId}=message;
-    if(!/^[A-Za-z0-9][A-Za-z0-9-]{7,63}$/.test(jobId))throw new Error("작업 번호가 올바르지 않습니다.");
+    if(typeof jobId!=="string"||!/^[A-Za-z0-9][A-Za-z0-9-]{7,63}$/.test(jobId))throw new Error("작업 번호가 올바르지 않습니다.");
     if(bg?.jobId===jobId)return {ok:false,error:"진행 중인 작업은 먼저 취소하세요."};
     await (await storeP).adapter.delete("jobs",jobId);return {ok:true};
   }
