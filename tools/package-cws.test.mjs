@@ -29,10 +29,6 @@ test("1. 런타임 의존성 폐쇄 집합 검증", async () => {
     "sandbox.html",
     "offscreen.html",
     "offscreen.js",
-    "library.html",
-    "library-page.js",
-    "note.html",
-    "note-page.js",
     "sidepanel.css",
     "lib/ppocr-runtime.mjs",
     "lib/whisper-webgpu-worker.js",
@@ -197,8 +193,8 @@ test("4. 런타임 클로저가 개발 전용 어드민 파일을 포함하지 �
   const { files } = resolveRuntimeClosure();
   assert.ok(!files.includes("admin.html"), "admin.html은 패키지 대상이 아니어야 함");
   assert.ok(!files.includes("admin.js"), "admin.js는 패키지 대상이 아니어야 함");
-  // 디스크 존재만으로는 부족하다 — 페이지 파일이 실제 클로저에 들어오는지
-  for (const rel of ["library.html", "library-page.js", "note.html", "note-page.js"]) assert.ok(files.includes(rel), `${rel}은 클로저에 들어가야 함`);
+  // 노트 열람은 웹사이트(landing/library.html)로 옮겼다 — 확장 안 열람 페이지는 다시 들어오면 안 된다
+  for (const rel of ["library.html", "library-page.js", "note.html", "note-page.js"]) assert.ok(!files.includes(rel), `${rel}은 클로저에 들어가면 안 됨`);
 });
 
 test("5. 감사기가 개발 전용 파일 포함을 오류로 반환", () => {

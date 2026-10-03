@@ -116,8 +116,6 @@ export function resolveRuntimeClosure() {
   enqueue("content.js");
   enqueue("offscreen.html");
   enqueue("offscreen.js");
-  enqueue("library.html");
-  enqueue("note.html");
 
   // 3. 재귀 의존성 탐색 (HTML <link>/<script>, JS/MJS imports/workers)
   while (queue.length > 0) {
