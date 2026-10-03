@@ -41,11 +41,11 @@
 | 암호화 보관함 | 동작 | 사용자 암호로 기기에서 암호화한 ciphertext만 서비스에 저장 |
 | 진단 이벤트 스트림과 기기 암호화 로그 | 동작 | `lib/events.js` → `lib/package-store.js`. 내용 없는 코드·수치만, 14일 또는 20MB |
 | 개발용 어드민(`admin.html`) | 기반 구현 | 이벤트 실시간 피드는 연결돼 있으나 개발 전용. 패키저 감사(`tools/package-cws.mjs`)로 웹스토어 패키지에서 제외 |
-| 강의 패키지 저장(전사·슬라이드 텍스트·노트) | 동작 | 실시간 캡처와 백그라운드 작업 모두 결과를 기기에서 AES-GCM으로 암호화해 `lib/library.js` 보관함에 둡니다 |
+| 강의 패키지 저장(전사·슬라이드 텍스트·노트) | 동작 | 실시간 캡처와 백그라운드 작업 모두 결과를 기기 안 암호화 저장소(`lib/library.js`)에 두고, 노트는 보관함 암호로 암호화한 파일로 Downloads/Summrizei 폴더에 저장합니다 |
 | 버전 데이터 계약·검증기(`lib/contracts.js`) | 동작 | 화면 인식·전사·판정·계획/작성 요청과 응답 검증 |
 | 정제·판정·계획·작성·검증 단계(`lib/stages.js`, `/v1/judge`·`/v1/plan`·`/v1/write`, `lib/verify.js`) | 동작 | 실시간 캡처·백그라운드·재생성이 같은 `runNote` 경로를 씁니다 |
-| 노트 양식·렌더(`lib/note-spec.js`, `lib/note-render.js`) | 동작 | `lecture-note-2` 계약과 `render-4` 템플릿. 노트는 `note.html`에서 보고 Markdown·PDF(A4)로 내보냅니다 |
-| 노트 목록·보기·재생성(`library.html`·`note.html`) | 동작 | 저장된 노트 열기·삭제, 유료는 생성 옵션(가상 사례·강의 밖 보강)을 골라 다시 만들기. 인식만 끝난 패키지는 동의 후 노트로 만들 수 있습니다 |
+| 노트 양식·렌더(`lib/note-spec.js`, `lib/note-render.js`) | 동작 | `lecture-note-2` 계약과 `render-4` 템플릿. 노트는 `landing/library.html`의 웹사이트 페이지에서 보고 Markdown·PDF(A4)로 내보냅니다 |
+| 노트 목록·보기(`landing/library.html`) | 동작 | 웹사이트에서 Downloads/Summrizei 폴더나 파일을 고르고 보관함 암호를 넣으면 브라우저 안에서 복호화해 보여 줍니다(시험 모드·Markdown·PDF). 생성 옵션을 바꾼 다시 만들기와 인식만 끝난 강의의 노트 만들기는 사이드 패널에서 합니다 |
 | 결제(Groble 웹훅 → `entitlements`) | 기반 구현 | `billing-webhook` 함수가 구독 이벤트를 반영합니다. 결제창·포털 주소는 `landing/billing-config.js`에 비어 있습니다 |
 | 유료 백그라운드 처리·클라우드 음성 인식(`lib/background-job.js`) | 동작(실서비스 미검증) | HLS만. 서버 기능 플래그 `background`와 사용 동의 2항목·클라우드 인식 동의가 있어야 시작합니다. 보호 스트림·YouTube는 실시간 모드 선택을 묻습니다. 가짜 공급자와 합성 HLS로만 끝까지 확인(`tools/background-smoke.cjs`) |
 | 로그인·계정(Supabase Auth·사용량 장부·보관함 Storage·계정 삭제) | 동작(실서비스 미검증) | 구글 로그인, JWT 검증, 원자적 사용량 예약, 계정·데이터 삭제. 실제 Supabase 프로젝트 연결 확인 전 |
@@ -111,7 +111,8 @@
 | `offscreen.html` / `.js` | 메모리 내 캡처 세션·근거·노트 생성(`lib/stages.js`)·암호화 보관 작업 소유 |
 | `lib/session.js` / `evidence.js` | 제한된 OCR/ASR 큐, 종료 drain, 시각·출처 근거 관리 |
 | `lib/library.js` | 기기 암호화 보관함 — 메타·재생성 입력·노트·인식 결과·크롭 |
-| `library.html` / `note.html` | 보관함 목록과 노트 보기(Markdown·PDF·재생성). `sandbox.html`이 노트를 렌더 |
+| `lib/note-file.js` | 암호화 파일 형식 — AES-256-GCM, PBKDF2 key derivation, 파일 읽기·쓰기 |
+| `landing/library.html` / `.js` | 웹사이트 보관함 페이지 — 폴더/파일 선택, 암호 입력, 브라우저 안 복호화와 노트 보기(서버로 아무것도 보내지 않음) |
 | `lib/events.js` | 내용 없는 파이프라인 진단 이벤트 버스(동작 — 암호화 로그와 개발용 어드민에 공급) |
 | `lib/auth.js` | Supabase 구글 로그인(PKCE)과 액세스 토큰 갱신. 세션은 `chrome.storage.local`의 `authSession`에만 있다(동기화 안 함) |
 | `lib/package-store.js` | 기기 암호화 IndexedDB 저장소(노트·근거·진단 로그) |

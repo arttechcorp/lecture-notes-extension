@@ -9,10 +9,11 @@
 - 데모 iframe은 `sandbox="allow-same-origin"`이라 내부 스크립트는 실행되지 않는다. 부모의 `hero-mockup.js`가 `contentDocument`를 통해 준비된 체험을 제어한다.
 - `landing/demo-panel.html`(캡처 없는 데모)에서는 `#result` textarea가 여전히 canonical Markdown을 보존하고, `#notePreview`가 안전하게 렌더링된 HTML을 표시한다. 데모의 읽기·편집·복사·다운로드와 요약/타임라인 전환은 이 Markdown을 기준으로 동작한다.
 - 실제 제품 `sidepanel.html`은 다르다. 캡처 상태의 canonical 소유자는 `offscreen.js`의 `CaptureSession`/`EvidenceStore`다. `sidepanel.js`는 화면·제어만 담당하는 thin RPC adapter이며, 그 안의 `#result` textarea는 `SESSION_STATE` 메시지로 받은 `state.summary`를 매번 다시 렌더링한 표시용 사본일 뿐 편집 가능한 canonical 원본이 아니다.
-- v2 노트의 타이포그래피·인쇄 규칙 단일 원천은 `lib/note-spec.js`의 `NoteSpec.css`다 — `sandbox.html`이 한 번 `<style>`에 주입한다(제품 패널의 product-panel.css 와는 별개). PDF는 `PRINT_NOTE` 메시지가 `medium:"print"`로 다시 렌더한 뒤 폰트·이미지 디코드를 기다려 `window.print()`로 찍는다 — 비율 선택이나 테마 분기는 없다.
-- 패널의 `sidepanel.js`는 노트를 직접 렌더하지 않는다. `state.summary`(v2: `note` 또는 `recognition`)를 받아 `RENDER_NOTE`/`RENDER_RECOGNITION`/`PRINT_NOTE` 메시지만 sandbox에 보내고, `#result` textarea에는 `NoteExport.toMarkdown`이 만든 Markdown 사본만 둔다(노션 복사·마크다운 편집 탭용). 크롭 이미지는 `NoteLibrary.cropUrls`가 data URL로 꺼내 같이 보낸다.
-- `library.html`/`note.html?id=<packageId>`는 offscreen을 거치지 않고 암호화된 로컬 스토어(`PackageStore`/`NoteLibrary`)를 직접 읽는다. 노트가 없고 `recognition`만 있는 패키지는 note 페이지가 `RENDER_RECOGNITION`으로 인식 결과만 보여 주고 내보내기 버튼을 숨긴다 — 인식 원문은 절대 내보내지 않는다.
-- `background.js`는 `BG_DONE`에 `packageId`를 검증해 싣고, 패널은 그 id로 "노트 열기"(note.html) 버튼을 보인다. 외부 요약 동의가 없으면 백그라운드 작업은 인식만 만들지만, 시작 전에 그 사실을 패널이 알려야 한다(조용한 전환 금지).
+- v2 노트의 타이포그래피·인쇄 규칙 단일 원천은 `lib/note-spec.js`의 `NoteSpec.css`다 — `sandbox.html`이 한 번 `<style>`에 주입한다(제품 패널의 sidepanel.css와는 별개). PDF는 `PRINT_NOTE` 메시지가 `medium:"print"`로 다시 렌더한 뒤 폰트·이미지 디코드를 기다려 `window.print()`로 찍는다 — 비율 선택이나 테마 분기는 없다.
+- 패널의 `sidepanel.js`는 노트를 보여 주지 않는다. 인식만 끝난 결과만 `RENDER_RECOGNITION`으로 sandbox에 보내 화면에 띄우고(내보내기 없음), 완성 노트는 offscreen이 보관함 암호로 암호화해 `LIB_EXPORT`(offscreen만 보낼 수 있음)로 background에 넘기고 background가 `chrome.downloads`로 Downloads/Summrizei/`<제목>-<packageId>.summrizei`에 덮어쓴다. 패널은 `summary.saved`("file"|"no-passphrase"|"failed")로 저장 결과만 알린다.
+- 노트 열람은 웹사이트 `landing/library.html`(/library)에서만 한다. 사용자가 폴더나 파일을 고르고 보관함 암호를 넣으면 브라우저 안에서 `NoteFile`로 복호화해 렌더한다. CSP `connect-src 'none'`이라 아무것도 서버로 가지 않는다. 생성 옵션 다시 만들기·인식만 끝난 강의의 노트 만들기는 패널(`LIB_REGENERATE`)에서 한다.
+- 보관함 파일: 웹 페이지는 `landing/vendor/summrizei/`(note-file·note-contract·note-spec·note-render·note-export)와 `landing/vendor/katex/`의 바이트 동일 사본을 쓴다. `tools/landing-copies.test.mjs`가 어긋남을 잡는다 — `lib/`을 고치면 사본을 다시 복사한다. 파일 형식을 바꾸면 `NoteFile.VERSION`을 올리고 두 사본을 같이 바꾼다.
+- 보관함 키는 IndexedDB `summrizei`의 `keys` 스토어 `library` 레코드에 추출 불가 CryptoKey(+salt)로만 있다. 암호 자체는 저장·전송하지 않는다. "이 기기 데이터 모두 삭제"(`store.wipe`)가 이 키도 지우고, 이미 내려받은 파일은 건드리지 않는다.
 - `hero-mockup.js`는 실제 캡처나 녹음 없이 직접 작성한 샘플과 스트리밍 연출을 제공한다. `landing/index.html`의 메인 figure와 `hero-mockup.html`의 standalone figure는 동작·마크업 parity를 유지한다.
 - 데모 후반의 PDF→AirDrop→태블릿 장면(`share`/`tablet` state)은 `.mock-canvas` 안의 `.share-sheet`/`.tablet-scene` 오버레이로 구현되며, 시퀀스·타이밍·좌표 규칙은 `docs/hero-demo-sequence.md`에 정리해 둔다.
 - 갱신된 랜딩 자산의 `src`에는 버전 쿼리를 붙인다. `landing/hero-mockup.css`는 브라우저와 강의 화면 레이아웃을 맡고, 제품 패널 스타일은 `product-panel.css`가 맡는다.
