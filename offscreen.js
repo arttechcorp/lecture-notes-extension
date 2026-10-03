@@ -190,7 +190,7 @@ async function libRegenerate(message,settings){
 async function libExportAll(){
   if(starting||archiveBusy||summaryController||bg||session&&!["completed","failed","disposed"].includes(session.status))return {ok:false,busy:true,error:"다른 처리가 진행 중입니다. 끝난 뒤 다시 시도하세요."};
   const store=await storeP;
-  if(!await NoteFile.loadLibraryKey(store.adapter).catch(()=>null))return {ok:false,error:"보관함 암호를 먼저 정하세요."};
+  if(!await NoteFile.loadLibraryKey(store.adapter).catch(()=>null))return {ok:false,error:"보관함 PIN을 먼저 정하세요."};
   let count=0,failed=0;archiveBusy=true; // 내보내는 동안 지우기·새 작업이 끼어들지 못하게 한다
   try{
     for(const meta of await NoteLibrary.list(store)){

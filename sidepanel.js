@@ -75,7 +75,7 @@ function renderSaved(box,saved,packageId){
     if(state)render(state);
   };
   if(saved==='file'){
-    say('노트를 암호화해 다운로드/Summrizei 폴더에 저장했습니다. 웹사이트에서 보관함 암호를 넣어 엽니다.');
+    say('노트를 암호화해 다운로드/Summrizei 폴더에 저장했습니다. 웹사이트에서 보관함 PIN을 넣어 엽니다.');
     const row=document.createElement('div');
     row.className='btnrow';
     row.append(
@@ -87,7 +87,7 @@ function renderSaved(box,saved,packageId){
     );
     box.append(row);
   }else if(saved==='no-passphrase'){
-    say('보관함 암호가 없어 파일로 저장하지 못했습니다.');
+    say('보관함 PIN이 없어 파일로 저장하지 못했습니다.');
     box.append(button('암호 정하고 저장',async()=>{
       if(await openOnboarding(['passphrase'])!==true)return;
       await exportAll();
@@ -187,7 +187,7 @@ function updateReadyRows(){
     setRow(readyEl.markAccount,readyEl.accountState,'ok',`${email||'로그인됨'} · ${PLANS[obPlan]||obPlan}`+(limit!=null?` · 이번 달 ${obAcct?.minutes_used??0}/${limit}분`:''));
     readyEl.accountLoginBtn.hidden=true;
   }
-  setRow(readyEl.markStore,readyEl.storeState,obKey?'ok':'warn',obKey?'보관함 암호 설정됨':'보관함 암호 없음');
+  setRow(readyEl.markStore,readyEl.storeState,obKey?'ok':'warn',obKey?'보관함 PIN 설정됨':'보관함 PIN 없음');
   readyEl.storePassBtn.hidden=!!obKey;
 }
 if(readyEl.accountLoginBtn)readyEl.accountLoginBtn.addEventListener('click',login);
