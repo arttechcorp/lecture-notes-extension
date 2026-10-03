@@ -23,7 +23,7 @@
    ```bash
    supabase db query --linked -f supabase/schema-v2.sql
    ```
-   Free의 월 분 한도는 시드가 기존 행을 덮지 않으므로 한 번 맞춘다: `supabase db query --linked "update plans set monthly_minutes_cap = 100 where plan = 'free'"`
+   월 분 한도(Free 180·Essential 600·Pro 1,200분)는 시드가 다시 실행할 때마다 덮어쓴다.
 
 **테스트:**
 
@@ -68,7 +68,7 @@
 ## 3. 아직 구현하지 않은 것
 
 1. **운영자 진단 키**: `lib/diagnostics.js`의 `OPERATOR_KEYS`가 비어 있어 진단 파일 내보내기는 꺼져 있다. `node tools/decrypt-diagnostic.mjs --generate-keypair <저장소 밖 폴더>`로 키쌍을 만들고 공개키를 넣는다 — 개인키 보관 위치는 §4의 사용자 결정.
-2. **고객 포털 주소**: `landing/billing-config.js`의 결제창 3개(Essential `u9m5dR`·Edu `a5DgpJ`·Pro `grxETv`)는 채웠다. `portal`은 아직 비어 있다 — Groble이 구매자용 해지·영수증 주소를 주는지 확인해 넣는다.
+2. ~~고객 포털 주소~~: Groble 전용 포털이 없어 `portal`에 Groble 메인 주소를 두고, 계정 화면에 "로그인 → 상단 프로필 → 구매내역 → 주문 → 해지하기" 경로를 적었다. 구매자 영수증 경로는 Groble 화면에서 찾지 못했다.
 3. **학생가는 자격 확인 없이 판매**(2026-10-03 결정): 계정 화면은 Essential 카드에 일반·학생가 결제 버튼을 둘 다 보여 주고, 랜딩 문구의 "학생 인증 시"를 "학생 요금제"로 바꿨다. `edu_eligible` RPC는 DB에 남아 있으나 쓰지 않는다.
 4. **실서비스 종단 검증**: 배포한 함수와 실제 강의로 백그라운드 작업을 끝까지 한 번 돌린다. 확인할 것 — MAI-Transcribe 2의 한국어 품질, WAV 업로드 크기(5분 약 9.6 MB), Edge 150초 제한 안에 응답이 오는지.
 5. **`chrome-extension://` 경계의 브라우저 스모크**: 이 맥의 Chrome stable은 `--load-extension`을 무시해 언팩 확장을 못 올린다. `tools/note-render-smoke.cjs`는 패키지 클로저를 `http://localhost`로만 확인한다 — 확장 원점(매니페스트 샌드박스 CSP, `chrome.runtime` 메시지 경계)은 Chrome for Testing 같은 다른 브라우저가 필요하다.
@@ -77,7 +77,7 @@
 ## 4. 결정이 필요한 것 (사용자)
 
 1. ~~원격 반영 실행~~: 2026-10-03 사용자가 실행했다.
-2. **등급별 한도 수치**: 지금은 임시값이다. free 월 100분·$0.3·300요청, essential 1,800분·$8·5,000요청, professional 3,600분·$14·10,000요청(`plans`, `placeholder = true`). 강의 1시간 원가는 약 270~305원(설계 §18)이다.
+2. **등급별 비용·요청 한도**: 월 분 한도는 2026-10-03 확정(free 180·essential 600·professional 1,200분). 비용·요청 한도는 아직 임시값이다 — free $0.3·300요청, essential $8·5,000요청, professional $14·10,000요청(`plans`, `placeholder = true`). 강의 1시간 원가는 약 270~305원(설계 §18)이다.
 3. **Pro와 Essential의 차이**: 지금은 기능이 같고 한도만 다르다. 랜딩은 Pro를 "상세 노트"로 소개한다. 노트 깊이를 등급별로 나눌지 정해야 한다.
 4. **정책 문서의 열린 항목**(`docs/policy-drafts-v2.md` §0): Supabase 리전(지금 시드니), 서버 호스팅(Supabase Edge, 리전 확인 필요), 국외 이전 고지 방식, Jev 채택, 운영자 표기, 온디바이스 요약(Gemini Nano) 존속, 법률 검토 일정. 시행일은 게시 페이지에 2026.10.11로 정해졌으나 초안 문서에는 "(미정)"으로 남아 있다(대조 필요).
 5. **확장 ID 고정**: 저장소 폴더를 옮기면 ID가 바뀌어 로그인 리디렉트와 `EXTENSION_ORIGIN`이 어긋난다. `manifest.json`에 개발용 `key`를 넣을지.

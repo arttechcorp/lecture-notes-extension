@@ -52,17 +52,18 @@ create table if not exists global_usage (
   primary key (scope, period)
 );
 
--- 시드. 가격(원)은 확정값이라 다시 실행하면 덮어쓰고, 한도는 임시값이라 운영자가 고친 값을 덮어쓰지 않는다.
---   한도(임시): free는 §18의 Free 원가(강의 1시간 약 20원)로 비용 $0.3, 분은 계정 페이지가 알리던 월 100분.
---   essential·professional은 강의 1시간 원가 약 300원(§18) 기준으로 가격의 절반 안쪽이 되게 잡았다(30시간 $8, 60시간 $14).
+-- 시드. 가격(원)과 월 분 한도는 확정값이라 다시 실행하면 덮어쓰고, 비용·요청 한도는 임시값이라 운영자가 고친 값을 덮어쓰지 않는다.
+--   월 분 한도(2026-10-03 확정): free 180분, essential 600분, professional 1,200분.
+--   비용(임시): free는 §18의 Free 원가(강의 1시간 약 20원)로 $0.3.
+--   essential·professional은 강의 1시간 원가 약 300원(§18) 기준으로 가격의 절반 안쪽이 되게 잡았다($8, $14 — 옛 30·60시간 기준이라 지금 분 한도 10·20시간에는 넉넉하다).
 --   분은 클라우드 음성 인식(/v1/stt)만 센다. Free의 실시간 경로가 v2로 옮겨 가기 전까지 Free의 분 한도는 쓰이지 않는다.
 --   전역: GLOBAL_COST_CENTS 기본값 15000 = $150/월. 일일 상한은 정하지 않았다(null).
 insert into plans (plan, label, price_krw, edu_price_krw, sort, monthly_cost_cap_micros, monthly_request_cap, monthly_minutes_cap) values
-  ('free', 'Free', 0, null, 0, 300000, 300, 100),
-  ('essential', 'Essential', 24000, 14000, 1, 8000000, 5000, 1800),
-  ('professional', 'Pro', 28900, null, 2, 14000000, 10000, 3600)
+  ('free', 'Free', 0, null, 0, 300000, 300, 180),
+  ('essential', 'Essential', 24000, 14000, 1, 8000000, 5000, 600),
+  ('professional', 'Pro', 28900, null, 2, 14000000, 10000, 1200)
 on conflict (plan) do update set label = excluded.label, price_krw = excluded.price_krw,
-  edu_price_krw = excluded.edu_price_krw, sort = excluded.sort;
+  edu_price_krw = excluded.edu_price_krw, sort = excluded.sort, monthly_minutes_cap = excluded.monthly_minutes_cap;
 
 insert into global_caps (scope, cap_micros) values
   ('day', null),

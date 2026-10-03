@@ -331,7 +331,7 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
     fails("select my_account()", { as: "authenticated", claims: {} }, /42501.*not_authenticated/s);
     const u = newUser("free");
     const me = () => qj("select my_account()::text", { as: "authenticated", claims: { sub: u } });
-    assert.deepEqual(me(), { plan: "free", status: "active", edu: false, current_period_end: null, cancel_at_period_end: false, minutes_used: 0, minutes_limit: 100 });
+    assert.deepEqual(me(), { plan: "free", status: "active", edu: false, current_period_end: null, cancel_at_period_end: false, minutes_used: 0, minutes_limit: 180 });
     const month = q("select date_trunc('month', now() at time zone 'utc')::date");
     q(`insert into monthly_usage (user_id, month, minutes) values (${lit(u)}, ${lit(month)}, 42)`);
     q(`insert into entitlements (user_id, plan, source, edu, ends_at) values (${lit(u)}, 'essential', 'payment', true, now() + interval '20 days')`);

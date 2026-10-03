@@ -174,15 +174,15 @@
   function billingView(client, user, acct) {
     const c = h("div", "card");
     c.append(h("h2", null, "결제 수단 · 영수증"));
-    const url = withUser(cfg.portal, user);
+    const url = cfg.portal || null;
     const actions = h("div", "account-actions");
     if (url) {
-      const a = h("a", "button dark", "결제수단 변경·영수증 보기 (grogle)");
+      const a = h("a", "button dark", "Groble에서 결제 내역 보기");
       a.href = url;
       a.target = "_blank";
       a.rel = "noopener";
       actions.append(a);
-      c.append(actions, h("p", "account-note", "결제수단 변경, 영수증 확인, 구독 해지는 결제 대행사 grogle의 고객 포털에서 처리합니다."));
+      c.append(actions, h("p", "account-note", "Groble에 로그인한 뒤 상단 프로필 → 구매내역에서 주문을 열면 정기결제 해지와 결제 내역을 확인할 수 있습니다. 결제는 결제 대행사 Groble이 처리합니다."));
     } else {
       const off = h("span", "button quiet is-disabled", "결제 준비 중");
       off.setAttribute("aria-disabled", "true");
@@ -257,9 +257,9 @@
     if (acct.plan !== "free") {
       const c = h("div", "card");
       c.append(h("h2", null, "구독 해지"));
-      const url = withUser(cfg.portal, user);
+      const url = cfg.portal || null;
       if (url) {
-        const a = h("a", "button quiet danger", "구독 해지");
+        const a = h("a", "button quiet danger", "Groble에서 구독 해지");
         a.href = url;
         a.target = "_blank";
         a.rel = "noopener";
@@ -267,7 +267,7 @@
       } else {
         c.append(h("p", "account-note", "결제할 때 쓴 계정으로 Groble에 로그인해 구매 내역에서 정기결제를 해지해 주세요."));
       }
-      c.append(h("p", "account-note", (url ? "버튼을 누르면 Groble로 이동해 해지할 수 있습니다. " : "") + "해지해도 이미 결제한 기간이 끝날 때까지는 계속 이용할 수 있고, 그 뒤 다른 플랜으로 바꿀 수 있습니다."));
+      c.append(h("p", "account-note", (url ? "Groble에 로그인한 뒤 상단 프로필 → 구매내역 → 주문에서 '해지하기'를 누르면 구독을 해지할 수 있습니다. " : "") + "해지해도 이미 결제한 기간이 끝날 때까지는 계속 이용할 수 있고, 그 뒤 다른 플랜으로 바꿀 수 있습니다."));
       nodes.push(c);
     }
     set(...nodes);
