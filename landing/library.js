@@ -200,12 +200,15 @@
         try { key = await NoteFile.deriveKey(pass, salt); keys.set(salt, key); }
         catch (err) { for (const f of group) fail(f.name, err); continue; }
       }
+      let opened = 0;
       for (const f of group) {
         try {
           const data = await NoteFile.decryptWithKey(f.text, key);
           entries.set(data.meta.packageId, data);
+          opened++;
         } catch (err) { fail(f.name, err); }
       }
+      if (!opened) keys.delete(salt); // 틀린 암호로 만든 키를 남기면 맞는 암호를 넣어도 계속 실패한다
     }
 
     busy = false;
