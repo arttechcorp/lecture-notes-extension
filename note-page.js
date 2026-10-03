@@ -10,6 +10,9 @@
   const titleEl = $("title"), toolbar = $("toolbar"), warnEl = $("warnCount");
   const missingEl = $("missing"), errorEl = $("error"), recogNote = $("recogNote");
   const answersSel = $("answersSel"), examCb = $("examCb"), writingCb = $("writingCb");
+  const regenBox = $("regenBox"), regenBtn = $("regenBtn"), regenMsg = $("regenMsg");
+  const synWrap = $("synWrap"), augWrap = $("augWrap"), synCb = $("synCb"), augCb = $("augCb");
+  const regenOptHelp = $("regenOptHelp"), regenConsentHelp = $("regenConsentHelp");
 
   const packageId = new URLSearchParams(location.search).get("id");
 
@@ -54,6 +57,35 @@
     render();
   }
 
+  // 다시 만들기: 저장된 입력으로 background→offscreen이 runNote를 다시 돌린다(내용은 이 페이지를 지나지 않는다).
+  // 확장 바깥(http 미리보기)에는 chrome.runtime.id가 없어 상자를 숨긴다 — 보낼 곳이 없으니 버튼도 만들지 않는다.
+  function bindRegen(data) {
+    const runtime = typeof chrome !== "undefined" ? chrome.runtime : null;
+    if (!runtime?.id || !runtime.sendMessage) return;
+    const recogOnly = !data.note && !!data.recognition;
+    if (!recogOnly && (!data.note || data.meta.tier !== "paid")) return; // 무료 노트는 바꿀 생성 옵션이 없다
+    regenBox.hidden = false;
+    if (recogOnly) {
+      synWrap.hidden = augWrap.hidden = true;
+      regenConsentHelp.hidden = false;
+      regenBtn.textContent = "노트 만들기";
+    } else {
+      regenOptHelp.hidden = false;
+      synCb.checked = data.meta.options?.syntheticExamples === true;
+      augCb.checked = data.meta.options?.externalAugmentation === true;
+      regenBtn.textContent = "이 옵션으로 다시 만들기";
+    }
+    regenBtn.addEventListener("click", async () => {
+      regenBtn.disabled = true;
+      regenMsg.textContent = "다시 만드는 중… 몇 분 걸릴 수 있습니다.";
+      const options = recogOnly ? { syntheticExamples: false, externalAugmentation: false } : { syntheticExamples: synCb.checked, externalAugmentation: augCb.checked };
+      const reply = await runtime.sendMessage({ target: "background", type: "LIB_REGENERATE", packageId, options }).catch(e => ({ ok: false, error: e.message }));
+      if (reply?.ok) { location.reload(); return; } // 저장소의 새 결과를 처음부터 다시 그린다
+      regenBtn.disabled = false;
+      regenMsg.textContent = reply?.error || "다시 만들지 못했습니다.";
+    });
+  }
+
   async function main() {
     if (!packageId || !ID_RE.test(packageId)) { missingEl.hidden = false; return; }
     let store;
@@ -82,7 +114,9 @@
       post({ type: "RENDER_RECOGNITION", recognition: data.recognition });
     } else {
       missingEl.hidden = false;
+      return;
     }
+    bindRegen(data);
   }
 
   main();

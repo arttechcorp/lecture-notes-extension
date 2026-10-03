@@ -21,6 +21,13 @@
   button:hover{border-color:var(--accentText)}
   button.primary{color:var(--accentText);border-color:var(--accent)}
   :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .regen{max-width:960px;margin:0 auto;padding:8px 20px;display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;border-bottom:1px solid var(--line);background:var(--surface);font-size:13px}
+  .regen .regen-title{font-weight:600}
+  .regen label{display:inline-flex;align-items:center;gap:6px;min-height:36px;cursor:pointer}
+  .regen input[type="checkbox"]{width:16px;height:16px;accent-color:var(--accent)}
+  .regen .regen-help{flex-basis:100%;margin:0;font-size:12px;color:var(--muted)}
+  .regen .regen-msg{font-size:12px;color:var(--muted)}
+  .regen a{color:var(--accentText)}
   .notice{max-width:960px;margin:12px auto;padding:0 20px;font-size:12px;color:var(--muted)}
   #missing,#error{max-width:960px;margin:40px auto;padding:0 20px;text-align:center;color:var(--muted)}
   #error{color:var(--accentText)}
@@ -45,6 +52,15 @@
   <button id="mdBtn" type="button">Markdown 내보내기</button>
   <button id="pdfBtn" type="button" class="primary">PDF로 저장</button>
 </div>
+<section class="regen" id="regenBox" hidden>
+  <span class="regen-title">다시 만들기</span>
+  <label id="synWrap"><input type="checkbox" id="synCb"> 가상 사례 포함</label>
+  <label id="augWrap"><input type="checkbox" id="augCb"> 강의 밖 보강 포함</label>
+  <button id="regenBtn" type="button"></button>
+  <span class="regen-msg" id="regenMsg" role="status"></span>
+  <p class="regen-help" id="regenOptHelp" hidden>켜면 해당 내용에 라벨이 붙습니다. 강의 밖 보강은 확인이 필요한 내용입니다.</p>
+  <p class="regen-help" id="regenConsentHelp" hidden>외부 요약 처리에 동의해야 합니다(<a href="options.html">설정</a>).</p>
+</section>
 <p class="notice" id="warnCount" hidden></p>
 <p class="notice" id="recogNote" hidden>요약 없이 인식만 끝난 강의입니다.</p>
 <p id="missing" hidden>이 노트를 찾을 수 없습니다.</p>

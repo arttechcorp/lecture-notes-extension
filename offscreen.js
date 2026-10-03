@@ -51,6 +51,15 @@ async function paintMasks(blob,boxes){
 // ── v2 노트 공통(실시간·백그라운드) ──
 // 계획·작성 모델은 계정 모델 목록(/v1/me)에서 고른다: BG_MODELS 가 목록에 있으면 그것, 없으면 첫 모델. 판정은 judge 기능이 켜진 계정만.
 const noteModels=me=>{const ms=Array.isArray(me?.models)?me.models:[],pick=m=>ms.includes(m)?m:ms[0];return {plan:pick(BG_MODELS.plan),write:pick(BG_MODELS.write),judge:(me?.features||[]).includes("judge")?BG_MODELS.judge:null};};
+// GENERATE_NOTES·LIB_REGENERATE 가 같은 모양으로 runNote 를 부른다 — /v1/me 와 서비스 묶음을 한 곳에서 만든다. 토큰은 매 서비스 호출마다 새로 받는다.
+const noteService=settings=>{
+  const config=settingsOf(settings),token=()=>tokenProvider(config.appSessionToken);
+  const svc=name=>async o=>ServiceClient[name]({baseUrl:config.serviceUrl,token:await token(),...o});
+  return {
+    me:async signal=>ServiceClient.me({baseUrl:config.serviceUrl,token:await token(),timeoutMs:15000,signal}),
+    deps:signal=>({service:{plan:svc("plan"),write:svc("write"),judge:svc("judge")},katex,events,signal,sleep:ms=>new Promise(r=>setTimeout(r,ms))}),
+  };
+};
 const hostOf=url=>{try{return new URL(url).hostname;}catch{return null;}};
 // 슬라이드 한 장의 도표·수식 영역을 메모리 안에서 잘라 WebP 바이트로 돌려준다(6-6). 슬라이드 전체는 자르지 않는다(D2). 도표는 dHash 도 낸다.
 async function cropRegions(blob,doc){
@@ -129,6 +138,28 @@ async function bgJob(job,source,settings,me,ctl){
   finally{bg=null;progress.stop();}
   chrome.runtime.sendMessage({target:"background",type:"BG_DONE",...done}).catch(()=>{});
 }
+// 보관함 패키지의 저장 입력으로 노트를 다시 만든다(옵션 변경·인식만 끝난 강의의 노트화). background.js만 부를 수 있다(BG_*와 같다).
+// 원본 프레임은 없으니 크롭을 새로 자르지 않는다: input 의 figureData/formulaCrops 가 가리키는 `<pkg>:c:*` 블롭이 남아 있고,
+// saveLibrary 가 runNote 의 cropMap 대로 그 바이트를 `<pkg>:crop:<F#|G#>` 로 다시 옮긴다. 동의·요금제는 설정이 아니라 서비스가 정한다.
+async function libRegenerate(message,settings){
+  if(starting||archiveBusy||summaryController||bg||session&&!["completed","failed","disposed"].includes(session.status))return {ok:false,busy:true,error:"다른 처리가 진행 중입니다. 끝난 뒤 다시 시도하세요."};
+  const store=await storeP,data=await NoteLibrary.load(store,message.packageId).catch(()=>null);
+  if(!data?.input)return {ok:false,error:"다시 만들 자료가 없습니다."};
+  if(settingsOf(settings).remoteSummaryConsent!==true)return {ok:false,error:"외부 요약 처리 동의가 필요합니다. 설정에서 동의한 뒤 다시 시도하세요."};
+  archiveBusy=true; // 지우기·새 작업·실시간 캡처와 같은 자리를 잡아 다시 만드는 동안 끼어들지 못하게 한다
+  try{
+    const svc=noteService(settings),me=await svc.me(),options=message.options||{};
+    const paid=(me.features||[]).includes("background");
+    if((options.syntheticExamples||options.externalAugmentation)&&!paid)return {ok:false,error:"가상 사례·강의 밖 보강은 유료 기능입니다."};
+    const input={...data.input,models:noteModels(me),consent:{...data.input.consent,summary:true},options:paid?options:{}};
+    const job=await Pipeline.createJob({jobId:`regen-${message.packageId}-${Date.now().toString(36)}`.replace(/[^A-Za-z0-9-]/g,"").slice(0,64),packageId:message.packageId,store,events});
+    const res=await NoteStages.runNote(job,input,svc.deps(new AbortController().signal));
+    if(!["complete","partial","recognition-only"].includes(res.status)||data.note&&!res.note) // 노트 없이 끝나면 덮어쓰지 않는다 — 저장하면 기존 노트가 지워진다
+      return {ok:false,code:res.code??null,error:Pipeline.CODES[res.code]?.userMessage||"다시 만들지 못했습니다."};
+    await saveLibrary(message.packageId,input,res,{source:data.meta.source,host:data.meta.host});
+    return {ok:true,status:res.status,code:res.code??null};
+  }finally{archiveBusy=false;}
+}
 async function bgList(settings){
   const store=await storeP,jobs=[];
   for(const id of await store.ids("jobs")){
@@ -143,6 +174,7 @@ async function bgMessage(message,sender){
   if(!trusted(sender,["/background.js"]))throw new Error("허용되지 않은 요청입니다.");
   if(message.type==="BG_CANCEL"){bg?.ctl.abort();return {ok:true};}
   const settings=message.settings||{};
+  if(message.type==="LIB_REGENERATE")return libRegenerate(message,settings);
   if(message.type==="BG_LIST")return bgList(settings);
   if(message.type!=="BG_RUN")throw new Error("알 수 없는 요청입니다.");
   if(bg)return {ok:false,busy:true,error:"이미 백그라운드 작업이 진행 중입니다. 끝난 뒤 다시 시도하세요."};
@@ -233,7 +265,7 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
   }
   if(!trusted(sender)){reply({ok:false,error:"허용되지 않은 요청입니다."});return;}
   (async()=>{
-    if(String(message.type).startsWith("BG_"))return bgMessage(message,sender);
+    if(String(message.type).startsWith("BG_")||message.type==="LIB_REGENERATE")return bgMessage(message,sender);
     if(message.type==="GET_STATE")return {ok:true,state:session?.state()||null};
     if(message.type==="TAB_GONE"){
       if(message.tabId===session?.options.tabId&&!session.closed)await session.fail("강의 탭이 닫히거나 이동하여 인식을 중단했습니다.");
@@ -275,13 +307,13 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
       const span=events.span({stage:"summary",jobId:current.id});
       try{
         // v2 단계(lib/stages.js): 인식은 이미 기기에서 끝났다(recognition local). 서버는 계획·작성만 하고, 월 분 한도는 계획 요청이 센다.
-        const config=settingsOf(message.settings),token=()=>tokenProvider(config.appSessionToken),svc=name=>async o=>ServiceClient[name]({baseUrl:config.serviceUrl,token:await token(),...o});
-        const me=await ServiceClient.me({baseUrl:config.serviceUrl,token:await token(),timeoutMs:15000,signal:summaryController.signal});
+        const config=settingsOf(message.settings),svc=noteService(message.settings);
+        const me=await svc.me(summaryController.signal);
         const paid=(me.features||[]).includes("background"),store=await storeP,pkg=current.packageId||=NoteLibrary.packageIdFor({});
         const job=await Pipeline.createJob({jobId:`live-${current.id}-${current.summaryAttempt}`.replace(/[^A-Za-z0-9-]/g,"").slice(0,64),packageId:pkg,store,events});
         const input=liveInput(current,{tier:paid?"paid":"free",models:noteModels(me),consent:{summary:config.remoteSummaryConsent},options:paid?config.noteOptions:{}});
         current.log(`[요약] v2 · ${paid?"유료":"Free"} · 슬라이드 ${input.slides.length} · 발화 ${input.transcript.segments.length} · 동의 ${config.remoteSummaryConsent?"완료":"미확인"}`);
-        const res=await NoteStages.runNote(job,input,{service:{plan:svc("plan"),write:svc("write"),judge:svc("judge")},katex,events,signal:summaryController.signal,sleep:ms=>new Promise(r=>setTimeout(r,ms))});
+        const res=await NoteStages.runNote(job,input,svc.deps(summaryController.signal));
         if(!["complete","partial","recognition-only"].includes(res.status))throw Object.assign(new Error(Pipeline.CODES[res.code]?.userMessage||"요약을 마치지 못했습니다."),{code:res.code});
         await saveLibrary(pkg,input,res,{source:"live",host:hostOf(current.options.pageUrl)});
         current.summary={version:2,packageId:pkg,status:res.status,note:res.note??null,recognition:res.recognition??null,notices:res.notices??[]};
