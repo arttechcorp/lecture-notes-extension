@@ -438,6 +438,27 @@ test("stt posts base64 audio to OpenRouter and bills the reported cost", async (
   } finally { await close(server); removeTemp(root); }
 });
 
+test("stt lang auto omits the provider language field and reports the detected language", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  let sent, reply = { ...maiRaw(), language: "Korean" };
+  const server = createServer(sttEnv(root), { fetch: async (u, o) => { sent = o; return { ok: true, json: async () => reply }; } });
+  await new Promise(r => server.listen(0, "127.0.0.1", r));
+  const url = "http://127.0.0.1:" + server.address().port;
+  try {
+    let data = await (await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-auto", lang: "auto" }))).json();
+    assert.equal(JSON.parse(sent.body).language, undefined, "auto는 language 필드를 보내지 않는다");
+    assert.equal(data.transcript.lang, "ko", "감지된 korean은 ko로 접는다");
+    for (const [i, language, want] of [[0, "english", "en"], [1, "ko", "ko"], [2, "japanese", "auto"], [3, undefined, "auto"]]) {
+      reply = { ...maiRaw(), language };
+      if (language === undefined) delete reply.language;
+      data = await (await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-auto-" + i, lang: "auto" }))).json();
+      assert.equal(data.transcript.lang, want, String(language));
+    }
+    await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-pinned", lang: "ko" }));
+    assert.equal(JSON.parse(sent.body).language, "ko", "명시 언어는 그대로 보낸다");
+  } finally { await close(server); removeTemp(root); }
+});
+
 test("stt bills the last segment end when the provider omits duration", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
   const server = createServer(sttEnv(root), { fetch: async () => ({ ok: true, json: async () => ({ segments: [{ start: 0, end: 150, text: "긴 음성" }] }) }) });

@@ -434,7 +434,7 @@ function createServer(env=process.env,deps={}){
     safePart(input.requestId);
     const fields=["model","requestId","t0","durationSec","lang","prompt","audio"];
     if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)))return fail(res,"unexpected_field");
-    if(!Number.isFinite(input.t0)||input.t0<0||input.t0>360000||!Number.isFinite(input.durationSec)||input.durationSec<=0||input.durationSec>STT_MAX_SEC||!["ko","en"].includes(input.lang)||typeof input.prompt!=="string"||input.prompt.length>1000)return fail(res,"invalid_stt_params");
+    if(!Number.isFinite(input.t0)||input.t0<0||input.t0>360000||!Number.isFinite(input.durationSec)||input.durationSec<=0||input.durationSec>STT_MAX_SEC||!["ko","en","auto"].includes(input.lang)||typeof input.prompt!=="string"||input.prompt.length>1000)return fail(res,"invalid_stt_params");
     const match=/^data:audio\/(mp4|wav);base64,([A-Za-z0-9+/]+={0,2})$/.exec(String(input.audio||""));
     if(!match)return fail(res,"invalid_audio");
     // 디코드하지 않고 base64 길이로만 바이트 수를 잰다 — 한도를 넘는 덩어리를 통째로 메모리에 올리지 않는다.
@@ -448,15 +448,17 @@ function createServer(env=process.env,deps={}){
     const reserve=Math.ceil(STT_RATES[input.model]*Math.max(STT_MIN_BILLED_SEC,input.durationSec)/3600*100*1.2);
     // 월 인식 분량 한도(plans.monthly_minutes_cap)는 선언 길이를 올림한 분으로 센다 — 비용은 따로 제공자가 잰 길이로 정산한다.
     return await withReservation({account,requestId:input.requestId,digest,reserve,minutes:Math.ceil(input.durationSec/60),model:input.model,res,meta:{stage:"stt",provider:"openrouter",model:input.model,audioSeconds:input.durationSec}},async signal=>{
+      // lang auto 는 language 힌트를 보내지 않는다 — 제공자가 언어를 감지하게 둔다.
       const response=await fetcher("https://openrouter.ai/api/v1/audio/transcriptions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
-        model:input.model,input_audio:{data:b64,format:match[1]==="mp4"?"m4a":"wav"},language:input.lang,response_format:"verbose_json",timestamp_granularities:["segment","word"],
+        model:input.model,input_audio:{data:b64,format:match[1]==="mp4"?"m4a":"wav"},...(input.lang==="auto"?{}:{language:input.lang}),response_format:"verbose_json",timestamp_granularities:["segment","word"],
         ...(phrases.length?{provider:{options:{azure:{phraseList:{phrases}}}}}:{})
       })});
       // 제공자 HTTP 오류는 요청이 처리되지 않았다고 확정할 수 있으므로 refund — 예약을 정확히 되돌린다.
       if(!response.ok){const h=response.headers?.get?.("retry-after"),s=Number(h);throw Object.assign(new Error("provider_rejected"),{refund:true,code:response.status===429?"provider_busy":"provider_failed_or_invalid_output",retryAfterMs:response.status===429?(h==null||!Number.isFinite(s)?2000:Math.min(Math.max(Math.round(s*1000),1000),30000)):undefined});}
       const raw=await boundedResponse(response,2*1024*1024);
-      // 계약에 어긋난 출력은 돈은 나갔는데 못 쓰는 상태다 — 여기서 던지면 예약이 유지된다.
-      const transcript=Contracts.assertValid(Contracts.SCHEMAS.transcript,toTranscript(raw,{t0:input.t0,model:input.model,lang:input.lang}),"전사 결과");
+      // auto 로 보낸 요청은 제공자가 되돌린 감지 언어를 ko/en으로 접는다 — 못 읽으면 계약이 허용하는 auto로 둔다.
+      const detected={ko:"ko",korean:"ko",en:"en",english:"en"}[String(raw.language??"").trim().toLowerCase()];
+      const transcript=Contracts.assertValid(Contracts.SCHEMAS.transcript,toTranscript(raw,{t0:input.t0,model:input.model,lang:input.lang==="auto"?detected||"auto":input.lang}),"전사 결과");
       // duration 이 응답에서 빠져도 마지막 세그먼트의 끝 시각이 실제 음성 길이의 하한이다 — 선언만으로 정산하지 않는다.
       const measured=Math.max(Number.isFinite(raw.duration)?raw.duration:0,...raw.segments.map(s=>s.end));
       const billedSec=Math.max(STT_MIN_BILLED_SEC,input.durationSec,Math.ceil(measured)),u=raw.usage||{};
