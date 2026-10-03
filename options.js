@@ -54,7 +54,7 @@ function wireConsents(settings){
 async function serviceToken(s){return (await Auth.token())||s.appSessionToken;}
 // 로그인·로그아웃·동의 철회 뒤에 플랜 표시와 인식 카드를 다시 그린다(wireAccount가 채운다).
 let refreshAccount=async()=>{};
-// 모두 삭제가 기기 키까지 지우면 보관함 암호 카드도 다시 그린다(wireLibraryKey가 채운다).
+// 모두 삭제가 기기 키까지 지우면 보관함 PIN 카드도 다시 그린다(wireLibraryKey가 채운다).
 let refreshLibraryKey=async()=>{};
 // 플랜은 서버(my_account)만 안다. 무료가 아닌 모든 플랜(essential·professional·edu 변형 등)은 화면·음성을 서버에서 인식하므로
 // 온디바이스 설정(OCR·Whisper·배속 보정)을 숨기고 서버 인식 상태와 노트 옵션만 보여 준다.
@@ -139,26 +139,26 @@ function wireData(){
   run('diagExportBtn',null,exportDiagnostics);
   run('accountDeleteBtn','계정과 서버에 저장된 데이터(보관함 포함)를 영구 삭제합니다. 되돌릴 수 없습니다.\n\n삭제가 끝나면 이 기기의 강의 데이터도 모두 지우고 로그아웃합니다. 계속할까요?',async()=>{await deleteAccount();return '계정과 서버 데이터를 삭제했습니다. 이 기기의 강의 데이터도 지우고 로그아웃했습니다.';});
 }
-// 보관함 암호: NoteFile(lib/note-file.js)이 암호에서 내보낸 키를 이 기기의 암호화 저장소에 둔다.
+// 보관함 PIN: NoteFile(lib/note-file.js)이 PIN에서 내보낸 키를 이 기기의 암호화 저장소에 둔다.
 // 바꾸면 이 기기에 남아 있는 노트 파일을 background가 새 키로 다시 저장한다(LIB_EXPORT_ALL).
 async function wireLibraryKey(){
-  const state=$('keyState'),form=$('keyForm'),p1=$('keyPass1'),p2=$('keyPass2'),btn=$('keySaveBtn');
+  const state=$('keyState'),form=$('keyForm'),p1=$('keyPass1'),btn=$('keySaveBtn');
   if(!form||!state)return;
-  const unavailable=()=>{state.textContent='이 기능을 쓸 수 없습니다.';for(const el of[p1,p2,btn])if(el)el.disabled=true;};
+  const unavailable=()=>{state.textContent='이 기능을 쓸 수 없습니다.';for(const el of[p1,btn])if(el)el.disabled=true;};
   if(typeof NoteFile==='undefined'||typeof PackageStore==='undefined')return unavailable();
-  const refresh=async()=>{const rec=await NoteFile.loadLibraryKey(await PackageStore.indexedDbAdapter());state.textContent=rec?'설정됨'+(ymd(rec.at)?' · '+ymd(rec.at):''):'설정 안 됨';if(btn)btn.textContent=rec?'암호 바꾸기':'암호 정하기';};
+  const refresh=async()=>{const rec=await NoteFile.loadLibraryKey(await PackageStore.indexedDbAdapter());state.textContent=rec?'설정됨'+(ymd(rec.at)?' · '+ymd(rec.at):''):'설정 안 됨';if(btn)btn.textContent=rec?'PIN 바꾸기':'PIN 정하기';};
   try{await refresh();}catch{return unavailable();}
   refreshLibraryKey=refresh;
   form.addEventListener('submit',async e=>{
     e.preventDefault();
-    const a=p1.value,b=p2.value;p1.value='';p2.value=''; // 입력은 어떤 결말이든 비운다
-    if(a!==b||a.length<12)return notice('암호가 서로 다르거나 12자 미만입니다.');
-    if(!confirm('새 암호로 이 기기에 남아 있는 노트 파일을 모두 다시 저장합니다. 예전 암호로 저장된 다른 파일은 예전 암호로 열어야 합니다.'))return;
+    const a=p1.value;p1.value=''; // 입력은 어떤 결말이든 비운다
+    if(!NoteFile.isPin(a))return notice('숫자 4자리를 입력하세요.');
+    if(!confirm('새 PIN으로 이 기기에 남아 있는 노트 파일을 모두 다시 저장합니다. 예전 PIN이나 암호로 저장된 다른 파일은 그 암호로 열어야 합니다.'))return;
     btn.disabled=true;
     try{
       await NoteFile.saveLibraryKey(await PackageStore.indexedDbAdapter(),a);
       const r=await local('LIB_EXPORT_ALL');
-      notice(`노트 파일 ${r.count??0}개를 새 암호로 다시 저장했습니다.`+(r.failed?` 실패 ${r.failed}개.`:''));
+      notice(`노트 파일 ${r.count??0}개를 새 PIN으로 다시 저장했습니다.`+(r.failed?` 실패 ${r.failed}개.`:''));
       await refresh();
     }catch(error){notice(error.message);}finally{btn.disabled=false;}
   });

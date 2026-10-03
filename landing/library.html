@@ -89,9 +89,9 @@
     <p class="status" id="fileStatus" role="status"></p>
   </section>
   <section class="step" id="stepKey" aria-labelledby="stepKeyH">
-    <h2 id="stepKeyH"><span class="stepno" aria-hidden="true">2</span> 보관함 암호</h2>
+    <h2 id="stepKeyH"><span class="stepno" aria-hidden="true">2</span> 보관함 PIN</h2>
     <form id="keyForm">
-      <input id="passInput" type="password" autocomplete="current-password" required aria-label="보관함 암호" placeholder="보관함 암호">
+      <input id="passInput" type="password" inputmode="numeric" autocomplete="current-password" required aria-label="보관함 PIN" placeholder="보관함 PIN (숫자 4자리)">
       <button id="openBtn" type="submit" class="primary" disabled>열기</button>
     </form>
     <p class="status" id="keyStatus" role="status"></p>
@@ -103,7 +103,7 @@
     <button id="addBtn" type="button">파일 더 불러오기</button>
     <button id="lockBtn" type="button">잠그기</button>
   </div>
-  <p class="privacy">복호화는 이 브라우저 안에서만 일어나며, 파일·암호·노트 내용은 어디에도 전송하거나 저장하지 않습니다.</p>
+  <p class="privacy">복호화는 이 브라우저 안에서만 일어나며, 파일·PIN·노트 내용은 어디에도 전송하거나 저장하지 않습니다.</p>
   <section id="listView" aria-label="강의 목록" hidden>
     <div class="cards" id="cards"></div>
   </section>
