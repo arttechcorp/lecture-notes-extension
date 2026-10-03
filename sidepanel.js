@@ -94,9 +94,12 @@ function renderSaved(box,saved,packageId){
 // LIB_REGENERATE: 보관함에 저장된 인식 자료로 노트를 다시 만든다(인식만 끝난 강의의 노트화·생성 옵션 변경).
 // 몇 분 걸린다 — 진행은 working 표시와 상태 문구로 알리고, 결말은 {ok,status,code,saved}로 온다.
 let regenBusy=false;
+// 재생성 실패도 세션 오류와 같은 경로(state.error → render → setError → doneAlertExtras)를 탄다 —
+// setError만 직접 부르면 로그인 버튼·요금제 링크가 안 붙는다.
+const regenError=message=>{if(state){state.error=message;render(state);}else setError(message);};
 async function regenerate(options){
   const packageId=state?.summary?.packageId;
-  if(!packageId){setError('다시 만들 노트 자료가 없습니다.');return;}
+  if(!packageId){regenError('다시 만들 노트 자료가 없습니다.');return;}
   setError('');
   setStatus('노트를 만드는 중… 몇 분 걸릴 수 있습니다.');
   regenBusy=true;
@@ -105,17 +108,17 @@ async function regenerate(options){
   try{
     const r=await rpc({type:'LIB_REGENERATE',packageId,options});
     if(!r?.ok){
-      setStatus('');
-      setError(r?.error||'노트를 만들지 못했습니다.');
+      regenError(r?.error||'노트를 만들지 못했습니다.');
       return;
     }
     const sum=state?.summary;
     if(sum){
       sum.saved=r.saved??sum.saved;
-      if(r.status==='complete'||r.status==='partial'){sum.status=r.status;sum.note=sum.note||{};}
+      if(r.status==='complete'||r.status==='partial'){sum.status=r.status;sum.note=sum.note||{};sum.recognition=null;}
     }
+    state.error=null;
     render(state);
-    if(sum?.note)els.donePill.textContent='노트 완성';
+    if(sum?.note)els.donePill.textContent=r.status==='partial'?'일부 완료':'노트 완성';
     setStatus('노트를 만들었습니다.');
   }finally{
     regenBusy=false;
@@ -183,7 +186,7 @@ if(readyEl.accountLoginBtn)readyEl.accountLoginBtn.addEventListener('click',logi
 if(readyEl.storePassBtn)readyEl.storePassBtn.addEventListener('click',()=>openOnboarding(['passphrase']));
 // One indicator for both waits the user actually has to sit through: summarising, and the recognition backlog
 // that has to drain before a note can be made.
-function setWorking(){if(!els.working)return;const s=state?.status,queued=(state?.backlog?.images||0)+(state?.backlog?.audio||0);const making=busy||regenBusy||s==='summarizing';els.working.hidden=!(making||s==='draining'||(active(state)&&queued>0));if(els.workingText)els.workingText.textContent=making?'노트를 만드는 중입니다. 몇 분 걸릴 수 있습니다.':'남은 인식을 마무리하는 중입니다.';}
+function setWorking(){if(!els.working)return;const s=state?.status,queued=(state?.backlog?.images||0)+(state?.backlog?.audio||0);const making=regenBusy||s==='summarizing';els.working.hidden=!(making||s==='draining'||(active(state)&&queued>0));if(els.workingText)els.workingText.textContent=making?'노트를 만드는 중입니다. 몇 분 걸릴 수 있습니다.':'남은 인식을 마무리하는 중입니다.';}
 function render(next){if(next&&state&&next.generation<state.generation)return;const was=state?.status;state=next||null;const s=state?.status;setStatus(label[s]||'');trackElapsed();liveClock();setError(state?.error);if(onboardingOpen)setStage('onboard');else if(!state||s==='disposed')setStage('ready');else if(active(state)&&s!=='summarizing')setStage('live');else setStage('done');els.cntSlides.textContent=state?.counts?.visual||0;els.cntVoice.textContent=state?.counts?.audio||0;els.cntQueue.textContent=(state?.backlog?.images||0)+(state?.backlog?.audio||0);els.feedLines.textContent='';const recent=state?.recent||[],gaps=state?.gaps||[];if(recent.length){for(const item of recent){const row=document.createElement('div'),time=document.createElement('span');time.className='t';time.textContent=`${format(item.time)} · ${item.source==='asr'?'음성':'화면'}`;row.append(time,document.createTextNode(item.text));els.feedLines.append(row);}}else if(gaps.length){for(const gap of gaps.slice(-3)){const row=document.createElement('div');row.textContent=`${format(gap.time)} · ${gap.reason}`;els.feedLines.append(row);}}else els.feedLines.textContent=active(state)?'인식 결과를 기다리는 중입니다.':'표시할 처리 구간이 없습니다.';els.debugLog.textContent=state?.debug?.join('\n')||'세션을 시작하면 음성 진단 정보가 표시됩니다.';els.debugLog.scrollTop=els.debugLog.scrollHeight;if(s==='failed'&&state?.error?.includes('음성'))els.debugDetails.open=true;els.donePill.textContent=s==='summarizing'?'요약 중':s==='failed'?'중단됨':state?.summary?.status==='recognition-only'?'인식만 완료':state?.summary?.status==='partial'?'일부 완료':state?.summary?.note?'노트 완성':'인식 완료';els.doneSummary.textContent=state?`화면 ${state.counts.visual} · 음성 ${state.counts.audio}`:'';renderSummary(state?.summary);doneAlertExtras();setWorking();controls();updateReadyCard();if(shouldAutoSummarize(was,state))autoSummarize();}
 // 캡처가 끝나면 노트 화면이 비어 있으면 안 된다. 요약을 한 번 자동으로 이어 돌린다 —
 // 중지 버튼뿐 아니라 영상 종료·트랙 종료 같은 자동 종료 경로도 모두 여기(completed 전이)로 모인다.
@@ -341,8 +344,8 @@ async function bgInit(){
 }
 // 유료는 백그라운드가 주 경로: 카드를 준비 화면 맨 위(실시간 캡처 블록보다 위)로 옮기고 주 버튼으로 만든다. 로그아웃하면 원래 자리(stageReady 맨 끝)로 되돌린다.
 function bgLayout(paid){
-  if(paid){els.stageReady.insertBefore(bgEl.bgBox,els.stageReady.children[0]||null);bgEl.bgBtn.className='primary';els.startBtn.textContent='실시간으로 캡처';}
-  else{els.stageReady.append(bgEl.bgBox);bgEl.bgBtn.className='';els.startBtn.textContent='캡처 시작';bgEl.bgBox.hidden=true;}
+  if(paid){els.stageReady.insertBefore(bgEl.bgBox,els.stageReady.children[0]||null);bgEl.bgBtn.className='primary';els.startBtn.textContent='실시간으로 캡처';els.startBtn.className='';}
+  else{els.stageReady.append(bgEl.bgBox);bgEl.bgBtn.className='';els.startBtn.textContent='캡처 시작';els.startBtn.className='primary';bgEl.bgBox.hidden=true;}
 }
 // 선택한 탭이 YouTube 계열이면 클릭 전부터 막는다 — 달리는 작업(bgBusy)의 진행 문구는 덮지 않는다.
 function bgTabCheck(){
