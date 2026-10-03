@@ -16,7 +16,7 @@ const tokenProvider=async fallback=>{
 };
 // ── 유료 백그라운드 작업(BG_*, docs/architecture-v2.md §5.3, §6.1, §8) ──
 // 한 번에 하나. 원본 미디어는 메모리에서만 쓰고 파생물(슬라이드·전사·노트)만 암호화 패키지 저장소에 둔다. 진행은 이벤트 버스에서 단계별 개수만 패널에 밀고, 결말은 BG_DONE으로 background에 알린다
-// (background가 절전 방지·Referer 규칙을 풀고 패널에 전한다). BG_RUN·BG_LIST·BG_CANCEL은 background.js만 보낼 수 있다 — 동의 기록과 Referer 출처를 거기서 정하기 때문이다.
+// (background가 절전 방지·Referer 규칙을 풀고 패널에 전한다). BG_*·LIB_* 요청은 background.js만 보낼 수 있다 — 동의 기록과 Referer 출처를 거기서 정하기 때문이다.
 // /v1/me는 요약 모델 목록만 알려 주고 인식·판정 모델은 싣지 않아 모델은 여기 한 곳에 둔다. 서버 allowlist(ALLOWED_*_MODELS)와 어긋나면 invalid_model로 멈춘다 — 다른 모델로 조용히 바꾸지 않는다.
 // ponytail: 계획·작성 모델은 둘 다 lite다(기본 allowlist에 있는 유일한 모델). 중급 Planner 선정(docs/architecture-v2.md A5)이 끝나면 plan만 바꾼다.
 const BG_MODELS={plan:"google/gemini-2.5-flash-lite",write:"google/gemini-2.5-flash-lite",judge:"openai/gpt-4.1-nano",stt:"microsoft/mai-transcribe-2",vision:"google/gemini-2.5-flash-lite"};
@@ -82,6 +82,19 @@ async function cropRegions(blob,doc){
   }finally{bmp.close();}
   return {crops,hashes,formulas};
 }
+// 끝난 노트를 보관함 암호(NoteFile)로 암호화해 background 에 파일로 내보낸다 — 내려받기는 background 몫. 저장은 이미 끝났으니 결말("file"|"no-passphrase"|"failed")만 돌려주고, 이벤트에는 코드만 싣는다.
+async function exportNote(store,pkg,meta,note){
+  try{
+    const lk=await NoteFile.loadLibraryKey(store.adapter).catch(()=>null);
+    if(!lk){events.emit({stage:"library",level:"warn",code:"LIBRARY_NO_PASSPHRASE"});return "no-passphrase";}
+    const text=await NoteFile.encryptFile({meta,note,crops:await NoteLibrary.cropUrls(store,pkg)},lk.key,lk.salt);
+    const reply=await chrome.runtime.sendMessage({target:"background",type:"LIB_EXPORT",packageId:pkg,fileName:NoteFile.fileName(meta),text}).catch(()=>null);
+    if(reply?.ok)return "file";
+    events.emit({stage:"library",level:"warn",code:"LIBRARY_EXPORT_FAILED"});return "failed";
+  }catch{events.emit({stage:"library",level:"warn",code:"LIBRARY_EXPORT_FAILED"});return "failed";}
+}
+// saveLibrary 의 반환값은 셋("file"|"no-passphrase"|"failed")만 의미 있다 — 노트를 지키며 건너뛴 false 나 저장만 한 경우는 null 로 본다.
+const savedResult=v=>v==="file"||v==="no-passphrase"||v==="failed"?v:null;
 // 끝난 노트(또는 인식 결과만)를 로컬 보관함에 둔다: 메타·재생성 입력·노트·크롭(F#·G# 키로 옮김). 강의 내용은 기기 안 암호문으로만 남는다.
 async function saveLibrary(pkg,input,res,{source,host}){
   const store=await storeP,crops={},note=res.note||null;
@@ -89,9 +102,10 @@ async function saveLibrary(pkg,input,res,{source,host}){
   if(!note&&(await NoteLibrary.load(store,pkg).catch(()=>null))?.note){events.emit({stage:"library",level:"warn",code:"LIBRARY_NOTE_KEPT"});return false;}
   for(const [id,key] of Object.entries(res.cropMap||{})){const b=await store.getBytes("blobs",`${pkg}:c:${key.replace(/[^A-Za-z0-9_.:-]/g,"_")}`).catch(()=>null);if(b)crops[id]=b;}
   const questions=note?note.sections.flatMap(s=>s.blocks).filter(b=>b.type==="B14").reduce((n,b)=>n+b.content.items.length,0):0;
-  await NoteLibrary.saveResult(store,{packageId:pkg,input,note,crops,recognition:res.recognition??null,meta:{packageId:pkg,title:input.meta?.title??null,host,source,tier:input.tier,
+  const meta=await NoteLibrary.saveResult(store,{packageId:pkg,input,note,crops,recognition:res.recognition??null,meta:{packageId:pkg,title:input.meta?.title??null,host,source,tier:input.tier,
     status:res.status==="recognition-only"?"recognition-only":note?.status||"partial",durationSec:note?Math.max(0,note.meta.processed.t1-note.meta.processed.t0):null,
     noteSpecVersion:note?.noteSpecVersion??null,options:{...NoteContract.policyOf(input.options),exam:false},counts:note?{sections:note.sections.length,questions}:null}});
+  return note?await exportNote(store,pkg,meta,note):null;
 }
 // 실시간 세션 → runNote 입력(Free 와 유료의 실시간 모드). 슬라이드 t1 은 다음 슬라이드의 시작이고, 발화는 기기 Whisper 의 근거 항목에서 만든다(화자 없음).
 // ponytail: 탐색(epoch)이 바뀌어도 시각을 그대로 쓴다 — 앞뒤로 옮겨 다니며 본 강의는 시각이 겹칠 수 있다. 필요하면 epoch 마다 이어 붙인다.
@@ -102,7 +116,7 @@ function liveInput(cur,{tier,models,consent,options}){
     slides:docs.map((d,i)=>({...d,t1:Math.max(d.t0,docs[i+1]?.t0??d.t1??d.t0)})),
     transcript:{schemaVersion:1,engine:"whisper",model:String(cur.options.whisperModel||"local").slice(0,64),lang,
       segments:asr.map((e,i)=>({id:"a"+(i+1),t0:e.t0,t1:Math.max(e.t0,e.t1??e.t0),text:String(e.text).slice(0,4000),words:[],noSpeechProb:null,avgLogprob:null,compressionRatio:null,status:"kept"}))},
-    gaps:cur.gaps||[],tier,models,consent,recognition:"local",options,meta:{title:null,lang},
+    gaps:cur.gaps||[],tier,models,consent,recognition:"local",options,meta:{title:typeof cur.options.pageTitle==="string"&&cur.options.pageTitle.trim()?cur.options.pageTitle.trim().slice(0,120):null,lang},
   };
 }
 // 진행: 이 작업의 이벤트에서 단계 이름과 끝난 개수만 모아 1초에 한 번 패널에 민다(주소·시각·내용 없음).
@@ -120,7 +134,7 @@ function bgProgress(jobId){
 // BG_DONE의 본문: 코드·수치·고지 개수뿐이다(res.note는 강의 내용이라 싣지 않는다). 요약 동의가 없어 멈춘 작업(recognition-only)은 사용자 사유의 일시정지로 보인다.
 function bgResult(jobId,res){
   const wait=res.status==="recognition-only",code=res.code??(wait?"CONSENT_SUMMARY_REQUIRED":null);
-  return {jobId,packageId:res.packageId??null,status:wait?"paused":res.status,code,reason:res.reason??(wait?"user":null),suggest:res.suggest??null,message:Pipeline.CODES[code]?.userMessage??null,
+  return {jobId,packageId:res.packageId??null,status:wait?"paused":res.status,code,reason:res.reason??(wait?"user":null),suggest:res.suggest??null,message:Pipeline.CODES[code]?.userMessage??null,saved:res.saved??null,
     stats:res.stats&&{slides:res.stats.slides,chunks:res.stats.chunks,gaps:res.stats.gaps},notices:(res.notices||[]).map(({code,count})=>({code,count:count??null}))};
 }
 async function bgJob(job,source,settings,me,ctl){
@@ -135,12 +149,12 @@ async function bgJob(job,source,settings,me,ctl){
       // 끝나면(인식 결과만 있어도) 로컬 보관함에 둔다. 저장 실패는 노트를 잃게 하지 않도록 코드만 남기고 결말은 그대로 알린다.
       runNote:async(j,input,o)=>{
         const res=await NoteStages.runNote(j,input,{...o,service:{plan:svc("plan"),write:svc("write"),judge:svc("judge")},katex});
-        if(["complete","partial","recognition-only"].includes(res.status))await saveLibrary(j.packageId,input,res,{source:"background",host:hostOf(source.pageUrl)}).catch(()=>events.emit({stage:"library",jobId:j.jobId,level:"warn",code:"LIBRARY_SAVE_FAILED"}));
-        return {...res,packageId:j.packageId};
+        const saved=["complete","partial","recognition-only"].includes(res.status)?await saveLibrary(j.packageId,input,res,{source:"background",host:hostOf(source.pageUrl)}).catch(()=>events.emit({stage:"library",jobId:j.jobId,level:"warn",code:"LIBRARY_SAVE_FAILED"})):null;
+        return {...res,packageId:j.packageId,saved:savedResult(saved)};
       },
     });
     done=bgResult(job.jobId,res);
-  }catch(error){done={jobId:job.jobId,status:"failed",code:Pipeline.codeOf(error,"SRC")||"UNKNOWN"};} // 코드 없는 오류(버그)도 체크포인트는 마지막 정상 상태에 남아 BG_LIST에서 이어 갈 수 있다
+  }catch(error){done={jobId:job.jobId,status:"failed",code:Pipeline.codeOf(error,"SRC")||"UNKNOWN",saved:null};} // 코드 없는 오류(버그)도 체크포인트는 마지막 정상 상태에 남아 BG_LIST에서 이어 갈 수 있다
   finally{bg=null;progress.stop();}
   chrome.runtime.sendMessage({target:"background",type:"BG_DONE",...done}).catch(()=>{});
 }
@@ -162,9 +176,22 @@ async function libRegenerate(message,settings){
     const res=await NoteStages.runNote(job,input,svc.deps(new AbortController().signal));
     if(!["complete","partial","recognition-only"].includes(res.status)||data.note&&!res.note) // 노트 없이 끝나면 덮어쓰지 않는다 — 저장하면 기존 노트가 지워진다
       return {ok:false,code:res.code??null,error:Pipeline.CODES[res.code]?.userMessage||"다시 만들지 못했습니다."};
-    await saveLibrary(message.packageId,input,res,{source:data.meta.source,host:data.meta.host});
-    return {ok:true,status:res.status,code:res.code??null};
+    const saved=await saveLibrary(message.packageId,input,res,{source:data.meta.source,host:data.meta.host});
+    return {ok:true,status:res.status,code:res.code??null,saved:savedResult(saved)};
   }finally{archiveBusy=false;}
+}
+// 보관함의 저장 노트를 암호 파일로 전부 다시 내보낸다. 보관함 암호가 없으면 시작하지 않는다.
+async function libExportAll(){
+  if(starting||archiveBusy||summaryController||bg||session&&!["completed","failed","disposed"].includes(session.status))return {ok:false,busy:true,error:"다른 처리가 진행 중입니다. 끝난 뒤 다시 시도하세요."};
+  const store=await storeP;
+  if(!await NoteFile.loadLibraryKey(store.adapter).catch(()=>null))return {ok:false,error:"보관함 암호를 먼저 정하세요."};
+  let count=0,failed=0;
+  for(const meta of await NoteLibrary.list(store)){
+    const data=await NoteLibrary.load(store,meta.packageId).catch(()=>null);
+    if(!data?.note)continue;
+    if(await exportNote(store,meta.packageId,meta,data.note)==="file")count++;else failed++;
+  }
+  return {ok:true,count,failed};
 }
 async function bgList(settings){
   const store=await storeP,jobs=[];
@@ -181,6 +208,13 @@ async function bgMessage(message,sender){
   if(message.type==="BG_CANCEL"){bg?.ctl.abort();return {ok:true};}
   const settings=message.settings||{};
   if(message.type==="LIB_REGENERATE")return libRegenerate(message,settings);
+  if(message.type==="LIB_EXPORT_ALL")return libExportAll();
+  if(message.type==="BG_DISCARD"){
+    const{jobId}=message;
+    if(!/^[A-Za-z0-9][A-Za-z0-9-]{7,63}$/.test(jobId))throw new Error("작업 번호가 올바르지 않습니다.");
+    if(bg?.jobId===jobId)return {ok:false,error:"진행 중인 작업은 먼저 취소하세요."};
+    await (await storeP).adapter.delete("jobs",jobId);return {ok:true};
+  }
   if(message.type==="BG_LIST")return bgList(settings);
   if(message.type!=="BG_RUN")throw new Error("알 수 없는 요청입니다.");
   if(bg)return {ok:false,busy:true,error:"이미 백그라운드 작업이 진행 중입니다. 끝난 뒤 다시 시도하세요."};
@@ -219,44 +253,6 @@ chrome.runtime.onConnect.addListener(port=>{
   const off=bus.on(event=>{try{port.postMessage({type:"event",event});}catch{}});
   port.onDisconnect.addListener(off);
 });
-async function archive(message){
-  const span=message.type==="SAVE_VAULT"||message.type==="LOAD_VAULT"?events.span({stage:"vault",jobId:session?.id,unit:message.type==="SAVE_VAULT"?"save":"load"}):null;
-  try{const result=await archiveRun(message);span?.done();return result;}
-  catch(error){span?.fail("VAULT_FAILED");throw error;}
-}
-async function archiveRun(message){
-  if(archiveBusy||summaryController||session&&!["completed","failed","disposed"].includes(session.status))throw new Error("현재 처리를 먼저 마쳐 주세요.");
-  archiveBusy=true;const config=settingsOf(message.settings);
-  try{
-    const client={baseUrl:config.serviceUrl,token:await tokenProvider(config.appSessionToken)};
-    const me=await ServiceClient.me(client);
-    if(message.type==="LIST_VAULT")return {ok:true,items:(await ServiceClient.listEncrypted(client)).items};
-    const objectId=message.objectId||crypto.randomUUID();
-    if(message.type==="DELETE_VAULT"){await ServiceClient.deleteEncrypted({...client,objectId});return {ok:true};}
-    const context={accountId:me.accountId,objectId,kind:"session"};
-    if(message.type==="SAVE_VAULT"){
-      if(!session?.store.items.length)throw new Error("보관할 인식 자료가 없습니다.");
-      const decisions=new Map((session.summary?.preprocessing?.decisions||[]).map(item=>[item.id,item]));
-      const evidence=session.store.snapshot().map(item=>({...item,...(decisions.get(item.id)||{})}));
-      const envelope=await LectureVault.encrypt({version:1,evidence,summary:session.summary||null,gaps:session.gaps},message.passphrase,context);
-      await ServiceClient.saveEncrypted({...client,objectId,envelope});
-      return {ok:true,objectId,state:session.state()};
-    }
-    const {envelope}=await ServiceClient.loadEncrypted({...client,objectId});
-    const value=await LectureVault.decrypt(envelope,message.passphrase,context);
-    if(value?.version!==1)throw new Error("지원하지 않는 보관 문서입니다.");
-    const restored=new EvidenceStore();restored.restore(value.evidence);
-    // 보관된 요약은 v2 결과({version:2, note|recognition})만 받는다. 노트는 노트 계약 스키마로 다시 검증한다.
-    const note=value.summary;
-    if(note&&!(note.version===2&&(note.note==null||Contracts.validate(NoteContract.schemas.note,note.note).ok)))throw new Error("이전 형식의 보관 노트라 열 수 없습니다. 인식 자료만 불러오려면 새로 요약하세요.");
-    await session?.dispose();
-    session=new CaptureSession({id:crypto.randomUUID(),generation:++generation,stream:null,options:{},emit,events});
-    session.store=restored;session.summary=note;session.status="completed";session.closed=true;
-    session.gaps=Array.isArray(value.gaps)?value.gaps.slice(-200):[];
-    session.counts={visual:restored.items.filter(e=>e.source==="ocr").length,audio:restored.items.filter(e=>e.source==="asr").length};
-    session.publish();return {ok:true,objectId,state:session.state()};
-  }finally{archiveBusy=false;message.passphrase="";}
-}
 chrome.runtime.onMessage.addListener((message,sender,reply)=>{
   if(message?.target!=="session")return;
   if(message.type==="MEDIA_METADATA"){
@@ -271,13 +267,12 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
   }
   if(!trusted(sender)){reply({ok:false,error:"허용되지 않은 요청입니다."});return;}
   (async()=>{
-    if(String(message.type).startsWith("BG_")||message.type==="LIB_REGENERATE")return bgMessage(message,sender);
+    if(String(message.type).startsWith("BG_")||["LIB_REGENERATE","LIB_EXPORT_ALL"].includes(message.type))return bgMessage(message,sender);
     if(message.type==="GET_STATE")return {ok:true,state:session?.state()||null};
     if(message.type==="TAB_GONE"){
       if(message.tabId===session?.options.tabId&&!session.closed)await session.fail("강의 탭이 닫히거나 이동하여 인식을 중단했습니다.");
       return {ok:true,state:session?.state()||null};
     }
-    if(["SAVE_VAULT","LOAD_VAULT","LIST_VAULT","DELETE_VAULT"].includes(message.type))return archive(message);
     if(["WIPE_LOCAL","LOGS_READ","LOGS_CLEAR"].includes(message.type))return localData(message,sender);
     if(message.type==="START_SESSION"){
       if(starting||archiveBusy||summaryController||bg)throw new Error("현재 작업이 끝난 뒤 다시 시작하세요.");
@@ -321,8 +316,8 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
         current.log(`[요약] v2 · ${paid?"유료":"Free"} · 슬라이드 ${input.slides.length} · 발화 ${input.transcript.segments.length} · 동의 ${config.remoteSummaryConsent?"완료":"미확인"}`);
         const res=await NoteStages.runNote(job,input,svc.deps(summaryController.signal));
         if(!["complete","partial","recognition-only"].includes(res.status))throw Object.assign(new Error(Pipeline.CODES[res.code]?.userMessage||"요약을 마치지 못했습니다."),{code:res.code});
-        await saveLibrary(pkg,input,res,{source:"live",host:hostOf(current.options.pageUrl)});
-        current.summary={version:2,packageId:pkg,status:res.status,note:res.note??null,recognition:res.recognition??null,notices:res.notices??[]};
+        const saved=await saveLibrary(pkg,input,res,{source:"live",host:hostOf(current.options.pageUrl)});
+        current.summary={version:2,packageId:pkg,status:res.status,note:res.note??null,recognition:res.recognition??null,notices:res.notices??[],saved:savedResult(saved)};
         span.done();
       }catch(error){current.error=error.name==="AbortError"?"요약을 취소했습니다. 완료한 호출은 다시 요약할 때 재사용됩니다.":error.message;if(error.name==="AbortError")span.skip({msg:"cancelled"});else span.fail(error.code||"SUMMARY_FAILED");}
       finally{summaryController=null;current.status="completed";current.progress=null;current.publish();}
