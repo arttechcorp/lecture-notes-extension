@@ -345,12 +345,17 @@
     <div class="checkrow"><span class="what">백그라운드로 처리</span><span class="val">유료</span></div>
     <p class="detail">영상을 받아 화면·음성을 서비스로 보내 노트를 만듭니다. 사용 동의가 필요하고, 브라우저는 켜 두세요.</p>
     <p class="detail" id="bgStatus" role="status" aria-live="polite" style="white-space:pre-wrap;"></p>
+    <div class="statusline"><progress id="bgBar" max="9" value="0" style="flex:1;" hidden></progress><span class="sub" id="bgTime" hidden></span></div>
     <p class="detail" id="bgProgress"></p>
+    <button class="link" id="bgSummaryLink" type="button" hidden>동의하기</button>
+    <div id="bgSave" hidden></div>
     <button id="bgBtn" type="button">백그라운드로 처리</button>
     <div class="btnrow"><button id="bgRetryBtn" type="button" hidden>다시 시도</button><button id="bgCancelBtn" type="button" hidden>취소</button></div>
     <button id="bgLiveBtn" type="button" hidden>실시간 모드로 시작</button>
-    <button id="bgNoteBtn" type="button" hidden>웹에서 노트 열기</button>
-    <a href="#" id="bgOptionsLink" hidden>설정 열기</a>
+    <button id="bgConsentBtn" type="button" hidden>동의하고 계속</button>
+    <button id="bgMakeBtn" type="button" hidden>노트 만들기</button>
+    <button id="bgDiscardBtn" type="button" hidden>작업 버리기</button>
+    <a href="#" id="bgBilling" target="_blank" rel="noopener" hidden>요금제 보기</a>
   </div>
 </div>
 
