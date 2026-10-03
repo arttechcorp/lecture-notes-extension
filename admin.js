@@ -66,6 +66,88 @@
     });
   }
 
+  // ---- 작업 집계·산출물 분류 순수 부분 (작업·산출물 탭, DOM 없이 Node에서 시험) ----
+
+  // jobId별로 묶어 총 소요·단계별 호출·비용·모델·오류 코드와 상태를 만든다. 상태는 마지막 stage:"job"
+  // 이벤트의 status·msg(전이 로그 "이전>다음")가 정본이고, 없으면 오류·done 스팬으로 추론한다.
+  function jobSummary(events) {
+    const jobs = new Map();
+    for (const e of events || []) {
+      if (!e || typeof e !== "object" || !e.jobId) continue;
+      let j = jobs.get(e.jobId);
+      if (!j) { j = { jobId: e.jobId, start: Infinity, end: -Infinity, stages: {}, calls: 0, costUsd: 0, models: new Set(), codes: new Map(), errors: 0, lastJob: null, errTs: -Infinity, doneTs: -Infinity }; jobs.set(e.jobId, j); }
+      if (Number.isFinite(e.ts)) { if (e.ts < j.start) j.start = e.ts; if (e.ts > j.end) j.end = e.ts; }
+      if (e.level === "error") { j.errors++; if (e.code) j.errTs = Math.max(j.errTs, e.ts ?? Infinity); }
+      if (e.model) j.models.add(e.model);
+      if (Number.isFinite(e.costUsd)) j.costUsd += e.costUsd;
+      if (e.code) j.codes.set(e.code, (j.codes.get(e.code) || 0) + 1);
+      if (e.stage === "job") j.lastJob = e;
+      if (e.stage && TERMINAL.has(e.status)) {
+        const c = j.stages[e.stage] || (j.stages[e.stage] = { ms: 0, calls: 0, failed: 0 });
+        if (Number.isFinite(e.ms)) c.ms += e.ms;
+        c.calls++; if (e.status === "failed") c.failed++;
+        j.calls++;
+        if (e.status === "done" && (e.stage === "rendering" || e.stage === "job")) j.doneTs = Math.max(j.doneTs, e.ts ?? Infinity);
+      }
+    }
+    const out = [];
+    for (const j of jobs.values()) {
+      const m = String(j.lastJob?.msg ?? "");
+      const to = j.lastJob?.status ?? (m.includes(">") ? m.slice(m.lastIndexOf(">") + 1).split(":")[0] : null);
+      // 코드 있는 오류 뒤에 done이 없으면 실패, rendering·job의 done 스팬이 있으면 완료, 나머지는 실행 중
+      const state = ["done", "failed", "cancelled", "paused"].includes(to) ? to
+        : (j.errTs > -Infinity && j.errTs >= j.doneTs) ? "failed" : j.doneTs > -Infinity ? "done" : "running";
+      out.push({
+        jobId: j.jobId,
+        start: Number.isFinite(j.start) ? j.start : null,
+        end: Number.isFinite(j.end) ? j.end : null,
+        totalMs: Number.isFinite(j.start) && Number.isFinite(j.end) ? j.end - j.start : null,
+        stages: j.stages, calls: j.calls, costUsd: j.costUsd,
+        models: [...j.models],
+        codes: [...j.codes.entries()].map(([code, count]) => ({ code, count })).sort((a, b) => b.count - a.count || (a.code < b.code ? -1 : 1)),
+        errors: j.errors, state,
+      });
+    }
+    out.sort((a, b) => (b.start ?? 0) - (a.start ?? 0));
+    return out;
+  }
+
+  // 패키지 레코드 id(접두어 제외)와 복호화 값으로 종류와 한 줄 설명을 만든다.
+  const recLen = x => Array.isArray(x) ? x.length : 0;
+  function noteBlocks(n) { return (n?.sections ?? []).reduce((s, x) => s + recLen(x?.blocks), 0) + recLen(n?.global); }
+  // 단계 캐시는 {value} 봉투 — 저장된 단계 결과의 모양으로 어느 단계인지 알아낸다 (lib/stages.js 반환값)
+  function stageKind(v) {
+    if (!v || typeof v !== "object") return "call";
+    if (v.ir && v.registry) return "refining";
+    if (v.importance) return "judging";
+    if (v.plan) return "planning";
+    if (v.sections && v.failed) return "writing";
+    if (v.note) return "validating";
+    if (v.rendered !== undefined) return "rendering";
+    return "call"; // 서비스 호출 캐시
+  }
+  function classifyRecord(id, v) {
+    const m = String(id ?? "");
+    if (m === "meta") return { kind: "meta", label: "메타" };
+    if (m === "note") return { kind: "note", label: `노트 · 섹션 ${recLen(v?.sections)} · 블록 ${noteBlocks(v)}` };
+    if (m === "input") return { kind: "input", label: `입력 · 슬라이드 ${recLen(v?.slides)} · 발화 ${recLen(v?.transcript?.segments)}` };
+    if (/^sd:\d+$/.test(m)) return { kind: "slide", label: `슬라이드 ${m.slice(3)} · 블록 ${recLen(v?.blocks)} · 수식 ${recLen(v?.formulas)} · 도표 ${recLen(v?.figures)}` };
+    if (/^tr:\d+$/.test(m)) return { kind: "transcript", label: `전사 ${m.slice(3)} · 세그먼트 ${recLen(v?.segments)}` };
+    if (m === "gaps") return { kind: "gaps", label: `공백 구간 ${recLen(v)}` };
+    if (m.startsWith("crop:")) return { kind: "crop", label: "크롭" };
+    if (m.startsWith("s:")) {
+      const st = stageKind(v?.value), x = v?.value ?? {};
+      const label = st === "refining" ? `정제 · 유닛 ${recLen(x.ir?.units)}, 수식 ${recLen(x.registry)}`
+        : st === "judging" ? `판정 · 유닛 ${Object.keys(x.importance ?? {}).length}`
+        : st === "planning" ? `계획 · 섹션 ${recLen(x.plan?.sections)}`
+        : st === "writing" ? `작성 · 섹션 ${recLen(x.sections)}(실패 ${recLen(x.failed)})`
+        : st === "validating" ? `노트 · 섹션 ${recLen(x.note?.sections)} · 블록 ${noteBlocks(x.note)}`
+        : st === "rendering" ? "렌더" : "호출 캐시";
+      return { kind: "stage", stage: st, label };
+    }
+    return { kind: "other", label: "기타" };
+  }
+
   // ---- 소스 진단 순수 부분 (B1·B2 측정용, DOM 없이 Node에서 시험) ----
 
   // 리포트·카드·클립보드에는 절대 원문 URL이 들어가지 않는다 — 호스트 + 마스킹된 경로만
@@ -249,7 +331,7 @@
     }
   }
 
-  const api = { summarize, lanes, filterEvents, redactUrl, pickCandidate, refererVerdict, rangeVerdict, buildReport, diagnoseSource };
+  const api = { summarize, lanes, filterEvents, jobSummary, classifyRecord, redactUrl, pickCandidate, refererVerdict, rangeVerdict, buildReport, diagnoseSource };
   globalThis.AdminView = api;
   if (typeof module !== "undefined") module.exports = api;
   if (typeof document === "undefined") return; // Node 테스트는 DOM이 없으므로 여기서 끝
@@ -410,20 +492,27 @@
     $("errorCount").textContent = sum.errors;
     if (!$("viewPipeline").hidden) renderPipeline(sum);
     if (!$("viewLogs").hidden) renderLogs();
+    if (!$("viewJobs").hidden) renderJobs();
   }
 
   function showTab(t) {
     $("viewPipeline").hidden = t !== "pipeline";
     $("viewLogs").hidden = t !== "logs";
     $("viewSource").hidden = t !== "source";
+    $("viewJobs").hidden = t !== "jobs";
+    $("viewArtifacts").hidden = t !== "artifacts";
     $("tabPipeline").classList.toggle("active", t === "pipeline");
     $("tabLogs").classList.toggle("active", t === "logs");
     $("tabSource").classList.toggle("active", t === "source");
+    $("tabJobs").classList.toggle("active", t === "jobs");
+    $("tabArtifacts").classList.toggle("active", t === "artifacts");
     render();
   }
 
   $("tabPipeline").addEventListener("click", () => showTab("pipeline"));
   $("tabLogs").addEventListener("click", () => showTab("logs"));
+  $("tabJobs").addEventListener("click", () => showTab("jobs"));
+  $("tabArtifacts").addEventListener("click", () => { showTab("artifacts"); refreshPackages(); });
   $("tabSource").addEventListener("click", () => { showTab("source"); refreshTabs(); });
   $("fLevel").addEventListener("change", render);
   for (const id of ["fStage", "fJob", "fText"]) $(id).addEventListener("input", render);
@@ -581,6 +670,157 @@
     btn.disabled = true;
     runDiagnosis().finally(() => { btn.disabled = false; });
   });
+
+  // ---- 작업 탭: jobId별 집계 표와 클릭 상세 ----
+  const fmtDur = ms => !Number.isFinite(ms) ? "" : Math.floor(ms / 60000) + ":" + pad(Math.floor(ms / 1000) % 60);
+  const JOB_STATE = { running: "실행 중", done: "완료", failed: "실패", paused: "일시정지", cancelled: "취소됨" };
+  let openJob = null; // 상세를 연 jobId — 새 이벤트로 다시 그려도 유지한다
+
+  function renderJobs() {
+    const jobs = jobSummary(events), tb = $("jobRows");
+    tb.textContent = "";
+    for (const j of jobs) {
+      const tr = document.createElement("tr");
+      if (j.jobId === openJob) tr.className = "sel";
+      cell(tr, j.jobId.slice(0, 8));
+      cell(tr, fmtTime(j.start));
+      cell(tr, fmtDur(j.totalMs));
+      cell(tr, j.calls);
+      cell(tr, j.costUsd ? "$" + j.costUsd.toFixed(4) : "");
+      cell(tr, j.models.join(", "));
+      cell(tr, JOB_STATE[j.state] || j.state);
+      cell(tr, j.codes.slice(0, 3).map(c => `${c.code}×${c.count}`).join(" "));
+      tr.addEventListener("click", () => { openJob = openJob === j.jobId ? null : j.jobId; renderJobs(); });
+      tb.appendChild(tr);
+    }
+    const ul = $("jobDetail");
+    ul.textContent = "";
+    const sel = jobs.find(j => j.jobId === openJob);
+    if (sel) for (const [st, c] of Object.entries(sel.stages)) {
+      const li = document.createElement("li");
+      li.textContent = `${st} · ${fmtDur(c.ms)} · 호출 ${c.calls} · 실패 ${c.failed}`;
+      ul.appendChild(li);
+    }
+  }
+
+  // ---- 산출물 탭: 암호화 패키지를 열어 레코드를 검사한다. 강의 내용은 이 탭에만 나오고 전부 textContent·img뿐이다 ----
+  let pkgStore = null, cropUrls = [];
+  const pkgStatus = m => { $("pkgStatus").textContent = m; };
+  const getStore = async () => pkgStore ??= await PackageStore.createStore(await PackageStore.indexedDbAdapter());
+  const pretty = v => { try { return JSON.stringify(v, null, 2); } catch { return String(v); } };
+
+  async function refreshPackages() {
+    const sel = $("pkgPick"), prev = sel.value; // 다시 눌러도 고른 패키지를 유지한다
+    sel.textContent = "";
+    if (!globalThis.NoteLibrary?.list) return void pkgStatus("라이브러리를 불러오지 못했습니다");
+    try {
+      const list = await NoteLibrary.list(await getStore()) || [];
+      for (const p of list) {
+        const o = document.createElement("option");
+        o.value = p.packageId;
+        o.textContent = [p.title || p.packageId, p.host].filter(Boolean).join(" · ").slice(0, 60);
+        sel.appendChild(o);
+      }
+      if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
+      pkgStatus(list.length ? "" : "패키지가 없습니다");
+    } catch (e) { pkgStatus("목록을 가져오지 못했습니다: " + (e?.message || e)); }
+  }
+
+  // SlideDoc의 블록·수식·도표 bbox(0~1 비율)를 16:9 위에 겹쳐 그린다.
+  // watermark·page_number·footer는 점선+취소선, selection:"filtered"는 취소선이다.
+  function bboxDiv(b, cls, text) {
+    if (!b || !Number.isFinite(b.x)) return null;
+    const d = document.createElement("div");
+    d.className = "bbox " + cls;
+    d.style.left = b.x * 100 + "%"; d.style.top = b.y * 100 + "%";
+    d.style.width = b.w * 100 + "%"; d.style.height = b.h * 100 + "%";
+    const s = document.createElement("span");
+    s.className = "bboxLab"; s.textContent = text;
+    d.appendChild(s);
+    return d;
+  }
+  function slideFigure(doc) {
+    const box = document.createElement("div");
+    box.className = "slideBox";
+    const WEAK = new Set(["watermark", "page_number", "footer"]);
+    for (const bl of doc.blocks || []) {
+      const d = bboxDiv(bl.bbox, "blk" + (WEAK.has(bl.role) ? " weak" : "") + (bl.selection === "filtered" ? " cut" : ""), bl.role || "block");
+      if (d) box.appendChild(d);
+    }
+    for (const f of doc.formulas || []) {
+      const d = bboxDiv(f.bbox, "frm" + (f.selection === "filtered" ? " cut" : ""), f.id || "수식");
+      if (d) box.appendChild(d);
+    }
+    for (const f of doc.figures || []) {
+      const d = bboxDiv(f.bbox, "fig" + (f.selection === "filtered" ? " cut" : ""), f.kind || "도표");
+      if (d) box.appendChild(d);
+    }
+    return box;
+  }
+
+  function registryTable(registry) {
+    const t = document.createElement("table"), tr = document.createElement("tr");
+    for (const h of ["id", "status", "latex", "display"]) { const th = document.createElement("th"); th.textContent = h; tr.appendChild(th); }
+    const head = document.createElement("thead"), tb = document.createElement("tbody");
+    head.appendChild(tr); t.append(head, tb);
+    for (const e of registry || []) {
+      const r = document.createElement("tr");
+      cell(r, e.id); cell(r, e.status); cell(r, e.latex ?? ""); cell(r, e.display ?? "");
+      tb.appendChild(r);
+    }
+    return t;
+  }
+
+  async function loadPackage() {
+    const pkg = $("pkgPick").value;
+    if (!pkg) return void pkgStatus("패키지를 선택하세요");
+    const box = $("pkgRecords"), btn = $("pkgLoad");
+    for (const u of cropUrls) URL.revokeObjectURL(u);
+    cropUrls = [];
+    box.textContent = "";
+    btn.disabled = true;
+    try {
+      const store = await getStore();
+      const ids = (await store.ids("packages")).filter(i => i.startsWith(pkg + ":"))
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+      for (const full of ids) {
+        const short = full.slice(pkg.length + 1), det = document.createElement("details"), sum = document.createElement("summary");
+        det.appendChild(sum);
+        let value = null, info = { kind: "other", label: "복호화 실패" };
+        try { value = await store.getJson("packages", full); info = classifyRecord(short, value); }
+        catch { /* 손상 레코드는 라벨만 보여 준다 */ }
+        sum.textContent = `${short} — ${info.label}`;
+        if (value !== null) {
+          if (info.kind === "slide") det.appendChild(slideFigure(value));
+          const v = info.kind === "stage" ? value?.value : value;
+          if (v && typeof v === "object" && v.ir && v.registry) det.appendChild(registryTable(v.registry));
+          const pre = document.createElement("pre");
+          pre.className = "recJson";
+          pre.textContent = pretty(value); // innerHTML 금지: 강의 내용이 태그로 해석되면 안 된다
+          det.appendChild(pre);
+        }
+        box.appendChild(det);
+      }
+      const crops = (await store.ids("blobs")).filter(i => i.startsWith(pkg + ":crop:")).sort();
+      for (const full of crops) {
+        const det = document.createElement("details"), sum = document.createElement("summary");
+        sum.textContent = `${full.slice(pkg.length + 1)} — 크롭`;
+        det.appendChild(sum);
+        try {
+          const url = URL.createObjectURL(new Blob([await store.getBytes("blobs", full)], { type: "image/webp" }));
+          cropUrls.push(url);
+          const img = document.createElement("img");
+          img.className = "cropImg"; img.src = url;
+          det.appendChild(img);
+        } catch { /* 읽기 실패는 이름만 보여 준다 */ }
+        box.appendChild(det);
+      }
+      pkgStatus(`레코드 ${ids.length}개 · 크롭 ${crops.length}개`);
+    } catch (e) { pkgStatus("불러오기 실패: " + (e?.message || e)); }
+    finally { btn.disabled = false; }
+  }
+  $("pkgRefresh").addEventListener("click", refreshPackages);
+  $("pkgLoad").addEventListener("click", loadPackage);
 
   connect();
   setInterval(() => { if (!$("viewPipeline").hidden) scheduleRender(); }, 1000); // 열린 막대가 자라도록

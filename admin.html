@@ -50,6 +50,22 @@
   .srcCard dl { display: grid; grid-template-columns: max-content 1fr; gap: 1px 10px; margin: 6px 0 0; }
   .srcCard dt { color: #555; }
   .srcCard dd { margin: 0; overflow-wrap: anywhere; white-space: pre-line; }
+  #jobTable { font: 12px/1.45 ui-monospace, Menlo, monospace; }
+  #jobTable tr.sel td { background: #e8eefb; }
+  #jobTable tbody tr { cursor: pointer; }
+  #jobDetail { margin: 0; padding-left: 18px; }
+  details { background: #fff; border: 1px solid #ddd; margin: 4px 0; padding: 4px 8px; max-width: 720px; }
+  details summary { cursor: pointer; }
+  .recJson { font: 11px/1.4 ui-monospace, Menlo, monospace; max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .slideBox { position: relative; width: 100%; max-width: 640px; aspect-ratio: 16/9; background: #f0efee; border: 1px solid #ccc; margin: 6px 0; }
+  .bbox { position: absolute; border: 1px solid #2a7; }
+  .bbox .bboxLab { position: absolute; top: -14px; left: 0; font-size: 9px; color: #444; white-space: nowrap; }
+  .bbox.weak { border-style: dashed; border-color: #c60; }
+  .bbox.weak .bboxLab, .bbox.cut .bboxLab { text-decoration: line-through; }
+  .bbox.cut { border-color: #999; }
+  .bbox.frm { border-color: #34d; }
+  .bbox.fig { border-color: #a3a; }
+  .cropImg { max-width: 320px; display: block; margin: 6px 0; }
 </style>
 </head>
 <body>
@@ -64,6 +80,8 @@
   <button id="tabPipeline" type="button" class="tab active">파이프라인</button>
   <button id="tabLogs" type="button" class="tab">로그</button>
   <button id="tabSource" type="button" class="tab">소스 진단</button>
+  <button id="tabJobs" type="button" class="tab">작업</button>
+  <button id="tabArtifacts" type="button" class="tab">산출물</button>
 </nav>
 <section id="viewPipeline">
   <table id="stageTable">
@@ -107,8 +125,27 @@
   <p class="note" id="srcStatus" role="status" aria-live="polite"></p>
   <div id="srcResults"></div>
 </section>
+<section id="viewJobs" hidden>
+  <table id="jobTable">
+    <thead><tr><th>jobId</th><th>시작</th><th>소요</th><th>호출</th><th>비용</th><th>모델</th><th>상태</th><th>오류</th></tr></thead>
+    <tbody id="jobRows"></tbody>
+  </table>
+  <h2>단계별</h2>
+  <ul id="jobDetail"></ul>
+</section>
+<section id="viewArtifacts" hidden>
+  <p class="note">개발 전용: 암호화된 강의 패키지를 이 페이지 안에서만 복호화해 검사합니다. 내용은 어디에도 보내지 않습니다.</p>
+  <div class="filters">
+    <select id="pkgPick"></select>
+    <button id="pkgRefresh" type="button">목록 새로고침</button>
+    <button id="pkgLoad" type="button">불러오기</button>
+  </div>
+  <p class="note" id="pkgStatus" role="status" aria-live="polite"></p>
+  <div id="pkgRecords"></div>
+</section>
 <script src="lib/package-store.js"></script>
 <script src="lib/media-source.js"></script>
+<script src="lib/library.js"></script>
 <script src="admin.js"></script>
 </body>
 </html>
