@@ -88,10 +88,6 @@
   .intro h2 { font-size: 22px; line-height: 1.4; letter-spacing: -.05em; margin: 0 0 7px; font-weight: 650; }
   .eyebrow { font-size: 10px; font-weight: 650; letter-spacing: .12em; color: var(--ash); margin: 0 0 8px; }
   .result-title { font-size: 15px; font-weight: 650; margin: -5px 0 0; overflow-wrap: anywhere; }
-  .result-help { border-left: 2px solid var(--rule); padding-left: 11px; }
-  .optional-api { padding: 12px 14px; border: 1px solid var(--rule); border-radius: var(--r-md); background: var(--paper); }
-  .optional-api p { margin: 10px 0; }
-  .optional-api summary { color: var(--ink); font-weight: 600; }
 
   button {
     font: inherit; padding: 8px 12px; border: 1px solid var(--rule); border-radius: var(--r-md);
@@ -118,11 +114,11 @@
   .btnrow { display: flex; gap: 9px; }
   .btnrow button { flex: 1; font-size: 12.5px; padding: 9px 6px; }
 
-  select, textarea, input[type="text"], input[type="password"] {
+  select, input[type="text"], input[type="password"] {
     font: inherit; width: 100%; padding: 8px 9px; border-radius: var(--r-md);
     border: 1px solid var(--rule); background: var(--sunk); color: var(--ink); box-shadow: var(--inset);
   }
-  select:focus-visible, textarea:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+  select:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
   label { font-size: 12px; color: var(--ash); display: block; margin-bottom: 4px; }
   .field + .field { margin-top: 18px; }
 
@@ -189,21 +185,7 @@
   }
   .alert b { font-weight: 600; }
 
-  #result { width: 100%; height: 380px; min-height: 220px; padding: 16px; background: var(--paper); font: 13px/1.85 system-ui, sans-serif; resize: vertical; box-shadow: var(--lift-1); }
-
-  .note-view-tabs { display: flex; gap: 6px; background: var(--sunk); padding: 3px; border-radius: var(--r-md); border: 1px solid var(--rule); margin-bottom: 2px; }
-  .tab-pill { flex: 1; border: none; background: transparent; padding: 7px 10px; font-size: 12px; font-weight: 500; cursor: pointer; border-radius: 6px; color: var(--ash); transition: all 120ms; }
   .preview-frame { width: 100%; height: 220px; min-height: 140px; max-height: 70vh; border: 1px solid var(--rule); border-radius: var(--r-md); background: var(--paper); box-shadow: var(--lift-1); display: block; transition: height 120ms ease; }
-  .export-section { margin: 8px 0; display: flex; flex-direction: column; gap: 6px; }
-  .export-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0; }
-  .export-row button {
-    display: inline-flex; align-items: center; justify-content: center; gap: 5px;
-    padding: 8px 10px; font-size: 12px; font-weight: 600; border-radius: var(--r-md);
-    border: 1px solid var(--rule); background: var(--paper); color: var(--ink);
-    cursor: pointer; transition: all 120ms ease; box-shadow: var(--lift-1);
-  }
-  .export-row button:hover { background: var(--sunk); border-color: var(--ink); }
-  .export-row button:active { transform: translateY(1px); }
 
   details { font-size: 12px; }
   details summary { cursor: pointer; color: var(--ash); }
@@ -237,69 +219,6 @@
   .step .why { font-size: 12px; color: var(--ash); }
   .checkline { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; }
   .checkline input { margin-top: 3px; accent-color: var(--ink); }
-
-  /* 노션 복사 안내 모달 */
-  dialog.notion-modal {
-    border: 1px solid var(--rule);
-    border-radius: var(--r-lg);
-    background: var(--paper);
-    color: var(--ink);
-    padding: 22px 18px;
-    max-width: 320px;
-    width: 90%;
-    box-shadow: var(--lift-2);
-    position: fixed;
-    inset: 0;
-    margin: auto;
-  }
-  dialog.notion-modal::backdrop {
-    background: rgba(0, 0, 0, 0.45);
-    backdrop-filter: blur(2px);
-  }
-  .notion-modal-body {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    gap: 10px;
-  }
-  .notion-modal-icon {
-    font-size: 30px;
-    line-height: 1;
-  }
-  .notion-modal-title {
-    margin: 0;
-    font-size: 13.5px;
-    font-weight: 700;
-    color: var(--ink);
-    line-height: 1.5;
-    word-break: keep-all;
-  }
-  .notion-modal-tip {
-    margin: 4px 0 6px;
-    font-size: 11.5px;
-    color: var(--ash);
-    background: var(--sunk);
-    border: 1px solid var(--rule);
-    border-radius: var(--r-md);
-    padding: 8px 10px;
-    line-height: 1.5;
-    word-break: keep-all;
-  }
-  .notion-modal-tip kbd {
-    display: inline-block;
-    padding: 1px 4px;
-    font-family: ui-monospace, monospace;
-    font-size: 10.5px;
-    background: var(--paper);
-    border: 1px solid var(--rule);
-    border-radius: 4px;
-    box-shadow: 0 1px 0 rgba(0,0,0,0.1);
-  }
-  #notionModalClose {
-    width: 100%;
-    margin-top: 4px;
-  }
 </style>
 </head>
 <body>
@@ -400,8 +319,6 @@
       <span class="val" id="tabState">—</span>
     </div>
   </div>
-  <p class="detail" id="engineDetail" hidden></p>
-
   <div class="settingbar">
     <span class="summary" id="settingsSummary">—</span>
     <button class="link" id="settingsToggle" type="button" aria-controls="settingsDrawer">변경</button>
@@ -421,7 +338,7 @@
     <button id="bgBtn" type="button">백그라운드로 처리</button>
     <div class="btnrow"><button id="bgRetryBtn" type="button" hidden>다시 시도</button><button id="bgCancelBtn" type="button" hidden>취소</button></div>
     <button id="bgLiveBtn" type="button" hidden>실시간 모드로 시작</button>
-    <button id="bgNoteBtn" type="button" hidden>노트 열기</button>
+    <button id="bgNoteBtn" type="button" hidden>웹에서 노트 열기</button>
     <a href="#" id="bgOptionsLink" hidden>설정 열기</a>
   </div>
 </div>
@@ -499,6 +416,7 @@
 </div>
 
 <!-- ── 완료 ────────────────────────────────────────────────── -->
+<!-- 노트는 패널에 보여 주지 않는다: 암호화 파일로 저장되고 웹사이트 보관함에서 보관함 암호를 넣어 연다. -->
 <div id="stageDone" hidden>
   <div class="statusline">
     <span class="pill ok" id="donePill">노트 완성</span>
@@ -507,66 +425,41 @@
   <div class="alert warn" id="doneAlert" hidden></div>
   <h2 class="result-title" id="resultTitle">나의 강의 노트</h2>
 
-  <div class="note-view-tabs" role="tablist">
-    <button id="viewRenderedBtn" type="button" class="tab-pill active">📖 서식 보기 (수식·그래프)</button>
-    <button id="viewRawBtn" type="button" class="tab-pill">✏️ 마크다운 편집</button>
-  </div>
-  <iframe id="renderFrame" src="sandbox.html" class="preview-frame" title="노트 서식 미리보기" sandbox="allow-scripts allow-forms allow-popups allow-modals"></iframe>
-  <textarea id="result" aria-label="강의 노트 내용" placeholder="노트가 여기 표시됩니다. 인식된 내용을 직접 검토해 주세요." hidden></textarea>
-  <p class="detail result-help" id="resultHint">서식 보기에서는 수식과 다이어그램이 렌더링되며, 마크다운 편집 탭에서 원문을 직접 수정할 수 있습니다.</p>
-  <div class="export-section" id="exportRow" hidden>
-    <div class="export-row">
-      <button id="pdfBtn" type="button" title="노트를 고화질 PDF로 인쇄 또는 저장합니다">📄 PDF 출력</button>
-      <button id="notionBtn" type="button" title="노션(Notion)에 붙여넣기 위한 형식으로 복사합니다">📝 노션으로 복사</button>
-    </div>
-  </div>
+  <div id="saveBox" class="readycard" hidden></div>
+  <ul class="detail" id="doneNotices" style="margin:0; padding-left:18px;" hidden></ul>
 
-  <div class="export-row" style="margin:8px 0;">
-    <button id="openNoteBtn" type="button" hidden title="이 노트를 보관함 페이지에서 크게 봅니다">📂 노트 열기</button>
-    <button id="libraryBtn" type="button" title="이 기기에 저장된 강의 목록을 엽니다">📚 보관함</button>
+  <div id="recognitionBox" class="readycard" hidden>
+    <p class="detail">외부 요약 처리에 동의하지 않아 인식 결과만 있습니다.</p>
+    <button id="makeNoteBtn" type="button">노트 만들기</button>
+  </div>
+  <iframe id="renderFrame" src="sandbox.html" class="preview-frame" title="인식 결과 미리보기" sandbox="allow-scripts allow-forms allow-popups allow-modals" hidden></iframe>
+
+  <div id="genBox" class="readycard" hidden>
+    <label class="checkline"><input type="checkbox" id="genSynthetic" /><span>가상 사례 포함</span></label>
+    <label class="checkline"><input type="checkbox" id="genAugment" /><span>강의 밖 보강 포함</span></label>
+    <button id="genAgainBtn" type="button">이 옵션으로 다시 만들기</button>
+    <p class="detail">시험 모드·답안 위치는 웹에서 노트를 열 때 고릅니다.</p>
   </div>
 
   <div class="btnrow">
-    <button id="notesBtn" type="button" disabled title="재캡처 없이 선택한 형태로 다시 만듭니다">다시 만들기</button>
+    <button id="notesBtn" type="button" disabled title="재캡처 없이 노트를 다시 만듭니다">노트 다시 만들기</button>
   </div>
 
   <button id="againBtn" type="button" style="width:100%;">새로 캡처하기</button>
-
-  <details class="optional-api">
-    <summary>암호화 보관함</summary>
-    <p class="detail">보관 암호는 기기에서만 사용합니다. 원문 캡처나 오디오는 보관하지 않습니다.</p>
-    <input id="vaultPassphrase" type="password" minlength="12" autocomplete="off" placeholder="보관 암호 (12자 이상)">
-    <div class="btnrow"><button id="saveVaultBtn" type="button">현재 노트 보관</button><button id="refreshVaultBtn" type="button">목록 새로고침</button></div>
-    <select id="vaultList" aria-label="암호화 보관 목록"></select>
-    <div class="btnrow"><button id="loadVaultBtn" type="button">불러오기</button><button id="deleteVaultBtn" type="button">보관본 삭제</button></div>
-  </details>
 </div>
 
 <!-- ── 공통 ────────────────────────────────────────────────── -->
-<div id="working" class="working" hidden role="status" aria-live="polite"><span class="working-ring" aria-hidden="true"></span><span>노트 필기중. 만약 노트가 생성되지 않았으면 다시 생성해주세요</span></div>
+<div id="working" class="working" hidden role="status" aria-live="polite"><span class="working-ring" aria-hidden="true"></span><span id="workingText">노트를 만드는 중입니다. 몇 분 걸릴 수 있습니다.</span></div>
 <div id="status" class="detail" role="status" aria-live="polite" style="min-height:1.4em; white-space:pre-wrap;"></div>
 
-<details id="rawEvidence" hidden>
-  <summary>인식된 텍스트 전체 (메모리에만 존재)</summary>
-  <pre id="rawScript"></pre>
-</details>
 <details id="debugDetails">
   <summary>디버그 로그</summary>
   <pre id="debugLog"></pre>
 </details>
 
-<dialog id="notionModal" class="notion-modal" aria-labelledby="notionModalTitle">
-  <div class="notion-modal-body">
-    <div class="notion-modal-icon" aria-hidden="true">📋</div>
-    <h3 class="notion-modal-title" id="notionModalTitle">복사 완료! 이제 노션에 복사하셔서 사용하시면 됩니다!</h3>
-    <p class="notion-modal-tip">💡 노션(Notion) 빈 페이지에서 <kbd>Ctrl</kbd> + <kbd>V</kbd> (Mac은 <kbd>Cmd</kbd> + <kbd>V</kbd>)를 누르면 제목·개념·표·수식이 노션 블록으로 깔끔하게 들어갑니다.</p>
-    <button type="button" id="notionModalClose" class="primary">확인</button>
-  </div>
-</dialog>
-
 <footer>
   <p class="legal">
-    개인 학습용 도구입니다. 캡처물의 보관·재배포는 하지 마세요.
+    개인 학습용 도구입니다. 만든 노트를 다른 사람에게 배포하지 마세요.
     <a href="#" id="optionsLink">설정 열기</a>
   </p>
 </footer>
@@ -577,8 +470,6 @@
   <script src="lib/account.js"></script>
   <script src="lib/package-store.js"></script>
   <script src="lib/note-file.js"></script>
-  <script src="lib/library.js"></script>
-  <script src="lib/note-export.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>
