@@ -1,6 +1,6 @@
 // Display and control only. The offscreen document owns all lecture data.
 const $=id=>document.getElementById(id);
-const els=Object.fromEntries(['tabSelect','modeSelect','langSelect','startBtn','stopBtn','pauseBtn','disposeBtn','notesBtn','status','renderFrame','stageReady','stageLive','stageDone','onboard','obLogin','obAccount','obAccountErr','obSummary','obCloud','obCloudRow','obPersonal','obPersonalRow','obAccess','obAccessRow','obPass','obPass2','obPassErr','obError','obWhisper','obDone','settingsToggle','settingsClose','settingsDrawer','optionsLink','refreshTabsBtn','ocrEnabledToggle','whisperEnabledToggle','whisperField','cntSlides','cntVoice','cntQueue','feedLines','readyAlert','panelAlert','doneSummary','donePill','doneAlert','againBtn','retryNoteBtn','ocrField','popoutBtn','debugDetails','debugLog','markEngine','engineBanner','markVoice','voiceState','markTab','tabState','settingsSummary','cropField','cropRow','cropWrap','cropImg','cropBox','cropHint','previewBtn','working','workingText','saveBox','doneNotices','recognitionBox','makeNoteBtn','genBox','genSynthetic','genAugment','genAgainBtn'].map(id=>[id,$(id)]));
+const els=Object.fromEntries(['tabSelect','modeSelect','langSelect','startBtn','stopBtn','pauseBtn','disposeBtn','notesBtn','status','renderFrame','stageReady','stageLive','stageDone','onboard','obLogin','obAccount','obAccountErr','obSummary','obCloud','obCloudRow','obPersonal','obPersonalRow','obAccess','obAccessRow','obPass','obPassErr','obError','obWhisper','obDone','settingsToggle','settingsClose','settingsDrawer','optionsLink','refreshTabsBtn','ocrEnabledToggle','whisperEnabledToggle','whisperField','cntSlides','cntVoice','cntQueue','feedLines','readyAlert','panelAlert','doneSummary','donePill','doneAlert','againBtn','retryNoteBtn','ocrField','popoutBtn','debugDetails','debugLog','markEngine','engineBanner','markVoice','voiceState','markTab','tabState','settingsSummary','legalLine','cropField','cropRow','cropWrap','cropImg','cropBox','cropHint','previewBtn','working','workingText','saveBox','doneNotices','recognitionBox','makeNoteBtn','genBox','genSynthetic','genAugment','genAgainBtn'].map(id=>[id,$(id)]));
 let settings,state,busy=false,tabs=[],cropRect=null,cropTabId=null;
 const active=s=>['preparing','running','paused','draining','summarizing'].includes(s?.status);
 const label={preparing:'준비 중',running:'캡처 중',paused:'일시정지',draining:'마지막 구간 처리 중',summarizing:'요약 중',completed:'노트 준비됨',failed:'처리 중단',disposed:''};
@@ -13,7 +13,7 @@ const AUTH_CODES=['AUTH_REQUIRED','unauthorized','token_expired'];
 let lastAuth={text:'',code:''};
 const setError=(text,code)=>{if(text&&AUTH_CODES.includes(code))lastAuth={text,code};else if(text!==lastAuth.text)lastAuth={text:'',code:''};for(const alert of [els.readyAlert,els.panelAlert,els.doneAlert]){alert.hidden=!text;alert.textContent=text||'';if(text&&lastAuth.text===text){const b=document.createElement('button');b.type='button';b.textContent='Google로 로그인';b.addEventListener('click',alertLogin);alert.append(b);}}};
 async function alertLogin(){try{await Account.signIn();}catch{return;}await obCheck();setError('');updateReadyCard();}
-function setStage(name){els.stageReady.hidden=name!=='ready';els.stageLive.hidden=name!=='live';els.stageDone.hidden=name!=='done';els.onboard.hidden=name!=='onboard';for(const [id,on] of [['stepReady',name==='ready'],['stepLive',name==='live'],['stepDone',name==='done']]){const node=$(id);if(node)node.className=on?'active':'';}if(name!=='ready')els.settingsDrawer.hidden=true;}
+function setStage(name){els.stageReady.hidden=name!=='ready';els.stageLive.hidden=name!=='live';els.stageDone.hidden=name!=='done';els.onboard.hidden=name!=='onboard';for(const [id,on] of [['stepReady',name==='ready'],['stepLive',name==='live'],['stepDone',name==='done']]){const node=$(id);if(node)node.className=on?'active':'';}if(name!=='ready'&&els.settingsDrawer.open)els.settingsDrawer.close();}
 function controls(){const has=!!state&&state.status!=='disposed';els.startBtn.disabled=busy||active(state)||!tabs.some(tab=>String(tab.id)===els.tabSelect.value);els.stopBtn.disabled=busy||!active(state);if(els.pauseBtn){els.pauseBtn.disabled=busy||!['running','paused'].includes(state?.status);els.pauseBtn.textContent=state?.status==='paused'?'다시 시작':'일시정지';}if(els.disposeBtn)els.disposeBtn.disabled=busy||active(state)||!has;els.notesBtn.disabled=busy||regenBusy||!['completed','failed'].includes(state?.status)||!((state?.counts?.visual||0)+(state?.counts?.audio||0)>0);if(els.makeNoteBtn)els.makeNoteBtn.disabled=regenBusy;if(els.genAgainBtn)els.genAgainBtn.disabled=regenBusy;if(els.retryNoteBtn)els.retryNoteBtn.disabled=busy||regenBusy;}
 function format(t){return `${Math.floor((t||0)/60)}:${String(Math.floor((t||0)%60)).padStart(2,'0')}`;}
 // 캡처 경과(#elapsed): 이 세션의 'running'을 패널이 처음 본 순간부터 재고, 일시정지 구간은 뺀다. 세션이 바뀌면 다시 잰다.
@@ -173,7 +173,7 @@ function doneAlertExtras(){
 function setRow(mark,val,kind,text){if(!mark||!val)return;mark.className='mark'+(kind==='off'?' off':kind==='warn'?' warn':'');mark.textContent=kind==='ok'?'✓':kind==='warn'?'!':'';val.textContent=text;}
 // 유료(free가 아닌 모든 플랜)는 화면·음성 모두 서버에서 인식한다 — 클라우드 인식 동의가 있을 때만.
 const cloudMode=()=>obPlan!=='free'&&cloudRecognitionAllowed(settings);
-function updateReadyCard(){if(!settings)return;const cloud=cloudMode();setRow(els.markEngine,els.engineBanner,cloud?'ok':els.ocrEnabledToggle?.checked===false?'off':'ok',cloud?'화면 인식 · 서버 (고화질)':els.ocrEnabledToggle?.checked===false?'꺼짐':settings.ocrEngine==='vision-cloud'?'고화질 화면 인식 (서비스 경유)':'PP-OCRv5 한국어 (WASM)');setRow(els.markVoice,els.voiceState,cloud?'ok':settings.whisperEnabled?'ok':'warn',cloud?'음성 인식 · 서버':settings.whisperEnabled?`Whisper ${settings.whisperModel==='base-wasm'?'Base 저사양 · WASM':'Small q8/q4 · WebGPU'} (로컬)`:'꺼짐 — 음성은 기록되지 않습니다');if(els.ocrField)els.ocrField.hidden=cloud;if(els.whisperField)els.whisperField.hidden=cloud;const tabOpt=els.tabSelect?.selectedOptions?.[0];setRow(els.markTab,els.tabState,tabOpt?'ok':'warn',tabOpt?tabOpt.textContent:'선택된 탭 없음');const isRegion=els.modeSelect.value==='region';if(els.cropRow)els.cropRow.style.display=isRegion?'flex':'none';if(!isRegion&&els.cropWrap)els.cropWrap.style.display='none';if(els.cropField)els.cropField.hidden=els.ocrEnabledToggle?.checked===false;let modeDesc='영상 전체';if(els.modeSelect.value==='caption')modeDesc='하단 자막 띠';else if(isRegion)modeDesc=cropRect?`영역 지정 (${Math.round(cropRect.w*100)}%×${Math.round(cropRect.h*100)}%)`:'영역 지정 (슬라이드)';if(els.settingsSummary)els.settingsSummary.textContent=`${modeDesc} · ${{auto:'자동 감지(한국어 우선)',ko:'한국어',en:'영어'}[settings.whisperLang]||'한국어'}`;updateReadyRows();}
+function updateReadyCard(){if(!settings)return;const cloud=cloudMode();setRow(els.markEngine,els.engineBanner,cloud?'ok':els.ocrEnabledToggle?.checked===false?'off':'ok',cloud?'화면 인식 · 서버 (고화질)':els.ocrEnabledToggle?.checked===false?'꺼짐':settings.ocrEngine==='vision-cloud'?'고화질 화면 인식 (서비스 경유)':'PP-OCRv5 한국어 (WASM)');setRow(els.markVoice,els.voiceState,cloud?'ok':settings.whisperEnabled?'ok':'warn',cloud?'음성 인식 · 서버':settings.whisperEnabled?`Whisper ${settings.whisperModel==='base-wasm'?'Base 저사양 · WASM':'Small q8/q4 · WebGPU'} (로컬)`:'꺼짐 — 음성은 기록되지 않습니다');if(els.ocrField)els.ocrField.hidden=cloud;if(els.whisperField)els.whisperField.hidden=cloud;const tabOpt=els.tabSelect?.selectedOptions?.[0];setRow(els.markTab,els.tabState,tabOpt?'ok':'warn',tabOpt?tabOpt.textContent:'선택된 탭 없음');const isRegion=els.modeSelect.value==='region';if(els.cropRow)els.cropRow.style.display=isRegion?'flex':'none';if(!isRegion&&els.cropWrap)els.cropWrap.style.display='none';if(els.cropField)els.cropField.hidden=els.ocrEnabledToggle?.checked===false;let modeDesc='영상 전체';if(els.modeSelect.value==='caption')modeDesc='하단 자막 띠';else if(isRegion)modeDesc=cropRect?`영역 지정 (${Math.round(cropRect.w*100)}%×${Math.round(cropRect.h*100)}%)`:'영역 지정 (슬라이드)';if(els.settingsSummary)els.settingsSummary.textContent=`${modeDesc} · ${{auto:'자동 감지(한국어 우선)',ko:'한국어',en:'영어'}[settings.whisperLang]||'한국어'}`;if(els.legalLine)els.legalLine.textContent=cloud?'화면·음성은 Summrizei 서비스에서 인식하고 저장하지 않습니다. 노트도 로그인한 계정으로 서비스가 만듭니다.':'화면·음성 인식은 기기 안에서 하고, 노트는 로그인한 계정으로 Summrizei 서비스가 만듭니다.';updateReadyRows();}
 // 준비 카드의 계정·노트 저장 행. obCheck()가 채운 캐시(obSession·obPlan·obAcct·obKey)로 그리고, 부족한 쪽엔 바로가기 버튼을 단다.
 const readyEl=Object.fromEntries(['markAccount','accountState','accountLoginBtn','markStore','storeState','storePassBtn'].map(id=>[id,$(id)]));
 function updateReadyRows(){
@@ -501,13 +501,8 @@ function obValidate(){
   if(obSteps.includes('account')&&!obSession)ok=false;
   if(obSteps.includes('consent')&&!els.obSummary.checked)ok=false;
   if(obSteps.includes('consent')&&obPlan!=='free'&&!els.obCloud.checked)ok=false;
-  if(obSteps.includes('passphrase')&&!(els.obPass.value.length>=12&&els.obPass.value===els.obPass2.value))ok=false;
+  if(obSteps.includes('passphrase')&&!/^\d{4}$/.test(els.obPass.value))ok=false;
   els.obDone.disabled=!ok;
-}
-function obPassHint(){
-  const a=els.obPass.value,b=els.obPass2.value;
-  const msg=a&&a.length<12?'암호는 12자 이상이어야 합니다.':b&&a!==b?'두 암호가 서로 다릅니다.':'';
-  els.obPassErr.textContent=msg;els.obPassErr.hidden=!msg;
 }
 // 열린 온보딩을 기다리는 약속: 완료하면 true, 다른 단계로 다시 열려 대체되면 false로 끝낸다.
 let obResolve=null;
@@ -545,7 +540,7 @@ els.obLogin.addEventListener('click',async()=>{
 });
 els.obSummary.addEventListener('change',obValidate);
 els.obCloud.addEventListener('change',obValidate);
-for(const input of [els.obPass,els.obPass2])input.addEventListener('input',()=>{obPassHint();obValidate();});
+els.obPass.addEventListener('input',()=>{const bad=els.obPass.value!==''&&!/^\d{4}$/.test(els.obPass.value);els.obPassErr.textContent=bad?'숫자 4자리를 입력하세요.':'';els.obPassErr.hidden=!bad;obValidate();});
 els.obDone.addEventListener('click',async()=>{
   els.obDone.disabled=true;els.obError.hidden=true;
   try{
@@ -561,7 +556,7 @@ els.obDone.addEventListener('click',async()=>{
     if(obSteps.includes('passphrase')){
       try{await NoteFile.saveLibraryKey(await PackageStore.indexedDbAdapter(),els.obPass.value);}
       catch(error){els.obPassErr.textContent=error.message;els.obPassErr.hidden=false;return;}
-      finally{els.obPass.value='';els.obPass2.value='';}
+      finally{els.obPass.value='';}
     }
     settings=await loadSettings();
     els.whisperEnabledToggle.checked=settings.whisperEnabled===true; // 엔진 단계가 저장한 값으로 서랍 토글도 맞춘다
