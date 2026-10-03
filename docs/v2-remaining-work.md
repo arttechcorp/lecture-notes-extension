@@ -67,12 +67,12 @@
 
 ## 3. 아직 구현하지 않은 것
 
+1. **운영자 진단 키**: `lib/diagnostics.js`의 `OPERATOR_KEYS`가 비어 있어 진단 파일 내보내기는 꺼져 있다. `node tools/decrypt-diagnostic.mjs --generate-keypair <저장소 밖 폴더>`로 키쌍을 만들고 공개키를 넣는다 — 개인키 보관 위치는 §4의 사용자 결정.
 2. **고객 포털 주소**: `landing/billing-config.js`의 결제창 3개(Essential `u9m5dR`·Edu `a5DgpJ`·Pro `grxETv`)는 채웠다. `portal`은 아직 비어 있다 — Groble이 구매자용 해지·영수증 주소를 주는지 확인해 넣는다.
-2. **결제창·포털 주소**: `landing/billing-config.js`의 `checkout`·`portal`이 비어 있다. 사용자가 Groble에서 결제 링크를 만들어 넣어야 학생가를 포함한 결제 경로가 연다.
 3. **학생가는 자격 확인 없이 판매**(2026-10-03 결정): 계정 화면은 Essential 카드에 일반·학생가 결제 버튼을 둘 다 보여 주고, 랜딩 문구의 "학생 인증 시"를 "학생 요금제"로 바꿨다. `edu_eligible` RPC는 DB에 남아 있으나 쓰지 않는다.
 4. **실서비스 종단 검증**: 배포한 함수와 실제 강의로 백그라운드 작업을 끝까지 한 번 돌린다. 확인할 것 — MAI-Transcribe 2의 한국어 품질, WAV 업로드 크기(5분 약 9.6 MB), Edge 150초 제한 안에 응답이 오는지.
 5. **`chrome-extension://` 경계의 브라우저 스모크**: 이 맥의 Chrome stable은 `--load-extension`을 무시해 언팩 확장을 못 올린다. `tools/note-render-smoke.cjs`는 패키지 클로저를 `http://localhost`로만 확인한다 — 확장 원점(매니페스트 샌드박스 CSP, `chrome.runtime` 메시지 경계)은 Chrome for Testing 같은 다른 브라우저가 필요하다.
-6. **원격 반영(사용자 실행)**: `schema-v2.sql` 재적용(`provider_slots`·`billing_events` 추가분 포함) → `node tools/build-edge.mjs` → `supabase functions deploy api --use-api`·`billing-webhook --use-api` → `GROBLE_*` 비밀값(`server/README.md` "Groble 결제 웹훅").
+6. **원격 반영(사용자 실행)**: `schema-v2.sql` 재적용(`provider_slots`·`billing_events` 추가분 포함) → `node tools/build-edge.mjs` → `supabase functions deploy api --use-api`. `billing-webhook` 배포·`GROBLE_*` 비밀값·Groble 웹훅 등록은 2026-10-03 끝났다(테스트 발송 200 `unknown_plan`). 실결제로 등급이 바뀌는지는 아직 확인하지 않았다.
 
 ## 4. 결정이 필요한 것 (사용자)
 
@@ -85,7 +85,7 @@
 7. **모델·공급자 고정**: 계획·작성·비전·판정 모델과 ZDR 공급자 태그(`OPENROUTER_PROVIDERS_JSON`).
 8. **PR #14 병합 시점**: 병합하면 랜딩 가격(24,000원·14,000원)과 탈퇴 방식이 바로 바뀐다. 함수 배포와 DB 적용 뒤에 병합한다.
 9. **`AGENTS.md`의 미커밋 변경**(Devin·aside 사용, 저렴한 모델 서브에이전트 지시): 메인 체크아웃에 아직 미커밋으로 있다. 커밋할지.
-10. **학생가 인증 수준**: 도메인 확인만으로 충분한지, 학교 이메일 인증·재학 증빙 같은 절차를 둘지.
+10. ~~학생가 인증 수준~~: 2026-10-03 인증 없이 판매로 결정(§3의 3).
 
 ## 5. 오늘 코드가 반영한 결정 (사용자가 뒤집을 수 있는 것)
 
