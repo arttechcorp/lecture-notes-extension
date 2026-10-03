@@ -2108,6 +2108,7 @@ test("/v1/me for a JWT user returns plan, features, DB limits, remote config and
     const me = await res.json();
     assert.deepEqual(me, {
       accountId: UID, plan: "free", models: [model], features: [],
+      routeModels: { vision: ["google/gemini-2.5-flash-lite"], stt: ["microsoft/mai-transcribe-2"], judge: ["openai/gpt-4.1-nano"] },
       config: { concurrency: { download: 4, decode: 1, stt: 4, vision: 8, judge: 2, write: 8 }, throughputMbps: 50, minClientVersion: "0.0.0", promptVersion: "v1", schemaVersion: 1 },
       noteSpecVersion: NoteSpec.NOTE_SPEC_VERSION, promptVersion: Prompts.PROMPT_VERSION,
       quota: { month, requests: 3, maxRequests: 300, minutes: 7, maxMinutes: 600, spentCents: 12.3456, maxCents: 30 },
