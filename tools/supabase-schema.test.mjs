@@ -256,7 +256,7 @@ const NEW_TABLES = {
   usage_events: "id user_id job_id request_id stage provider model input_tokens output_tokens audio_seconds images cost_micros cost_reported prompt_version schema_version status error_code latency_ms client_version host created_at",
   vault_objects: "user_id object_id size updated_at storage_path",
   feedback: "user_id job_id rating tags created_at",
-  billing_events: "id type user_id received_at merchant_uid amount_krw coupon_code coupon_discount_krw",
+  billing_events: "id type user_id received_at merchant_uid amount_krw coupon_code coupon_discount_krw external_id occurred_at",
   provider_slots: "id provider expires_at",
 };
 const SERVICE_FUNCTIONS = [
@@ -381,6 +381,26 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
     assert.equal(q(`select apply_billing_event('e6', 'subscription_payment.completed', ${lit(u)}, 'essential', false, ${lit(ext)}, now(), now() + interval '30 days', 'ord-9', 2400, 'a0nw8a', 21600)`, SVC), "applied");
     assert.equal(q(`select user_id::text from billing_events where merchant_uid = 'ord-9'`), u);
     assert.equal(q(`select concat_ws(',', amount_krw, coupon_code, coupon_discount_krw) from billing_events where merchant_uid = 'ord-9'`), "2400,a0nw8a,21600");
+  });
+
+  test("결제 웹훅: 늦게 온 결제 완료는 이미 반영된 해지·환불을 되돌리지 않는다", () => {
+    const u = newUser("free"), ext = `c2:${u}`;
+    const at = (id, type, occurred, ends) => q(`select apply_billing_event(${lit(id)}, ${lit(type)}, ${lit(u)}, 'essential', false, ${lit(ext)},
+      now(), ${ends ? `now() + interval '${ends}'` : "null"}, null, null, null, null, ${occurred ? lit(occurred) + "::timestamptz" : "null"})`, SVC);
+    const row = () => q(`select concat_ws(',', cancel_at_period_end, ends_at > now() + interval '1 day') from entitlements where external_id = ${lit(ext)}`);
+    assert.equal(at("o1", "subscription_payment.completed", "2026-10-03T10:00:00Z", "30 days"), "applied");
+    assert.equal(at("o2", "subscription.cancel_requested", "2026-10-03T11:00:00Z"), "applied");
+    // 10:30에 일어난 갱신 완료가 재시도로 늦게 도착 — 해지 표시를 풀지 않는다
+    assert.equal(at("o3", "subscription_payment.completed", "2026-10-03T10:30:00Z", "60 days"), "stale");
+    assert.equal(row(), "t,t");
+    assert.equal(at("o3", "subscription_payment.completed", "2026-10-03T10:30:00Z", "60 days"), "duplicate");
+    // 환불 뒤에 늦게 온 결제 완료도 닫힌 기간을 다시 열지 않는다
+    assert.equal(at("o4", "subscription_payment.refunded", "2026-10-03T12:00:00Z"), "applied");
+    assert.equal(at("o5", "subscription_payment.completed", "2026-10-03T11:30:00Z", "60 days"), "stale");
+    assert.equal(q(`select effective_plan(${lit(u)}, now() + interval '1 minute')`, SVC), "free");
+    // 해지·환불보다 나중에 일어난 결제(재구독)는 적용한다
+    assert.equal(at("o6", "subscription_payment.completed", "2026-10-04T09:00:00Z", "30 days"), "applied");
+    assert.equal(row(), "f,t");
   });
 
   test("결제 웹훅: 지워진 계정의 이벤트는 unknown_user를 돌려주고 아무것도 쓰지 않는다", () => {

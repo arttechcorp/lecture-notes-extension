@@ -281,3 +281,12 @@ test("결제 금액·쿠폰을 RPC에 넘기고, 모양이 어긋난 값은 null
   await handle(post(ev("subscription_payment.completed", OBJ({ pricing: { finalAmount: -1, couponDiscountAmount: "5", coupon: { code: "" } } }))), ENV, fetch);
   assert.deepEqual([calls[0][2].p_amount, calls[0][2].p_coupon, calls[0][2].p_coupon_discount], [null, null, null]);
 });
+
+test("occurredAt를 ISO로 넘기고, 못 읽으면 null", async () => {
+  let { fetch, calls } = fakeFetch();
+  await handle(post(ev("subscription_payment.completed", OBJ())), ENV, fetch);
+  assert.equal(calls[0][2].p_occurred, "2026-10-03T11:59:00.000Z");
+  ({ fetch, calls } = fakeFetch());
+  await handle(post(ev("subscription_payment.completed", OBJ(), { occurredAt: "nope" })), ENV, fetch);
+  assert.equal(calls[0][2].p_occurred, null);
+});
