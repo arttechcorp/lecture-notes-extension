@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="theme-color" content="#F7F7F4">
+<title>내 노트 — Summrizei</title>
+<link rel="icon" href="/images/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="vendor/katex/katex.min.css">
+<style>
+  :root{--canvas:#F7F7F4;--paper:#FFFFFF;--ink:#18181B;--body:#27272A;--muted:#64646D;--line:#DCDCD8;--soft:#F0F0ED;--accent:#FF5600;--accentText:#A63700;--sans:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"IBM Plex Sans KR",Pretendard,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;color-scheme:light}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--canvas);color:var(--ink);font:14px/1.6 var(--sans);-webkit-font-smoothing:antialiased;word-break:keep-all}
+  .skip-link{position:fixed;left:16px;top:-80px;z-index:100;padding:8px 16px;background:var(--ink);color:var(--paper)}
+  .skip-link:focus{top:12px}
+  .lib-header{background:var(--paper);border-bottom:1px solid var(--line)}
+  .header-inner{max-width:960px;min-height:64px;margin:auto;padding:12px 20px;display:flex;align-items:center;gap:14px}
+  .wordmark{font-family:Georgia,"Times New Roman",serif;font-size:24px;font-weight:600;letter-spacing:-.045em;line-height:1;text-decoration:none;color:inherit}
+  .wordmark i{font-weight:500}
+  .header-title{margin:0;font-size:15px;font-weight:600;color:var(--muted)}
+  .header-inner .grow{flex:1}
+  .lib-main{max-width:960px;margin:0 auto;padding:26px 20px 64px}
+  section.step{margin:0 0 26px}
+  section.step h2{margin:0 0 12px;font-size:16px;font-weight:600}
+  .stepno{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:999px;background:var(--ink);color:var(--paper);font-size:12px;font-weight:600;margin-right:8px;vertical-align:2px}
+  .drop{border:1px dashed var(--line);border-radius:10px;background:var(--paper);padding:24px 16px;text-align:center}
+  .drop.over{border-color:var(--accent);background:#FFF6F1}
+  .drop-hint{margin:0;font-size:13px;color:var(--muted)}
+  .drop-actions{display:flex;justify-content:center;flex-wrap:wrap;gap:10px;margin:14px 0 10px}
+  .drop-sub{margin:0;font-size:12px;color:var(--muted)}
+  button{min-height:36px;padding:6px 14px;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);font:13px var(--sans);cursor:pointer}
+  button:hover{border-color:var(--accentText)}
+  button.primary{color:var(--accentText);border-color:var(--accent)}
+  button:disabled{opacity:.5;cursor:default}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .status{margin:10px 0 0;font-size:13px;color:var(--muted)}
+  #keyForm{display:flex;flex-wrap:wrap;gap:10px}
+  #passInput{flex:1;min-width:180px;min-height:40px;padding:0 12px;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);font:14px var(--sans)}
+  #openBtn{min-height:40px}
+  .fail{margin:10px 0 0;padding-left:18px;font-size:12px;color:var(--accentText)}
+  .fail li+li{margin-top:2px}
+  .privacy{margin:26px 0 0;font-size:12px;color:var(--muted)}
+  .cards{display:grid;gap:12px}
+  .card{display:block;width:100%;padding:14px 16px;text-align:left;background:var(--paper);border:1px solid var(--line);border-radius:10px;color:inherit;font:inherit;cursor:pointer}
+  .card:hover{border-color:var(--accentText)}
+  .card h3{margin:0 0 4px;font-size:15px;font-weight:600}
+  .card .meta{display:flex;flex-wrap:wrap;gap:2px 14px;font-size:12px;color:var(--muted)}
+  .back{display:inline-flex;align-items:center;min-height:36px;color:var(--accentText);text-decoration:none;font-size:13px}
+  .back:hover{text-decoration:underline}
+  .note-title{margin:.1em 0 0;font-size:20px;font-weight:600}
+  .toolbar{margin-top:12px;padding:10px 0;display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .toolbar label{display:inline-flex;align-items:center;gap:6px;min-height:36px;font-size:13px;cursor:pointer}
+  .toolbar select{min-height:36px;padding:0 8px;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);font:13px var(--sans)}
+  .toolbar input[type="checkbox"]{width:16px;height:16px;accent-color:var(--accent)}
+  .toolbar .spacer{flex:1}
+  .notice{margin:12px 0 0;font-size:12px;color:var(--muted)}
+  #noteContent{margin-top:8px}
+  @media print{
+    .skip-link,.lib-header,.step,.privacy,.back,.toolbar,.notice,#listView{display:none}
+    .lib-main{max-width:none;padding:0}
+  }
+</style>
+</head>
+<body>
+<a class="skip-link" href="#main">본문으로 건너뛰기</a>
+<header class="lib-header"><div class="header-inner">
+  <a class="wordmark" href="/" aria-label="Summrizei 홈">Summr<i>zei</i></a>
+  <h1 class="header-title">내 노트</h1>
+  <span class="grow"></span>
+  <button id="lockBtn" type="button" hidden>잠그기</button>
+</div></header>
+<main id="main" class="lib-main">
+  <section class="step" aria-labelledby="stepFileH">
+    <h2 id="stepFileH"><span class="stepno" aria-hidden="true">1</span> 노트 파일 불러오기</h2>
+    <div class="drop" id="drop">
+      <p class="drop-hint">다운로드 폴더의 Summrizei 폴더를 고르세요</p>
+      <div class="drop-actions">
+        <button id="folderBtn" type="button">폴더 선택</button>
+        <button id="filesBtn" type="button">파일 선택</button>
+      </div>
+      <p class="drop-sub">.summrizei 파일을 이 상자에 끌어다 놓아도 됩니다</p>
+      <input id="folderInput" type="file" webkitdirectory hidden>
+      <input id="filesInput" type="file" multiple accept=".summrizei" hidden>
+    </div>
+    <p class="status" id="fileStatus" role="status"></p>
+  </section>
+  <section class="step" aria-labelledby="stepKeyH">
+    <h2 id="stepKeyH"><span class="stepno" aria-hidden="true">2</span> 보관함 암호</h2>
+    <form id="keyForm">
+      <input id="passInput" type="password" autocomplete="current-password" required aria-label="보관함 암호" placeholder="보관함 암호">
+      <button id="openBtn" type="submit" class="primary" disabled>열기</button>
+    </form>
+    <p class="status" id="keyStatus" role="status"></p>
+    <ul class="fail" id="failList"></ul>
+  </section>
+  <p class="privacy">복호화는 이 브라우저 안에서만 일어나며, 파일·암호·노트 내용은 어디에도 전송하거나 저장하지 않습니다.</p>
+  <section id="listView" aria-label="강의 목록" hidden>
+    <div class="cards" id="cards"></div>
+  </section>
+  <section id="noteView" hidden>
+    <a class="back" id="backLink" href="#">← 목록으로</a>
+    <h1 class="note-title" id="noteTitle"></h1>
+    <div class="toolbar" id="toolbar">
+      <label>정답 위치
+        <select id="answersSel">
+          <option value="end">끝에 모아 보기</option>
+          <option value="inline">문항 아래</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="examCb"> 시험 모드</label>
+      <label><input type="checkbox" id="writingCb"> 필기 공간</label>
+      <span class="spacer"></span>
+      <button id="mdBtn" type="button">Markdown 내보내기</button>
+      <button id="pdfBtn" type="button" class="primary">PDF로 저장</button>
+    </div>
+    <p class="notice" id="warnCount" hidden></p>
+    <div id="noteContent"></div>
+  </section>
+</main>
+<script src="vendor/katex/katex.min.js"></script>
+<script src="vendor/summrizei/note-contract.js"></script>
+<script src="vendor/summrizei/note-spec.js"></script>
+<script src="vendor/summrizei/note-render.js"></script>
+<script src="vendor/summrizei/note-export.js"></script>
+<script src="vendor/summrizei/note-file.js"></script>
+<script src="library.js"></script>
+</body>
+</html>
