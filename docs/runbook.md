@@ -89,20 +89,14 @@
 ## 4. 진단 파일 처리 (Diagnostic File Handling)
 
 **증상**
-- 사용자가 문제 보고 시 암호화된 진단 파일(`bundle.json`)을 제출했습니다.
+- 사용자가 문제 보고 시 진단 파일(`summrizei-diagnostic-<날짜>.json`)을 첨부했습니다.
 
 **확인**
-- 파일 형식 확인: `bundle.json`은 유효한 JSON인가?
-- 사용자 메일에 파일의 `kid` 필드가 기록되어 있는가?
+- 평문 JSON이다: `{v: 2, createdAt, version, events: [...]}`. `version`은 확장 버전이다.
 
 **조치**
-1. 복호화 도구를 실행합니다.
-   ```bash
-   node tools/decrypt-diagnostic.mjs bundle.json private.jwk.json
-   ```
-   여기서 `private.jwk.json`은 오프라인 저장된 운영자 개인키입니다.
+1. 파일을 열어 `events`의 `stage`·`status`·`code`·`ms`로 실패 지점을 찾습니다. 강의 내용은 들어 있지 않습니다(허용 필드만 내보낸다).
 
-2. 출력된 JSON 이벤트를 검토합니다 (내용은 없고, 메타데이터만 포함).
 
 3. 분석 후 원본 파일을 삭제합니다 (지원 메일 대화에서).
 
@@ -174,5 +168,4 @@
 - 환경 변수 상세: `server/README.md`
 - 코드 설정: `server/index.js` `config(env)` 함수
 - 기능 목록: `server/index.js` 63행의 `FEATURES` 상수
-- 복호화 도구: `tools/decrypt-diagnostic.mjs`
 - 아키텍처: `docs/architecture-v2.md` §8, §9, §17

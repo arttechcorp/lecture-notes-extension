@@ -105,12 +105,13 @@ async function deleteAccount(){
   catch(error){throw new Error('계정은 삭제했지만 이 기기의 데이터는 지우지 못했습니다. "이 기기의 강의 데이터 모두 삭제"를 다시 실행하세요. ('+error.message+')');}
   finally{await Auth.signOut();await showAuth();await refreshVision();}
 }
-// 진단 파일: 로그를 운영자 공개키로 암호화해 Blob 링크로 내려받는다(chrome.downloads 권한 없음). 키가 비어 있으면 버튼을 막는다.
+// 진단 파일: 허용 필드뿐인 로그를 평문 JSON으로 Blob 링크로 내려받는다(chrome.downloads 권한 없음). 강의 내용은 애초에 로그에 없다.
 async function exportDiagnostics(){
   const {events}=await local('LOGS_READ');
   if(!events.length)return '내보낼 진단 로그가 없습니다.';
-  const bundle=await Diagnostics.exportBundle(events),a=document.createElement('a');
-  a.href=URL.createObjectURL(new Blob([JSON.stringify(bundle)],{type:'application/json'}));
+  const version=chrome.runtime.getManifest?.()?.version??null;
+  const bundle=await Diagnostics.exportBundle(events,{version}),a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([JSON.stringify(bundle,null,2)],{type:'application/json'}));
   a.download='summrizei-diagnostic-'+new Date(bundle.createdAt).toISOString().slice(0,10)+'.json';
   a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),4e4);
@@ -126,7 +127,6 @@ function wireData(){
   run('diagClearBtn',null,async()=>{await local('LOGS_CLEAR');return '진단 로그를 삭제했습니다.';});
   run('diagExportBtn',null,exportDiagnostics);
   run('accountDeleteBtn','계정과 서버에 저장된 데이터(보관함 포함)를 영구 삭제합니다. 되돌릴 수 없습니다.\n\n삭제가 끝나면 이 기기의 강의 데이터도 모두 지우고 로그아웃합니다. 계속할까요?',async()=>{await deleteAccount();return '계정과 서버 데이터를 삭제했습니다. 이 기기의 강의 데이터도 지우고 로그아웃했습니다.';});
-  if(!Diagnostics.OPERATOR_KEYS.length){$('diagExportBtn').disabled=true;$('diagState').textContent='운영자 키가 아직 설정되지 않아 내보낼 수 없습니다';}
 }
 // 보관함 암호: NoteFile(lib/note-file.js)이 암호에서 내보낸 키를 이 기기의 암호화 저장소에 둔다.
 // 바꾸면 이 기기에 남아 있는 노트 파일을 background가 새 키로 다시 저장한다(LIB_EXPORT_ALL).

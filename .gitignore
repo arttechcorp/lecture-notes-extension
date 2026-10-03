@@ -23,6 +23,3 @@ _workspace/
 # 로컬 영상 산출물
 videos/
 
-# 진단 파일을 여는 운영자 개인키(tools/decrypt-diagnostic.mjs keygen 산출물) — 저장소에 들어가면 그 키로 암호화한 모든 진단 파일이 공개된 것과 같다
-private.jwk.json
-*.private.jwk.json

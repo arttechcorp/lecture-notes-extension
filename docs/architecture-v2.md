@@ -437,7 +437,7 @@
 | 설정·동의 기록 | `chrome.storage.local` | 평문(설정만) | 영구 |
 | 보관함 동기화 | Supabase Storage | 암호문(PBKDF2 600k 키, 기존 `lib/vault.js`) | 사용자가 지울 때까지. 서버는 복호화 불가 |
 | 계정·등급·사용량 | Supabase Postgres | 메타데이터 | 계정이 있는 동안. 사용량은 13개월 뒤 집계만 남김 |
-| 진단 파일 | 사용자 다운로드 → 지원 메일 | 운영자 공개키로 암호화 | 처리 후 삭제(런북) |
+| 진단 파일 | 사용자 다운로드 → 지원 메일 | 평문 JSON(허용 필드만, 강의 내용 없음) | 처리 후 삭제(런북) |
 
 **위협 모델**
 | 위협 | 대응 |
@@ -456,7 +456,7 @@
 - 기기 키는 non-extractable `CryptoKey`로 IndexedDB에 둔다.
   - 한계: 같은 프로필에서 확장 코드를 실행할 수 있는 공격자는 막지 못한다. 문서에 명시한다.
 - **전체 삭제 = 키 폐기(crypto-shredding)**. 즉시 복호화가 불가능해진다.
-- 진단 파일: 임시 ECDH P-256 → 운영자 정적 공개키(`kid`로 회전 지원) → HKDF-SHA256 → AES-256-GCM. 복호화 도구는 `tools/decrypt-diagnostic.mjs`이고, 개인키는 오프라인 보관한다.
+- 진단 파일: 이벤트 허용 필드만 담은 평문 JSON이다. 로그에 강의 내용이 없어 암호화하지 않는다(2026-10-03 단순화, 이전 설계는 운영자 공개키 암호화).
 - 보존 내구성: `unlimitedStorage` 권한으로 패키지 축출을 막는다. 강의당 약 4MB(크롭 ≤30장 기준 추정)다.
 
 **동의 체계** (모두 버전이 있고, 버전이 바뀌면 다시 받는다)
@@ -623,7 +623,7 @@
 **로컬 암호화 로그(D14)**
 - 배치 단위로 AES-GCM 암호화해 IndexedDB `logs`에 쓴다. 14일 또는 20MB에서 오래된 것부터 지우고, 설정에서 즉시 삭제할 수 있다.
 - **발화·슬라이드 텍스트는 넣지 않는다.** 내용 수준의 디버깅은 패키지로 한다.
-- **진단 파일 보내기**: 사용자가 실행한다. 복호화 → 운영자 공개키로 다시 암호화 → 다운로드 → 지원 메일. 운영팀은 `tools/decrypt-diagnostic.mjs`로 연다.
+- **진단 파일 보내기**: 사용자가 실행한다. 복호화 → 허용 필드만 평문 JSON으로 다운로드 → 지원 메일.
 
 **원가 관리**
 - 작업별 사전 예약(기존), 사용자별 월 한도, 전역 일일 상한(기존 `GLOBAL_COST_CENTS`), 공급자 콘솔의 지출 상한.
@@ -838,7 +838,7 @@
   - `lib/package-store.js`, `lib/events.js`
   - `server/prompts.js`(프롬프트, 스키마, 모델 레지스트리, 버전)
   - `admin.html`·`admin.js`
-  - `tools/pipeline-bench.mjs`, `tools/decrypt-diagnostic.mjs`, HLS 픽스처 생성 스크립트
+  - `tools/pipeline-bench.mjs`, HLS 픽스처 생성 스크립트
   - `.github/workflows/test.yml`
 - **이식할 기존 동작**(`lib/summary.js`): 공백 구간 고지, 미인용 근거 비율 검사, 제외·미인용 고지, 부분 결과 보존, `requestId` 해시, lane 병렬, `recognitionResult`(동의 거부 시).
 - **대체 후 삭제**:

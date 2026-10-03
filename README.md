@@ -49,7 +49,7 @@
 | 결제(Groble 웹훅 → `entitlements`) | 기반 구현 | `billing-webhook` 함수가 구독 이벤트를 반영합니다. 결제창·포털 주소는 `landing/billing-config.js`에 비어 있습니다 |
 | 유료 백그라운드 처리·클라우드 음성 인식(`lib/background-job.js`) | 동작(실서비스 미검증) | HLS만. 서버 기능 플래그 `background`와 사용 동의 2항목·클라우드 인식 동의가 있어야 시작합니다. 보호 스트림·YouTube는 실시간 모드 선택을 묻습니다. 가짜 공급자와 합성 HLS로만 끝까지 확인(`tools/background-smoke.cjs`) |
 | 로그인·계정(Supabase Auth·사용량 장부·보관함 Storage·계정 삭제) | 동작(실서비스 미검증) | 구글 로그인, JWT 검증, 원자적 사용량 예약, 계정·데이터 삭제. 실제 Supabase 프로젝트 연결 확인 전 |
-| 데이터 관리(기기 데이터 삭제·진단 파일·로그 삭제) | 동작 | 진단 파일 내보내기는 운영자 공개키를 넣기 전까지 꺼져 있습니다 |
+| 데이터 관리(기기 데이터 삭제·진단 파일·로그 삭제) | 동작 | 진단 파일은 허용 필드만 담은 평문 JSON입니다 |
 | 전역 공급자 동시성(`provider_slots`) | 동작 | 모델별 공급자 상한을 Postgres가 잡아 Edge 워커 수와 무관하게 나눕니다 |
 
 남은 작업(프론트 반영 목록 포함)과 테스트 준비물은 `docs/v2-remaining-work.md`에 정리했습니다.
