@@ -36,10 +36,11 @@ async function bgReferer({ host, referer }) {
   return { ok: true };
 }
 // 작업이 어떤 결말로 끝나든(완료·일시정지·실패·취소) 절전 방지와 규칙을 풀고, 패널에는 내용 없는 결말만 전한다.
-async function bgDone({ jobId, status, code, reason, suggest, message, stats, notices }) {
+const PKG_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
+async function bgDone({ jobId, status, code, reason, suggest, message, stats, notices, packageId }) {
   chrome.power.releaseKeepAwake();
   await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [BG_RULE] }).catch(() => {});
-  chrome.runtime.sendMessage({ target: "panel", type: "BG_DONE", jobId, status, code, reason, suggest, message, stats, notices }).catch(() => {});
+  chrome.runtime.sendMessage({ target: "panel", type: "BG_DONE", jobId, status, code, reason, suggest, message, stats, notices, packageId: PKG_ID.test(packageId || "") ? packageId : null }).catch(() => {});
   return { ok: true };
 }
 const captureError = error => {

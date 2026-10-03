@@ -1,6 +1,6 @@
 // Display and control only. The offscreen document owns all lecture data.
 const $=id=>document.getElementById(id);
-const els=Object.fromEntries(['tabSelect','modeSelect','langSelect','startBtn','stopBtn','pauseBtn','disposeBtn','notesBtn','status','result','renderFrame','stageReady','stageLive','stageDone','onboard','obConsent','obWhisper','obDone','settingsToggle','settingsClose','settingsDrawer','optionsLink','refreshTabsBtn','ocrEnabledToggle','cntSlides','cntVoice','cntQueue','feedLines','readyAlert','panelAlert','doneSummary','donePill','doneAlert','againBtn','summarySettingsBtn','popoutBtn','viewRenderedBtn','viewRawBtn','resultHint','exportRow','rawEvidence','debugDetails','debugLog','vaultPassphrase','saveVaultBtn','loadVaultBtn','deleteVaultBtn','refreshVaultBtn','vaultList','pdfBtn','notionBtn','notionModal','notionModalClose','markEngine','engineBanner','markVoice','voiceState','markTab','tabState','settingsSummary','cropField','cropRow','cropWrap','cropImg','cropBox','cropHint','previewBtn','working'].map(id=>[id,$(id)]));
+const els=Object.fromEntries(['tabSelect','modeSelect','langSelect','startBtn','stopBtn','pauseBtn','disposeBtn','notesBtn','status','result','renderFrame','stageReady','stageLive','stageDone','onboard','obConsent','obWhisper','obDone','settingsToggle','settingsClose','settingsDrawer','optionsLink','refreshTabsBtn','ocrEnabledToggle','cntSlides','cntVoice','cntQueue','feedLines','readyAlert','panelAlert','doneSummary','donePill','doneAlert','againBtn','popoutBtn','viewRenderedBtn','viewRawBtn','resultHint','exportRow','rawEvidence','debugDetails','debugLog','vaultPassphrase','saveVaultBtn','loadVaultBtn','deleteVaultBtn','refreshVaultBtn','vaultList','pdfBtn','notionBtn','notionModal','notionModalClose','markEngine','engineBanner','markVoice','voiceState','markTab','tabState','settingsSummary','cropField','cropRow','cropWrap','cropImg','cropBox','cropHint','previewBtn','working','libraryBtn','openNoteBtn'].map(id=>[id,$(id)]));
 let settings,state,busy=false,tabs=[],cropRect=null,cropTabId=null;
 const active=s=>['preparing','running','paused','draining','summarizing'].includes(s?.status);
 const label={preparing:'준비 중',running:'캡처 중',paused:'일시정지',draining:'마지막 구간 처리 중',summarizing:'요약 중',completed:'노트 준비됨',failed:'처리 중단',disposed:'세션 없음'};
@@ -10,64 +10,50 @@ const setError=text=>{for(const alert of [els.readyAlert,els.panelAlert,els.done
 function setStage(name){els.stageReady.hidden=name!=='ready';els.stageLive.hidden=name!=='live';els.stageDone.hidden=name!=='done';els.onboard.hidden=name!=='onboard';for(const [id,on] of [['stepReady',name==='ready'],['stepLive',name==='live'],['stepDone',name==='done']]){const node=$(id);if(node)node.className=on?'active':'';}if(name!=='ready')els.settingsDrawer.hidden=true;}
 function controls(){const has=!!state&&state.status!=='disposed';els.startBtn.disabled=busy||active(state)||!tabs.some(tab=>String(tab.id)===els.tabSelect.value);els.stopBtn.disabled=busy||!active(state);if(els.pauseBtn){els.pauseBtn.disabled=busy||!['running','paused'].includes(state?.status);els.pauseBtn.textContent=state?.status==='paused'?'다시 시작':'일시정지';}if(els.disposeBtn)els.disposeBtn.disabled=busy||active(state)||!has;els.notesBtn.disabled=busy||!['completed','failed'].includes(state?.status);for(const id of ['saveVaultBtn','loadVaultBtn','deleteVaultBtn','refreshVaultBtn'])if(els[id])els[id].disabled=busy||active(state)||(id==='saveVaultBtn'&&!(state?.counts?.visual||state?.counts?.audio));}
 function format(t){return `${Math.floor((t||0)/60)}:${String(Math.floor((t||0)%60)).padStart(2,'0')}`;}
-// Legacy archives may still carry claims/definitions/relationships/examples; they render only when present.
-// Study order follows the lecture, not the schema: each concept, formula and visual renders under the section
-// whose evidence starts before it, so "A => B" reads with A's material in place before B's.
-function noteText(note){
-  if(!note)return'';
-  const lines=[`# ${note.title||'구조화 노트'}`,note.message||'',note.notice||''];
-  // importance는 ⭐(제목)와 형광펜(==…==)으로만 표시한다. 줄머리 [핵심] 배지는 사용자 요청으로 제거했다.
-  // critical은 모델 지시상 드물게만 붙는다(openrouter-client.js "Keep critical rare") — 그래서 형광펜이 노트를 뒤덮지 않는다.
-  // 빈 줄이 든 내용은 문단이 갈려 ==가 짝을 잃고 원문에 그대로 남으므로 칠하지 않는다.
-  const highlight=text=>`==${text}==`;
-  const bullet=x=>`- ${x.importance==='critical'&&!/\n\s*\n/.test(x.content)?highlight(x.content):x.content}`;
-  // 핵심 결론은 거의 전부 critical이라 형광펜을 치면 섹션이 통째로 칠해진다. 대신 인용(>)으로 상자를 만들고
-  // 결론 문장은 굵게, 그 아래 detail(자세한 설명)을 붙인다 — 상자 바탕은 product-panel.css 의 blockquote 규칙이 칠한다.
-  // 빈 줄이 든 결론은 문단이 갈려 **가 짝을 잃으므로 굵게 하지 않는다(형광펜과 같은 이유).
-  const quote=text=>text.split('\n').map(line=>`> ${line}`).join('\n');
-  const conclusion=x=>quote(`${/\n\s*\n/.test(x.content)?x.content:`**${x.content}**`}${x.detail?`\n\n${x.detail}`:''}`);
-  const heading=x=>`## ${x.heading||'핵심 내용'}${x.importance==='critical'?' ⭐':''}`;
-  const formula=f=>`$$${f.latex}$$\n\n${f.explanation}${f.variables?`\n\n변수: ${f.variables}`:''}${f.units?`\n\n단위: ${f.units}`:''}${f.conditions?`\n\n조건: ${f.conditions}`:''}`;
-  // 모델이 ```mermaid 펜스를 78% 확률로 빼먹는다 (측정치) — 펜스 없으면 sandbox.html이 도식을 그냥 문단으로 렌더링한다.
-  // gemini-2.5-flash-lite가 지시어 줄을 통째로 따옴표로 감싸 내보낸다("flowchart TD") — 앞의 " 또는 '는 무시하고 키워드를 찾는다.
-  const diagramKeywordRe=/^["']?(flowchart|graph|sequenceDiagram|classDiagram|stateDiagram(-v2)?|erDiagram|mindmap|journey|gantt|pie)\b/;
-  const fenceIfBareDiagram=d=>d&&!d.includes('```')&&diagramKeywordRe.test(d.trim())?`\`\`\`mermaid\n${d.trim()}\n\`\`\``:d;
-  const visual=v=>`### ${v.title}\n\n${v.description}${v.data?`\n\n${fenceIfBareDiagram(v.data)}`:''}`;
-  const groups=[['concepts','개념'],['claims','주장'],['definitions','정의'],['relationships','관계'],['examples','예시'],['corrections','정정·예외·불확실'],['openQuestions','남은 질문']];
-  const items=groups.flatMap(([field])=>note[field]||[]);
-  const questions=(note.reviewQuestions||note.questions||[]).map(q=>`- [ ] ${typeof q==='string'?q:q.question}`);
-  if(note.keyConclusions?.length)lines.push('## 핵심 결론',...note.keyConclusions.map(conclusion));
-  const starts=new Map((note.evidenceRefs||[]).map(ref=>[ref.id,Number(ref.t0)||0]));
-  const sections=note.sections||[];
-  const at=x=>Math.min(...(x.evidenceIds||[]).map(id=>starts.has(id)?starts.get(id):Number.MAX_SAFE_INTEGER),Number.MAX_SAFE_INTEGER);
-  if(starts.size&&sections.length){
-    const ordered=[...sections].sort((a,b)=>at(a)-at(b));
-    const slot=x=>{let index=0;for(let i=0;i<ordered.length;i++)if(at(ordered[i])<=at(x))index=i;return index;};
-    const buckets=ordered.map(()=>[[],[],[]]);
-    for(const [list,value] of [[0,items],[1,note.formulas||[]],[2,note.visuals||[]]])for(const x of value)buckets[slot(x)][list].push(x);
-    for(const [i,section] of ordered.entries()){
-      const [own,formulas,visuals]=buckets[i];
-      lines.push(heading(section),section.content||'',...own.map(bullet),...formulas.map(formula),...visuals.map(visual));
-    }
+// 패널은 노트를 직접 만들지 않는다 — v2 노트는 샌드박스가 렌더한다(postMessage만 보낸다).
+const postToFrame=message=>els.renderFrame?.contentWindow?.postMessage(message,'*');
+// 보관함 스토어는 첫 노트 렌더 때만 연다. 실패해도 크롭만 비고 노트는 그린다.
+let libStoreP=null;
+const libStore=()=>libStoreP??=PackageStore.indexedDbAdapter().then(PackageStore.createStore);
+const NOTE_OPTS={answers:'end',exam:false,writing:false};
+let lastRender=null; // {note,crops,options} — PRINT_NOTE가 같은 데이터를 다시 쓴다
+let lastPackageId=null; // 현재 요약 또는 마지막 BG_DONE의 패키지 — "노트 열기"가 연다
+// v2 결과({version:2,note|recognition}): 노트가 있으면 RENDER_NOTE, 인식만이면 RENDER_RECOGNITION, 둘 다 없으면 프레임을 숨긴다.
+// #result는 내보내기용 Markdown 사본이다 — 인식 원문은 절대 싣지 않는다.
+async function renderSummary(summary){
+  const note=summary?.note||null;
+  if(summary?.packageId)lastPackageId=summary.packageId;
+  if(note){
+    let crops={};
+    if(summary.packageId){try{crops=await NoteLibrary.cropUrls(await libStore(),summary.packageId);}catch{}}
+    lastRender={note,crops,options:{...NOTE_OPTS}};
+    els.result.value=NoteExport.toMarkdown(note);
+    els.result.hidden=true;els.renderFrame.hidden=false;
+    postToFrame({type:'RENDER_NOTE',...lastRender});
+    els.resultHint.textContent='서식 보기에서는 수식과 다이어그램이 렌더링되며, 마크다운 편집 탭에서 원문을 직접 수정할 수 있습니다.';
   }else{
-    for(const section of sections)lines.push(heading(section),section.content||'');
-    for(const [field,title] of groups)if(note[field]?.length)lines.push(`## ${title}`,...note[field].map(bullet));
-    if(note.formulas?.length)lines.push('## 수식',...note.formulas.map(formula));
-    if(note.visuals?.length)lines.push('## 표·관계·그래프',...note.visuals.map(visual));
+    lastRender=null;
+    els.result.value='';
+    if(summary?.recognition){
+      els.result.hidden=true;els.renderFrame.hidden=false;
+      postToFrame({type:'RENDER_RECOGNITION',recognition:summary.recognition});
+      els.resultHint.textContent='인식 결과만 있습니다. 노트가 필요하면 설정에서 외부 요약 처리를 동의하세요.';
+    }else{
+      els.renderFrame.hidden=true;
+      els.resultHint.textContent='인식 결과를 모두 처리한 뒤 노트를 만들 수 있습니다.';
+    }
   }
-  if(questions.length)lines.push('## 복습 질문',...questions);
-  return lines.filter(Boolean).join('\n\n');
+  if(els.openNoteBtn)els.openNoteBtn.hidden=!lastPackageId;
+  if(els.exportRow)els.exportRow.hidden=!note;
+  if(els.pdfBtn)els.pdfBtn.disabled=!note;
+  if(els.notionBtn)els.notionBtn.disabled=!note;
 }
-// 샌드박스 iframe 은 chrome.storage 를 못 읽으므로 lib/theme.js 가 <html>에 푼 값을 같이 보낸다.
-const postToFrame=message=>els.renderFrame?.contentWindow?.postMessage({...message,theme:document.documentElement.dataset.theme},'*');
-globalThis.MutationObserver&&new MutationObserver(()=>postToFrame({type:'THEME'})).observe(document.documentElement,{attributeFilter:['data-theme']});
-function renderNote(note){const text=noteText(note);els.result.value=text;els.result.hidden=true;els.renderFrame.hidden=false;postToFrame({type:'RENDER',markdown:text});els.resultHint.textContent=text?'요약은 근거 시각을 포함한 구조화된 내용만 표시합니다.':'인식 결과를 모두 처리한 뒤 노트를 만들 수 있습니다.';if(els.exportRow)els.exportRow.hidden=!text;if(els.pdfBtn)els.pdfBtn.disabled=!text;if(els.notionBtn)els.notionBtn.disabled=!text;}
 function setRow(mark,val,kind,text){if(!mark||!val)return;mark.className='mark'+(kind==='off'?' off':kind==='warn'?' warn':'');mark.textContent=kind==='ok'?'✓':kind==='warn'?'!':'';val.textContent=text;}
 function updateReadyCard(){if(!settings)return;setRow(els.markEngine,els.engineBanner,els.ocrEnabledToggle?.checked===false?'off':'ok',els.ocrEnabledToggle?.checked===false?'꺼짐':settings.ocrEngine==='vision-cloud'?'고화질 화면 인식 (서비스 경유)':'PP-OCRv5 한국어 (WASM)');setRow(els.markVoice,els.voiceState,settings.whisperEnabled?'ok':'off',settings.whisperEnabled?`Whisper ${settings.whisperModel==='base-wasm'?'Base 저사양 · WASM':'Small q8/q4 · WebGPU'} (로컬)`:'꺼짐');const tabOpt=els.tabSelect?.selectedOptions?.[0];setRow(els.markTab,els.tabState,tabOpt?'ok':'warn',tabOpt?tabOpt.textContent:'선택된 탭 없음');const isRegion=els.modeSelect.value==='region';if(els.cropRow)els.cropRow.style.display=isRegion?'flex':'none';if(!isRegion&&els.cropWrap)els.cropWrap.style.display='none';if(els.cropField)els.cropField.hidden=els.ocrEnabledToggle?.checked===false;let modeDesc='영상 전체';if(els.modeSelect.value==='caption')modeDesc='하단 자막 띠';else if(isRegion)modeDesc=cropRect?`영역 지정 (${Math.round(cropRect.w*100)}%×${Math.round(cropRect.h*100)}%)`:'영역 지정 (슬라이드)';if(els.settingsSummary)els.settingsSummary.textContent=`${modeDesc} · ${{auto:'자동 감지(한국어 우선)',ko:'한국어',en:'영어'}[settings.whisperLang]||'한국어'}`;}
 // One indicator for both waits the user actually has to sit through: summarising, and the recognition backlog
 // that has to drain before a note can be made.
 function setWorking(){if(!els.working)return;const s=state?.status,queued=(state?.backlog?.images||0)+(state?.backlog?.audio||0);els.working.hidden=!(busy||s==='summarizing'||s==='draining'||(active(state)&&queued>0));}
-function render(next){if(next&&state&&next.generation<state.generation)return;const was=state?.status;state=next||null;const s=state?.status;setStatus(label[s]||'세션 없음');setError(state?.error);if(!settings?.consentAccepted)setStage('onboard');else if(!state||s==='disposed')setStage('ready');else if(active(state)&&s!=='summarizing')setStage('live');else setStage('done');els.cntSlides.textContent=state?.counts?.visual||0;els.cntVoice.textContent=state?.counts?.audio||0;els.cntQueue.textContent=(state?.backlog?.images||0)+(state?.backlog?.audio||0);els.feedLines.textContent='';const recent=state?.recent||[],gaps=state?.gaps||[];if(recent.length){for(const item of recent){const row=document.createElement('div'),time=document.createElement('span');time.className='t';time.textContent=`${format(item.time)} · ${item.source==='asr'?'음성':'화면'}`;row.append(time,document.createTextNode(item.text));els.feedLines.append(row);}}else if(gaps.length){for(const gap of gaps.slice(-3)){const row=document.createElement('div');row.textContent=`${format(gap.time)} · ${gap.reason}`;els.feedLines.append(row);}}else els.feedLines.textContent=active(state)?'인식 결과를 기다리는 중입니다.':'표시할 처리 구간이 없습니다.';els.debugLog.textContent=state?.debug?.join('\n')||'세션을 시작하면 음성 진단 정보가 표시됩니다.';els.debugLog.scrollTop=els.debugLog.scrollHeight;if(s==='failed'&&state?.error?.includes('음성'))els.debugDetails.open=true;els.donePill.textContent=s==='summarizing'?'요약 중':s==='failed'?'중단됨':state?.summary?.status==='partial'?'일부 완료':state?.summary?'노트 완성':'인식 완료';els.doneSummary.textContent=state?`화면 ${state.counts.visual} · 음성 ${state.counts.audio}`:'';renderNote(state?.summary);setWorking();controls();updateReadyCard();if(shouldAutoSummarize(was,state))autoSummarize();}
+function render(next){if(next&&state&&next.generation<state.generation)return;const was=state?.status;state=next||null;const s=state?.status;setStatus(label[s]||'세션 없음');setError(state?.error);if(!settings?.consentAccepted)setStage('onboard');else if(!state||s==='disposed')setStage('ready');else if(active(state)&&s!=='summarizing')setStage('live');else setStage('done');els.cntSlides.textContent=state?.counts?.visual||0;els.cntVoice.textContent=state?.counts?.audio||0;els.cntQueue.textContent=(state?.backlog?.images||0)+(state?.backlog?.audio||0);els.feedLines.textContent='';const recent=state?.recent||[],gaps=state?.gaps||[];if(recent.length){for(const item of recent){const row=document.createElement('div'),time=document.createElement('span');time.className='t';time.textContent=`${format(item.time)} · ${item.source==='asr'?'음성':'화면'}`;row.append(time,document.createTextNode(item.text));els.feedLines.append(row);}}else if(gaps.length){for(const gap of gaps.slice(-3)){const row=document.createElement('div');row.textContent=`${format(gap.time)} · ${gap.reason}`;els.feedLines.append(row);}}else els.feedLines.textContent=active(state)?'인식 결과를 기다리는 중입니다.':'표시할 처리 구간이 없습니다.';els.debugLog.textContent=state?.debug?.join('\n')||'세션을 시작하면 음성 진단 정보가 표시됩니다.';els.debugLog.scrollTop=els.debugLog.scrollHeight;if(s==='failed'&&state?.error?.includes('음성'))els.debugDetails.open=true;els.donePill.textContent=s==='summarizing'?'요약 중':s==='failed'?'중단됨':state?.summary?.status==='partial'?'일부 완료':state?.summary?'노트 완성':'인식 완료';els.doneSummary.textContent=state?`화면 ${state.counts.visual} · 음성 ${state.counts.audio}`:'';renderSummary(state?.summary);setWorking();controls();updateReadyCard();if(shouldAutoSummarize(was,state))autoSummarize();}
 // 캡처가 끝나면 노트 화면이 비어 있으면 안 된다. 요약을 한 번 자동으로 이어 돌린다 —
 // 중지 버튼뿐 아니라 영상 종료·트랙 종료 같은 자동 종료 경로도 모두 여기(completed 전이)로 모인다.
 // 세션당 1회로 제한한다: 실패한 요약을 무한히 다시 부르지 않기 위해서다.
@@ -80,26 +66,18 @@ function rect(){if(els.modeSelect.value==='caption')return{x:0,y:.8,w:1,h:.2};if
 async function start(){settings=await loadSettings();if(!settings.consentAccepted){setStage('onboard');return;}if(!tabs.some(tab=>String(tab.id)===els.tabSelect.value)){setError('선택한 강의 탭이 없습니다. 강의 창에서 확장을 다시 여세요.');return;}if(!els.ocrEnabledToggle.checked&&!settings.whisperEnabled){setError('화면 또는 음성 인식 중 하나를 켜세요.');return;}if(els.ocrEnabledToggle.checked&&els.modeSelect.value==='region'&&(!cropRect||cropTabId!==els.tabSelect.value)){els.settingsDrawer.showModal();els.cropHint.textContent='현재 강의 화면을 불러오고 인식할 슬라이드 영역을 드래그하세요.';setError('화면을 불러온 뒤 인식할 슬라이드 영역을 드래그하세요.');els.previewBtn.focus();return;}await action('START_SESSION',{settings,options:{tabId:Number(els.tabSelect.value),rect:rect(),ocrEnabled:els.ocrEnabledToggle.checked,ocrEngine:settings.ocrEngine||'ppocr-v5-wasm',visionConsent:settings.visionConsent===true,whisperEnabled:settings.whisperEnabled,whisperModel:settings.whisperModel,whisperLang:settings.whisperLang,speedCorrection:settings.speedCorrection===true}});}
 async function vault(type){const passphrase=els.vaultPassphrase.value;if(type!=='DELETE_VAULT'&&passphrase.length<12){setError('보관 암호를 12자 이상 입력하세요.');return;}const result=await action(type,{settings:await loadSettings(),passphrase,objectId:type==='SAVE_VAULT'?undefined:els.vaultList.value});els.vaultPassphrase.value='';if(result&&type!=='LOAD_VAULT')refreshVault();}
 async function refreshVault(){const result=await action('LIST_VAULT',{settings:await loadSettings()});if(!result)return;els.vaultList.textContent='';for(const item of result.items||[]){const opt=document.createElement('option');opt.value=item.objectId;opt.textContent=item.objectId;els.vaultList.append(opt);}controls();}
-els.startBtn.addEventListener('click',start);els.stopBtn.addEventListener('click',()=>action(state?.status==='summarizing'?'CANCEL_SUMMARY':'STOP_SESSION'));els.notesBtn.addEventListener('click',async()=>action('GENERATE_NOTES',{settings:await loadSettings()}));els.againBtn.addEventListener('click',()=>action('DISPOSE_SESSION'));els.settingsToggle.addEventListener('click',()=>els.settingsDrawer.showModal());els.settingsClose.addEventListener('click',()=>els.settingsDrawer.close());els.refreshTabsBtn.addEventListener('click',loadTabs);els.tabSelect.addEventListener('change',()=>{cropRect=null;cropTabId=null;els.cropBox.style.display='none';controls();updateReadyCard();});els.ocrEnabledToggle.addEventListener('change',async()=>{settings=await saveSettings({ocrEnabled:els.ocrEnabledToggle.checked});updateReadyCard();});els.modeSelect.addEventListener('change',updateReadyCard);els.langSelect.addEventListener('change',async()=>{settings=await saveSettings({whisperLang:els.langSelect.value});updateReadyCard();});els.summarySettingsBtn.addEventListener('click',()=>chrome.runtime.openOptionsPage());els.optionsLink.addEventListener('click',event=>{event.preventDefault();chrome.runtime.openOptionsPage();});
+els.startBtn.addEventListener('click',start);els.stopBtn.addEventListener('click',()=>action(state?.status==='summarizing'?'CANCEL_SUMMARY':'STOP_SESSION'));els.notesBtn.addEventListener('click',async()=>action('GENERATE_NOTES',{settings:await loadSettings()}));els.againBtn.addEventListener('click',()=>action('DISPOSE_SESSION'));els.settingsToggle.addEventListener('click',()=>els.settingsDrawer.showModal());els.settingsClose.addEventListener('click',()=>els.settingsDrawer.close());els.refreshTabsBtn.addEventListener('click',loadTabs);els.tabSelect.addEventListener('change',()=>{cropRect=null;cropTabId=null;els.cropBox.style.display='none';controls();updateReadyCard();});els.ocrEnabledToggle.addEventListener('change',async()=>{settings=await saveSettings({ocrEnabled:els.ocrEnabledToggle.checked});updateReadyCard();});els.modeSelect.addEventListener('change',updateReadyCard);els.langSelect.addEventListener('change',async()=>{settings=await saveSettings({whisperLang:els.langSelect.value});updateReadyCard();});els.optionsLink.addEventListener('click',event=>{event.preventDefault();chrome.runtime.openOptionsPage();});
 if(els.pauseBtn)els.pauseBtn.addEventListener('click',()=>action(state?.status==='paused'?'RESUME_SESSION':'PAUSE_SESSION'));if(els.disposeBtn)els.disposeBtn.addEventListener('click',()=>action('DISPOSE_SESSION'));if(els.saveVaultBtn){els.saveVaultBtn.addEventListener('click',()=>vault('SAVE_VAULT'));els.loadVaultBtn.addEventListener('click',()=>vault('LOAD_VAULT'));els.deleteVaultBtn.addEventListener('click',()=>vault('DELETE_VAULT'));els.refreshVaultBtn.addEventListener('click',refreshVault);}
 els.viewRenderedBtn.addEventListener('click',()=>{els.renderFrame.hidden=false;els.result.hidden=true;});els.viewRawBtn.addEventListener('click',()=>{els.renderFrame.hidden=true;els.result.hidden=false;});if(els.popoutBtn)els.popoutBtn.addEventListener('click',()=>chrome.windows?.create?.({url:chrome.runtime.getURL(`sidepanel.html?tabId=${encodeURIComponent(els.tabSelect.value)}`),type:'popup',width:480,height:760}));
+// 보관함·노트 페이지는 별도 탭에서 암호화된 저장소를 직접 읽는다 — 패널은 열기만 한다.
+if(els.libraryBtn)els.libraryBtn.addEventListener('click',()=>chrome.tabs.create({url:chrome.runtime.getURL('library.html')}));
+const openNote=pkg=>{if(pkg)chrome.tabs.create({url:chrome.runtime.getURL(`note.html?id=${encodeURIComponent(pkg)}`)});};
+if(els.openNoteBtn)els.openNoteBtn.addEventListener('click',()=>openNote(lastPackageId));
 function showPreview(dataUrl,tabId){if(!els.cropImg)return;cropRect=null;cropTabId=String(tabId);els.cropBox.style.display='none';els.cropImg.src=dataUrl;if(els.cropWrap)els.cropWrap.style.display='block';if(els.cropHint)els.cropHint.textContent='드래그해서 슬라이드 영역만 선택하세요.';updateReadyCard();}
 (function setupCropDrag(){let start=null;if(!els.cropWrap||!els.cropBox||!els.cropImg)return;els.cropWrap.addEventListener('mousedown',e=>{const r=els.cropImg.getBoundingClientRect();start={x:e.clientX-r.left,y:e.clientY-r.top};Object.assign(els.cropBox.style,{display:'block',left:`${start.x}px`,top:`${start.y}px`,width:'0px',height:'0px'});e.preventDefault();});els.cropWrap.addEventListener('mousemove',e=>{if(!start)return;const r=els.cropImg.getBoundingClientRect(),x=Math.max(0,Math.min(r.width,e.clientX-r.left)),y=Math.max(0,Math.min(r.height,e.clientY-r.top));Object.assign(els.cropBox.style,{left:`${Math.min(start.x,x)}px`,top:`${Math.min(start.y,y)}px`,width:`${Math.abs(x-start.x)}px`,height:`${Math.abs(y-start.y)}px`});});window.addEventListener('mouseup',()=>{if(!start)return;start=null;const r=els.cropImg.getBoundingClientRect(),b=els.cropBox.getBoundingClientRect();if(b.width<10||b.height<10){cropRect=null;els.cropBox.style.display='none';if(els.cropHint)els.cropHint.textContent='영역이 너무 작아 취소되었습니다. 다시 드래그하세요.';updateReadyCard();return;}cropRect={x:Math.max(0,(b.left-r.left)/r.width),y:Math.max(0,(b.top-r.top)/r.height),w:Math.min(1,b.width/r.width),h:Math.min(1,b.height/r.height)};if(els.cropHint)els.cropHint.textContent=`영역 지정됨 (${Math.round(cropRect.w*100)}% × ${Math.round(cropRect.h*100)}%)`;updateReadyCard();});})();
 if(els.previewBtn)els.previewBtn.addEventListener('click',async()=>{const tabId=Number(els.tabSelect.value);if(!tabId){setError('미리보기를 불러올 탭을 먼저 선택하세요.');return;}cropRect=null;cropTabId=null;els.cropBox.style.display='none';if(els.cropHint)els.cropHint.textContent='강의 화면을 불러오는 중...';setError('');const res=await rpc({type:'GET_PREVIEW',tabId});if(res?.ok&&res.dataUrl){showPreview(res.dataUrl,tabId);}else{setError(res?.error||'화면을 불러오지 못했습니다.');if(els.cropHint)els.cropHint.textContent='불러오기 실패. 영상을 재생한 뒤 다시 시도하세요.';}});
-let currentPdfRatio = 'a4';
-try { currentPdfRatio = localStorage.getItem('lecture_notes_pdf_ratio') || 'a4'; } catch(e){}
-function updatePdfRatioUI() {
-  const is169 = currentPdfRatio === '16:9';
-  $('pdfRatioA4')?.classList.toggle('active', !is169);
-  $('pdfRatio169')?.classList.toggle('active', is169);
-  if (els.pdfBtn) {
-    els.pdfBtn.title = is169 ? '16:9 (PPT·굿노트) 비율로 PDF를 인쇄 또는 저장합니다' : 'A4 세로 비율로 PDF를 인쇄 또는 저장합니다';
-  }
-}
-$('pdfRatioA4')?.addEventListener('click', () => { currentPdfRatio = 'a4'; try { localStorage.setItem('lecture_notes_pdf_ratio', 'a4'); }catch(e){} updatePdfRatioUI(); });
-$('pdfRatio169')?.addEventListener('click', () => { currentPdfRatio = '16:9'; try { localStorage.setItem('lecture_notes_pdf_ratio', '16:9'); }catch(e){} updatePdfRatioUI(); });
-updatePdfRatioUI();
-if(els.pdfBtn)els.pdfBtn.addEventListener('click',()=>{if(!els.result.value)return;els.renderFrame.hidden=false;els.result.hidden=true;const ratioLabel=currentPdfRatio==='16:9'?'16:9 (PPT·굿노트)':'A4';setStatus(`${ratioLabel} 비율로 PDF 인쇄 대화상자를 준비하는 중입니다...`);postToFrame({type:'PRINT',markdown:els.result.value,ratio:currentPdfRatio});});
+// PDF는 샌드박스가 print 매체로 다시 렌더해서 찍는다 — 비율 선택은 없다(노트 양식이 정한다).
+if(els.pdfBtn)els.pdfBtn.addEventListener('click',()=>{if(!lastRender)return;els.renderFrame.hidden=false;els.result.hidden=true;setStatus('PDF 인쇄 대화상자를 준비하는 중입니다...');postToFrame({type:'PRINT_NOTE',...lastRender});});
 if(els.notionBtn)els.notionBtn.addEventListener('click',async()=>{const text=els.result.value;if(!text)return;try{await navigator.clipboard.writeText(text);}catch(error){setStatus(`복사 실패: ${error.message||error}`);return;}setStatus('복사 완료! 이제 노션에 붙여넣으세요.');if(els.notionModal?.showModal)els.notionModal.showModal();});
 if(els.notionModalClose)els.notionModalClose.addEventListener('click',()=>els.notionModal.close());
 if(els.notionModal)els.notionModal.addEventListener('click',event=>{if(event.target===els.notionModal)els.notionModal.close();});
@@ -107,15 +85,16 @@ chrome.runtime.onMessage.addListener((message,sender)=>{try{const url=new URL(se
 window.addEventListener('message',event=>{if(event.source!==els.renderFrame?.contentWindow||!event.data)return;if(event.data.type==='RENDER_HEIGHT'&&typeof event.data.height==='number')els.renderFrame.style.height=Math.max(event.data.height,140)+'px';else if(event.data.type==='PRINT_COMPLETE')setStatus('PDF 인쇄가 완료되었거나 대화상자가 닫혔습니다.');else if(event.data.type==='PRINT_ERROR')setStatus(`PDF 인쇄 오류: ${event.data.error||'알 수 없는 오류'}`);});
 // ── 백그라운드 처리(유료, docs/architecture-v2.md §6.1): 영상 목록 찾기 → BG_RUN → 진행·결말 표시. 작업은 offscreen이 하고 패널은 누르고 보여 줄 뿐이다.
 // 실시간 모드로는 사용자가 "실시간 모드로 시작"을 눌러야만 넘어간다 — 보호·미지원·실패 어느 경우에도 조용히 바꾸지 않는다.
-const bgEl=Object.fromEntries(['bgBox','bgBtn','bgStatus','bgProgress','bgRetryBtn','bgCancelBtn','bgLiveBtn','bgOptionsLink'].map(id=>[id,$(id)]));
+const bgEl=Object.fromEntries(['bgBox','bgBtn','bgStatus','bgProgress','bgRetryBtn','bgCancelBtn','bgLiveBtn','bgOptionsLink','bgNoteBtn'].map(id=>[id,$(id)]));
 const YOUTUBE=/(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com|googlevideo\.com)$/i; // lib/background-job.js와 같은 목록(§19)
 const BG_STATE={created:'준비',acquiring_source:'소스 확인',ingesting:'수신·인식',refining:'정제',judging:'판정',planning:'계획',writing:'작성',validating:'검증',rendering:'렌더'},BG_COUNT={recv:'수신',decode:'해석',vision:'화면',stt:'음성',write:'작성'};
 let bg=null; // {jobId,source?,code?}. 패널을 닫으면 사라진다 — 이어 할 작업은 BG_LIST가 다시 알려 준다.
-// 요약 동의도 시작 전에 본다: 인식만 끝난 결과를 볼 화면이 아직 없어서, 동의 없이 시작하면 클라우드 인식 비용만 쓰고 멈춘다.
-const bgConsented=()=>backgroundAllowed(settings)&&cloudRecognitionAllowed(settings)&&settings?.remoteSummaryConsent===true;
-function bgShow({text='',progress='',busy=false,cancel=false,retry=false,live=false,options=false,retryLabel}={}){
+// 요약 동의는 시작 조건이 아니다 — 없으면 인식 결과만 만들 뿐이다(시작 전에 알린다). 이용 동의와 클라우드 인식 동의만 필수.
+const bgConsented=()=>backgroundAllowed(settings)&&cloudRecognitionAllowed(settings);
+const NO_SUMMARY='외부 요약 처리에 동의하지 않아 인식 결과만 만듭니다. 노트가 필요하면 설정에서 동의하세요.';
+function bgShow({text='',progress='',busy=false,cancel=false,retry=false,live=false,options=false,open=false,retryLabel}={}){
   bgEl.bgStatus.textContent=text;bgEl.bgProgress.textContent=progress;
-  bgEl.bgBtn.disabled=busy;bgEl.bgCancelBtn.hidden=!cancel;bgEl.bgRetryBtn.hidden=!retry;bgEl.bgRetryBtn.textContent=retryLabel||'다시 시도';bgEl.bgLiveBtn.hidden=!live;bgEl.bgOptionsLink.hidden=!options;
+  bgEl.bgBtn.disabled=busy;bgEl.bgCancelBtn.hidden=!cancel;bgEl.bgRetryBtn.hidden=!retry;bgEl.bgRetryBtn.textContent=retryLabel||'다시 시도';bgEl.bgLiveBtn.hidden=!live;bgEl.bgOptionsLink.hidden=!options;bgEl.bgNoteBtn.hidden=!open;
 }
 // BG_DONE → 화면. 안내 문구는 offscreen이 파이프라인 CODES의 userMessage로 실어 보낸다. 실시간 모드 버튼은 suggest:"live"일 때만 나온다.
 const BG_NOTE={ // 완료 고지 코드 → 사용자 문장. n은 건수(없으면 1). NOTE_ADVISORY_*는 렌더러 힌트라 여기 없다
@@ -146,7 +125,7 @@ function bgNoticeLines(notices){
   return lines;
 }
 function bgDoneView(d){
-  if(['complete','partial','done'].includes(d.status))return {text:[`노트 준비됨${d.status==='partial'?' (일부 섹션 제외)':''} · 슬라이드 ${d.stats?.slides??'-'} · 음성 구간 ${d.stats?.chunks??'-'}`,...bgNoticeLines(d.notices),'암호화해 이 기기에 저장했습니다. v2 노트 보기는 노트 양식이 정해진 뒤에 제공됩니다.'].join('\n')};
+  if(['complete','partial','done'].includes(d.status))return {text:[`노트 준비됨${d.status==='partial'?' (일부 섹션 제외)':''} · 슬라이드 ${d.stats?.slides??'-'} · 음성 구간 ${d.stats?.chunks??'-'}`,...bgNoticeLines(d.notices),'암호화해 이 기기에 저장했습니다. 노트 열기로 확인할 수 있습니다.'].join('\n')};
   if(d.status==='cancelled')return {text:'백그라운드 처리를 취소했습니다.'};
   const text=d.message||`백그라운드 처리를 마치지 못했습니다. 같은 문제가 반복되면 메뉴의 고객지원으로 문의해 주세요.${d.code?` (코드: ${d.code})`:''}`;
   if(d.status==='paused'){
@@ -175,15 +154,17 @@ async function bgStart(jobId=crypto.randomUUID(),source=null){
   bg={jobId,source};
   if(!tab){bgShow({text:'선택한 강의 탭이 없습니다. 강의 창에서 확장을 다시 여세요.'});return;}
   if(YOUTUBE.test(new URL(tab.url).hostname)){bgShow({text:'이 사이트는 실시간 모드만 지원합니다. 위의 “캡처 시작”으로 진행하세요.'});return;}
-  if(!bgConsented()){settings=await loadSettings();if(!bgConsented()){bgShow({text:'백그라운드 처리에는 이용 동의 2종, 클라우드 인식(화면·음성 전송) 동의, 외부 요약 처리 동의가 필요합니다. 설정에서 동의해 주세요.',options:true});return;}}
+  if(!bgConsented()){settings=await loadSettings();if(!bgConsented()){bgShow({text:'백그라운드 처리에는 이용 동의 2종과 클라우드 인식(화면·음성 전송) 동의가 필요합니다. 설정에서 동의해 주세요.',options:true});return;}}
+  // 요약 동의가 없어도 막지 않는다 — 시작 전에 인식만 만들 거라고 알린다(조용한 전환 금지).
+  const info=settings?.remoteSummaryConsent===true?'':NO_SUMMARY;
   if(!source){
-    bgShow({text:'영상 목록을 찾는 중… 강의 탭에서 영상을 재생하세요.',busy:true});
+    bgShow({text:'영상 목록을 찾는 중… 강의 탭에서 영상을 재생하세요.',progress:info,busy:true});
     let url=null;
     try{if(await chrome.permissions.request({permissions:['webRequest']}))url=await findPlaylist(tab.id);}catch{} // 권한 요청은 클릭 제스처 안의 첫 await이어야 한다
     if(!url){bgShow({text:'재생 중인 영상 목록(HLS)을 찾지 못했습니다. webRequest 권한을 허용하고, 영상을 처음부터 다시 재생한 뒤 다시 시도하세요.',retry:true});return;}
     source=bg.source={playlistUrl:url};
   }
-  bgShow({text:'백그라운드 처리를 시작합니다…',busy:true,cancel:true});
+  bgShow({text:'백그라운드 처리를 시작합니다…',progress:info,busy:true,cancel:true});
   const r=await rpc({type:'BG_RUN',jobId,tabId:tab.id,source});
   if(!r.ok)bgShow({text:r.error||'백그라운드 처리를 시작하지 못했습니다.',retry:true});
 }
@@ -203,11 +184,12 @@ bgEl.bgRetryBtn.addEventListener('click',()=>bgStart(bg?.jobId,bg?.code==='SRC_A
 bgEl.bgCancelBtn.addEventListener('click',async()=>{bgShow({text:'취소하는 중…',busy:true});await rpc({type:'BG_CANCEL'});});
 bgEl.bgLiveBtn.addEventListener('click',start); // 실시간 모드로 가는 유일한 길: 사용자의 클릭
 bgEl.bgOptionsLink.addEventListener('click',event=>{event.preventDefault();chrome.runtime.openOptionsPage();});
+bgEl.bgNoteBtn.addEventListener('click',()=>openNote(bg?.pkg||lastPackageId));
 chrome.runtime.onMessage.addListener((message,sender)=>{try{
   const url=new URL(sender.url),base=new URL(chrome.runtime.getURL(''));
   if(sender.id!==chrome.runtime.id||url.protocol!==base.protocol||url.host!==base.host||message?.target!=='panel'||!bg||message.jobId!==bg.jobId)return;
   if(url.pathname==='/offscreen.html'&&message.type==='BG_PROGRESS')bgShow({text:`처리 중 · ${BG_STATE[message.state]||message.state}`,progress:Object.entries(message.counts||{}).filter(([k])=>BG_COUNT[k]).map(([k,n])=>`${BG_COUNT[k]} ${n}`).join(' · '),busy:true,cancel:true});
-  else if(url.pathname==='/background.js'&&message.type==='BG_DONE'){bg.code=message.code;bgShow(bgDoneView(message));}
+  else if(url.pathname==='/background.js'&&message.type==='BG_DONE'){bg.code=message.code;if(message.packageId)lastPackageId=bg.pkg=message.packageId;bgShow({...bgDoneView(message),open:!!message.packageId});}
 }catch{}});
 (async()=>{settings=await loadSettings();els.ocrEnabledToggle.checked=settings.ocrEnabled!==false;els.langSelect.value=settings.whisperLang||'auto';await loadTabs();const result=await action('GET_STATE');render(result?.state||null);els.obConsent.checked=!!settings.consentAccepted;els.obWhisper.checked=!!settings.whisperEnabled;els.obDone.disabled=!els.obConsent.checked;updateReadyCard();bgInit();})().catch(error=>setError(error.message));
 els.obConsent.addEventListener('change',()=>els.obDone.disabled=!els.obConsent.checked);els.obDone.addEventListener('click',async()=>{settings=await loadSettings();settings.consentAccepted=els.obConsent.checked;settings.whisperEnabled=els.obWhisper.checked;await saveSettings({consentAccepted:settings.consentAccepted,whisperEnabled:settings.whisperEnabled});setStage('ready');});
