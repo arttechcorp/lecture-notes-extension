@@ -1,127 +1,94 @@
 # v2 남은 작업과 테스트 준비
 
-확인 기준: `w/dev` `a04e9fc`(2026-10-02), 2026-10-03 결정 반영. 코드가 바뀌면 다시 대조한다.
+확인 기준: `w/dev`, 2026-10-03. 코드가 바뀌면 다시 대조한다.
 
-- 결정과 열린 결정은 여기 두지 않는다. 노트는 `docs/note-contract.md` §18(2026-10-03 확정), 정책·출시는 `docs/policy-drafts-v2.md` §0, 설계는 `docs/architecture-v2.md` §3(D16~D18)과 §22 "남은 결정"에 있다.
-- 구현 범위는 `README.md` "구현 현황"이 기준이다. 유료 백그라운드 경로와 계정·사용량 서버까지 동작하지만 실서비스로는 검증 전이다.
+- 확정된 결정은 여기 두지 않는다. 노트는 `docs/note-contract.md` §18, 정책·출시는 `docs/policy-drafts-v2.md` §0, 설계는 `docs/architecture-v2.md` §3(D16~D18)과 §22에 있다.
+- 구현 범위는 `README.md` "구현 현황"이 기준이다.
 
-## 1. 프론트에 반영할 것
+## 1. 확장만 불러와 테스트하기 (node 서버 없음)
 
-작업 전에 `origin/main`을 합친다. 협업자 커밋 `d2e590a`(캡처 설정 모달)가 `sidepanel.html`·`sidepanel.js`를 바꿨고 아직 `w/dev`에 없다.
+운영 서비스는 Supabase Edge Function `api`다(`supabase/functions/api`, `server/index.js`를 묶어 그대로 돌린다). 확장의 기본 서비스 주소가 이 함수라서 로컬 서버를 띄우지 않는다.
 
-### P0: 출시 차단
+**한 번만 하는 준비(운영자), 이 순서로:**
 
-1. **클라우드 인식 동의 문구가 동작과 다르다.**
-   - `options.html`의 화면 인식 동의와 `landing/policies/privacy.html`은 음성이 이 설정과 무관하게 항상 기기 안에서만 처리된다고 적는다.
-   - 그런데 같은 동의(`lib/settings.js` `cloudRecognitionAllowed` = `visionConsent`)가 백그라운드 작업의 클라우드 음성 인식을 허가한다(`lib/background-job.js` `gate`). 동의가 없을 때의 안내(`CONSENT_CLOUD_REQUIRED`)는 "화면·음성 전송에 동의"하라고 한다.
-   - 할 일: 동의창을 화면·음성 전송 동의로 고치고 `TERMS_VERSION`을 올려 다시 동의를 받는다. 처리방침·스토어 문구는 `docs/policy-drafts-v2.md` §1~§5를 반영한다.
-2. **등급과 사용량이 화면에 없다.** `GET /v1/me`가 `plan`과 `quota`(`requests`·`maxRequests`·`minutes`·`maxMinutes`·`spentCents`·`maxCents`)를 주지만 패널과 설정 어디에도 보이지 않는다.
-3. **426(업데이트 필요)을 처리하지 않는다.** `lib/service-client.js`는 버전 헤더만 싣는다. 서버가 `minClientVersion`을 올리면 사용자에게는 일반 오류로 보인다.
+1. 비밀값을 넣는다. 표는 `server/README.md` "Supabase Edge Function 배포"에 있다. OpenRouter 키 하나로 요약·비전·판정·STT가 모두 된다.
+2. 함수를 배포한다.
+   ```bash
+   supabase functions deploy api --use-api
+   supabase functions deploy delete-account --use-api
+   ```
+3. 원격 DB에 `supabase/schema-v2.sql`을 다시 적용한다(등급·사용량 일원화, `plan_catalog()`, 결제 구독 검사). 옛 탈퇴 RPC를 지우므로 2번 뒤에 한다.
+   ```bash
+   supabase db query --linked -f supabase/schema-v2.sql
+   ```
+   Free의 월 분 한도는 시드가 기존 행을 덮지 않으므로 한 번 맞춘다: `supabase db query --linked "update plans set monthly_minutes_cap = 100 where plan = 'free'"`
 
-### P1
+**테스트:**
 
-4. **"인식 결과만 볼 수 있다"는 안내에 보기 화면이 없다.** 요약 동의 없이 끝난 백그라운드 작업은 `CONSENT_SUMMARY_REQUIRED`로 멈추고 이 문구를 보인다. 하지만 백그라운드 작업의 인식 결과를 여는 화면은 없다. 화면을 만들거나 문구를 고친다.
-5. **완료 고지가 코드 문자열로 나온다.** `sidepanel.js` `bgDoneView`가 `NOTE_TARGET_DROPPED×2`처럼 코드를 그대로 나열한다. 한국어 문구와 해당 구간이 필요하다.
-6. **일시정지마다 같은 버튼이 나온다.**
-   - 모든 일시정지에 "다시 시도"가 붙는다(`bgDoneView`).
-   - 한도 초과(`QUOTA_EXCEEDED`)는 다시 시도해도 소용없다.
-   - 인증 만료(`SRC_AUTH_EXPIRED`)는 강의 탭을 다시 여는 것이 먼저다.
-   - 코드표(`lib/pipeline.js` `CODES`)에 없는 오류는 코드만 보인다.
-7. **DRM(EME) 영상에도 실시간 모드를 권한다.** `SRC_PROTECTED`면 항상 "실시간 모드로 시작"이 나온다. 그런데 EME 영상은 실시간 캡처도 `content.js`가 거절하므로 두 번째 실패로 이어진다. EME면 중단 안내만 한다(설계 §6.1의 2).
-8. **진단 파일 내보내기가 꺼져 있다.** `lib/diagnostics.js` `OPERATOR_KEYS`가 비어 있다(§3 운영자 진단 키).
+1. `chrome://extensions` → 개발자 모드 → "압축해제된 확장 프로그램을 로드합니다" → 저장소 폴더를 고른다. ID가 `gllijdanodakjamndimlpgmhokaakpod`인지 본다(다르면 `EXTENSION_ORIGIN` 비밀값과 Supabase 리디렉트 URL을 그 ID로 바꾼다).
+2. 설정에서 Google로 로그인한다. 사이드 패널 계정 메뉴에 "Free · 이번 달 0/100분"이 보이면 연결된 것이다.
+3. 유료 경로: 테스트 계정에 등급을 준다.
+   ```bash
+   supabase db query --linked "insert into entitlements (user_id, plan, starts_at, source) select id, 'essential', now(), 'manual' from auth.users where email = '<이메일>'"
+   ```
+4. 설정에서 이용 동의 2항목, 클라우드 인식(화면·음성 전송), 외부 요약 처리에 동의한다(동의 문구 버전 2026-10-03).
+5. 사이드 패널을 다시 열면 "백그라운드로 처리" 카드가 보인다. HLS 강의 탭에서 실행한다. 결과는 기기에 암호화해 저장되고, 노트 보기 화면은 아직 없다(§3의 1).
+6. 실시간 캡처(Free)는 기존 v1 화면 그대로이고, 요약은 같은 서비스의 `/v1/summary`를 쓴다.
 
-### P2
+로컬 서버로 시험할 때만 설정의 "서비스 URL (개발용)"을 `http://127.0.0.1:8788`로 바꾼다. 비우면 기본값으로 돌아간다.
 
-9. 개발용 어드민의 작업 탭과 산출물 검사 탭(설계 §13). 지금은 파이프라인·로그·소스 진단 탭만 있다.
+## 2. 이번에 끝낸 것 (2026-10-03)
 
-### 노트 계약 연결(6-x·7-x) 뒤
+- 등급·가격·사용량 표 일원화: `plans`(free·essential 24,000원/학생 14,000원·professional 28,900원), 구독 상태는 `entitlements`, 사용량은 `monthly_usage`. 옛 `subscriptions`·`usage_monthly`·`paid` 등급 삭제.
+- 랜딩 탈퇴가 보관함 암호문을 남기던 문제: Edge Function `delete-account`(행 → Storage → 계정). 결제 구독이 남아 있으면 아무것도 지우지 않고 거절.
+- 운영 서비스를 Supabase Edge Function으로 이전, 확장 기본 주소로 고정.
+- STT를 OpenRouter `microsoft/mai-transcribe-2`로 전환(WAV 전송, phraseList, `usage.cost` 정산). Groq 키 불필요.
+- P0: 클라우드 인식 동의 문구(화면+음성), 동의 버전 올림. 등급·이번 달 사용량을 계정 메뉴에 표시. 426 안내 문구.
+- P1: 요약 동의 없이는 백그라운드를 시작하지 않음(인식 결과 보기 화면이 없어서). 완료 고지를 한국어와 시각 구간으로 표시. 일시정지 사유별 버튼. DRM(EME 계열)은 실시간 모드를 권하지 않음(`SRC_DRM`).
+- 판정 기능 스위치: 서버가 `judge`를 끄면 유료 작업이 판정 없이 진행(`NOTE_JUDGE_SKIPPED`).
 
-`docs/note-contract.md` §17의 단위와 함께 진행한다.
+## 3. 아직 구현하지 않은 것
 
-10. v2 노트 보기. 지금은 완료 화면이 "노트 양식이 정해진 뒤에 제공"이라고만 한다.
-11. **노트 생성 옵션**(`docs/note-contract.md` §18, 6-8·7-3):
-    - 가상 사례·강의 밖 보강 켜기. 기본은 꺼짐이고 유료만 켤 수 있다. Free에는 "유료" 표시와 함께 비활성으로 보이되, 실제 차단은 서버가 한다.
-    - 시험 모드 버튼을 같은 묶음에 둔다. 생성 뒤에 바꾸면 다시 렌더링만 한다.
-12. 인쇄 v2(`sandbox.html`): 답안을 끝에 모으고, 시험 모드를 넣고, 폰트·KaTeX·크롭이 준비된 뒤 인쇄한다(7-3·7-4).
-13. Markdown 내보내기(`sidepanel.js` `noteText` 대체, 7-4).
-14. `product-panel.css`를 사이드 패널과 `sandbox.html`이 같이 쓴다. 노트 v3 토큰을 넣을 때 패널 모양이 같이 바뀌지 않게 나눈다.
-15. v1 경로 제거: OpenRouter 키 입력란, `openrouter.ai` 호스트 권한, `lib/summary.js`, `lib/openrouter-client.js`, `noteText`(설계 §20).
-16. 보관함 목록·재생성 화면(설계 §12).
+**노트(Phase 6·7, `docs/note-contract.md` §17)**
+1. 6-2 슬롯 교체부터 6-8 생성 옵션까지, 7-1 템플릿부터 7-5 렌더 QA까지 전부 남았다. 끝나야 v2 노트 보기·PDF가 나온다.
+2. 노트 생성 옵션 UI: 가상 사례·강의 밖 보강(유료 전용, 기본 꺼짐)과 시험 모드 버튼(6-8·7-3).
+3. 인쇄 v2(`sandbox.html`), Markdown 내보내기(`noteText` 대체), `product-panel.css`를 패널과 노트 렌더로 나누기.
 
-## 2. 백엔드·파이프라인에 남은 것
+**파이프라인·확장**
+4. 실시간(Free) 캡처는 아직 v1 요약 경로(`lib/summary.js` → `/v1/summary`)다. v2 단계(`lib/stages.js`)로 옮기지 않았다.
+5. Free의 월 분 한도는 집계되지 않는다. 분은 클라우드 STT에서만 세므로, 로컬 인식만 쓰는 Free는 항상 0분이다. 요청 수·비용 한도만 걸린다.
+6. v1 경로 제거: OpenRouter 키 입력란, `openrouter.ai` 호스트 권한, `lib/summary.js`, `lib/openrouter-client.js`.
+7. 보관함 목록·재생성 화면(설계 §12).
+8. 개발용 어드민의 작업 탭과 산출물 검사 탭(설계 §13).
+9. 진단 파일 내보내기가 꺼져 있다. `lib/diagnostics.js` `OPERATOR_KEYS`가 비어 있다(§4의 7).
+10. 인식 결과만 볼 화면이 없다. 지금은 요약 동의를 시작 조건으로 막아 두었다.
 
-- **STT 공급자 전환(설계 D16)**: 서버 `/v1/stt`를 Groq 직접 호출에서 OpenRouter `POST /api/v1/audio/transcriptions`(모델 `microsoft/mai-transcribe-2`)로 바꾼다. 테스트에 필요한 키를 OpenRouter 하나로 줄이는 일이라 먼저 한다.
-  - 요청: JSON `input_audio:{data(base64), format}`, `language`, `response_format:"verbose_json"`, `timestamp_granularities:["segment","word"]`.
-  - 용어 힌트: `prompt`는 무시되므로 `provider.options.azure.phraseList.phrases`로 보낸다.
-  - 환각 필터: Whisper 품질값(`no_speech_prob` 등)이 없다. VAD, 문구 목록, 단어 신뢰도로 거른다.
-  - 원가: 응답의 `usage.cost`로 정산한다.
-  - 먼저 확인할 것: m4a(AAC) 청크를 그대로 받는지. 모델 카드는 WAV·MP3·FLAC만 적는다(설계 §6.2).
-- **노트 계약 연결**: `docs/note-contract.md` §17의 6-2(슬롯 교체)부터. 생성 옵션은 6-8, 간단한 표·그래프는 6-6·7-2.
-- **실시간(Free) 캡처**: 아직 v1 요약 경로다. v2 단계(`lib/stages.js`)와 월 한도로 옮긴다.
-- **판정 기능 스위치**:
-  - 서버에서 `judge`를 끄면(`FEATURE_FLAGS_JSON`) 유료 작업이 판정 단계에서 멈춘다. `lib/stages.js`가 `features`를 보지 않고 유료면 항상 `/v1/judge`를 부르기 때문이다. 검증 단계의 근거 지지 확인도 같다.
-  - 꺼져 있으면 판정 없이 진행해야 한다(설계 §17 기능 플래그).
-- **실서비스 검증**: 실제 Supabase 프로젝트와 OpenRouter 키로 백그라운드 작업을 끝까지 한 번 돌린다(STT 전환 뒤).
+**서버·계정**
+11. 결제 연동: grogle 웹훅 → `entitlements`(`source='payment'`, `edu`, `cancel_at_period_end`). `landing/billing-config.js`의 결제창·포털 주소가 비어 있다.
+12. 학생가 자격은 계정 페이지가 이메일 도메인(`.ac.kr`·`.edu`)으로만 표시한다. 실제 인증 절차가 없다.
+13. Edge Function에서는 서버 메모리의 캐시·동시성 제한·분당 버킷이 워커마다 따로다. 한도·중복 요청은 Postgres가 판정해 정확성에는 문제가 없지만, 공급자 동시 호출 상한은 전역으로 걸리지 않는다.
+14. 실서비스 검증: 배포한 함수와 실제 강의로 백그라운드 작업을 끝까지 한 번 돌린다. 특히 확인할 것은 MAI-Transcribe 2의 한국어 품질, WAV 업로드 크기(5분 약 9.6 MB), Edge 150초 제한 안에 응답이 오는지다.
 
-## 3. 테스트 준비
+**정책·문서**
+15. 개인정보처리방침·약관·환불·저작권 방침과 스토어 문구를 v2 동작에 맞춘다(`docs/policy-drafts-v2.md` §1~§5). 확장 동의창은 고쳤지만 게시 방침은 그대로다(§4의 4).
 
-### 지금 바로 되는 것
+## 4. 결정이 필요한 것 (사용자)
 
-- `node --test lib/*.test.js server/*.test.js`
-- `node tools/package-cws.mjs --dry-run`
+1. **원격 반영 실행**: §1의 비밀값·함수 배포·DB 적용. 자동 실행은 운영 배포라 막혀 있어 직접 실행하거나 허용해야 한다.
+2. **등급별 한도 수치**: 지금은 임시값이다. free 월 100분·$0.3·300요청, essential 1,800분·$8·5,000요청, professional 3,600분·$14·10,000요청(`plans`, `placeholder = true`). 강의 1시간 원가는 약 270~305원(설계 §18)이다.
+3. **Pro와 Essential의 차이**: 지금은 기능이 같고 한도만 다르다. 랜딩은 Pro를 "상세 노트"로 소개한다. 노트 깊이를 등급별로 나눌지 정해야 한다.
+4. **개인정보처리방침 개정 시점**: 방침은 이용자에게 불리한 변경을 7일 전에 알리게 돼 있다. 음성 전송(유료 백그라운드)을 넣는 개정을 언제 게시할지, 시행일을 언제로 할지.
+5. **정책 문서의 열린 항목**(`docs/policy-drafts-v2.md` §0): Supabase 리전(지금 시드니), 서버 호스팅(이제 Supabase Edge, 리전 확인 필요), 국외 이전 고지 방식, Jev 채택, 운영자 표기, 온디바이스 요약(Gemini Nano) 존속, 법률 검토 일정.
+6. **확장 ID 고정**: 저장소 폴더를 옮기면 ID가 바뀌어 로그인 리디렉트와 `EXTENSION_ORIGIN`이 어긋난다. `manifest.json`에 개발용 `key`를 넣을지.
+7. **운영자 진단 키 보관**: 키쌍을 만들고 개인키를 어디에 둘지(`node tools/decrypt-diagnostic.mjs --generate-keypair <저장소 밖 폴더>`).
+8. **모델·공급자 고정**: 요약·계획·작성·비전·판정 모델과 ZDR 공급자 태그(`OPENROUTER_PROVIDERS_JSON`).
+9. **PR #14 병합 시점**: 병합하면 랜딩 가격(24,000원·14,000원)과 탈퇴 방식이 바로 바뀐다. 함수 배포와 DB 적용 뒤에 병합한다.
+10. **`AGENTS.md`의 미커밋 변경**(aside 사용, 저렴한 모델 서브에이전트 지시): 커밋할지.
 
-### 설치
+## 5. 테스트 도구
 
-| 무엇 | 쓰는 곳 | 비고 |
-|---|---|---|
-| Node | 전부 | CI는 22 |
-| ffmpeg | `tools/make-hls-fixture.mjs` | 합성 HLS 생성 |
-| Playwright | `tools/*-smoke.cjs` 10개, `tools/ppocr-bench.cjs` | 저장소 밖에 설치하고 `PLAYWRIGHT_MODULE=<경로>/node_modules/playwright`로 지정한다. 저장소에는 `package.json`을 두지 않는다 |
-| 실제 Chrome | 위와 같은 스크립트 | `CHROME_PATH`로 지정한다. Playwright 번들 Chromium은 H.264·AAC를 못 풀어 `media-decode-smoke`·`background-smoke`가 실패한다 |
-| PostgreSQL(선택) | `tools/supabase-schema.test.mjs` | 없으면 이 테스트만 건너뛴다 |
-
-### 외부 계정·원격 설정
-
-- **OpenRouter**: 운영자 키와 모델별 ZDR 엔드포인트 태그(`OPENROUTER_PROVIDERS_JSON`, `server/README.md` "설정"). STT를 바꾼 뒤에는 STT도 이 키 하나로 된다.
-- **Groq**: STT 전환 전까지 백그라운드 경로를 돌리려면 필요하다(운영자 키, 조직 설정의 ZDR). 전환 뒤에는 A1 기준선을 잴 때만 쓴다.
-- **Supabase**(CLI, 2026-10-03 적용):
-  - 운영 프로젝트에 `schema-v2.sql`, 비공개 `vault` 버킷, 개발용 확장 리디렉트 URL을 넣었다(`server/README.md` "설정 순서").
-  - 남은 것은 테스트 계정 등급이다. 확장에서 한 번 로그인한 뒤 같은 절 5번의 insert로 `paid`를 준다.
-- **확장 ID**: 저장소 경로에서 불러온 개발용 확장의 ID는 `gllijdanodakjamndimlpgmhokaakpod`다(경로에서 계산한 값, `chrome://extensions`에서 확인). 서버에는 `EXTENSION_ORIGIN=chrome-extension://gllijdanodakjamndimlpgmhokaakpod`를 넣는다. 폴더를 옮기면 ID가 바뀌므로, 고정하려면 개발용 `key`를 넣을지 정한다.
-- **운영자 진단 키**: `node tools/decrypt-diagnostic.mjs --generate-keypair <저장소 밖 폴더>`로 만들고, 공개키를 `lib/diagnostics.js` `OPERATOR_KEYS`에 넣는다. 개인키는 저장소 밖에 둔다(`.gitignore`가 `*.private.jwk.json`을 막는다).
-
-### 서버
-
-- 실행: `node server/index.js`(`127.0.0.1:8788`). `.env`를 읽지 않으므로 셸에서 넣는다. 변수 표는 `server/README.md` "설정"에 있다.
-- 최소 변수:
-  - `OPENROUTER_API_KEY`, `OPENROUTER_PROVIDERS_JSON`, `EXTENSION_ORIGIN`
-  - 계정 방식 하나. 벤치는 정적 토큰(`APP_TOKENS_JSON`)이면 충분하다. 확장 로그인은 `SUPABASE_URL`·`SUPABASE_SERVICE_ROLE_KEY`·`USAGE_DIGEST_KEY`가 필요하다.
-- 유료 경로:
-  - `GROQ_API_KEY`(STT 전환 전까지), `ALLOWED_STT_MODELS`, `ALLOWED_VISION_MODELS`. 두 목록은 기본값이 비어 있어 넣지 않으면 꺼진다.
-  - 확장에서 정적 토큰으로 시험하면 `ACCOUNT_LIMITS_JSON`의 그 계정 `features`에 `background`·`stt`·`vision`·`judge`를 넣는다. 기본은 빈 목록이라 백그라운드 카드가 나오지 않는다(벤치 예시에는 `background`가 없다).
-  - 판정 모델은 `ALLOWED_JUDGE_MODELS`로 지정한다. 넣지 않으면 `OPENROUTER_PROVIDERS_JSON`에 `openai/gpt-4.1-nano` 태그가 있을 때만 그 모델을 쓴다.
-  - 기능 스위치(`FEATURE_FLAGS_JSON`)는 기본이 모두 켬이다.
-- 벤치 절차와 변수: `docs/bench-v2.md` §2.
-
-### 확장에서 v2 화면을 보려면
-
-설정의 "보관 서비스 URL"이 비어 있으면(기본값) v2 화면은 하나도 나오지 않고 v1과 같다. 실시간 캡처는 아직 v1 경로이고, v2는 유료 백그라운드 처리에만 연결돼 있기 때문이다.
-
-1. 위 변수로 서버를 켠다.
-2. 설정에서 "보관 서비스 URL"에 `http://127.0.0.1:8788`을 넣고, Google로 로그인하거나 "개발·테스트용 앱 세션 토큰"을 넣는다.
-3. 설정에서 이용 동의 2항목과 클라우드 인식(화면·음성 전송) 동의를 한다.
-4. 사이드 패널을 다시 연다. `/v1/me`의 `features`에 `background`가 있으면 "백그라운드로 처리" 카드가 보인다(`sidepanel.js` `bgInit`).
-5. 지원 사이트(HLS)의 강의 탭에서 "백그라운드로 처리"를 누른다. 결과는 기기에 암호화해 저장할 뿐이고 노트 보기는 아직 없다(§1의 10).
-
-### 확장 권한
-
-- **설치할 때**: `storage`, `sidePanel`, `scripting`, `tabs`, `tabCapture`, `offscreen`, `activeTab`, `identity`, `power`, `declarativeNetRequestWithHostAccess`, `unlimitedStorage`, 모든 사이트 접근.
-- **실행 중**: `webRequest`(선택 권한). 백그라운드 시작과 어드민 소스 진단에서 사용자가 누른 뒤 요청한다.
-- **네트워크**: Free 로컬 Whisper는 첫 사용 때 HuggingFace에서 모델을 받는다.
-
-### 데이터
-
-- **합성 HLS**: `node tools/make-hls-fixture.mjs <저장소 밖 폴더>`.
-- **실제 골든셋**: `docs/bench-v2.md` §1을 따른다. 저장소 밖에 두고, 사람이 교정한 참조 전사를 함께 둔다. 본인이 접근 권한을 가진 강의만 쓴다.
-- **사이트 호환성**: LMS 계정으로 어드민 "소스 진단" 탭을 쓴다(`docs/bench-v2.md` B1/B2).
-- **벤치 비용**: Phase 0 벤치는 합계 $2 안팎이다(추정, `docs/bench-v2.md`).
+- 단위·계약: `node --test lib/*.test.js server/*.test.js tools/*.test.mjs`. DB 스키마 테스트는 Postgres가 있으면 돈다(`PG_BIN_DIR`, 이 맥은 `/opt/homebrew/opt/postgresql@17/bin`, `LC_ALL=en_US.UTF-8` 필요).
+- 패키저 감사: `node tools/package-cws.mjs --dry-run`.
+- Edge 묶음: 서버 코드를 고치면 `node tools/build-edge.mjs`. `tools/edge-api.test.mjs`가 어긋남을 잡는다. Deno로 직접 띄워 볼 수도 있다(`deno run --allow-env --allow-read --allow-write --allow-net --allow-sys supabase/functions/api/index.js`, 비밀값은 환경변수).
+- 브라우저 스모크(`tools/*-smoke.cjs`): Playwright를 저장소 밖에 설치하고 `PLAYWRIGHT_MODULE`·`CHROME_PATH`를 지정한다. 번들 Chromium은 H.264·AAC를 못 풀어 실제 Chrome이 필요하다.
+- 합성 HLS: `node tools/make-hls-fixture.mjs <저장소 밖 폴더>`(ffmpeg 필요). 실제 골든셋은 `docs/bench-v2.md` §1.

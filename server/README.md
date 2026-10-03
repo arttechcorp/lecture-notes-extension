@@ -17,8 +17,7 @@ EXTENSION_ORIGIN=chrome-extension://<실제 32자 확장 ID>
 APP_TOKENS_JSON={"pilot-user":"<계정마다 고유한 32자 이상 난수 앱 토큰>"}
 ALLOWED_MODELS=["google/gemini-2.5-flash-lite"]
 OPENROUTER_PROVIDERS_JSON={"google/gemini-2.5-flash-lite":["<검증한 공급자 식별자>"]}
-GROQ_API_KEY=<운영자 Groq 키 — ALLOWED_STT_MODELS가 비어 있지 않으면 필수>
-ALLOWED_STT_MODELS=["whisper-large-v3-turbo"]
+ALLOWED_STT_MODELS=["microsoft/mai-transcribe-2"]
 VAULT_DIR=<서비스 전용 영속 볼륨의 절대 경로>
 USAGE_STATE_FILE=<같은 영속 볼륨>/usage.json
 MAX_REQUESTS=10000
@@ -190,13 +189,15 @@ supabase functions deploy delete-account --use-api
 
 ## 음성 인식(STT)
 
-> 2026-10-03 결정(설계 D16): STT는 OpenRouter의 `microsoft/mai-transcribe-2`로 바꾼다. 아래는 바꾸기 전 지금 구현(Groq)의 설명이다. 바꿀 때 달라지는 점(용어 힌트는 `phraseList`, Whisper 품질값 없음, m4a 입력 확인)은 `docs/architecture-v2.md` §6.2에 있다.
+`POST /v1/stt`는 OpenRouter `POST /api/v1/audio/transcriptions`에 `microsoft/mai-transcribe-2`로 오디오 청크를 넘겨 전사한다(설계 D16, 운영자 OpenRouter 키 하나로 된다). 본문은 정확히 `{model, requestId, t0, durationSec, lang, prompt, audio}`다. `audio`는 `data:audio/wav;base64,`(백그라운드 작업이 보내는 16 kHz 모노 WAV) 또는 `data:audio/mp4;base64,`(m4a) 한 덩어리(디코드 후 최대 12 MiB, 길이 최대 330초), `lang`은 `ko`/`en`, `prompt`는 1000자 이하(빈 문자열 허용), 요청 본문 상한은 17 MB다. 응답은 `{transcript, usage:{audioSec,costUsd}, promptVersion, schemaVersion}`이고 `transcript`는 `Contracts.SCHEMAS.transcript`다.
 
-`POST /v1/stt`는 Groq Whisper에 오디오 청크를 multipart로 넘겨 전사한다. 본문은 정확히 `{model, requestId, t0, durationSec, lang, prompt, audio}`다. `audio`는 `data:audio/mp4;base64,` 한 덩어리(디코드 후 최대 8 MiB, 길이 최대 330초), `lang`은 `ko`/`en`, `prompt`는 1000자 이하(빈 문자열 허용), 요청 본문 상한은 12 MB다. 응답은 `{transcript, usage:{audioSec,costUsd}, promptVersion, schemaVersion}`이고 `transcript`는 `Contracts.SCHEMAS.transcript`다.
+- 공급자 요청: JSON `input_audio:{data(base64), format:"wav"|"m4a"}`, `response_format:"verbose_json"`, `timestamp_granularities:["segment","word"]`. 최상위 `prompt`는 이 모델이 무시하므로 보내지 않고, `prompt`의 쉼표 구분 용어를 `provider.options.azure.phraseList.phrases`(최대 100개·각 50자)로 보낸다.
+- 단어는 응답 최상위 배열로 오며 중간 시각을 품는 세그먼트에 붙인다. Whisper 품질값(`no_speech_prob` 등)은 없어 null이고, 환각 필터는 클라이언트의 VAD·문구 목록이 맡는다.
+- MAI 문서는 WAV·MP3·FLAC만 적는다. m4a는 받아 주는지 확인하지 못해, 백그라운드 작업은 WAV로 보낸다. OpenRouter 업로드 상한은 25 MB, 상류 처리 제한은 60초다.
 
-`ALLOWED_STT_MODELS`에는 `STT_RATES`에 단가가 있는 모델만 넣는다. 비어 있으면(기본) `/v1/stt`는 어떤 모델에도 `invalid_model`로 답한다. 과금은 오디오 시간당이다: `whisper-large-v3-turbo` $0.04/h, `whisper-large-v3` $0.111/h, 최소 청구 10초. 예약은 클라이언트 선언 `durationSec`으로 잡고 정산은 `max(선언값, 제공자가 보고한 duration)`으로 확정한다 — 제공자가 실제 음성 길이로 청구하기 때문이다.
+`ALLOWED_STT_MODELS`에는 `STT_RATES`에 단가가 있는 모델만 넣는다(`["microsoft/mai-transcribe-2"]`, $0.10/h). 비어 있으면(기본) `/v1/stt`는 어떤 모델에도 `invalid_model`로 답한다. 최소 청구 10초. 예약은 클라이언트 선언 `durationSec`으로 잡고, 정산은 응답의 `usage.cost`(USD)가 있으면 그 값, 없으면 `max(선언값, 제공자가 보고한 duration)` × 단가다.
 
-오디오는 메모리에서만 디코드돼 Groq로 전달되고 원장·로그·오류 본문에 남지 않는다(멱등 digest에는 base64의 sha256만 들어간다). Groq의 zero data retention은 요청 단위로 설정할 수 없으므로 Groq 조직 설정에서 미리 켜둬야 한다. 제공자 HTTP 오류(429 `provider_busy` 포함)는 과금이 없다고 확정할 수 있어 예약을 정확히 되돌리고 같은 requestId를 재사용할 수 있다. 200인데 출력이 계약을 어기는 경우 등 그 밖의 실패는 예약을 유지한다.
+오디오는 메모리에서만 다뤄져 OpenRouter로 전달되고 원장·로그·오류 본문에 남지 않는다(멱등 digest에는 base64의 sha256만 들어간다). OpenRouter의 공급자 라우팅 설정(ZDR 등)은 전사 요청에 적용되지 않으므로, 보존 조건은 OpenRouter·Azure의 정책으로 확인한다(`docs/policy-drafts-v2.md` §0). 제공자 HTTP 오류(429 `provider_busy` 포함)는 과금이 없다고 확정할 수 있어 예약을 정확히 되돌리고 같은 requestId를 재사용할 수 있다. 200인데 출력이 계약을 어기는 경우 등 그 밖의 실패는 예약을 유지한다.
 
 ## 판정(judge)
 
