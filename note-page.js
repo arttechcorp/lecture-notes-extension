@@ -34,7 +34,7 @@
   const options = () => ({ answers: answersSel.value, exam: examCb.checked, writing: writingCb.checked });
 
   // 다운로드 파일명: 경로·제어 문자를 빼고 80자로 자른다.
-  const safeName = s => (s || "note").replace(/[/\\:*?"<>|-]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "note";
+  const safeName = s => (s || "note").replace(/[/\\:*?"<>|\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "note";
 
   function bindToolbar(note, crops) {
     const render = () => post({ type: "RENDER_NOTE", note, crops, options: options() });
