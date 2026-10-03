@@ -48,6 +48,14 @@ export async function handle(req,env,fetchImpl=fetch){
     if(!plan&&o.content&&plans[o.content.id])plan=plans[o.content.id];
     if(type==="subscription_payment.completed"&&!plan)return ok({ignored:"unknown_plan"}); // 재시도해도 안 풀리므로 승인하고 끝
     let user=UUID.test(o.sellerReference||"")?o.sellerReference:null;
+    const merchant=typeof o.merchantUid==="string"&&o.merchantUid.length>0&&o.merchantUid.length<=128?o.merchantUid:null;
+    if(!user&&merchant){
+      // 환불에는 sellerReference가 없다 — 같은 결제번호로 앞서 기록한 계정을 쓴다.
+      const r=await fetchImpl(`${url}/rest/v1/billing_events?select=user_id&merchant_uid=eq.${encodeURIComponent(merchant)}&user_id=not.is.null&limit=1`,{headers:svc});
+      const rows=r.ok?await r.json().catch(()=>null):null;
+      if(!Array.isArray(rows))return fail(503,"apply_failed");
+      if(UUID.test(rows[0]?.user_id||""))user=rows[0].user_id;
+    }
     if(!user){
       // sellerReference가 없거나 UUID가 아니면 구매자 이메일로 어드민 목록을 페이지 넘겨 찾는다.
       const email=String(o.buyer?.email||"").toLowerCase();
@@ -74,7 +82,7 @@ export async function handle(req,env,fetchImpl=fetch){
     else if(type==="subscription.terminated")p_ends=o.termination?.terminatedAt||new Date(now).toISOString();
     else if(type==="subscription_payment.refunded")p_ends=new Date(now).toISOString();
     const rpc=await fetchImpl(url+"/rest/v1/rpc/apply_billing_event",{method:"POST",headers:json,body:JSON.stringify({
-      p_event_id:eventId,p_type:type,p_user:user,p_plan:plan?plan.plan:null,p_edu:plan?!!plan.edu:null,p_external_id:ext,p_starts,p_ends})});
+      p_event_id:eventId,p_type:type,p_user:user,p_plan:plan?plan.plan:null,p_edu:plan?!!plan.edu:null,p_external_id:ext,p_starts,p_ends,p_merchant:merchant})});
     if(!rpc.ok)return fail(503,"apply_failed"); // Groble이 재시도하게 503
     const result=await rpc.json().catch(()=>null);
     return ok(result==="unknown_user"?{ignored:"unknown_user"}:{result}); // 지워진 계정은 재시도해도 안 풀리니 승인한다

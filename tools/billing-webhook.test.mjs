@@ -26,11 +26,13 @@ function post(body, { secret = SECRET, ts = TS, headers = {}, sigBody } = {}) {
 const res = (status, body = "null") => new Response(body, { status });
 
 // 호출을 [method, url, 파싱한 body, headers]로 기록한다. pages는 이메일 폴백의 admin users 응답(페이지 번호 → users 배열).
-function fakeFetch({ rpcStatus = 200, rpcResult = "applied", pages = {} } = {}) {
+function fakeFetch({ rpcStatus = 200, rpcResult = "applied", pages = {}, merchants = {} } = {}) {
   const calls = [];
   const fetch = async (url, init = {}) => {
     calls.push([init.method || "GET", url, init.body ? JSON.parse(init.body) : null, init.headers || null]);
     if (url === URL0 + "/rest/v1/rpc/apply_billing_event") return res(rpcStatus, JSON.stringify(rpcResult));
+    const mu = /\/rest\/v1\/billing_events\?select=user_id&merchant_uid=eq\.([^&]+)&user_id=not\.is\.null&limit=1$/.exec(url);
+    if (mu) return res(200, JSON.stringify(merchants[decodeURIComponent(mu[1])] ? [{ user_id: merchants[decodeURIComponent(mu[1])] }] : []));
     const m = /\/auth\/v1\/admin\/users\?per_page=1000&page=(\d+)$/.exec(url);
     if (m) return res(200, JSON.stringify({ users: pages[+m[1]] || [] }));
     throw new Error("unexpected url " + url);
@@ -246,4 +248,27 @@ test("응답에 이메일과 user id가 나오지 않는다", async () => {
     assert.ok(!b.includes(UID));
     assert.ok(!b.includes(KEY));
   }
+});
+
+test("환불(sellerReference 없음): 결제번호로 완료 때의 계정을 찾고, 결제번호를 RPC에 넘긴다", async () => {
+  const { fetch, calls } = fakeFetch({ merchants: { "ord-1": UID2 } });
+  const r = await handle(post(ev("subscription_payment.refunded", OBJ({ sellerReference: undefined, merchantUid: "ord-1", buyer: { email: "other@example.com" } }))), ENV, fetch);
+  assert.equal(r.status, 200);
+  assert.equal(calls.length, 2); // 결제번호 조회 → RPC, 메일 폴백은 타지 않는다
+  const b = calls[1][2];
+  assert.equal(b.p_user, UID2);
+  assert.equal(b.p_merchant, "ord-1");
+  assert.equal(b.p_external_id, "ctn-pro:" + UID2);
+});
+
+test("완료: 결제번호를 함께 남기고, 결제번호로 못 찾으면 메일 폴백", async () => {
+  let { fetch, calls } = fakeFetch();
+  await handle(post(ev("subscription_payment.completed", OBJ({ merchantUid: "ord-2" }))), ENV, fetch);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][2].p_merchant, "ord-2");
+  ({ fetch, calls } = fakeFetch({ pages: { 1: [{ id: UID, email: EMAIL }] } }));
+  const r = await handle(post(ev("subscription_payment.refunded", OBJ({ sellerReference: undefined, merchantUid: "ord-x" }))), ENV, fetch);
+  assert.equal(r.status, 200);
+  assert.deepEqual(calls.map(c => c[1].replace(URL0, "").split("?")[0]), ["/rest/v1/billing_events", "/auth/v1/admin/users", "/rest/v1/rpc/apply_billing_event"]);
+  assert.equal(calls[2][2].p_user, UID);
 });

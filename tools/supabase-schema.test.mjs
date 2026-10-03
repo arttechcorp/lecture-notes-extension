@@ -256,7 +256,7 @@ const NEW_TABLES = {
   usage_events: "id user_id job_id request_id stage provider model input_tokens output_tokens audio_seconds images cost_micros cost_reported prompt_version schema_version status error_code latency_ms client_version host created_at",
   vault_objects: "user_id object_id size updated_at storage_path",
   feedback: "user_id job_id rating tags created_at",
-  billing_events: "id type user_id received_at",
+  billing_events: "id type user_id received_at merchant_uid",
   provider_slots: "id provider expires_at",
 };
 const SERVICE_FUNCTIONS = [
@@ -377,6 +377,9 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
     assert.equal(q(`select effective_plan(${lit(u)}, now() + interval '1 minute')`, SVC), "free");
     assert.equal(apply("e5", "subscription_payment.failed", null), "ignored");
     assert.equal(q(`select count(*) from billing_events where user_id = ${lit(u)}`), "4");
+    // 결제번호는 원장에 남아 환불 때 계정을 되찾는 열쇠가 된다
+    assert.equal(q(`select apply_billing_event('e6', 'subscription_payment.completed', ${lit(u)}, 'essential', false, ${lit(ext)}, now(), now() + interval '30 days', 'ord-9')`, SVC), "applied");
+    assert.equal(q(`select user_id::text from billing_events where merchant_uid = 'ord-9'`), u);
   });
 
   test("결제 웹훅: 지워진 계정의 이벤트는 unknown_user를 돌려주고 아무것도 쓰지 않는다", () => {
