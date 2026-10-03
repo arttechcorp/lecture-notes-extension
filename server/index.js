@@ -38,7 +38,7 @@ const VISION_PROMPT=[...VISION_PREAMBLE,
   "- bbox: 그 덩어리를 감싸는 사각형. 이미지 왼쪽 위 모서리가 (0,0)이고 x, y, w, h 모두 이미지 크기에 대한 0~1 비율이다. 모르면 null.",
   "- conf: 글자를 얼마나 확실히 읽었는지 0~1. 모르면 null.",
   "formulas: 수식 하나에 한 항목. latex에는 $ 기호나 \\( \\) 구분자 없이 LaTeX 본문만 적는다(예: \\frac{a}{b}). 분수는 반드시 \\frac으로 쓴다. 확신이 없으면 latex를 null로 두고 text에 보이는 대로 적는다. 수식 안의 글자는 blocks에 다시 적지 않는다.",
-  "figures: 표·그래프·도식·사진 하나에 한 항목. kind는 table, chart, diagram, photo, decorative 중 하나이고 bbox는 필수다. 표는 cells에 행마다 셀 글자를 그대로 적은 2차원 배열을 넣고(병합된 칸은 빈 문자열) 표 셀의 글자는 blocks에 다시 적지 않는다. 표가 아니면 cells는 null이다. 그래프는 chartSummary에 축, 계열, 추세를 한두 문장으로 적는다. 그래프·도식 안의 글자는 blocks의 figure_label로 적는다. 장식용 선·배경은 적지 않는다.",
+  "figures: 표·그래프·도식·사진 하나에 한 항목. kind는 table, chart, diagram, photo, decorative 중 하나이고 bbox는 필수다. 표는 cells에 행마다 셀 글자를 그대로 적은 2차원 배열을 넣고(병합된 칸은 빈 문자열) 표 셀의 글자는 blocks에 다시 적지 않는다. 표가 아니면 cells는 null이다. 그래프는 chartSummary에 축, 계열, 추세를 한두 문장으로 적는다. 막대·꺾은선 그래프의 모든 값이 화면에 숫자로 적혀 있으면 chartData에 type(bar 또는 line), categories, series(name과 values), unit, xLabel, yLabel을 화면에 적힌 그대로 넣는다. 값이 눈금으로만 보이거나 하나라도 숫자로 적혀 있지 않으면 chartData는 null이다. 값을 눈대중으로 짐작하지 않는다. 그래프가 아니면 chartData는 null이다. 그래프·도식 안의 글자는 blocks의 figure_label로 적는다. 장식용 선·배경은 적지 않는다.",
   "읽을 내용이 없는 슬라이드는 blocks, formulas, figures를 모두 빈 배열로 둔다.",
 ].join("\n");
 const VISION_REREAD_PROMPT=[...VISION_PREAMBLE,
@@ -639,7 +639,7 @@ function toSlideDoc(parsed,{slideId,t0,t1,model,mode}){
   return {schemaVersion:Contracts.CONTRACT_VERSION,slideId,t0,t1,engine:"vision-cloud",model,
     blocks:parsed.blocks.filter(b=>b&&!(typeof b.text==="string"&&!b.text.trim())).map((b,i)=>({id:"b"+(i+1),text:b.text,role:b.role,bbox:box(b.bbox),conf:clamp01(b.conf)})),
     formulas:parsed.formulas.map((f,i)=>({id:"f"+(i+1),latex:stripDollar(f.latex),text:f.text,bbox:box(f.bbox),conf:clamp01(f.conf),status:mode==="reread"?"reread":"unverified"})),
-    figures:parsed.figures.map((g,i)=>({id:"g"+(i+1),bbox:box(g.bbox),kind:g.kind,title:g.title,cells:g.cells,chartSummary:g.chartSummary,conf:clamp01(g.conf)}))};
+    figures:parsed.figures.map((g,i)=>({id:"g"+(i+1),bbox:box(g.bbox),kind:g.kind,title:g.title,cells:g.cells,chartSummary:g.chartSummary,chartData:g.chartData??null,conf:clamp01(g.conf)}))};
 }
 // MAI verbose_json(청크 기준 초)을 계약 전사로 옮긴다. 단어는 세그먼트 안이 아니라 최상위 배열로 온다 —
 // 중간 시각을 품는 세그먼트에 붙이고 어느 구간에도 안 드는 단어는 버린다. 품질 점수는 이 모델에 없다.
