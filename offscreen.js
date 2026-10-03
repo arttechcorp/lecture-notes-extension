@@ -8,19 +8,25 @@ const emit=state=>chrome.runtime.sendMessage({target:"panel",type:"SESSION_STATE
 const trusted=(sender,pages=["/background.js","/sidepanel.html","/options.html"])=>{try{const url=new URL(sender.url),base=new URL(chrome.runtime.getURL(""));return sender.id===chrome.runtime.id&&url.protocol===base.protocol&&url.host===base.host&&pages.includes(url.pathname);}catch{return false;}};
 const settingsOf=s=>({serviceUrl:String(s?.serviceUrl||""),appSessionToken:String(s?.appSessionToken||""),remoteSummaryConsent:s?.remoteSummaryConsent===true,
   noteOptions:{syntheticExamples:s?.noteOptions?.syntheticExamples===true,externalAugmentation:s?.noteOptions?.externalAugmentation===true}});
-// 서비스 호출 직전에 쓸 토큰을 정한다. offscreen에는 chrome.storage가 없어 background에 묻는다: 로그인 토큰(만료 전 갱신됨)을 우선하고, 로그아웃 상태면 설정의 개발용 정적 토큰(fallback)을 쓴다. 갱신 실패 같은 오류는 조용히 넘기지 않고 그대로 올린다.
-const tokenProvider=async fallback=>{
+// 서비스 호출 직전에 쓸 토큰을 정한다. offscreen에는 chrome.storage가 없어 background에 묻는다: 로그인 토큰(만료 전 갱신됨)을 우선한다.
+// 로그아웃 상태면 개발용 정적 토큰(fallback)을 쓰되 localhost 서비스에서만 — 운영 서버가 모르는 v1 개발 토큰을 보내 "인증 만료"가 되는 일을 막는다. 갱신 실패 같은 오류는 조용히 넘기지 않고 그대로 올린다.
+const tokenProvider=async(fallback,serviceUrl)=>{
   const reply=await chrome.runtime.sendMessage({target:"background",type:"AUTH_TOKEN"}).catch(()=>null);
   if(reply?.ok===false)throw new Error(reply.error||"로그인 정보를 확인하지 못했습니다.");
-  return typeof reply?.token==="string"&&reply.token?reply.token:String(fallback||"");
+  if(typeof reply?.token==="string"&&reply.token)return reply.token;
+  try{const u=new URL(serviceUrl);if(/^https?:$/.test(u.protocol)&&["localhost","127.0.0.1","[::1]"].includes(u.hostname)&&typeof fallback==="string"&&fallback)return fallback;}catch{}
+  throw Object.assign(new Error("로그인이 필요합니다. 메뉴에서 Google로 로그인하세요."),{code:"AUTH_REQUIRED"});
 };
+// 서비스가 401로 토큰을 거부하면 검증 없이 뗀 껍데기(tokenInfo: 종류·alg·kid·발급자·남은 수명)만 진단 이벤트에 싣는다 — 본문·sub·이메일·토큰은 싣지 않는다. 돌려주는 문자열은 세션 디버그 로그 한 줄용이다.
+const tokenInfoText=t=>[t.kind,t.alg,t.kid,t.iss,t.expInSec!=null?`exp ${t.expInSec}s`:null,t.length!=null?`len ${t.length}`:null].filter(v=>v!=null&&v!=="").join(" ");
+const authEvent=(error,extra)=>{if(error?.status!==401||!error?.tokenInfo)return null;const msg=tokenInfoText(error.tokenInfo);events.emit({stage:"auth",level:"warn",code:"AUTH_REJECTED",msg,...extra});return `[인증] 서버가 토큰을 거부함 · ${msg}`;};
 // ── 유료 백그라운드 작업(BG_*, docs/architecture-v2.md §5.3, §6.1, §8) ──
 // 한 번에 하나. 원본 미디어는 메모리에서만 쓰고 파생물(슬라이드·전사·노트)만 암호화 패키지 저장소에 둔다. 진행은 이벤트 버스에서 단계별 개수만 패널에 밀고, 결말은 BG_DONE으로 background에 알린다
 // (background가 절전 방지·Referer 규칙을 풀고 패널에 전한다). BG_*·LIB_* 요청은 background.js만 보낼 수 있다 — 동의 기록과 Referer 출처를 거기서 정하기 때문이다.
 // /v1/me는 요약 모델 목록만 알려 주고 인식·판정 모델은 싣지 않아 모델은 여기 한 곳에 둔다. 서버 allowlist(ALLOWED_*_MODELS)와 어긋나면 invalid_model로 멈춘다 — 다른 모델로 조용히 바꾸지 않는다.
 // ponytail: 계획·작성 모델은 둘 다 lite다(기본 allowlist에 있는 유일한 모델). 중급 Planner 선정(docs/architecture-v2.md A5)이 끝나면 plan만 바꾼다.
 const BG_MODELS={plan:"google/gemini-2.5-flash-lite",write:"google/gemini-2.5-flash-lite",judge:"openai/gpt-4.1-nano",stt:"microsoft/mai-transcribe-2",vision:"google/gemini-2.5-flash-lite"};
-const bgMe=async(settings,signal)=>ServiceClient.me({baseUrl:settings.serviceUrl,token:await tokenProvider(settings.appSessionToken),timeoutMs:15000,signal});
+const bgMe=async(settings,signal)=>ServiceClient.me({baseUrl:settings.serviceUrl,token:await tokenProvider(settings.appSessionToken,settings.serviceUrl),timeoutMs:15000,signal});
 // Referer 규칙은 background가 건다(DNR은 서비스 워커 몫). 새 호스트로 나가기 전에 그 호스트를 더해 달라고 하고 답을 기다린다 — 호스트마다 한 번, 차례로(규칙 갱신이 서로 덮어쓰지 않게).
 // ponytail: 리다이렉트로 호스트가 바뀌면 그 호스트는 규칙에 없어 Referer가 빠지고 SRC_AUTH_EXPIRED로 멈춘다. 필요하면 응답의 url을 보고 규칙을 늘린다.
 function refererFetch(referer){
@@ -53,7 +59,7 @@ async function paintMasks(blob,boxes){
 const noteModels=me=>{const ms=Array.isArray(me?.models)?me.models:[],pick=m=>ms.includes(m)?m:ms[0];return {plan:pick(BG_MODELS.plan),write:pick(BG_MODELS.write),judge:(me?.features||[]).includes("judge")?BG_MODELS.judge:null};};
 // GENERATE_NOTES·LIB_REGENERATE 가 같은 모양으로 runNote 를 부른다 — /v1/me 와 서비스 묶음을 한 곳에서 만든다. 토큰은 매 서비스 호출마다 새로 받는다.
 const noteService=settings=>{
-  const config=settingsOf(settings),token=()=>tokenProvider(config.appSessionToken);
+  const config=settingsOf(settings),token=()=>tokenProvider(config.appSessionToken,config.serviceUrl);
   const svc=name=>async o=>ServiceClient[name]({baseUrl:config.serviceUrl,token:await token(),...o});
   return {
     me:async signal=>ServiceClient.me({baseUrl:config.serviceUrl,token:await token(),timeoutMs:15000,signal}),
@@ -138,7 +144,7 @@ function bgResult(jobId,res){
     stats:res.stats&&{slides:res.stats.slides,chunks:res.stats.chunks,gaps:res.stats.gaps},notices:(res.notices||[]).map(({code,count})=>({code,count:count??null}))};
 }
 async function bgJob(job,source,settings,me,ctl){
-  const base=settings.serviceUrl,token=()=>tokenProvider(settings.appSessionToken),svc=name=>async o=>ServiceClient[name]({baseUrl:base,token:await token(),...o}),progress=bgProgress(job.jobId);
+  const base=settings.serviceUrl,token=()=>tokenProvider(settings.appSessionToken,settings.serviceUrl),svc=name=>async o=>ServiceClient[name]({baseUrl:base,token:await token(),...o}),progress=bgProgress(job.jobId);
   let done;
   try{
     const res=await BackgroundJob.runBackground(job,source,{
@@ -154,7 +160,7 @@ async function bgJob(job,source,settings,me,ctl){
       },
     });
     done=bgResult(job.jobId,res);
-  }catch(error){done={jobId:job.jobId,status:"failed",code:Pipeline.codeOf(error,"SRC")||"UNKNOWN",saved:null};} // 코드 없는 오류(버그)도 체크포인트는 마지막 정상 상태에 남아 BG_LIST에서 이어 갈 수 있다
+  }catch(error){authEvent(error,{jobId:job.jobId});done={jobId:job.jobId,status:"failed",code:Pipeline.codeOf(error,"SRC")||"UNKNOWN",saved:null};} // 코드 없는 오류(버그)도 체크포인트는 마지막 정상 상태에 남아 BG_LIST에서 이어 갈 수 있다
   finally{bg=null;progress.stop();}
   chrome.runtime.sendMessage({target:"background",type:"BG_DONE",...done}).catch(()=>{});
 }
@@ -285,10 +291,20 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
         const stream=await navigator.mediaDevices.getUserMedia({audio:source,video:source});
         await session?.dispose();
         const config=settingsOf(message.settings);
-        // 고화질 화면 인식만 서비스를 쓴다. 시작 때 한 번 풀어 연결 여부를 확인하고(오류는 여기서 드러난다), 인식은 장면마다 getToken으로 새로 받는다 - 1시간 넘는 강의에서도 만료되지 않는다.
-        let token=config.appSessionToken;
-        if(message.options?.ocrEngine==="vision-cloud"){try{token=await tokenProvider(token);}catch(error){for(const track of stream.getTracks())track.stop();throw error;}}
-        const options={...message.options,serviceUrl:config.serviceUrl,appSessionToken:token,getToken:()=>tokenProvider(config.appSessionToken)};
+        // 고화질 화면 인식과 서버 인식(recognition:"cloud")만 서비스를 쓴다. 시작 때 한 번 풀어 연결·요금제·동의를 확인하고(오류는 여기서 드러난다), 인식은 장면마다 getToken으로 새로 받는다 - 1시간 넘는 강의에서도 만료되지 않는다.
+        const options={...message.options,serviceUrl:config.serviceUrl,appSessionToken:config.appSessionToken,getToken:()=>tokenProvider(config.appSessionToken,config.serviceUrl)};
+        try{
+          if(options.recognition==="cloud"){
+            options.appSessionToken=await tokenProvider(config.appSessionToken,config.serviceUrl);
+            const me=await ServiceClient.me({baseUrl:config.serviceUrl,token:options.appSessionToken,timeoutMs:15000}),features=me?.features||[];
+            if(!features.includes("vision")||!features.includes("stt"))throw Object.assign(new Error("현재 플랜은 서버 인식을 쓸 수 없습니다."),{code:"PLAN_NO_CLOUD"});
+            if(globalThis.cloudRecognitionAllowed?.(message.settings)!==true)throw Object.assign(new Error("클라우드 인식 동의가 필요합니다."),{code:"CONSENT_CLOUD_REQUIRED"});
+            Object.assign(options,{ocrEngine:"vision-cloud",ocrEnabled:true,whisperEnabled:true,sttEngine:"cloud",sttModel:BG_MODELS.stt,visionModel:BG_MODELS.vision});
+          }else{
+            if(options.ocrEngine==="vision-cloud")options.appSessionToken=await tokenProvider(config.appSessionToken,config.serviceUrl);
+            options.sttEngine="local";
+          }
+        }catch(error){for(const track of stream.getTracks())track.stop();throw error;}
         session=new CaptureSession({id:options.sessionId||crypto.randomUUID(),generation:++generation,stream,options,emit,events});
         session.publish();await session.start();
         return {ok:true,state:session.state()};
@@ -305,7 +321,7 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
     if(message.type==="RESUME_SESSION"){session.resume();return {ok:true,state:session.state()};}
     if(message.type==="GENERATE_NOTES"){
       if(!["completed","failed"].includes(session.status))throw new Error("캡처 처리를 마친 뒤 요약하세요.");
-      const current=session;summaryController=new AbortController();current.status="summarizing";current.error=null;current.publish();
+      const current=session;summaryController=new AbortController();current.status="summarizing";current.error=null;current.errorCode=null;current.publish();
       current.summaryAttempt=(current.summaryAttempt||0)+1;
       const span=events.span({stage:"summary",jobId:current.id});
       try{
@@ -321,11 +337,11 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
         const saved=await saveLibrary(pkg,input,res,{source:"live",host:hostOf(current.options.pageUrl)});
         current.summary={version:2,packageId:pkg,status:res.status,note:res.note??null,recognition:res.recognition??null,notices:res.notices??[],saved:savedResult(saved)};
         span.done();
-      }catch(error){current.error=error.name==="AbortError"?"요약을 취소했습니다. 완료한 호출은 다시 요약할 때 재사용됩니다.":error.message;if(error.name==="AbortError")span.skip({msg:"cancelled"});else span.fail(error.code||"SUMMARY_FAILED");}
+      }catch(error){const auth=authEvent(error,{jobId:current.id});if(auth)current.log(auth);current.error=error.name==="AbortError"?"요약을 취소했습니다. 완료한 호출은 다시 요약할 때 재사용됩니다.":error.message;current.errorCode=error.name==="AbortError"||typeof error.code!=="string"?null:error.code;if(error.name==="AbortError")span.skip({msg:"cancelled"});else span.fail(error.code||"SUMMARY_FAILED");}
       finally{summaryController=null;current.status="completed";current.progress=null;current.publish();}
-      return {ok:!current.error,state:current.state(),error:current.error};
+      return {ok:!current.error,state:current.state(),error:current.error,...(current.errorCode?{code:current.errorCode}:{})};
     }
     throw new Error("알 수 없는 요청입니다.");
-  })().then(reply).catch(error=>reply({ok:false,error:error.message||"처리를 완료하지 못했습니다."}));
+  })().then(reply).catch(error=>{authEvent(error);reply({ok:false,error:error.message||"처리를 완료하지 못했습니다.",...(typeof error?.code==="string"?{code:error.code}:{})});});
   return true;
 });
