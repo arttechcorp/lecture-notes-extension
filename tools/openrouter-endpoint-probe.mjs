@@ -1,13 +1,13 @@
-// Probes OpenRouter's public endpoint list for every model pinned in lib/openrouter-client.js.
+// Probes OpenRouter's public endpoint list for every model pinned in server/llm.js.
 // provider.only takes per-model endpoint TAGS, not vendor names, and OpenRouter renames them; a pin
-// that no longer exists fails the summary request with 400. Run after touching the model list.
+// that no longer exists fails the request with 400. Run after touching the model list.
 // Usage: node tools/openrouter-endpoint-probe.mjs      (no API key, no user data leaves the machine)
 import { createRequire } from "node:module";
 
 const NEEDED = ["response_format", "structured_outputs", "reasoning", "max_tokens"];
 // Zero Data Retention disables first-party endpoints, and every request we send asks for ZDR.
 const FIRST_PARTY = ["anthropic", "openai", "google-ai-studio", "xai"];
-const { MODELS } = createRequire(import.meta.url)("../lib/openrouter-client.js");
+const { MODELS } = createRequire(import.meta.url)("../server/llm.js");
 
 let failures = 0;
 for (const [model, { tags, reasoning, maxTokens }] of Object.entries(MODELS)) {

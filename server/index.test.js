@@ -2,12 +2,11 @@ const test=require("node:test"),assert=require("node:assert/strict"),fs=require(
 const {createServer,config:serverConfig,readState,toTranscript,toSlideDoc,VISION_SCHEMA,judgeProbs,JUDGE_MODELS}=require("./index"),Vault=require("../lib/vault"),Contracts=require("../lib/contracts.js");
 const token="test-token-A-".padEnd(40,"a"),tokenB="test-token-B-".padEnd(40,"b"),origin="chrome-extension://"+"a".repeat(32),model="google/gemini-2.5-flash-lite";
 function config(root){return {APP_TOKENS_JSON:JSON.stringify({A:token,B:tokenB}),EXTENSION_ORIGIN:origin,OPENROUTER_API_KEY:"mock-operator-key",OPENROUTER_PROVIDERS_JSON:JSON.stringify({[model]:["test-provider"]}),VAULT_DIR:root};}
-function provider(){const ids=["ev-1"],item={content:"서로 다른 조건을 비교하는 학습 설명입니다.",importance:"important",evidenceIds:ids},summary={title:"노트",keyConclusions:[item],concepts:[],corrections:[],openQuestions:[],sections:[{heading:"비교",...item}],formulas:[],visuals:[],reviewQuestions:[{question:"무엇이 다른가요?",evidenceIds:ids}],evidenceIds:ids};return {ok:true,json:async()=>({choices:[{finish_reason:"stop",message:{content:JSON.stringify(summary)}}],usage:{prompt_tokens:100,completion_tokens:20,cost:.001}})};}
+function provider(){return noteReply(s1Out);}
 async function listen(root,fetcher){const s=createServer(config(root),{fetch:fetcher});await new Promise(r=>s.listen(0,"127.0.0.1",r));return {server:s,url:"http://127.0.0.1:"+s.address().port};}
 const close=s=>new Promise(r=>s.close(r));
 const removeTemp=root=>{const target=path.resolve(root);assert.ok(target.startsWith(path.join(path.resolve(os.tmpdir()),'summrizei-service-test-')));fs.rmSync(target,{recursive:true,force:true});};
 const req=(url,route,method="GET",body,auth=token,site=origin,headers)=>fetch(url+route,{method,headers:{authorization:"Bearer "+auth,origin:site,"content-type":"application/json",...(headers||{})},body:body===undefined?undefined:JSON.stringify(body)});
-const input={model,stage:"chunk",requestId:"request-one",evidence:[{id:"ev-1",source:"ocr",text:"synthetic lecture",t0:0,t1:1,selection:"included",selectionReason:"학습 근거로 보존"}]};
 test("auth, strict ciphertext, account isolation, delete and durable idempotency",async()=>{const root=fs.mkdtempSync(path.join(os.tmpdir(),"summrizei-service-test-"));let calls=0;let {server,url}=await listen(root,async()=>{calls++;return provider();});try{
 assert.equal((await req(url,"/v1/me","GET",undefined,"bad")).status,401);assert.equal((await req(url,"/v1/me","GET",undefined,token,"https://evil.example")).status,403);
 const ctx={accountId:"A",objectId:"object-one",kind:"session"},envelope=await Vault.encrypt({evidence:"private synthetic",summary:null},"testing-password-123",ctx);
@@ -16,13 +15,13 @@ assert.equal((await req(url,"/v1/vault/object-one","GET",undefined,tokenB)).stat
 assert.equal((await req(url,"/v1/vault/object-two","PUT",{envelope})).status,400);
 assert.equal((await req(url,"/v1/vault/object-one","PUT",{envelope:{...envelope,plaintext:"not allowed"}})).status,400);
 const got=await(await req(url,"/v1/vault/object-one")).json();assert.equal((await Vault.decrypt(got.envelope,"testing-password-123",ctx)).evidence,"private synthetic");
-assert.equal((await req(url,"/v1/summary","POST",input)).status,200);assert.equal((await req(url,"/v1/summary","POST",input)).status,409);assert.equal(calls,1);
-assert.equal((await req(url,"/v1/summary","POST",{...input,evidence:[{...input.evidence[0],text:"changed"}]})).status,400);
+assert.equal((await req(url,"/v1/write","POST",input)).status,200);assert.equal((await req(url,"/v1/write","POST",input)).status,409);assert.equal(calls,1);
+assert.equal((await req(url,"/v1/write","POST",{...input,evidence:[{...input.evidence[0],text:"changed"}]})).status,400);
 await close(server);({server,url}=await listen(root,async()=>{calls++;return provider();}));
-assert.equal((await req(url,"/v1/summary","POST",input)).status,409);assert.equal(calls,1);assert.ok(!fs.readFileSync(path.join(root,"usage.json"),"utf8").includes("synthetic lecture"));
+assert.equal((await req(url,"/v1/write","POST",input)).status,409);assert.equal(calls,1);assert.ok(!fs.readFileSync(path.join(root,"usage.json"),"utf8").includes("고정비"));
 assert.equal((await req(url,"/v1/vault/object-one","DELETE")).status,200);assert.equal((await req(url,"/v1/vault/object-one")).status,404);
 }finally{await close(server);removeTemp(root);}});
-test("concurrent duplicates never dispatch twice and corrupt usage fails closed",async()=>{const root=fs.mkdtempSync(path.join(os.tmpdir(),"summrizei-service-test-"));let calls=0,release;const pending=new Promise(r=>release=r);const {server,url}=await listen(root,async()=>{calls++;await pending;return provider();});try{const first=req(url,"/v1/summary","POST",input);while(!calls)await new Promise(r=>setTimeout(r,5));assert.equal((await req(url,"/v1/summary","POST",input)).status,409);release();assert.equal((await first).status,200);assert.equal(calls,1);}finally{release();await close(server);}fs.writeFileSync(path.join(root,"usage.json"),"{broken");assert.throws(()=>readState(path.join(root,"usage.json")));removeTemp(root);});
+test("concurrent duplicates never dispatch twice and corrupt usage fails closed",async()=>{const root=fs.mkdtempSync(path.join(os.tmpdir(),"summrizei-service-test-"));let calls=0,release;const pending=new Promise(r=>release=r);const {server,url}=await listen(root,async()=>{calls++;await pending;return provider();});try{const first=req(url,"/v1/write","POST",input);while(!calls)await new Promise(r=>setTimeout(r,5));assert.equal((await req(url,"/v1/write","POST",input)).status,409);release();assert.equal((await first).status,200);assert.equal(calls,1);}finally{release();await close(server);}fs.writeFileSync(path.join(root,"usage.json"),"{broken");assert.throws(()=>readState(path.join(root,"usage.json")));removeTemp(root);});
 test("credential and path configuration reject traversal and weak tokens",()=>{const root=fs.mkdtempSync(path.join(os.tmpdir(),"summrizei-service-test-"));assert.throws(()=>createServer({...config(root),APP_TOKENS_JSON:JSON.stringify({"..":token})}));assert.throws(()=>createServer({...config(root),APP_TOKENS_JSON:'{"A":"weak"}'}));removeTemp(root);});
 test("valid JSON with invalid usage types also fails closed",()=>{const root=fs.mkdtempSync(path.join(os.tmpdir(),"summrizei-service-test-")),file=path.join(root,'usage.json');try{for(const value of [{accounts:1},{accounts:[]},{accounts:{A:{month:'2026-09',requests:0,spentCents:0,jobs:1}}}]){fs.writeFileSync(file,JSON.stringify(value));assert.throws(()=>readState(file));}}finally{removeTemp(root);}});
 
@@ -37,10 +36,10 @@ test("account model/quantity limits hold server-side; unreported costs keep rese
   }});
   await new Promise(r=>server.listen(0,'127.0.0.1',r));const url='http://127.0.0.1:'+server.address().port;
   try{
-    assert.equal((await req(url,'/v1/summary','POST',{...input,model:expensive})).status,403);assert.equal(calls,0);
-    assert.equal((await req(url,'/v1/summary','POST',input)).status,200);
+    assert.equal((await req(url,'/v1/write','POST',{...input,model:expensive})).status,403);assert.equal(calls,0);
+    assert.equal((await req(url,'/v1/write','POST',input)).status,200);
     const me=await(await req(url,'/v1/me')).json();assert.ok(me.quota.spentCents>0);assert.deepEqual(me.models,[model]);
-    assert.equal((await req(url,'/v1/summary','POST',{...input,requestId:'request-two'})).status,429);assert.equal(calls,1);
+    assert.equal((await req(url,'/v1/write','POST',{...input,requestId:'request-two'})).status,429);assert.equal(calls,1);
   }finally{await close(server);removeTemp(root);}
 });
 
@@ -51,7 +50,7 @@ test("a malformed structured response retries once with the same provider",async
     if(calls===1)return {ok:true,json:async()=>({choices:[{finish_reason:"stop",message:{content:"{}"}}],usage:{prompt_tokens:10,completion_tokens:5,cost:.001}})};
     return provider();
   });
-  try{assert.equal((await req(url,"/v1/summary","POST",input)).status,200);assert.equal(calls,2);}
+  try{assert.equal((await req(url,"/v1/write","POST",input)).status,200);assert.equal(calls,2);}
   finally{await close(server);removeTemp(root);}
 });
 
@@ -59,29 +58,14 @@ test("transport failures do not retry or release an unknown charge reservation",
   const root=fs.mkdtempSync(path.join(os.tmpdir(),"summrizei-service-test-"));let calls=0;
   const {server,url}=await listen(root,async()=>{calls++;return {ok:false,json:async()=>({})};});
   try{
-    assert.equal((await req(url,"/v1/summary","POST",input)).status,502);
+    assert.equal((await req(url,"/v1/write","POST",input)).status,502);
     assert.equal(calls,1);
     const state=readState(path.join(root,"usage.json"));assert.ok(state.accounts.A.spentCents>0);
   }finally{await close(server);removeTemp(root);}
 });
 
 
-test("끊긴 구간은 받아들이되 모양을 검사한다",async()=>{
-  const root=fs.mkdtempSync(path.join(os.tmpdir(),"summrizei-service-test-"));
-  let body=null;let {server,url}=await listen(root,async(_route,options)=>{body=JSON.parse(options.body);return provider();});
-  try{
-    const gaps=[{reason:"audio-capacity",t0:750,t1:770}];
-    // 서버는 최상위 필드를 화이트리스트로 막는다. 여기 빠지면 클라이언트가 400 을 받는다.
-    assert.equal((await req(url,"/v1/summary","POST",{...input,requestId:"gap-ok",gaps})).status,200);
-    assert.deepEqual(JSON.parse(body.messages[1].content).gaps,gaps,"끊긴 구간이 모델 요청에 실리지 않는다");
-    // 강의 내용이 아니라 메타데이터다 — 근거로 섞여 들어가면 안 된다.
-    assert.ok(JSON.parse(body.messages[1].content).evidence.every(e=>e.source!=="gap"));
-    assert.equal((await req(url,"/v1/summary","POST",{...input,requestId:"gap-none"})).status,200);
-    assert.equal(JSON.parse(body.messages[1].content).gaps,undefined,"끊긴 곳이 없는데 빈 배열을 보낸다");
-    for(const bad of [{reason:"x",t0:5,t1:1},{reason:"",t0:0,t1:1},{t0:0,t1:1},{reason:"x",t0:0,t1:1,extra:1}])
-      assert.equal((await req(url,"/v1/summary","POST",{...input,requestId:"gap-bad-"+JSON.stringify(bad).length,gaps:[bad]})).status,400,JSON.stringify(bad));
-  }finally{await close(server);removeTemp(root);}
-});
+// 구 /v1/summary 본문의 evidence·gaps 검사는 라우트와 함께 갔다 — Anthropic 캐시 중단점은 아래 plan/write 테스트가 덮는다.
 
 test("account features gate paid capabilities and default to empty", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
@@ -110,21 +94,6 @@ test("unknown feature names are rejected at boot", () => {
   } finally { removeTemp(root); }
 });
 
-test("selectionReason 없는 근거를 받고 Anthropic 요청에만 캐시 중단점을 찍는다",async()=>{
-  const root=fs.mkdtempSync(path.join(os.tmpdir(),"summrizei-service-test-")),claude="anthropic/claude-haiku-4.5";
-  const bodies=[];
-  const env={...config(root),ALLOWED_MODELS:JSON.stringify([model,claude]),OPENROUTER_PROVIDERS_JSON:JSON.stringify({[model]:["provider-a"],[claude]:["provider-b"]})};
-  const server=createServer(env,{fetch:async(_url,options)=>{bodies.push(JSON.parse(options.body));return provider();}});
-  await new Promise(r=>server.listen(0,"127.0.0.1",r));const url="http://127.0.0.1:"+server.address().port;
-  try{
-    const {selectionReason,...lean}=input.evidence[0];
-    assert.equal((await req(url,"/v1/summary","POST",{...input,requestId:"lean-one",evidence:[lean]})).status,200,"selectionReason 를 뺀 근거가 거절된다");
-    assert.equal(typeof bodies[0].messages[0].content,"string","암묵 캐시 모델의 system 본문이 바뀌었다");
-    assert.equal((await req(url,"/v1/summary","POST",{...input,requestId:"lean-two",model:claude,evidence:[lean]})).status,200);
-    assert.equal(bodies[1].messages[0].content[0].cache_control.type,"ephemeral","Anthropic 요청에 캐시 중단점이 없다");
-    assert.equal((await req(url,"/v1/summary","POST",{...input,requestId:"bad-reason",evidence:[{...lean,selectionReason:"x".repeat(301)}]})).status,400,"과한 selectionReason 이 통과한다");
-  }finally{await close(server);removeTemp(root);}
-});
 
 const visionEnv = root => ({
   ...config(root),
@@ -187,7 +156,7 @@ test("error responses carry the contracted envelope", async () => {
     assert.equal(body.error.retryable, false);
     assert.equal(body.error.retryAfterMs, null);
     assert.equal((await (await req(url, "/v1/nope")).json()).error.code, "not_found");
-    const rejected = await req(url, "/v1/summary", "POST", { ...input, bogus: 1 });
+    const rejected = await req(url, "/v1/write", "POST", { ...input, bogus: 1 });
     assert.equal((await rejected.json()).error.code, "unexpected_field");
   } finally { await close(server); removeTemp(root); }
 });
@@ -236,9 +205,9 @@ test("account concurrency limit rejects a second in-flight request", async () =>
   await new Promise(r => server.listen(0, "127.0.0.1", r));
   const url = "http://127.0.0.1:" + server.address().port;
   try {
-    const first = req(url, "/v1/summary", "POST", input);
+    const first = req(url, "/v1/write", "POST", input);
     while (!calls) await new Promise(r => setTimeout(r, 5));
-    const second = await req(url, "/v1/summary", "POST", { ...input, requestId: "request-two" });
+    const second = await req(url, "/v1/write", "POST", { ...input, requestId: "request-two" });
     assert.equal(second.status, 429);
     const e = (await second.json()).error;
     assert.equal(e.code, "account_concurrency_exceeded");
@@ -257,9 +226,9 @@ test("provider semaphore queues a second request for the same model", async () =
   await new Promise(r => server.listen(0, "127.0.0.1", r));
   const url = "http://127.0.0.1:" + server.address().port;
   try {
-    const first = req(url, "/v1/summary", "POST", input);
+    const first = req(url, "/v1/write", "POST", input);
     while (!calls) await new Promise(r => setTimeout(r, 5));
-    const second = req(url, "/v1/summary", "POST", { ...input, requestId: "request-two" });
+    const second = req(url, "/v1/write", "POST", { ...input, requestId: "request-two" });
     await new Promise(r => setTimeout(r, 50));
     assert.equal(calls, 1, "슬롯이 비기 전까지 두 번째 호출은 대기한다");
     release();
@@ -277,10 +246,10 @@ test("a provider slot timeout answers busy and rolls the reservation back", asyn
   await new Promise(r => server.listen(0, "127.0.0.1", r));
   const url = "http://127.0.0.1:" + server.address().port;
   try {
-    const first = req(url, "/v1/summary", "POST", input);
+    const first = req(url, "/v1/write", "POST", input);
     while (!calls) await new Promise(r => setTimeout(r, 5));
     const t0 = Date.now();
-    const busy = await req(url, "/v1/summary", "POST", { ...input, requestId: "request-two" });
+    const busy = await req(url, "/v1/write", "POST", { ...input, requestId: "request-two" });
     const elapsed = Date.now() - t0;
     assert.equal(busy.status, 429);
     const e = (await busy.json()).error;
@@ -293,7 +262,7 @@ test("a provider slot timeout answers busy and rolls the reservation back", asyn
     assert.equal(me.quota.requests, 1, "롤백된 요청은 사용량에 남지 않는다");
     release();
     assert.equal((await first).status, 200);
-    assert.equal((await req(url, "/v1/summary", "POST", { ...input, requestId: "request-two" })).status, 200, "되돌려진 requestId는 다시 쓸 수 있다");
+    assert.equal((await req(url, "/v1/write", "POST", { ...input, requestId: "request-two" })).status, 200, "되돌려진 requestId는 다시 쓸 수 있다");
   } finally { release(); await close(server); removeTemp(root); }
 });
 
@@ -305,10 +274,10 @@ test("a client that disconnects while queued for a provider slot is refunded", a
   await new Promise(r => server.listen(0, "127.0.0.1", r));
   const url = "http://127.0.0.1:" + server.address().port;
   try {
-    const first = req(url, "/v1/summary", "POST", input);
+    const first = req(url, "/v1/write", "POST", input);
     while (!calls) await new Promise(r => setTimeout(r, 5));
     const ac = new AbortController();
-    const queued = fetch(url + "/v1/summary", { method: "POST", signal: ac.signal, headers: { authorization: "Bearer " + token, origin, "content-type": "application/json" }, body: JSON.stringify({ ...input, requestId: "request-two" }) }).catch(() => null);
+    const queued = fetch(url + "/v1/write", { method: "POST", signal: ac.signal, headers: { authorization: "Bearer " + token, origin, "content-type": "application/json" }, body: JSON.stringify({ ...input, requestId: "request-two" }) }).catch(() => null);
     await new Promise(r => setTimeout(r, 50));
     ac.abort(); await queued;
     await new Promise(r => setTimeout(r, 50));
@@ -326,8 +295,8 @@ test("per-account rate limit throttles POST routes", async () => {
   await new Promise(r => server.listen(0, "127.0.0.1", r));
   const url = "http://127.0.0.1:" + server.address().port;
   try {
-    assert.equal((await req(url, "/v1/summary", "POST", input)).status, 200);
-    const limited = await req(url, "/v1/summary", "POST", { ...input, requestId: "request-two" });
+    assert.equal((await req(url, "/v1/write", "POST", input)).status, 200);
+    const limited = await req(url, "/v1/write", "POST", { ...input, requestId: "request-two" });
     assert.equal(limited.status, 429);
     const e = (await limited.json()).error;
     assert.equal(e.code, "rate_limited");
@@ -350,12 +319,24 @@ test("oversized bodies report request_too_large and preflight advertises the ver
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
   const { server, url } = await listen(root, async () => provider());
   try {
-    const big = await req(url, "/v1/summary", "POST", { ...input, evidence: [{ ...input.evidence[0], text: "x".repeat(70000) }] });
+    const big = await req(url, "/v1/write", "POST", { ...input, evidence: [{ ...input.evidence[0], text: "x".repeat(300000) }] });
     assert.equal(big.status, 413);
     assert.equal((await big.json()).error.code, "request_too_large");
-    const pre = await fetch(url + "/v1/summary", { method: "OPTIONS", headers: { origin } });
+    const pre = await fetch(url + "/v1/write", { method: "OPTIONS", headers: { origin } });
     assert.equal(pre.status, 204);
     assert.match(pre.headers.get("access-control-allow-headers"), /x-client-version/);
+  } finally { await close(server); removeTemp(root); }
+});
+
+test("gone /v1/summary route answers not_found and never reaches the provider", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  let calls = 0;
+  const { server, url } = await listen(root, async () => { calls++; return provider(); });
+  try {
+    const res = await req(url, "/v1/summary", "POST", input);
+    assert.equal(res.status, 404);
+    assert.equal((await res.json()).error.code, "not_found");
+    assert.equal(calls, 0, "삭제된 라우트가 제공자를 부르면 안 된다");
   } finally { await close(server); removeTemp(root); }
 });
 
@@ -1103,6 +1084,9 @@ const noteUnit = (id, t0 = 0, text = "합성 슬라이드 글 " + id) => ({
 });
 const planIn = o => ({ model, requestId: "plan-x", noteSpecVersion, ir: { units: noteIR.units }, formulas: noteFormulas, figures: notePlanFigures, recognition: "local", options: { ...noteOpts }, ...o });
 const sectionIn = o => ({ model, requestId: "write-x", noteSpecVersion, stage: "section", ...writerRest, withGist: true, ...o });
+// plan/write 라우트의 digest 와 같은 직렬화 — 라우트가 스키마 순서로 키를 다시 놓는 것과 동일하게 만든다.
+const input = sectionIn({ requestId: "request-one" });
+const noteDigest = body => JSON.stringify({ route: body.stage === "plan" ? "plan" : "write", stage: body.stage, model: body.model, noteSpecVersion: body.noteSpecVersion, rest: Object.fromEntries(Object.keys(Prompts.REQUEST[body.stage].properties).map(k => [k, body[k]])) });
 const globalIn = o => ({ model, requestId: "write-g", noteSpecVersion, stage: "global",
   plan: { concepts: notePlan.concepts, global: notePlan.global },
   sections: [{ sectionId: "S1", title: noteS1.title, gist: noteWriter.sections.S1.first.gist, blocks: noteS1.blocks.map(b => ({ blockId: b.blockId, type: b.type, claims: [] })) }],
@@ -1795,12 +1779,12 @@ test("an unreachable JWKS answers a retryable 503 instead of logging users out, 
 
 test("static tokens keep the file ledger while JWT accounts use Postgres", async () => {
   await withSupabase(async ({ url, root, sb }) => {
-    assert.equal((await req(url, "/v1/summary", "POST", input)).status, 200);
+    assert.equal((await req(url, "/v1/write", "POST", input)).status, 200);
     assert.equal(sb.rpcs.length, 0, "정적 토큰 계정은 Supabase 장부를 쓰지 않는다");
     assert.equal(sb.calls.length, 0);
     const ledger = () => readState(path.join(root, "usage.json")).accounts;
     assert.equal(ledger().A.jobs["request-one"].status, "completed");
-    assert.equal(ledger().A.jobs["request-one"].digest, sha256(JSON.stringify({ model, stage: "chunk", evidence: input.evidence, gaps: [] })), "파일 장부 digest 는 기존 SHA-256 이다");
+    assert.equal(ledger().A.jobs["request-one"].digest, sha256(noteDigest(input)), "파일 장부 digest 는 기존 SHA-256 이다");
     const me = await (await req(url, "/v1/me")).json();
     assert.equal(me.accountId, "A");
     assert.equal(me.quota.requests, 1);
@@ -1810,12 +1794,12 @@ test("static tokens keep the file ledger while JWT accounts use Postgres", async
     assert.equal(me.promptVersion, Prompts.PROMPT_VERSION);
     assert.equal(sb.upserts.length, 0, "정적 계정은 프로필을 만들지 않는다");
 
-    assert.equal((await req(url, "/v1/summary", "POST", { ...input, requestId: "jwt-one" }, ec1())).status, 200);
+    assert.equal((await req(url, "/v1/write", "POST", { ...input, requestId: "jwt-one" }, ec1())).status, 200);
     assert.ok(!ledger()[UID], "JWT 계정은 파일 장부에 남지 않는다");
     assert.equal(sb.rpcNamed("reserve_usage").length, 1);
     assert.equal(sb.rpcNamed("reserve_usage")[0].args.p_user, UID);
     // 같은 requestId 라도 계정마다 따로다 — 정적 "A" 의 request-one 은 JWT 사용자와 겹치지 않는다.
-    assert.equal((await req(url, "/v1/summary", "POST", input, ec1())).status, 200);
+    assert.equal((await req(url, "/v1/write", "POST", input, ec1())).status, 200);
   });
 });
 
@@ -1823,13 +1807,13 @@ test("the client-version gate and rate limit run before any database call for JW
   await withSupabase(async ({ url, sb }) => {
     const old = { "x-client-version": "1.0.0" }, ok = { "x-client-version": "1.2.0" };
     await errorOf(await req(url, "/v1/me", "GET", undefined, ec1(), origin, old), 426, "client_upgrade_required");
-    await errorOf(await req(url, "/v1/summary", "POST", { ...input, requestId: "old-client" }, ec1(), origin, old), 426, "client_upgrade_required");
+    await errorOf(await req(url, "/v1/write", "POST", { ...input, requestId: "old-client" }, ec1(), origin, old), 426, "client_upgrade_required");
     assert.equal(sb.calls.length, 0, "426 은 등급 조회·예약·프로필 전에 나간다");
-    assert.equal((await req(url, "/v1/summary", "POST", { ...input, requestId: "new-client" }, ec1(), origin, ok)).status, 200);
-    const e = await errorOf(await req(url, "/v1/summary", "POST", { ...input, requestId: "too-fast" }, ec1(), origin, ok), 429, "rate_limited");
+    assert.equal((await req(url, "/v1/write", "POST", { ...input, requestId: "new-client" }, ec1(), origin, ok)).status, 200);
+    const e = await errorOf(await req(url, "/v1/write", "POST", { ...input, requestId: "too-fast" }, ec1(), origin, ok), 429, "rate_limited");
     assert.equal(e.retryable, true);
     assert.equal(sb.rpcNamed("reserve_usage").length, 1, "토큰 버킷은 sub 별로 메모리에서 센다");
-    assert.equal((await req(url, "/v1/summary", "POST", { ...input, requestId: "other-user" }, ec1({ claims: { sub: UID2 } }), origin, ok)).status, 200, "다른 사용자의 버킷은 따로다");
+    assert.equal((await req(url, "/v1/write", "POST", { ...input, requestId: "other-user" }, ec1({ claims: { sub: UID2 } }), origin, ok)).status, 200, "다른 사용자의 버킷은 따로다");
   }, { env: { REMOTE_CONFIG_JSON: JSON.stringify({ minClientVersion: "1.2.0" }), ACCOUNT_RATE_PER_MIN: "1" } });
 });
 
@@ -1841,7 +1825,7 @@ test("reserve_usage results map to the existing error codes and nothing reaches 
       ["surprise", 503, "usage_store_failed", true], [null, 503, "usage_store_failed", true], [7, 503, "usage_store_failed", true], ["constructor", 503, "usage_store_failed", true]]) {
       sb.reserveResult = () => result;
       for (let i = 0; i < 3; i++) {
-        const e = await errorOf(await req(url, "/v1/summary", "POST", { ...input, requestId: "map-" + i }, jwt), status, code);
+        const e = await errorOf(await req(url, "/v1/write", "POST", { ...input, requestId: "map-" + i }, jwt), status, code);
         assert.equal(e.retryable, retryable, String(result));
       }
     }
@@ -1849,20 +1833,20 @@ test("reserve_usage results map to the existing error codes and nothing reaches 
     assert.equal(sb.rpcNamed("settle_usage").length, 0, "예약하지 못한 요청은 정산할 것도 없다");
     // 거절마다 동시 처리 슬롯이 반납된다(ACCOUNT_CONCURRENCY=1 인데 21번 연속 같은 오류가 나왔다).
     sb.reserveResult = null;
-    assert.equal((await req(url, "/v1/summary", "POST", { ...input, requestId: "map-ok" }, jwt)).status, 200);
+    assert.equal((await req(url, "/v1/write", "POST", { ...input, requestId: "map-ok" }, jwt)).status, 200);
     assert.equal(calls, 1);
 
     // 실제 RPC 의 멱등 의미: 같은 본문은 duplicate(409), 다른 본문은 digest_mismatch(400).
-    await errorOf(await req(url, "/v1/summary", "POST", { ...input, requestId: "map-ok" }, jwt), 409, "request_already_reserved_or_processed");
-    await errorOf(await req(url, "/v1/summary", "POST", { ...input, requestId: "map-ok", evidence: [{ ...input.evidence[0], text: "changed" }] }, jwt), 400, "idempotency_content_mismatch");
+    await errorOf(await req(url, "/v1/write", "POST", { ...input, requestId: "map-ok" }, jwt), 409, "request_already_reserved_or_processed");
+    await errorOf(await req(url, "/v1/write", "POST", { ...input, requestId: "map-ok", evidence: [{ ...input.evidence[0], text: "changed" }] }, jwt), 400, "idempotency_content_mismatch");
     assert.equal(calls, 1);
-    assert.equal((await req(url, "/v1/summary", "POST", { ...input, requestId: "map-ok" }, ec1({ claims: { sub: UID2 } }))).status, 200, "requestId 는 사용자별로 따로다");
+    assert.equal((await req(url, "/v1/write", "POST", { ...input, requestId: "map-ok" }, ec1({ claims: { sub: UID2 } }))).status, 200, "requestId 는 사용자별로 따로다");
   }, { env: { ACCOUNT_CONCURRENCY: "1", ACCOUNT_RATE_PER_MIN: "1000" }, setup: sb => { sb.other = async () => { calls++; return provider(); }; } });
 });
 
-test("a successful summary reserves then settles through PostgREST with content-free metadata", async () => {
+test("a successful write reserves then settles through PostgREST with content-free metadata", async () => {
   await withSupabase(async ({ url, sb }) => {
-    const res = await req(url, "/v1/summary", "POST", input, ec1(), origin, { "x-client-version": "1.2.3" });
+    const res = await req(url, "/v1/write", "POST", input, ec1(), origin, { "x-client-version": "1.2.3" });
     assert.equal(res.status, 200);
     assert.deepEqual(sb.rpcs.map(r => r.rpc), ["effective_plan", "reserve_usage", "settle_usage"]);
     for (const c of sb.calls) {
@@ -1874,7 +1858,7 @@ test("a successful summary reserves then settles through PostgREST with content-
     }
     assert.deepEqual(sb.rpcNamed("effective_plan")[0].args, { p_user: UID });
     const reserve = sb.rpcNamed("reserve_usage")[0].args;
-    const canonical = JSON.stringify({ model, stage: "chunk", evidence: input.evidence, gaps: [] });
+    const canonical = noteDigest(input);
     assert.deepEqual(Object.keys(reserve).sort(), ["p_cost_micros", "p_digest", "p_minutes", "p_request_id", "p_user"]);
     assert.equal(reserve.p_user, UID);
     assert.equal(reserve.p_request_id, "request-one");
@@ -1886,8 +1870,8 @@ test("a successful summary reserves then settles through PostgREST with content-
 
     const { p_latency_ms, ...settled } = settledOf(sb);
     assert.deepEqual(settled, {
-      p_user: UID, p_request_id: "request-one", p_actual_cost_micros: Math.ceil(.001 * 1e6), p_status: "ok", p_stage: "summary.chunk", p_provider: "openrouter", p_model: model,
-      p_input_tokens: 100, p_output_tokens: 20, p_audio_seconds: null, p_images: null, p_prompt_version: null, p_schema_version: null, p_error_code: null, p_client_version: "1.2.3", p_host: null,
+      p_user: UID, p_request_id: "request-one", p_actual_cost_micros: Math.ceil(.002 * 1e6), p_status: "ok", p_stage: "write.section", p_provider: "openrouter", p_model: model,
+      p_input_tokens: 800, p_output_tokens: 90, p_audio_seconds: null, p_images: null, p_prompt_version: Prompts.PROMPT_VERSION, p_schema_version: 1, p_error_code: null, p_client_version: "1.2.3", p_host: null,
     });
     assert.ok(Number.isInteger(p_latency_ms) && p_latency_ms >= 0 && p_latency_ms < 5000);
     assert.equal(sb.rpcs.at(-1).rpc, "settle_usage");
@@ -2017,7 +2001,7 @@ test("when Supabase is unavailable no request reaches a provider and every failu
     const jwt = ec1();
     // 등급 조회 단계: 아직 아무것도 읽지 못했다.
     sb.down = true;
-    let e = await errorOf(await req(url, "/v1/summary", "POST", input, jwt), 503, "usage_store_failed");
+    let e = await errorOf(await req(url, "/v1/write", "POST", input, jwt), 503, "usage_store_failed");
     assert.equal(e.retryable, true);
     await errorOf(await req(url, "/v1/me", "GET", undefined, jwt), 503, "usage_store_failed");
     assert.equal(calls, 0);
@@ -2028,18 +2012,18 @@ test("when Supabase is unavailable no request reaches a provider and every failu
     assert.equal((await req(url, "/v1/me", "GET", undefined, jwt)).status, 200);
     calls = 0;
     sb.down = true;
-    e = await errorOf(await req(url, "/v1/summary", "POST", { ...input, requestId: "down-1" }, jwt), 503, "usage_store_failed");
+    e = await errorOf(await req(url, "/v1/write", "POST", { ...input, requestId: "down-1" }, jwt), 503, "usage_store_failed");
     assert.equal(e.retryable, true);
     assert.equal(calls, 0, "예약에 성공하지 못하면 제공자를 부르지 않는다");
     sb.down = false;
     sb.failRpc.reserve_usage = 1;
-    await errorOf(await req(url, "/v1/summary", "POST", { ...input, requestId: "down-2" }, jwt), 503, "usage_store_failed");
+    await errorOf(await req(url, "/v1/write", "POST", { ...input, requestId: "down-2" }, jwt), 503, "usage_store_failed");
     assert.equal(calls, 0);
     assert.equal(sb.calls.filter(c => c.url.endsWith("/rpc/reserve_usage")).length, 2, "요청마다 예약을 한 번만 시도한다(자동 재시도 없음 — 응답을 잃어도 DB에는 들어갔을 수 있다)");
     assert.equal(sb.rpcNamed("settle_usage").length, 0);
 
     // 복구되면 새 requestId 로 정상 동작하고 동시 처리 슬롯도 새지 않았다.
-    assert.equal((await req(url, "/v1/summary", "POST", { ...input, requestId: "down-3" }, jwt)).status, 200);
+    assert.equal((await req(url, "/v1/write", "POST", { ...input, requestId: "down-3" }, jwt)).status, 200);
     assert.equal(calls, 1);
 
     // 한도 조회(/v1/me)가 실패해도 503 이다.
@@ -2058,10 +2042,12 @@ test("no lecture content or bare hash reaches Supabase from any route and digest
       if (schemaName === "slide_doc") return slideProvider();
       if (schemaName === "lecture_note_plan") return noteReply(notePlanner);
       if (schemaName === "lecture_note_section") return noteReply(s1Out);
+      if (schemaName === "lecture_note_repair") return noteReply(repairOut);
       return provider();
     };
+    const repairReq = repairIn({ requestId: "leak-repair" });
     const calls = [
-      ["/v1/summary", { ...input, requestId: "leak-summary" }], ["/v1/plan", planIn({ requestId: "leak-plan" })], ["/v1/write", sectionIn({ requestId: "leak-write" })],
+      ["/v1/write", repairReq], ["/v1/plan", planIn({ requestId: "leak-plan" })], ["/v1/write", sectionIn({ requestId: "leak-write" })],
       ["/v1/vision", visionBody({ requestId: "leak-vision" })], ["/v1/stt", sttBody({ requestId: "leak-stt" })], ["/v1/judge", judgeBody({ requestId: "leak-judge" })],
     ];
     for (const [route, body] of calls) assert.equal((await req(url, route, "POST", body, jwt)).status, 200, route);
@@ -2069,16 +2055,16 @@ test("no lecture content or bare hash reaches Supabase from any route and digest
     assert.equal(reserves.length, 6);
     assert.equal(new Set(digests).size, 6);
     for (const d of digests) assert.match(d, /^[a-f0-9]{64}$/);
-    assert.equal(reserves[0].args.p_digest, hmac256(JSON.stringify({ model, stage: "chunk", evidence: input.evidence, gaps: [] })));
+    assert.equal(reserves[0].args.p_digest, hmac256(noteDigest(repairReq)));
     const judgeCanonical = JSON.stringify({ route: "judge", task: "utterance", model: judgeModel, items });
     assert.equal(reserves[5].args.p_digest, hmac256(judgeCanonical));
     assert.notEqual(reserves[5].args.p_digest, sha256(judgeCanonical));
-    assert.deepEqual(sb.rpcNamed("settle_usage").map(r => r.args.p_stage), ["summary.chunk", "plan", "write.section", "vision.full", "stt", "judge.utterance"]);
+    assert.deepEqual(sb.rpcNamed("settle_usage").map(r => r.args.p_stage), ["write.repair", "plan", "write.section", "vision.full", "stt", "judge.utterance"]);
     assert.equal(settledOf(sb, 3).p_images, 1);
     assert.equal(settledOf(sb, 4).p_audio_seconds, 60);
 
     const wire = JSON.stringify([sb.rpcs, sb.upserts, sb.gets, sb.calls.map(c => c.url)]);
-    for (const secret of ["synthetic lecture", "고정비", "공헌이익", "손익분기", "미분은 순간 변화율이다", "앞뒤 문맥 단서", "강의 전사", "BwcH", "서로 다른 조건", DIGEST_KEY, JWT_SECRET, ec1().slice(0, 40)])
+    for (const secret of ["원가는 생산량에 어떻게 반응하는가", "고정비", "공헌이익", "손익분기", "미분은 순간 변화율이다", "앞뒤 문맥 단서", "강의 전사", "BwcH", "생산량과 관계없이 일정 기간 동안 발생하는 비용", DIGEST_KEY, JWT_SECRET, ec1().slice(0, 40)])
       assert.ok(!wire.includes(secret), "Supabase 로 나간 본문에 있으면 안 된다: " + secret);
     // 메타데이터 칸은 usage_events 의 CHECK 와 같은 모양이거나 null 이다. 호스트와 job id 는 보내지 않는다.
     for (const { args } of sb.rpcNamed("settle_usage")) {
@@ -2092,7 +2078,7 @@ test("no lecture content or bare hash reaches Supabase from any route and digest
 test("client-chosen metadata that would violate the ledger CHECKs is dropped instead of failing the settlement", async () => {
   await withSupabase(async ({ url, sb }) => {
     for (const [i, v] of ["9.9.9; drop table usage_events", "1.2.3/../x", "v".repeat(40), "1.2.3"].entries()) {
-      assert.equal((await req(url, "/v1/summary", "POST", { ...input, requestId: "meta-" + i }, ec1(), origin, { "x-client-version": v })).status, 200);
+      assert.equal((await req(url, "/v1/write", "POST", { ...input, requestId: "meta-" + i }, ec1(), origin, { "x-client-version": v })).status, 200);
     }
     assert.deepEqual(sb.rpcNamed("settle_usage").map(r => r.args.p_client_version), [null, null, null, "1.2.3"]);
   });
@@ -2110,7 +2096,6 @@ test("the DB plan decides features and models, closed by default, and is cached 
     assert.deepEqual(m.models, [model]);
     for (const [route, body] of [["/v1/vision", visionBody({ requestId: "p-v" })], ["/v1/stt", sttBody({ requestId: "p-s" })], ["/v1/judge", judgeBody({ requestId: "p-j" })]])
       await errorOf(await req(url, route, "POST", body, jwt), 403, "feature_not_in_account_plan");
-    await errorOf(await req(url, "/v1/summary", "POST", { ...input, requestId: "p-h", model: haiku }, jwt), 403, "model_not_in_account_plan");
     await errorOf(await req(url, "/v1/write", "POST", sectionIn({ requestId: "p-w", model: haiku }), jwt), 403, "model_not_in_account_plan");
     assert.equal(sb.rpcNamed("reserve_usage").length, 0);
     assert.equal(provided, 0);
@@ -2226,7 +2211,7 @@ test("a failed profile upsert never blocks /v1/me and is retried until it succee
     await req(url, "/v1/me", "GET", undefined, jwt);
     assert.equal(sb.upserts.length, 3);
     // 장부를 쓰는 라우트는 프로필을 만들지 않는다(/v1/me 만으로 충분하다).
-    await req(url, "/v1/summary", "POST", { ...input, requestId: "no-profile" }, ec1({ claims: { sub: UID2 } }));
+    await req(url, "/v1/write", "POST", { ...input, requestId: "no-profile" }, ec1({ claims: { sub: UID2 } }));
     assert.equal(sb.upserts.length, 3);
   });
 });
@@ -2681,7 +2666,7 @@ test("static-token accounts are refused without touching Supabase, and bad token
 
 test("after a successful deletion the server keeps no cached plan, profile memo or rate bucket for that user", async () => {
   await withSupabase(async ({ url, sb }) => {
-    const jwt = ec1(), other = ec1({ claims: { sub: UID2 } }), post = (id, t = jwt) => req(url, "/v1/summary", "POST", { ...input, requestId: id }, t);
+    const jwt = ec1(), other = ec1({ claims: { sub: UID2 } }), post = (id, t = jwt) => req(url, "/v1/write", "POST", { ...input, requestId: id }, t);
     await req(url, "/v1/me", "GET", undefined, jwt);
     await req(url, "/v1/me", "GET", undefined, other);
     assert.equal(sb.upserts.length, 2);

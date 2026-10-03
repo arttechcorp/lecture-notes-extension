@@ -1,11 +1,11 @@
 // ponytail: 정적 토큰 계정의 장부는 단일 프로세스 원자적 파일이다. Supabase JWT 계정의 한도·예약은 Postgres(server/usage.js)라 인스턴스를 늘릴 수 있다.
 // Operator key server-only; archive contents are authenticated ciphertext.
 const fs=require("node:fs"),path=require("node:path"),http=require("node:http"),crypto=require("node:crypto");
-const Vault=require("../lib/vault.js"),{validateSummary}=require("../lib/summary.js");
+const Vault=require("../lib/vault.js");
 const Contracts=require("../lib/contracts.js"),NoteContract=require("../lib/note-contract.js"),Prompts=require("./prompts.js");
 const {createAuth}=require("./auth.js"),{fileUsage,supabaseUsage,FAIL_CODE}=require("./usage.js"),{supabaseVault}=require("./vault-store.js");
 const RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"google/gemini-2.5-pro":[1.25,10],"anthropic/claude-haiku-4.5":[1,5],"anthropic/claude-sonnet-4.6":[3,15],"anthropic/claude-sonnet-5":[2,10]};
-// 이미지 입력은 텍스트와 단가가 다르고 출력도 훨씬 짧다. /v1/summary 와 예약 계산을 섞지 않는다.
+// 이미지 입력은 텍스트와 단가가 다르고 출력도 훨씬 짧다. /v1/plan·/v1/write 와 예약 계산을 섞지 않는다.
 const VISION_RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"mistralai/ministral-8b-2512":[.15,.15],"qwen/qwen3-vl-8b-instruct":[.12,.45]};
 // 구조화 출력은 상자 좌표까지 JSON으로 나가 순수 텍스트보다 길다.
 const VISION_MAX_TOKENS=8192;
@@ -57,7 +57,7 @@ function providerSchema(s,drop){
   return out;
 }
 const VISION_SCHEMA=providerSchema({type:"object",additionalProperties:false,required:["blocks","formulas","figures"],properties:{blocks:Contracts.SCHEMAS.slideDoc.properties.blocks,formulas:Contracts.SCHEMAS.slideDoc.properties.formulas,figures:Contracts.SCHEMAS.slideDoc.properties.figures}},["id","status"]);
-const {schema,systemFor,systemMessage}=require("../lib/openrouter-client.js"),{cachedSystem,reasoningFor,maxTokensFor,parseNote}=require("./llm.js");
+const {cachedSystem,parseNote}=require("./llm.js");
 const safePart=x=>{if(typeof x!=="string"||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(x))throw new Error("invalid_id");return x;};
 const tokenEqual=(a,b)=>{const x=Buffer.from(String(a)),y=Buffer.from(String(b));return x.length===y.length&&crypto.timingSafeEqual(x,y);};
 const positive=(x,fallback)=>{const n=Number(x??fallback);if(!Number.isFinite(n)||n<=0)throw new Error("invalid_limit");return n;};
@@ -80,9 +80,6 @@ const ERRORS={
   model_not_in_account_plan:[403,false,"현재 요금제에서 지원하지 않는 모델입니다."],
   feature_not_in_account_plan:[403,false,"현재 요금제에서 지원하지 않는 기능입니다."],
   unexpected_field:[400,false,"허용되지 않는 필드가 있습니다."],
-  invalid_evidence:[400,false,"근거 형식이 올바르지 않습니다."],
-  invalid_gaps:[400,false,"끊긴 구간 형식이 올바르지 않습니다."],
-  evidence_too_large:[413,false,"근거가 너무 큽니다."],
   invalid_image:[400,false,"이미지 형식이 올바르지 않습니다."],
   image_too_large:[413,false,"이미지가 너무 큽니다."],
   invalid_stt_params:[400,false,"음성 인식 요청 값이 올바르지 않습니다."],
@@ -321,7 +318,7 @@ function createServer(env=process.env,deps={}){
   // 계정별 분당 POST 토큰 버킷 — 한도를 넘은 요청에는 한 토큰이 찰 때까지의 시간을 알려준다.
   // 계정이 사용자 수만큼 늘 수 있으므로 1분 넘게 놀아 가득 찬 버킷은 새 버킷과 같다 — 많아지면 지운다.
   const bucket=account=>{let b=buckets.get(account);if(!b){if(buckets.size>=10000)for(const [k,v]of buckets)if(Date.now()-v.ts>6e4)buckets.delete(k);buckets.set(account,b={tokens:c.ratePerMin,ts:Date.now()});}const now=Date.now();b.tokens=Math.min(c.ratePerMin,b.tokens+(now-b.ts)*c.ratePerMin/6e4);b.ts=now;return b;};
-  // /v1/summary 와 /v1/vision 이 같은 돈을 쓴다. 예약·멱등·락·정산을 한 군데 두지 않으면
+  // /v1/plan·/v1/write·/v1/vision·/v1/stt·/v1/judge 가 같은 돈을 쓴다. 예약·멱등·락·정산을 한 군데 두지 않으면
   // 두 라우트의 한도 계산이 조용히 어긋난다 — 어긋난 쪽이 무료로 돌아가는 실패 모드다.
   async function withReservation({account,requestId,digest,reserve,minutes=0,model,res,meta={}},run){
     const id=account.id,store=account.jwt?sb:file;
@@ -361,45 +358,6 @@ function createServer(env=process.env,deps={}){
       if(status==="refunded")return stored?fail(res,code,error.retryAfterMs):fail(res,"usage_store_failed");
       fail(res,code);
     }finally{clearTimeout(timer);res.removeListener("close",disconnect);const n=(inflight.get(id)||1)-1;n>0?inflight.set(id,n):inflight.delete(id);active.delete(controller);}
-  }
-  async function summary(input,account,req,res){
-    const limits=account.limits;
-    if(!c.allow.includes(input.model)||!["chunk","synthesis"].includes(input.stage))return fail(res,"invalid_model_or_stage");
-    if(!limits.models.includes(input.model))return fail(res,"model_not_in_account_plan");
-    safePart(input.requestId);
-    if(Object.keys(input).some(k=>!["model","stage","requestId","evidence","gaps"].includes(k)))return fail(res,"unexpected_field");
-    const items=input.evidence;
-    if(!Array.isArray(items)||!items.length||items.length>2000||items.some(e=>!e||typeof e.id!=="string"||!e.id||e.id.length>128||typeof e.text!=="string"||!e.text.trim()||!["ocr","asr"].includes(e.source)||!Number.isFinite(e.t0)||!Number.isFinite(e.t1)||!["included","uncertain"].includes(e.selection)||(e.selectionReason!==undefined&&(typeof e.selectionReason!=="string"||e.selectionReason.length>300))||Object.keys(e).some(k=>!["id","text","source","t0","t1","selection","selectionReason"].includes(k))))return fail(res,"invalid_evidence");
-    // 캡처가 끊긴 구간. 강의 내용이 아니라 메타데이터라서 근거와 따로 싣고 따로 검사한다.
-    const gaps=input.gaps===undefined?[]:input.gaps;
-    if(!Array.isArray(gaps)||gaps.length>200||gaps.some(g=>!g||typeof g.reason!=="string"||!g.reason||g.reason.length>64||!Number.isFinite(g.t0)||!Number.isFinite(g.t1)||g.t1<g.t0||Object.keys(g).some(k=>!["reason","t0","t1"].includes(k))))return fail(res,"invalid_gaps");
-    const text=JSON.stringify(items);
-    if(Buffer.byteLength(text)>48000)return fail(res,"evidence_too_large");
-    const digest=digestOf(account,JSON.stringify({model:input.model,stage:input.stage,evidence:items,gaps}));
-    const [pi,po]=RATES[input.model],maxOutput=maxTokensFor(input.model),attempts=2;
-    // Reserve both attempts: a malformed structured response is retried once on the same fixed provider.
-    const reserve=Math.ceil(((Buffer.byteLength(text)+Buffer.byteLength(systemFor(input.stage))+8192)*pi+maxOutput*po)/1e6*100*1.2*attempts);
-    return await withReservation({account,requestId:input.requestId,digest,reserve,model:input.model,res,meta:{stage:"summary."+input.stage,provider:"openrouter",model:input.model}},async signal=>{
-      let parsed,usage={},amount=0,reported=true;
-      for(let retry=0;retry<attempts;retry++){
-        const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
-          model:input.model,max_tokens:maxOutput,reasoning:reasoningFor(input.model),
-          messages:[systemMessage(input.model,input.stage),{role:"user",content:JSON.stringify({stage:input.stage,evidence:items,...(gaps.length?{gaps}:{})})}],
-          response_format:{type:"json_schema",json_schema:{name:"lecture_summary",strict:true,schema}},
-          provider:{only:c.providers[input.model],order:c.providers[input.model],require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}
-        })});
-        if(!response.ok)throw new Error("provider_failed");
-        const raw=await boundedResponse(response,1024*1024),u=raw.usage||{};
-        usage={promptTokens:(usage.promptTokens||0)+(Number(u.prompt_tokens)||0),completionTokens:(usage.completionTokens||0)+(Number(u.completion_tokens)||0)};
-        if(typeof u.cost==="number"&&Number.isFinite(u.cost)&&u.cost>=0)amount+=u.cost;else reported=false;
-        try{
-          if(raw.choices?.[0]?.finish_reason!=="stop")throw new Error("provider_output_incomplete");
-          parsed=validateSummary(parseNote(raw.choices[0].message.content),items);
-          break;
-        }catch(error){if(retry===attempts-1)throw error;}
-      }
-      return {amount,reported,payload:{summary:parsed,usage:{...usage,costUsd:reported?amount:reserve/100}}};
-    });
   }
   async function vision(input,account,res){
     if(!(account.limits.features||[]).includes("vision")||c.featureFlags.vision===false)return fail(res,"feature_not_in_account_plan");
@@ -615,7 +573,6 @@ function createServer(env=process.env,deps={}){
           atomic(file,value.envelope);return send(res,200,{objectId:id,saved:true});
         }
       }
-      if(req.url==="/v1/summary"&&req.method==="POST")return await summary(await body(req,64000),who,req,res);
       if(req.url==="/v1/vision"&&req.method==="POST")return await vision(await body(req,2200000),who,res);
       if(req.url==="/v1/stt"&&req.method==="POST")return await stt(await body(req,17000000),who,res);
       if(req.url==="/v1/judge"&&req.method==="POST")return await judge(await body(req,70000),who,res);
@@ -690,5 +647,5 @@ async function boundedResponse(response,max){
   finally{await reader.cancel().catch(()=>{});}
 }
 if(require.main===module)createServer().listen(Number(process.env.PORT||8788),"127.0.0.1",()=>console.log("Summrizei pilot service ready on loopback."));
-module.exports={createServer,config,tokenEqual,schema,RATES,STT_RATES,readState,toTranscript,toSlideDoc,VISION_SCHEMA,judgeProbs,JUDGE_MODELS};
+module.exports={createServer,config,tokenEqual,RATES,STT_RATES,readState,toTranscript,toSlideDoc,VISION_SCHEMA,judgeProbs,JUDGE_MODELS};
 

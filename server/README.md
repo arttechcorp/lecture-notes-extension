@@ -39,7 +39,7 @@ VAULT_BUCKET=vault
 PLAN_FEATURES_JSON={"essential":{"features":["vision","stt","judge","background"]}}
 ```
 
-`OPENROUTER_PROVIDERS_JSON`은 필수다. 값은 공급사 이름이 아니라 **모델별 엔드포인트 태그**이며 모델마다 다르다(`google/gemini-2.5-flash-lite`는 `google-vertex`, `google/gemini-3.8-flash`는 `google-vertex/global`). `https://openrouter.ai/api/v1/models/<model>/endpoints`로 태그·ZDR·구조화 출력 지원을 확인하고 넣는다. 없는 태그를 넣으면 요약 요청이 400으로 실패한다. 임의 공급자 fallback을 허용하지 않는다. 공급자가 없거나 필수 파라미터를 지원하지 않으면 요청이 실패하는 것이 정상이다.
+`OPENROUTER_PROVIDERS_JSON`은 필수다. 값은 공급사 이름이 아니라 **모델별 엔드포인트 태그**이며 모델마다 다르다(`google/gemini-2.5-flash-lite`는 `google-vertex`, `google/gemini-3.8-flash`는 `google-vertex/global`). `https://openrouter.ai/api/v1/models/<model>/endpoints`로 태그·ZDR·구조화 출력 지원을 확인하고 넣는다. 없는 태그를 넣으면 모델 요청이 400으로 실패한다. 임의 공급자 fallback을 허용하지 않는다. 공급자가 없거나 필수 파라미터를 지원하지 않으면 요청이 실패하는 것이 정상이다.
 
 `MAX_REQUESTS`는 기본 계정의 UTC 달력 월 요청 수(기본 10000)이고 강의 편수가 아니다. 요청 수는 거친 안전망일 뿐 진짜 상한은 아래 비용 캡이다(유료 강의 1시간이 150회 안팎을 부른다). `MAX_COST_CENTS`는 계정당 월 USD 센트, `GLOBAL_COST_CENTS`는 전체 계정 월 USD 센트다. 500센트는 $5다. 각 계정별 모델과 상한을 좁히려면 다음을 추가한다.
 
@@ -75,8 +75,8 @@ supabase secrets set --env-file <저장소 밖의 env 파일>
 | 이름 | 값 |
 |---|---|
 | `OPENROUTER_API_KEY` | 운영자 OpenRouter 키 |
-| `OPENROUTER_PROVIDERS_JSON` | 요약·계획·작성·비전·판정 모델별 ZDR 공급자 태그(아래 "설정"과 같다) |
-| `ALLOWED_MODELS` | 요약·계획·작성 모델 목록(JSON 배열) |
+| `OPENROUTER_PROVIDERS_JSON` | 계획·작성·비전·판정 모델별 ZDR 공급자 태그(아래 "설정"과 같다) |
+| `ALLOWED_MODELS` | 계획·작성 모델 목록(JSON 배열) |
 | `ALLOWED_VISION_MODELS` | 비전 모델 목록 |
 | `ALLOWED_STT_MODELS` | `["microsoft/mai-transcribe-2"]` |
 | `ALLOWED_JUDGE_MODELS` | 선택. 판정 모델 |
@@ -109,7 +109,7 @@ supabase functions deploy delete-account --use-api
 | `USAGE_DIGEST_KEY` | 32자 이상. 요청 본문 digest를 HMAC-SHA256으로 만드는 서버 비밀. 없으면 기동 거부 |
 | `SUPABASE_JWT_SECRET` | 선택(32자 이상). 있으면 **HS256만** 받고 JWKS는 쓰지 않는다. 없으면 JWKS의 **ES256/RS256만** 받는다. 레거시 HS256 프로젝트면 설정하고, 비대칭 서명 키로 옮겼다면 지운다 |
 | `VAULT_BUCKET` | 선택(기본 `vault`). JWT 계정의 보관함 암호문을 두는 Storage 버킷 이름(영문·숫자·`_`·`-`, 63자 이하). **비공개 버킷**이어야 하고 서버가 만들지 않는다 — 대시보드에서 직접 만든다(아래 설정 순서 3) |
-| `PLAN_FEATURES_JSON` | 선택. 등급별 `{features, models}`. 기본값 `free: {features: [], models: [요약 lite 모델]}`, `essential`·`professional`: `{features: ["vision","stt","judge","background"], models: ALLOWED_MODELS 전체}`. 등급 이름·가격·한도는 `plans` 표(`supabase/schema-v2.sql`)가 원본이다. 빠진 키는 기본값을 유지하고 모르는 기능 이름이나 `ALLOWED_MODELS` 밖의 모델은 기동 거부 |
+| `PLAN_FEATURES_JSON` | 선택. 등급별 `{features, models}`. 기본값 `free: {features: [], models: [계획·작성 lite 모델]}`, `essential`·`professional`: `{features: ["vision","stt","judge","background"], models: ALLOWED_MODELS 전체}`. 등급 이름·가격·한도는 `plans` 표(`supabase/schema-v2.sql`)가 원본이다. 빠진 키는 기본값을 유지하고 모르는 기능 이름이나 `ALLOWED_MODELS` 밖의 모델은 기동 거부 |
 
 **설정 순서** (Supabase CLI. 저장소는 `supabase/.temp`로 프로젝트에 연결돼 있고, 원격 설정은 `supabase/config.toml`이 선언한다)
 
@@ -134,7 +134,7 @@ supabase functions deploy delete-account --use-api
 
 - 예약 결과 매핑: `duplicate` → 409 `request_already_reserved_or_processed`, `digest_mismatch` → 400 `idempotency_content_mismatch`, `quota_exceeded` → 429 `quota_exceeded`. 예약이 성공하기 전에는 제공자를 부르지 않는다. 예약이 안 되면(Supabase 중단·시간 초과·예상 밖 응답) 503 `usage_store_failed`(재시도 가능, **새 requestId**로 — 응답을 잃은 예약은 DB에 남았을 수 있고 예약은 자동 재시도하지 않는다)이다.
 - 정산: 보고된 비용은 마이크로달러(`ceil(USD x 1e6)`), 미보고는 `null`(DB가 예약액을 청구), 제공자에 아무것도 안 보낸 환불 경로는 `refunded`, 그 밖의 실패는 `error`다. 출력 잘림(`llm_output_truncated`)은 `error`에 보고된 비용을 싣는다. 정산은 한 번 더 시도한다(DB가 `already_settled`로 멱등 처리). 정산이 끝내 실패하면 이미 만든 결과는 그대로 돌려주고 예약은 `reserved`로 남아 비용이 보수적으로 잡힌다(`usage_reservations_open_idx`로 찾아 대조). 환불 정산이 실패하면 같은 requestId 재시도를 약속할 수 없어 `usage_store_failed`로 답한다.
-- 원장 메타데이터: `stage`(`summary.chunk`, `vision.full`, `stt`, `judge.<task>`, `plan`, `write.<stage>`), `provider`(`openrouter`/`groq`), `model`, 토큰 수, `audio_seconds`, `images`, 프롬프트·스키마 버전, `error_code`, `latency_ms`, `client_version`(`x-client-version`). `host`와 `job_id`는 신뢰할 출처가 없어 보내지 않는다. `usage_events` CHECK와 모양이 다른 값은 정산 전체가 거절되지 않도록 `null`로 바꾼다. 강의 텍스트·이미지·음성은 어떤 RPC 본문에도 없다.
+- 원장 메타데이터: `stage`(`plan`, `write.<stage>`, `vision.full`, `stt`, `judge.<task>`), `provider`(`openrouter`/`groq`), `model`, 토큰 수, `audio_seconds`, `images`, 프롬프트·스키마 버전, `error_code`, `latency_ms`, `client_version`(`x-client-version`). `host`와 `job_id`는 신뢰할 출처가 없어 보내지 않는다. `usage_events` CHECK와 모양이 다른 값은 정산 전체가 거절되지 않도록 `null`로 바꾼다. 강의 텍스트·이미지·음성은 어떤 RPC 본문에도 없다.
 - digest: 파일 장부는 기존 SHA-256, JWT 계정은 `HMAC-SHA256(USAGE_DIGEST_KEY, 요청 본문 정규형)`이라 DB에 사전 공격이 가능한 해시가 남지 않는다.
 - 인식 분량: `/v1/stt`는 선언 길이를 올림한 분(`ceil(durationSec/60)`)을 `p_minutes`로 예약한다(`plans.monthly_minutes_cap`). 비용은 제공자가 잰 길이로 따로 정산한다.
 - 동시 처리 수(`ACCOUNT_CONCURRENCY`), 분당 요청 수(`ACCOUNT_RATE_PER_MIN`), 모델별 제공자 슬롯은 모든 계정에 메모리에서 센다. 월 한도·전역 상한(`global_caps`)은 DB가 판정하므로 `MAX_REQUESTS`/`MAX_COST_CENTS`/`GLOBAL_COST_CENTS`와 `ACCOUNT_LIMITS_JSON`은 JWT 계정에 적용되지 않는다.
@@ -207,20 +207,20 @@ supabase functions deploy delete-account --use-api
 
 호출은 항목당 한 번이다. `max_tokens:1, temperature:0, logprobs:true, top_logprobs:10`으로 알파벳 한 글자만 받고 top_logprobs에서 라벨 글자의 확률 질량을 모아 라벨끼리 다시 정규화한다. 상위 10개에 라벨 글자가 하나도 없으면 그 항목은 `probs:[], score:null`의 "판정 없음"으로 돌아가고 클라이언트가 플래너로 넘긴다. 모델은 `JUDGE_MODELS` 레지스트리가 `via`(호출 방식)와 단가를 묶어 결정한다 — 다른 종류의 판정 제공자를 추가해도 `via` 구현만 더하면 돼서 클라이언트는 안 바뀐다.
 
-`ALLOWED_JUDGE_MODELS`는 `JUDGE_MODELS` 키의 JSON 배열이다. 미설정 시 기본값은 `["openai/gpt-4.1-nano"]`이지만 `OPENROUTER_PROVIDERS_JSON`에 해당 모델의 비어 있지 않은 제공자 목록이 있을 때만이고, 없으면 `[]`다. 허용된 판정 모델은 요약·비전과 마찬가지로 명시적 제공자 목록이 필수다. `gpt-4.1-nano`에는 반드시 ZDR 가능한 엔드포인트 태그를 넣는다 — `zdr:true` 요청이라 자사(1P) 태그는 제공자가 거절한다.
+`ALLOWED_JUDGE_MODELS`는 `JUDGE_MODELS` 키의 JSON 배열이다. 미설정 시 기본값은 `["openai/gpt-4.1-nano"]`이지만 `OPENROUTER_PROVIDERS_JSON`에 해당 모델의 비어 있지 않은 제공자 목록이 있을 때만이고, 없으면 `[]`다. 허용된 판정 모델은 다른 모델과 마찬가지로 명시적 제공자 목록이 필수다. `gpt-4.1-nano`에는 반드시 ZDR 가능한 엔드포인트 태그를 넣는다 — `zdr:true` 요청이라 자사(1P) 태그는 제공자가 거절한다.
 
 비용은 다른 라우트와 같은 예약·정산을 쓴다: 예약은 `항목당 (입력 바이트+시스템 프롬프트)×입력 단가 + 1토큰×출력 단가`의 1.2배, 정산은 각 호출이 보고한 `usage.cost` 합계다. 항목 텍스트는 멱등 digest에 sha256 해시로만 들어가고 저장되지 않는다. 항목 단위 제공자 슬롯은 대기 타임아웃·환불 표시가 없는 "patient" 모드다 — 일부 항목이 이미 결제된 뒤 예약을 되돌리면 공짜 호출이 되므로, 하나라도 나간 뒤 실패하면 예약을 유지하고 첫 실패에서 나머지 호출을 중단한다.
 
 ## 노트 계획·작성(plan/write)
 
-`POST /v1/plan`(본문 ≤ 256 KB)은 IR 전체를 받아 섹션 계획을 1회 만들고, `POST /v1/write`(본문 ≤ 64 KB)는 섹션별로 병렬 호출해 블록을 쓴다. 둘 다 Free 포함 전 계정이 쓴다 — 등급 기능 검사 없이 `/v1/summary`와 같은 계정 한도(`ALLOWED_MODELS`, `ACCOUNT_LIMITS_JSON`의 모델·비용 상한)와 `RATES`·제공자 태그를 쓴다.
+`POST /v1/plan`(본문 ≤ 512 KB)은 IR 전체를 받아 섹션 계획을 1회 만들고, `POST /v1/write`(본문 ≤ 256 KB)는 섹션별로 병렬 호출해 블록을 쓴다. 둘 다 Free 포함 전 계정이 쓴다 — 등급 기능 검사 없이 계정 한도(`ALLOWED_MODELS`, `ACCOUNT_LIMITS_JSON`의 모델·비용 상한)와 `RATES`·제공자 태그를 쓴다.
 
-- `plan`: `{model, requestId, noteSpecVersion, ir:{units:[Unit]}, formulas:[{id:"F12", status}]}` → `{plan, usage, promptVersion, schemaVersion, noteSpecVersion}`. 유닛은 `Contracts.SCHEMAS.unit`으로 검증한다.
-- `write`: `{model, requestId, noteSpecVersion, stage, …}` → `{blocks, usage, promptVersion, schemaVersion, noteSpecVersion}`. `stage`별 추가 필드는 `section`: `{section, units, registry:[{id, latex|null, status}]}`, `global`: `{sections:[{sectionId, title, blocks}]}`, `repair`: `{section, units, registry, repair:[{index, block, errors:[{code, detail}]}]}`다. `repair`는 정확히 `repair.length`개의 블록을 같은 순서로 돌려준다.
-- 노트 양식(블록 종류, 스키마, 요청/출력 계약)은 `lib/note-contract.js`에서, 프롬프트 형식 규칙·한도·생성 파라미터는 `server/prompts.js`(`PROMPT_VERSION`)에서 온다. 버전이 다른 요청은 모양 검사 전에 `409 note_spec_mismatch`다. 프롬프트·요청/출력 스키마·생성 파라미터는 `server/prompts.js`(`PROMPT_VERSION`)가 관리한다.
-- 호출 방식은 요약과 같다: OpenRouter strict `json_schema`(검증 전용 키워드는 뺀 스키마), `temperature:0`, 지원 모델(Anthropic 제외)에는 `seed`, `zdr`·`data_collection:"deny"`·fallback 금지. 시스템 본문이 앞이고 입력이 뒤이며 캐시 모델에는 `cache_control`을 찍는다. 출력은 `Contracts.validate`로 검증하고 형식 실패(`repair` 개수 불일치 포함)만 같은 모델로 한 번 재시도한다.
+- `plan`: `{model, requestId, noteSpecVersion, ir:{units:[Unit]}, formulas, figures, recognition, options}` → `{plan, usage, promptVersion, schemaVersion, noteSpecVersion}`. 유닛은 `Contracts.SCHEMAS.unit`으로 검증한다.
+- `write`: `{model, requestId, noteSpecVersion, stage, …}` → `{output, usage, promptVersion, schemaVersion, noteSpecVersion}`. `stage`별 본문은 `section`: `{section, concepts, evidence, registry, figures, options, withGist}`, `global`: `{plan, sections, options}`, `repair`: `{section, concepts, evidence, registry, figures, options, repair}`다(`server/prompts.js`의 `REQUEST`). `repair`는 요청한 blockId마다 정확히 하나의 블록을 돌려준다.
+- 노트 양식(블록 종류, 스키마, 버전)은 `lib/note-contract.js`(`NOTE_SPEC_VERSION`) 한 곳에서만 온다 — 양식이 바뀌어도 라우트는 바뀌지 않는다. 버전이 다른 요청은 모양 검사 전에 `409 note_spec_mismatch`다. 프롬프트·요청/출력 스키마·생성 파라미터는 `server/prompts.js`(`PROMPT_VERSION`)가 관리한다.
+- 호출 방식: OpenRouter strict `json_schema`(검증 전용 키워드는 뺀 스키마), `temperature:0`, 지원 모델(Anthropic 제외)에는 `seed`, `zdr`·`data_collection:"deny"`·fallback 금지. 시스템 본문이 앞이고 입력이 뒤이며 캐시 모델에는 `cache_control`을 찍는다. 출력은 `Contracts.validate`로 검증하고 형식 실패(`repair` 개수 불일치 포함)만 같은 모델로 한 번 재시도한다.
 - `finish_reason=length`는 한도를 키워 재시도하지 않고 `422 llm_output_truncated`(재시도 불가)로 답한다. 클라이언트가 섹션을 나눠 새 requestId로 다시 보낸다. 환불이 아니다: 제공자가 보고한 금액만 청구하고(미보고면 예약 유지) 같은 requestId는 다시 쓸 수 없다.
-- 입력 토큰은 바이트/4로 어림해 plan 40k, write 16k·global 24k를 넘으면 `request_too_large`다. 출력 상한은 plan 8k, write 8k·global 4k 토큰(`server/prompts.js`의 `LIMITS.tokens`). 알 수 없는 필드는 `unexpected_field`, 모양 위반은 `request_rejected`다.
+- 입력 토큰은 바이트/4로 어림해 plan 40k, global 24k, write 16k를 넘으면 `request_too_large`다. 출력 상한은 plan 8k, global 4k, write 8k 토큰(`server/prompts.js`의 `LIMITS.tokens`). 알 수 없는 필드는 `unexpected_field`, 모양 위반은 `request_rejected`다.
 
 ## 확인
 

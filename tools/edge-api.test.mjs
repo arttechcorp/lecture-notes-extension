@@ -38,7 +38,7 @@ test("requests through the Deno adapter reach the same handler: auth, CORS, rout
     const envelope = { v: 1 };
     const put = await go("/v1/vault/obj-1", { method: "PUT", body: JSON.stringify({ envelope }) });
     assert.ok([200, 400].includes(put.status), "본문이 처리기까지 갔다(봉투 검증 결과)");
-    const big = await go("/v1/summary", { method: "POST", body: "x".repeat(2 * 1024 * 1024) });
+    const big = await go("/v1/write", { method: "POST", body: "x".repeat(300 * 1024) });
     assert.equal(big.status, 413);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
