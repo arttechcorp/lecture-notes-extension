@@ -200,10 +200,8 @@
     set(...heading("결제 정보", "결제 수단과 영수증을 관리합니다."), summaryCard(acct), c, h("div", "card").appendChild(refund).parentNode);
   }
 
-  // 학생가 자격은 서버가 정한다(edu_eligible: 확인된 학교 도메인 메일). 확인하지 못하면 학생가를 보여 주지 않는다.
+  // 학생가는 자격 확인 없이 누구나 고를 수 있다(학생 대상 마케팅, 2026-10-03 결정). edu_eligible RPC는 남아 있지만 화면은 쓰지 않는다.
   async function subscriptionView(client, user, acct, catalog) {
-    const { data: eduOk } = await Promise.resolve(client.rpc("edu_eligible")).catch(() => ({ data: false }));
-    const edu = eduOk === true;
     const grid = h("div", "plans-stack");
     for (const row of catalog) {
       const copy = COPY[row.plan];
@@ -214,12 +212,12 @@
       const head = h("div", "plan-heading");
       head.append(h("h3", null, p.name));
       if (p.id === acct.plan) head.append(h("span", "badge-current", "현재 플랜"));
-      else if (p.edu && edu) head.append(h("span", "tag solid", "EDU 학생가"));
+      else if (p.edu) head.append(h("span", "tag solid", "EDU 학생가"));
       card.append(head, h("p", "plan-for", p.forWho));
-      const showEdu = Boolean(p.edu) && edu;
-      const price = h("p", "price", showEdu ? p.edu : p.price);
+      const price = h("p", "price", p.price);
       if (p.id !== "free") price.append(h("span", null, " / 월"));
       card.append(price);
+      if (p.edu) card.append(h("p", "plan-for", "학생 " + p.edu + " / 월"));
       const ul = h("ul", "benefits");
       for (const t of p.perks) ul.append(h("li", null, t));
       card.append(ul);
@@ -230,13 +228,16 @@
         cur.setAttribute("aria-disabled", "true");
         cta.append(cur);
       } else if (p.id !== "free") {
-        const url = withUser(cfg.checkout[showEdu ? p.id + "_edu" : p.id], user);
+        const url = withUser(cfg.checkout[p.id], user), eduUrl = p.edu ? withUser(cfg.checkout[p.id + "_edu"], user) : null;
         if (url) {
-          const a = h("a", "button dark", p.name + "로 변경");
-          a.href = url;
-          a.target = "_blank";
-          a.rel = "noopener";
-          cta.append(a);
+          for (const [href, label, cls] of [[url, p.name + "로 변경", "button dark"], [eduUrl, "학생가로 변경", "button quiet"]]) {
+            if (!href) continue;
+            const a = h("a", cls, label);
+            a.href = href;
+            a.target = "_blank";
+            a.rel = "noopener";
+            cta.append(a);
+          }
         } else {
           const off = h("span", "button quiet is-disabled", "출시 후 이용 가능");
           off.setAttribute("aria-disabled", "true");

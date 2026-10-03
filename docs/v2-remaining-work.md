@@ -69,7 +69,7 @@
 
 2. **고객 포털 주소**: `landing/billing-config.js`의 결제창 3개(Essential `u9m5dR`·Edu `a5DgpJ`·Pro `grxETv`)는 채웠다. `portal`은 아직 비어 있다 — Groble이 구매자용 해지·영수증 주소를 주는지 확인해 넣는다.
 2. **결제창·포털 주소**: `landing/billing-config.js`의 `checkout`·`portal`이 비어 있다. 사용자가 Groble에서 결제 링크를 만들어 넣어야 학생가를 포함한 결제 경로가 연다.
-3. **학생가 자격의 실제 인증 없음**: `edu_eligible`은 확인된 로그인 메일의 도메인(`.ac.kr`·`.edu`)만 본다. 재학 증빙 같은 진짜 인증 절차는 없다(§4).
+3. **학생가는 자격 확인 없이 판매**(2026-10-03 결정): 계정 화면은 Essential 카드에 일반·학생가 결제 버튼을 둘 다 보여 주고, 랜딩 문구의 "학생 인증 시"를 "학생 요금제"로 바꿨다. `edu_eligible` RPC는 DB에 남아 있으나 쓰지 않는다.
 4. **실서비스 종단 검증**: 배포한 함수와 실제 강의로 백그라운드 작업을 끝까지 한 번 돌린다. 확인할 것 — MAI-Transcribe 2의 한국어 품질, WAV 업로드 크기(5분 약 9.6 MB), Edge 150초 제한 안에 응답이 오는지.
 5. **`chrome-extension://` 경계의 브라우저 스모크**: 이 맥의 Chrome stable은 `--load-extension`을 무시해 언팩 확장을 못 올린다. `tools/note-render-smoke.cjs`는 패키지 클로저를 `http://localhost`로만 확인한다 — 확장 원점(매니페스트 샌드박스 CSP, `chrome.runtime` 메시지 경계)은 Chrome for Testing 같은 다른 브라우저가 필요하다.
 6. **원격 반영(사용자 실행)**: `schema-v2.sql` 재적용(`provider_slots`·`billing_events` 추가분 포함) → `node tools/build-edge.mjs` → `supabase functions deploy api --use-api`·`billing-webhook --use-api` → `GROBLE_*` 비밀값(`server/README.md` "Groble 결제 웹훅").
