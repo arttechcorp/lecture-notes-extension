@@ -118,7 +118,7 @@
   .btnrow { display: flex; gap: 9px; }
   .btnrow button { flex: 1; font-size: 12.5px; padding: 9px 6px; }
 
-  select, textarea, input[type="text"] {
+  select, textarea, input[type="text"], input[type="password"] {
     font: inherit; width: 100%; padding: 8px 9px; border-radius: var(--r-md);
     border: 1px solid var(--rule); background: var(--sunk); color: var(--ink); box-shadow: var(--inset);
   }
@@ -328,38 +328,58 @@
 </div>
 <nav class="stage-steps" aria-label="노트 만들기 단계"><span id="stepReady" class="active">01 준비</span><i aria-hidden="true"></i><span id="stepLive">02 캡처</span><i aria-hidden="true"></i><span id="stepDone">03 노트</span></nav>
 
-<!-- ── 온보딩 (첫 실행 시에만) ─────────────────────────────────── -->
+<!-- ── 온보딩 (첫 실행·재동의: 필요한 단계만 보인다) ─────────────── -->
 <div id="onboard" hidden>
-  <div class="intro"><p class="eyebrow">WELCOME TO YOUR NOTES</p><h2>첫 노트를 준비해 볼까요?</h2><p class="detail">API 키 없이도 원문 타임라인을 만들 수 있어요.</p></div>
+  <div class="intro"><p class="eyebrow">WELCOME TO YOUR NOTES</p><h2>노트를 만들 준비를 해볼까요?</h2><p class="detail">로그인, 동의, 보관함 암호만 준비하면 바로 시작할 수 있습니다.</p></div>
 
-  <div class="step">
+  <section class="step" data-step="account">
     <span class="n">1</span>
     <span class="c">
-      <b>어떻게 동작하는지</b>
-      <span class="why">재생 중인 영상의 화면과 소리를 읽어 시간순 노트를 만듭니다. 기본 인식은 기기 안에서 처리합니다. 직접 API 요약을 선택하면 인식된 텍스트가 해당 AI 제공자에게 전송됩니다. 패널을 닫기 전 필요한 노트를 저장하세요.</span>
-      <label class="checkline"><input type="checkbox" id="obConsent" />
-        <span>개인 학습용으로만 쓰고, 소속 기관의 원격수업 지침을 따르겠습니다.</span></label>
+      <b>계정</b>
+      <span class="why">노트는 Summrizei 서비스에서 만들기 때문에 로그인이 필요합니다. Free는 매월 사용 한도가 있습니다.</span>
+      <button id="obLogin" type="button">Google로 로그인</button>
+      <span class="why" id="obAccount" hidden></span>
+      <span class="why" id="obAccountErr" role="alert" hidden></span>
     </span>
-  </div>
+  </section>
 
-  <div class="step">
+  <section class="step" data-step="consent">
     <span class="n">2</span>
     <span class="c">
-      <b>화면 글자 읽기</b>
-      <span class="why">Tesseract가 기기 안에서 화면 글자를 읽습니다. 정확도는 화면 선명도와 글자 크기에 따라 달라집니다.</span>
+      <b>동의</b>
+      <label class="checkline"><input type="checkbox" id="obSummary" />
+        <span><b>[필수] 외부 요약 처리</b><br>화면·음성을 기기에서 글자로 바꾼 뒤, 그 텍스트만 Summrizei 서비스를 거쳐 AI 모델로 보내 노트를 만듭니다. 원본 영상·음성은 보내지 않습니다(유료 클라우드 인식을 켠 경우 제외). 서비스와 모델 제공자는 처리 중에만 내용을 보고 저장하지 않습니다.</span></label>
+      <label class="checkline" id="obCloudRow"><input type="checkbox" id="obCloud" />
+        <span><b>[유료·선택] 클라우드 인식</b><br>백그라운드 처리와 고화질 인식을 위해 강의 화면·음성 조각을 서비스를 거쳐 무보존 AI 제공자로 보냅니다. 학번·이름 같은 반복 워터마크 영역은 가린 뒤 보냅니다.</span></label>
+      <label class="checkline" id="obPersonalRow"><input type="checkbox" id="obPersonal" />
+        <span><b>[유료·선택] 이용 동의</b><br><strong>개인 소장·학습 목적으로만</strong> 사용합니다. 받은 영상·음성과 만든 노트를 다른 사람에게 배포하거나 판매하지 않습니다.</span></label>
+      <label class="checkline" id="obAccessRow"><input type="checkbox" id="obAccess" />
+        <span><b>[유료·선택] 이용 동의</b><br><strong>내가 접근할 권한이 있는 콘텐츠에만</strong> 사용합니다. 내가 수강 중인 강의처럼 열람이 허용된 영상·음성에 한하며, 접근 제한이나 복제 방지(DRM 등)를 우회하지 않습니다.</span></label>
     </span>
-  </div>
+  </section>
 
-  <div class="step">
+  <section class="step" data-step="passphrase">
     <span class="n">3</span>
     <span class="c">
+      <b>보관함 암호</b>
+      <span class="why">완성된 노트는 이 컴퓨터의 다운로드/Summrizei 폴더에 이 암호로 암호화해 저장합니다. 노트는 Summrizei 웹사이트에서 이 암호를 넣어야만 열 수 있습니다. 암호를 잊으면 우리도 복구할 수 없습니다.</span>
+      <input id="obPass" type="password" minlength="12" autocomplete="new-password" placeholder="보관함 암호 (12자 이상)" />
+      <input id="obPass2" type="password" minlength="12" autocomplete="new-password" placeholder="암호 다시 입력" />
+      <span class="why" id="obPassErr" role="alert" hidden></span>
+    </span>
+  </section>
+
+  <section class="step" data-step="engine">
+    <span class="n">4</span>
+    <span class="c">
       <b>말소리 받아쓰기</b>
-      <span class="why">Whisper Tiny가 기기 안에서 강의 음성을 글로 옮깁니다. 처음 켜면 모델을 다운로드하며, 처리 속도는 기기 성능에 따라 달라집니다.</span>
+      <span class="why">Whisper가 기기 안에서 강의 음성을 글로 옮깁니다. 처음 켜면 모델을 내려받습니다.<br>화면 글자는 기기 안의 PP-OCRv5로 읽습니다.</span>
       <label class="checkline"><input type="checkbox" id="obWhisper" />
         <span>말소리도 받아쓰기 (권장)</span></label>
     </span>
-  </div>
+  </section>
 
+  <p class="why" id="obError" role="alert" hidden></p>
   <button class="primary" id="obDone" type="button" disabled>시작하기</button>
 </div>
 
@@ -556,6 +576,7 @@
   <script src="lib/auth.js"></script>
   <script src="lib/account.js"></script>
   <script src="lib/package-store.js"></script>
+  <script src="lib/note-file.js"></script>
   <script src="lib/library.js"></script>
   <script src="lib/note-export.js"></script>
   <script src="sidepanel.js"></script>

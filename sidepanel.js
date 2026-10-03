@@ -1,6 +1,6 @@
 // Display and control only. The offscreen document owns all lecture data.
 const $=id=>document.getElementById(id);
-const els=Object.fromEntries(['tabSelect','modeSelect','langSelect','startBtn','stopBtn','pauseBtn','disposeBtn','notesBtn','status','result','renderFrame','stageReady','stageLive','stageDone','onboard','obConsent','obWhisper','obDone','settingsToggle','settingsClose','settingsDrawer','optionsLink','refreshTabsBtn','ocrEnabledToggle','cntSlides','cntVoice','cntQueue','feedLines','readyAlert','panelAlert','doneSummary','donePill','doneAlert','againBtn','popoutBtn','viewRenderedBtn','viewRawBtn','resultHint','exportRow','rawEvidence','debugDetails','debugLog','vaultPassphrase','saveVaultBtn','loadVaultBtn','deleteVaultBtn','refreshVaultBtn','vaultList','pdfBtn','notionBtn','notionModal','notionModalClose','markEngine','engineBanner','markVoice','voiceState','markTab','tabState','settingsSummary','cropField','cropRow','cropWrap','cropImg','cropBox','cropHint','previewBtn','working','libraryBtn','openNoteBtn'].map(id=>[id,$(id)]));
+const els=Object.fromEntries(['tabSelect','modeSelect','langSelect','startBtn','stopBtn','pauseBtn','disposeBtn','notesBtn','status','result','renderFrame','stageReady','stageLive','stageDone','onboard','obLogin','obAccount','obAccountErr','obSummary','obCloud','obCloudRow','obPersonal','obPersonalRow','obAccess','obAccessRow','obPass','obPass2','obPassErr','obError','obWhisper','obDone','settingsToggle','settingsClose','settingsDrawer','optionsLink','refreshTabsBtn','ocrEnabledToggle','cntSlides','cntVoice','cntQueue','feedLines','readyAlert','panelAlert','doneSummary','donePill','doneAlert','againBtn','popoutBtn','viewRenderedBtn','viewRawBtn','resultHint','exportRow','rawEvidence','debugDetails','debugLog','vaultPassphrase','saveVaultBtn','loadVaultBtn','deleteVaultBtn','refreshVaultBtn','vaultList','pdfBtn','notionBtn','notionModal','notionModalClose','markEngine','engineBanner','markVoice','voiceState','markTab','tabState','settingsSummary','cropField','cropRow','cropWrap','cropImg','cropBox','cropHint','previewBtn','working','libraryBtn','openNoteBtn'].map(id=>[id,$(id)]));
 let settings,state,busy=false,tabs=[],cropRect=null,cropTabId=null;
 const active=s=>['preparing','running','paused','draining','summarizing'].includes(s?.status);
 const label={preparing:'준비 중',running:'캡처 중',paused:'일시정지',draining:'마지막 구간 처리 중',summarizing:'요약 중',completed:'노트 준비됨',failed:'처리 중단',disposed:'세션 없음'};
@@ -53,7 +53,7 @@ function updateReadyCard(){if(!settings)return;setRow(els.markEngine,els.engineB
 // One indicator for both waits the user actually has to sit through: summarising, and the recognition backlog
 // that has to drain before a note can be made.
 function setWorking(){if(!els.working)return;const s=state?.status,queued=(state?.backlog?.images||0)+(state?.backlog?.audio||0);els.working.hidden=!(busy||s==='summarizing'||s==='draining'||(active(state)&&queued>0));}
-function render(next){if(next&&state&&next.generation<state.generation)return;const was=state?.status;state=next||null;const s=state?.status;setStatus(label[s]||'세션 없음');setError(state?.error);if(!settings?.consentAccepted)setStage('onboard');else if(!state||s==='disposed')setStage('ready');else if(active(state)&&s!=='summarizing')setStage('live');else setStage('done');els.cntSlides.textContent=state?.counts?.visual||0;els.cntVoice.textContent=state?.counts?.audio||0;els.cntQueue.textContent=(state?.backlog?.images||0)+(state?.backlog?.audio||0);els.feedLines.textContent='';const recent=state?.recent||[],gaps=state?.gaps||[];if(recent.length){for(const item of recent){const row=document.createElement('div'),time=document.createElement('span');time.className='t';time.textContent=`${format(item.time)} · ${item.source==='asr'?'음성':'화면'}`;row.append(time,document.createTextNode(item.text));els.feedLines.append(row);}}else if(gaps.length){for(const gap of gaps.slice(-3)){const row=document.createElement('div');row.textContent=`${format(gap.time)} · ${gap.reason}`;els.feedLines.append(row);}}else els.feedLines.textContent=active(state)?'인식 결과를 기다리는 중입니다.':'표시할 처리 구간이 없습니다.';els.debugLog.textContent=state?.debug?.join('\n')||'세션을 시작하면 음성 진단 정보가 표시됩니다.';els.debugLog.scrollTop=els.debugLog.scrollHeight;if(s==='failed'&&state?.error?.includes('음성'))els.debugDetails.open=true;els.donePill.textContent=s==='summarizing'?'요약 중':s==='failed'?'중단됨':state?.summary?.status==='partial'?'일부 완료':state?.summary?'노트 완성':'인식 완료';els.doneSummary.textContent=state?`화면 ${state.counts.visual} · 음성 ${state.counts.audio}`:'';renderSummary(state?.summary);setWorking();controls();updateReadyCard();if(shouldAutoSummarize(was,state))autoSummarize();}
+function render(next){if(next&&state&&next.generation<state.generation)return;const was=state?.status;state=next||null;const s=state?.status;setStatus(label[s]||'세션 없음');setError(state?.error);if(onboardingOpen)setStage('onboard');else if(!state||s==='disposed')setStage('ready');else if(active(state)&&s!=='summarizing')setStage('live');else setStage('done');els.cntSlides.textContent=state?.counts?.visual||0;els.cntVoice.textContent=state?.counts?.audio||0;els.cntQueue.textContent=(state?.backlog?.images||0)+(state?.backlog?.audio||0);els.feedLines.textContent='';const recent=state?.recent||[],gaps=state?.gaps||[];if(recent.length){for(const item of recent){const row=document.createElement('div'),time=document.createElement('span');time.className='t';time.textContent=`${format(item.time)} · ${item.source==='asr'?'음성':'화면'}`;row.append(time,document.createTextNode(item.text));els.feedLines.append(row);}}else if(gaps.length){for(const gap of gaps.slice(-3)){const row=document.createElement('div');row.textContent=`${format(gap.time)} · ${gap.reason}`;els.feedLines.append(row);}}else els.feedLines.textContent=active(state)?'인식 결과를 기다리는 중입니다.':'표시할 처리 구간이 없습니다.';els.debugLog.textContent=state?.debug?.join('\n')||'세션을 시작하면 음성 진단 정보가 표시됩니다.';els.debugLog.scrollTop=els.debugLog.scrollHeight;if(s==='failed'&&state?.error?.includes('음성'))els.debugDetails.open=true;els.donePill.textContent=s==='summarizing'?'요약 중':s==='failed'?'중단됨':state?.summary?.status==='partial'?'일부 완료':state?.summary?'노트 완성':'인식 완료';els.doneSummary.textContent=state?`화면 ${state.counts.visual} · 음성 ${state.counts.audio}`:'';renderSummary(state?.summary);setWorking();controls();updateReadyCard();if(shouldAutoSummarize(was,state))autoSummarize();}
 // 캡처가 끝나면 노트 화면이 비어 있으면 안 된다. 요약을 한 번 자동으로 이어 돌린다 —
 // 중지 버튼뿐 아니라 영상 종료·트랙 종료 같은 자동 종료 경로도 모두 여기(completed 전이)로 모인다.
 // 세션당 1회로 제한한다: 실패한 요약을 무한히 다시 부르지 않기 위해서다.
@@ -191,8 +191,7 @@ chrome.runtime.onMessage.addListener((message,sender)=>{try{
   if(url.pathname==='/offscreen.html'&&message.type==='BG_PROGRESS')bgShow({text:`처리 중 · ${BG_STATE[message.state]||message.state}`,progress:Object.entries(message.counts||{}).filter(([k])=>BG_COUNT[k]).map(([k,n])=>`${BG_COUNT[k]} ${n}`).join(' · '),busy:true,cancel:true});
   else if(url.pathname==='/background.js'&&message.type==='BG_DONE'){bg.code=message.code;if(message.packageId)lastPackageId=bg.pkg=message.packageId;bgShow({...bgDoneView(message),open:!!message.packageId});}
 }catch{}});
-(async()=>{settings=await loadSettings();els.ocrEnabledToggle.checked=settings.ocrEnabled!==false;els.langSelect.value=settings.whisperLang||'auto';await loadTabs();const result=await action('GET_STATE');render(result?.state||null);els.obConsent.checked=!!settings.consentAccepted;els.obWhisper.checked=!!settings.whisperEnabled;els.obDone.disabled=!els.obConsent.checked;updateReadyCard();bgInit();})().catch(error=>setError(error.message));
-els.obConsent.addEventListener('change',()=>els.obDone.disabled=!els.obConsent.checked);els.obDone.addEventListener('click',async()=>{settings=await loadSettings();settings.consentAccepted=els.obConsent.checked;settings.whisperEnabled=els.obWhisper.checked;await saveSettings({consentAccepted:settings.consentAccepted,whisperEnabled:settings.whisperEnabled});setStage('ready');});
+(async()=>{settings=await loadSettings();els.ocrEnabledToggle.checked=settings.ocrEnabled!==false;els.langSelect.value=settings.whisperLang||'auto';await loadTabs();const result=await action('GET_STATE');const ob=await obCheck();const steps=onboardingSteps(settings,ob.session,ob.plan,ob.libraryKey);if(steps.length)openOnboarding(steps);els.obWhisper.checked=!!settings.whisperEnabled;render(result?.state||null);updateReadyCard();bgInit();})().catch(error=>setError(error.message));
 
 // 계정 메뉴. 오류는 메뉴 안에 짧게 알리고 던지지 않는다.
 const menu=$('accountMenu'),menuBtn=$('menuBtn'),amHead=$('amHead'),amErr=$('amErr'),PLANS={free:'Free',essential:'Essential',professional:'Pro'};
@@ -220,7 +219,16 @@ async function openMenu(){
 }
 async function login(){
   amErrShow('');
-  try{await Account.signIn();await openMenu();}catch{amErrShow('로그인하지 못했습니다. 다시 시도해 주세요.');}
+  try{await Account.signIn();}catch{amErrShow('로그인하지 못했습니다. 다시 시도해 주세요.');return;}
+  await openMenu();
+  // 로그인으로 달라진 계정·플랜으로 온보딩 필요 여부를 다시 본다(새 동의·보관함 암호가 필요할 수 있다).
+  try{
+    settings=await loadSettings();
+    const{libraryKey}=await obCheck();
+    const steps=onboardingSteps(settings,obSession,obPlan,libraryKey);
+    if(steps.length)openOnboarding(steps);else onboardingOpen=false;
+    render(state);bgInit();
+  }catch{}
 }
 menuBtn.addEventListener('click',()=>menu.hidden?openMenu():closeMenu(true));
 menu.addEventListener('click',async e=>{
@@ -238,4 +246,92 @@ document.addEventListener('keydown',e=>{
     const it=[...(amHead.querySelector('button')?[amHead.querySelector('button')]:[]),...menuItems()],i=it.indexOf(document.activeElement);
     e.preventDefault();it[(i+(e.key==='ArrowDown'?1:-1)+it.length)%it.length]?.focus();
   }
+});
+
+// ── 온보딩: 계정 → 동의 → 보관함 암호 → 받아쓰기. 부족한 단계만 연다(openOnboarding).
+// render는 settings.consentAccepted가 아니라 이 플래그로 온보딩 화면을 고른다 - 동의는 끝났는데 보관함 암호가 없는 경우처럼 부분만 다시 열어야 해서다.
+let onboardingOpen=false,obSession=null,obPlan='free',obSteps=[];
+// 지금 상태의 로그인 세션·플랜·보관함 키. 각 조회 실패는 로그아웃·Free·키 없음으로 접는다(Account·NoteFile이 없는 테스트 환경 포함).
+async function obCheck(){
+  try{obSession=await Account.getSession();}catch{obSession=null;}
+  obPlan='free';
+  if(obSession){const acc=await Account.fetchAccount(obSession).catch(()=>null);obPlan=acc?.plan||'free';}
+  let libraryKey=null;
+  try{libraryKey=await NoteFile.loadLibraryKey(await PackageStore.indexedDbAdapter());}catch{}
+  return {session:obSession,plan:obPlan,libraryKey};
+}
+// 열어야 할 온보딩 단계 목록. 모두 갖췄으면 [].
+function onboardingSteps(settings,session,plan,libraryKey){
+  const steps=[],paid=plan!=='free',bg=settings?.backgroundConsent||{};
+  if(!session)steps.push('account');
+  if(!summaryAllowed(settings)
+    ||(paid&&settings?.visionConsent===true&&!cloudRecognitionAllowed(settings))
+    ||(paid&&(bg.personalUse===true||bg.accessRights===true)&&!backgroundAllowed(settings)))steps.push('consent');
+  if(!libraryKey)steps.push('passphrase');
+  if(settings?.consentAccepted!==true)steps.push('engine');
+  return steps;
+}
+function obShowAccount(){
+  els.obLogin.hidden=!!obSession;els.obAccount.hidden=!obSession;
+  if(!obSession)return;
+  let email='';
+  try{email=Account.decodeUser(obSession.access_token).email;}catch{}
+  els.obAccount.textContent=`${email||'로그인됨'} · ${PLANS[obPlan]||obPlan}`;
+}
+function obValidate(){
+  let ok=true;
+  if(obSteps.includes('account')&&!obSession)ok=false;
+  if(obSteps.includes('consent')&&!els.obSummary.checked)ok=false;
+  if(obSteps.includes('passphrase')&&!(els.obPass.value.length>=12&&els.obPass.value===els.obPass2.value))ok=false;
+  els.obDone.disabled=!ok;
+}
+function obPassHint(){
+  const a=els.obPass.value,b=els.obPass2.value;
+  const msg=a&&a.length<12?'암호는 12자 이상이어야 합니다.':b&&a!==b?'두 암호가 서로 다릅니다.':'';
+  els.obPassErr.textContent=msg;els.obPassErr.hidden=!msg;
+}
+function openOnboarding(steps){
+  obSteps=steps;onboardingOpen=true;
+  for(const section of els.onboard.querySelectorAll?.('section[data-step]')||[])section.hidden=!steps.includes(section.dataset.step);
+  for(const row of [els.obCloudRow,els.obPersonalRow,els.obAccessRow])if(row)row.hidden=obPlan==='free';
+  els.obError.hidden=true;
+  obShowAccount();obValidate();
+  setStage('onboard');
+}
+els.obLogin.addEventListener('click',async()=>{
+  els.obLogin.disabled=true;els.obAccountErr.hidden=true;
+  try{
+    await Account.signIn();
+    settings=await loadSettings();
+    const{libraryKey}=await obCheck();
+    // 로그인으로 알게 된 플랜이 유료면 새로 필요해진 동의 단계를 더 연다. 계정 단계는 <email> · <plan> 확인을 보여 주기 위해 그대로 둔다.
+    const next=onboardingSteps(settings,obSession,obPlan,libraryKey);
+    if(obSteps.includes('account')&&!next.includes('account'))next.unshift('account');
+    openOnboarding(next);
+  }catch(error){els.obAccountErr.textContent=error.message||'로그인하지 못했습니다. 다시 시도해 주세요.';els.obAccountErr.hidden=false;}
+  finally{els.obLogin.disabled=false;obValidate();}
+});
+els.obSummary.addEventListener('change',obValidate);
+for(const input of [els.obPass,els.obPass2])input.addEventListener('input',()=>{obPassHint();obValidate();});
+els.obDone.addEventListener('click',async()=>{
+  els.obDone.disabled=true;els.obError.hidden=true;
+  try{
+    const patch={remoteSummaryConsent:true,summaryConsentVersion:TERMS_VERSION,summaryConsentAt:Date.now(),consentAccepted:true};
+    if(obSteps.includes('consent')){
+      if(!els.obCloudRow.hidden){patch.visionConsent=els.obCloud.checked;patch.visionConsentVersion=els.obCloud.checked?TERMS_VERSION:'';patch.visionConsentAt=els.obCloud.checked?Date.now():0;}
+      if(!els.obPersonalRow.hidden)patch.backgroundConsent={personalUse:els.obPersonal.checked,accessRights:els.obAccess.checked,version:TERMS_VERSION,at:Date.now()};
+    }
+    if(obSteps.includes('engine'))patch.whisperEnabled=els.obWhisper.checked;
+    await saveSettings(patch);
+    if(obSteps.includes('passphrase')){
+      try{await NoteFile.saveLibraryKey(await PackageStore.indexedDbAdapter(),els.obPass.value);}
+      catch(error){els.obPassErr.textContent=error.message;els.obPassErr.hidden=false;return;}
+      finally{els.obPass.value='';els.obPass2.value='';}
+    }
+    settings=await loadSettings();
+    onboardingOpen=false;
+    render(state);
+    bgInit();
+  }catch(error){els.obError.textContent=error.message;els.obError.hidden=false;}
+  finally{obValidate();}
 });
