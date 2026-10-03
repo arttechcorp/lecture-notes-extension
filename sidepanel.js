@@ -309,7 +309,7 @@ function findPlaylist(tabId,ms=8000){
 // source가 없으면 영상 목록을 찾는다(처음 시작, 그리고 강의 탭을 다시 연 뒤의 재개). 있으면 같은 jobId로 그대로 다시 보낸다.
 async function bgStart(jobId=crypto.randomUUID(),source=null){
   const tab=tabs.find(t=>String(t.id)===els.tabSelect.value);
-  bg={jobId,source};
+  bg={jobId,source};if(bgEl.bgSave)bgEl.bgSave.hidden=true; // 지난 작업의 저장 안내를 새 작업에 남기지 않는다
   if(!tab){bgShow({text:'선택한 강의 탭이 없습니다. 강의 창에서 확장을 다시 여세요.'});return;}
   if(YOUTUBE.test(new URL(tab.url).hostname)){bgShow({text:YT_MSG});return;}
   if(!bgConsented()){settings=await loadSettings();if(!bgConsented()){bgShow({text:'백그라운드 처리에는 이용 동의 2종과 클라우드 인식(화면·음성 전송) 동의가 필요합니다.',consent:true});return;}}
@@ -340,7 +340,7 @@ async function bgInit(){
   bg={jobId:open.jobId,code:open.code};
   if(open.running){bgRunShow(open.state);return;}
   const reason=bgReason(open.code);
-  bgShow({text:`이어서 처리할 작업이 있습니다: ${BG_STATE[open.state]||open.state}${reason?` — ${reason}`:''}`,retry:true,discard:true});
+  bgShow({text:`이어서 처리할 작업이 있습니다: ${BG_STATE[open.state]||({paused:'일시정지',failed:'중단'})[open.state]||'처리 중'}${reason?` — ${reason}`:''}`,retry:true,discard:true});
 }
 // 유료는 백그라운드가 주 경로: 카드를 준비 화면 맨 위(실시간 캡처 블록보다 위)로 옮기고 주 버튼으로 만든다. 로그아웃하면 원래 자리(stageReady 맨 끝)로 되돌린다.
 function bgLayout(paid){
@@ -372,14 +372,14 @@ bgEl.bgConsentBtn.addEventListener('click',async()=>{
 bgEl.bgSummaryLink.addEventListener('click',async()=>{if(await openOnboarding(['consent'])===true){settings=await loadSettings();bgEl.bgSummaryLink.hidden=true;}});
 // 인식만 끝난 작업의 노트 만들기: 요약 동의가 없으면 동의 단계부터, 그 뒤 보관함 인식 자료로 다시 만든다(LIB_REGENERATE).
 bgEl.bgMakeBtn.addEventListener('click',async()=>{
-  if(!bg?.pkg)return;
+  const pkg=bg?.pkg;if(!pkg)return; // 동의 창을 닫으면 bgInit()이 bg를 새로 만든다 — 시작할 때의 패키지를 쥐고 간다
   bgEl.bgMakeBtn.disabled=true;
   try{
     settings=settings||await loadSettings();
     if(!summaryAllowed(settings)&&await openOnboarding(['consent'])!==true)return;
-    const r=await rpc({type:'LIB_REGENERATE',packageId:bg.pkg,options:{syntheticExamples:false,externalAugmentation:false}});
+    const r=await rpc({type:'LIB_REGENERATE',packageId:pkg,options:{syntheticExamples:false,externalAugmentation:false}});
     if(!r?.ok){bgEl.bgStatus.textContent=r?.error||'노트를 만들지 못했습니다.';return;}
-    renderSaved(bgEl.bgSave,r.saved||null,bg.pkg);
+    renderSaved(bgEl.bgSave,r.saved||null,pkg);
     bgEl.bgMakeBtn.hidden=true;
     bgEl.bgStatus.textContent=`노트 준비됨${r.status==='partial'?' (일부 섹션 제외)':''}`;
   }finally{bgEl.bgMakeBtn.disabled=false;}
