@@ -72,7 +72,7 @@ async function cropRegions(blob,doc){
 // 끝난 노트(또는 인식 결과만)를 로컬 보관함에 둔다: 메타·재생성 입력·노트·크롭(F#·G# 키로 옮김). 강의 내용은 기기 안 암호문으로만 남는다.
 async function saveLibrary(pkg,input,res,{source,host}){
   const store=await storeP,crops={},note=res.note||null;
-  for(const [id,key] of Object.entries(res.cropMap||{})){const b=await store.getBytes("blobs",`${pkg}:c:${key.replace("/","~")}`).catch(()=>null);if(b)crops[id]=b;}
+  for(const [id,key] of Object.entries(res.cropMap||{})){const b=await store.getBytes("blobs",`${pkg}:c:${key.replace(/[^A-Za-z0-9_.:-]/g,"_")}`).catch(()=>null);if(b)crops[id]=b;}
   const questions=note?note.sections.flatMap(s=>s.blocks).filter(b=>b.type==="B14").reduce((n,b)=>n+b.content.items.length,0):0;
   await NoteLibrary.saveResult(store,{packageId:pkg,input,note,crops,recognition:res.recognition??null,meta:{packageId:pkg,title:input.meta?.title??null,host,source,tier:input.tier,
     status:res.status==="recognition-only"?"recognition-only":note?.status||"partial",durationSec:note?Math.max(0,note.meta.processed.t1-note.meta.processed.t0):null,
