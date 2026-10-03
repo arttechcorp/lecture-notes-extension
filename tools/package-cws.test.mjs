@@ -33,7 +33,7 @@ test("1. 런타임 의존성 폐쇄 집합 검증", async () => {
     "library-page.js",
     "note.html",
     "note-page.js",
-    "landing/product-panel.css",
+    "sidepanel.css",
     "lib/ppocr-runtime.mjs",
     "lib/whisper-webgpu-worker.js",
     "lib/pcm-worklet.js",
@@ -281,4 +281,12 @@ test("10. 새 미디어 디먹스와 번들한 mux.js는 미디어 감사를 무
 // 호출부(get)는 항상 cache:"no-store"를 주므로 실질은 안전하지만 규칙은 글자 그대로 검사한다.
 test("11. lib/media-source.js 의 미디어 감사 결과", () => {
   assert.deepEqual(auditSecurityAndInvariants(["lib/media-source.js"]), []);
+});
+
+test("12. 사이드패널과 런타임 클로저는 landing/ 파일을 참조·포함하지 않음", () => {
+  const html = fs.readFileSync(path.join(ROOT, "sidepanel.html"), "utf8");
+  assert.ok(!html.includes("landing/"), "sidepanel.html은 landing/ 경로를 참조하면 안 됨");
+  const { files } = resolveRuntimeClosure();
+  assert.ok(!files.some(f => f.startsWith("landing/")), "패키징 클로저에 landing/ 파일이 들어가면 안 됨");
+  assert.match(auditSecurityAndInvariants(["landing/product-panel.css"]).join("\n"), /랜딩 파일 포함/);
 });

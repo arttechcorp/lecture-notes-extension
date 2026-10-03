@@ -4,8 +4,8 @@
 
 ## 제품 패널과 랜딩 체험
 
-- `sidepanel.html`과 `landing/demo-panel.html`은 `landing/product-panel.css`를 공유한다. 이 CSS의 제품 패널 규칙은 두 화면에 함께 영향을 준다.
-- 제품은 `landing/vendor/markdown-it.min.js`와 `landing/note-viewer.js`를 직접 로드한다. 랜딩의 부모 문서(`landing/index.html`, `hero-mockup.html`)도 두 파일을 로드하고, 같은 출처의 `demo-panel.html` iframe 문서에 `NoteViewer`를 연결해 조작한다.
+- 확장과 랜딩은 파일을 공유하지 않는다(2026-10-03 분리). 확장 사이드 패널은 루트 `sidepanel.css`를, 랜딩 히어로 목업(`landing/demo-panel.html`)은 `landing/product-panel.css`를 쓴다. 분리 시점에 둘은 같은 규칙이었고 이후 따로 바뀐다 — 패널을 고쳐도 목업은 그대로다. 패키저는 `landing/` 파일을 예외 없이 막는다.
+- 랜딩의 부모 문서(`landing/index.html`, `hero-mockup.html`)는 `landing/vendor/markdown-it.min.js`와 `landing/note-viewer.js`를 로드하고, 같은 출처의 `demo-panel.html` iframe 문서에 `NoteViewer`를 연결해 조작한다. 확장은 이 두 파일을 쓰지 않는다.
 - 데모 iframe은 `sandbox="allow-same-origin"`이라 내부 스크립트는 실행되지 않는다. 부모의 `hero-mockup.js`가 `contentDocument`를 통해 준비된 체험을 제어한다.
 - `landing/demo-panel.html`(캡처 없는 데모)에서는 `#result` textarea가 여전히 canonical Markdown을 보존하고, `#notePreview`가 안전하게 렌더링된 HTML을 표시한다. 데모의 읽기·편집·복사·다운로드와 요약/타임라인 전환은 이 Markdown을 기준으로 동작한다.
 - 실제 제품 `sidepanel.html`은 다르다. 캡처 상태의 canonical 소유자는 `offscreen.js`의 `CaptureSession`/`EvidenceStore`다. `sidepanel.js`는 화면·제어만 담당하는 thin RPC adapter이며, 그 안의 `#result` textarea는 `SESSION_STATE` 메시지로 받은 `state.summary`를 매번 다시 렌더링한 표시용 사본일 뿐 편집 가능한 canonical 원본이 아니다.

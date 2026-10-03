@@ -1,7 +1,7 @@
 // Chrome Web Store (CWS) 배포용 보안 패키징 및 릴리스 파이프라인
 // PRD v1.1.0 (review.md 피드백 반영 완료)
 // 1) 교차 플랫폼 사전 테스트 게이트 (node --test)
-// 2) 런타임 의존성 폐쇄(Dependency Closure) 재귀 수집 (landing/product-panel.css, .mjs, 워커, ONNX 가중치 포함)
+// 2) 런타임 의존성 폐쇄(Dependency Closure) 재귀 수집 (sidepanel.css, .mjs, 워커, ONNX 가중치 포함)
 // 3) 정적 보안 휴리스틱(API Key/시크릿) 및 AGENTS.md 불변식 정적 감사
 // 4) 순수 JS 결정론적 ZIP 아카이빙 (고정 타임스탬프, 알파벳 경로 정렬, 쉘 호출 배제)
 // 5) 사후 무결성 언팩 CRC32 검증 및 외부 build-provenance.json / SHA-256 생성
@@ -127,7 +127,7 @@ export function resolveRuntimeClosure() {
 
     if (currentRel.endsWith(".html")) {
       const content = fs.readFileSync(currentAbs, "utf8");
-      // <link rel="stylesheet" href="..."> (e.g. landing/product-panel.css)
+      // <link rel="stylesheet" href="..."> (e.g. sidepanel.css)
       const cssMatches = content.matchAll(/<link\s+[^>]*href=["']([^"'#?]+)[^"']*["'][^>]*>/gi);
       for (const match of cssMatches) {
         const href = match[1].trim();
@@ -239,7 +239,7 @@ export function resolveRuntimeClosure() {
     if (file.startsWith("server/") || file.startsWith("tools/") || file.startsWith("docs/")) {
       continue;
     }
-    if (file.startsWith("landing/") && file !== "landing/product-panel.css") {
+    if (file.startsWith("landing/")) {
       // 마케팅용 랜딩 파일(demo-panel.html, index.html 등) 배제
       continue;
     }
@@ -248,7 +248,7 @@ export function resolveRuntimeClosure() {
 
   finalFiles.sort();
   console.log(`✅ [Step 2/5 통과] 런타임 의존성 폐쇄 집합: 총 ${finalFiles.length}개 파일 식별.`);
-  console.log(`   - 필수 런타임 포함 확인: landing/product-panel.css: ${finalFiles.includes("landing/product-panel.css") ? "OK" : "MISSING"}`);
+  console.log(`   - 필수 런타임 포함 확인: sidepanel.css: ${finalFiles.includes("sidepanel.css") ? "OK" : "MISSING"}`);
   console.log(`   - 필수 런타임 포함 확인: offscreen.html: ${finalFiles.includes("offscreen.html") ? "OK" : "MISSING"}`);
   console.log(`   - 필수 런타임 포함 확인: lib/ppocr-runtime.mjs: ${finalFiles.includes("lib/ppocr-runtime.mjs") ? "OK" : "MISSING"}\n`);
 
@@ -323,6 +323,11 @@ export function auditSecurityAndInvariants(files) {
     // 개발 전용 파일은 내용과 무관하게 패키지에 들어가면 안 되므로 읽기 전에 차단한다
     if (/^admin\.(html|js)$/.test(relPath)) {
       errors.push(`[개발 전용 파일 포함] ${relPath} - 어드민 페이지는 웹스토어 패키지에 들어가면 안 됩니다`);
+      continue;
+    }
+    // 랜딩 마케팅 파일도 예외 없이 전부 차단한다
+    if (relPath.startsWith("landing/")) {
+      errors.push(`[랜딩 파일 포함] ${relPath} - 랜딩 페이지 파일은 웹스토어 패키지에 들어가면 안 됩니다`);
       continue;
     }
     const absPath = path.join(ROOT, relPath);
@@ -578,7 +583,7 @@ function verifyAndGenerateProvenance(zipBuffer, zipFilePath, fileManifest, versi
   }
 
   // 3. 필수 엔트리포인트 검사
-  const requiredFiles = ["manifest.json", "offscreen.html", "offscreen.js", "landing/product-panel.css"];
+  const requiredFiles = ["manifest.json", "offscreen.html", "offscreen.js", "sidepanel.css"];
   for (const req of requiredFiles) {
     if (!unpackedNames.includes(req)) {
       throw new Error(`무결성 실패: 필수 파일 누락 in ZIP -> ${req}`);
