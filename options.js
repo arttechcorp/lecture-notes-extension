@@ -68,6 +68,8 @@ async function wireAccount(settings){
     const planEl=$('planState');
     if(planEl)planEl.textContent=!signed?'':acc?.plan?(PLANS[acc.plan]||acc.plan)+' 플랜'+(acc.minutes_limit!=null?` · 이번 달 ${acc.minutes_used??0}/${acc.minutes_limit}분`:''):'플랜: 확인 못 함';
     for(const id of['ocrCard','whisperToggle','whisperModelField','speedField']){const el=$(id);if(el)el.hidden=paid;}
+    const voiceH=$('voiceHeading');if(voiceH)voiceH.textContent=paid?'화면·음성 인식':'음성 받아쓰기';
+    const bannerText=$('bannerRecogText');if(bannerText)bannerText.textContent=paid?'화면과 음성은 서버에서 인식하고 저장하지 않습니다.':'화면과 음성은 기기 안에서 인식합니다';
     const srv=$('serverRecog');if(srv)srv.hidden=!paid;
     const cs=$('serverConsentState');if(cs)cs.textContent=paid?'클라우드 인식 동의: '+(cloudRecognitionAllowed(s)?'완료':'필요 — 사이드 패널에서 동의'):'';
     const nc=$('noteOptsCard');if(nc)nc.hidden=!paid;
@@ -85,7 +87,7 @@ async function wireAccount(settings){
 function wireNoteOptions(s){
   const a=$('noteSyntheticCb'),b=$('noteAugmentCb');if(!a||!b)return;
   a.checked=s.noteOptions?.syntheticExamples===true;b.checked=s.noteOptions?.externalAugmentation===true;
-  const save=async()=>{try{await saveSettings({noteOptions:{syntheticExamples:a.checked,externalAugmentation:b.checked}});notice('설정이 저장되었습니다');}catch(error){notice(error.message);}};
+  const save=async()=>{const aBefore=a.checked,bBefore=b.checked;try{await saveSettings({noteOptions:{syntheticExamples:a.checked,externalAugmentation:b.checked}});notice('설정이 저장되었습니다');}catch(error){a.checked=aBefore;b.checked=bBefore;notice(error.message);}};
   a.addEventListener('change',save);b.addEventListener('change',save);
 }
 // 개발자 카드: 스토어 배포 빌드(manifest에 update_url)에서는 숨기고, 압축 풀린 개발 빌드에서만 연다.
