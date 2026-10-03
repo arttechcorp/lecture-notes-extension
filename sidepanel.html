@@ -270,7 +270,7 @@
       <label class="checkline"><input type="checkbox" id="obSummary" />
         <span><b>[필수] 외부 요약 처리</b><br>화면·음성을 기기에서 글자로 바꾼 뒤, 그 텍스트만 Summrizei 서비스를 거쳐 AI 모델로 보내 노트를 만듭니다. 원본 영상·음성은 보내지 않습니다(유료 클라우드 인식을 켠 경우 제외). 서비스와 모델 제공자는 처리 중에만 내용을 보고 저장하지 않습니다.</span></label>
       <label class="checkline" id="obCloudRow"><input type="checkbox" id="obCloud" />
-        <span><b>[유료·선택] 클라우드 인식</b><br>유료 요금제에서는 강의 화면과 음성을 Summrizei 서비스로 보내 인식합니다. 서비스와 모델 제공자는 인식할 때만 내용을 보고 저장하지 않습니다. 학번·이름 같은 반복 워터마크 영역은 가린 뒤 보냅니다.</span></label>
+        <span><b>[유료] 서버 인식</b><br>유료 요금제에서는 강의 화면과 음성을 Summrizei 서비스로 보내 인식합니다. 서비스와 모델 제공자는 인식할 때만 내용을 보고 저장하지 않습니다. 학번·이름 같은 반복 워터마크 영역은 가린 뒤 보냅니다.</span></label>
       <label class="checkline" id="obPersonalRow"><input type="checkbox" id="obPersonal" />
         <span><b>[유료·선택] 이용 동의</b><br><strong>개인 소장·학습 목적으로만</strong> 사용합니다. 받은 영상·음성과 만든 노트를 다른 사람에게 배포하거나 판매하지 않습니다.</span></label>
       <label class="checkline" id="obAccessRow"><input type="checkbox" id="obAccess" />
@@ -294,7 +294,7 @@
     <span class="c">
       <b>말소리 받아쓰기</b>
       <span class="why">Whisper가 기기 안에서 강의 음성을 글로 옮깁니다. 처음 켜면 모델을 내려받습니다.<br>화면 글자는 기기 안의 PP-OCRv5로 읽습니다.</span>
-      <label class="checkline"><input type="checkbox" id="obWhisper" />
+      <label class="checkline"><input type="checkbox" id="obWhisper" checked />
         <span>말소리도 받아쓰기 (권장)</span></label>
     </span>
   </section>
@@ -375,6 +375,14 @@
       <span style="font-weight: 600; color: var(--ink);">화면 글자 읽기 (OCR)</span>
     </label>
     <p class="detail" style="margin: 4px 0 0;">끄면 화면 캡처 없이 음성(Whisper)만으로 깨끗하게 노트를 만듭니다.</p>
+  </div>
+
+  <div class="field" id="whisperField">
+    <label class="checkline" style="cursor: pointer;">
+      <input type="checkbox" id="whisperEnabledToggle" />
+      <span style="font-weight: 600; color: var(--ink);">말소리 받아쓰기</span>
+    </label>
+    <p class="detail" style="margin: 4px 0 0;">기기 안의 Whisper가 강의 음성을 글로 옮깁니다. 끄면 음성은 기록되지 않습니다.</p>
   </div>
 
   <div class="field" id="cropField">
