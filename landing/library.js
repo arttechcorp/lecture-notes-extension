@@ -13,6 +13,8 @@
   const folderInput = $("folderInput"), filesInput = $("filesInput");
   const fileStatus = $("fileStatus"), keyForm = $("keyForm"), passInput = $("passInput");
   const openBtn = $("openBtn"), keyStatus = $("keyStatus"), failList = $("failList");
+  const stepFile = $("stepFile"), stepKey = $("stepKey"), openBar = $("openBar");
+  const openCount = $("openCount"), addBtn = $("addBtn");
   const listView = $("listView"), cards = $("cards"), noteView = $("noteView");
   const backLink = $("backLink"), noteTitle = $("noteTitle"), noteContent = $("noteContent");
   const answersSel = $("answersSel"), examCb = $("examCb"), writingCb = $("writingCb");
@@ -29,6 +31,8 @@
   let skipped = 0;
   let current = null;            // 지금 열린 {meta, note, crops}
   let busy = false;
+  let adding = false;            // 이미 연 노트가 있는데 파일을 더 불러오는 중
+  let lastCard = null;           // 노트에서 목록으로 돌아갈 때 포커스를 돌려줄 카드
 
   // h:mm:ss(1시간 이상) 또는 m:ss. durationSec가 null이면 빈 문자열.
   const fmtDur = s => {
@@ -125,6 +129,16 @@
     }
   }
 
+  // 노트가 하나라도 열려 있으면 1·2단계를 접고 간결한 열림 표시줄을 단다.
+  // 노트를 보는 동안에는 목록과 "파일 더 불러오기"를 숨긴다.
+  function paintChrome() {
+    const unlocked = entries.size > 0;
+    stepFile.hidden = stepKey.hidden = unlocked && !adding;
+    openBar.hidden = !unlocked;
+    openCount.textContent = `노트 ${entries.size}개 열림`;
+    addBtn.hidden = !noteView.hidden;
+  }
+
   function paintList() {
     const list = [...entries.values()].sort((a, b) =>
       String(b.meta?.updatedAt ?? "").localeCompare(String(a.meta?.updatedAt ?? "")));
@@ -149,11 +163,11 @@
         if (m.counts.questions != null) span(`문제 ${m.counts.questions}`);
       }
       c.append(h, meta);
-      c.addEventListener("click", () => openNote(e));
+      c.addEventListener("click", () => { lastCard = c; openNote(e); });
       cards.append(c);
     }
     listView.hidden = !list.length;
-    lockBtn.hidden = !(list.length || keys.size);
+    paintChrome();
   }
 
   function openNote(e) {
@@ -161,17 +175,23 @@
     noteTitle.textContent = e.meta?.title || "제목 없는 강의";
     listView.hidden = true;
     noteView.hidden = false;
+    paintChrome();
     window.scrollTo(0, 0);
     render("web");
+    noteTitle.focus();
   }
 
   function closeNote() {
+    const back = lastCard;
+    lastCard = null;
     current = null;
     noteTitle.textContent = "";
     noteContent.textContent = "";
     warnCount.hidden = true;
     noteView.hidden = true;
     listView.hidden = !entries.size;
+    paintChrome();
+    if (back && back.isConnected) back.focus();
   }
 
   // 복호화: 같은 솔트를 쓰는 파일끼리 묶어 키는 솔트마다 한 번만 만든다
@@ -213,6 +233,7 @@
 
     busy = false;
     keyStatus.textContent = "";
+    adding = failList.children.length > 0; // 실패 줄이 남았으면 단계를 열어 둬서 오류가 보이게 한다
     paintFiles();
     paintList();
   });
@@ -241,6 +262,13 @@
   });
   window.addEventListener("afterprint", () => { if (current && !noteView.hidden) render("web"); });
 
+  // 파일 더 불러오기: 이미 연 노트는 그대로 두고 1·2단계를 다시 연다.
+  addBtn.addEventListener("click", () => {
+    adding = true;
+    paintChrome();
+    passInput.focus();
+  });
+
   // 잠그기: 복호화 결과·키·불러온 파일을 전부 버리고 DOM을 비워 1단계로 돌아간다.
   lockBtn.addEventListener("click", () => {
     closeNote();
@@ -252,7 +280,8 @@
     failList.textContent = "";
     keyStatus.textContent = "";
     listView.hidden = true;
-    lockBtn.hidden = true;
+    adding = false;
+    paintChrome();
     paintFiles();
   });
 })();

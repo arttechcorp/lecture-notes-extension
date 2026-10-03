@@ -41,7 +41,10 @@
   #openBtn{min-height:40px}
   .fail{margin:10px 0 0;padding-left:18px;font-size:12px;color:var(--accentText)}
   .fail li+li{margin-top:2px}
-  .privacy{margin:26px 0 0;font-size:12px;color:var(--muted)}
+  .open-bar{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:0 0 4px;padding:10px 14px;background:var(--paper);border:1px solid var(--line);border-radius:10px}
+  .open-bar .count{margin:0;font-size:13px;font-weight:600}
+  .open-bar .grow{flex:1}
+  .privacy{margin:12px 0 20px;font-size:12px;color:var(--muted)}
   .cards{display:grid;gap:12px}
   .card{display:block;width:100%;padding:14px 16px;text-align:left;background:var(--paper);border:1px solid var(--line);border-radius:10px;color:inherit;font:inherit;cursor:pointer}
   .card:hover{border-color:var(--accentText)}
@@ -50,6 +53,7 @@
   .back{display:inline-flex;align-items:center;min-height:36px;color:var(--accentText);text-decoration:none;font-size:13px}
   .back:hover{text-decoration:underline}
   .note-title{margin:.1em 0 0;font-size:20px;font-weight:600}
+  .note-title:focus{outline:none}
   .toolbar{margin-top:12px;padding:10px 0;display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
   .toolbar label{display:inline-flex;align-items:center;gap:6px;min-height:36px;font-size:13px;cursor:pointer}
   .toolbar select{min-height:36px;padding:0 8px;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);font:13px var(--sans)}
@@ -58,7 +62,7 @@
   .notice{margin:12px 0 0;font-size:12px;color:var(--muted)}
   #noteContent{margin-top:8px}
   @media print{
-    .skip-link,.lib-header,.step,.privacy,.back,.toolbar,.notice,#listView{display:none}
+    .skip-link,.lib-header,.step,.open-bar,.privacy,.back,.toolbar,.notice,#listView{display:none}
     .lib-main{max-width:none;padding:0}
   }
 </style>
@@ -66,13 +70,11 @@
 <body>
 <a class="skip-link" href="#main">본문으로 건너뛰기</a>
 <header class="lib-header"><div class="header-inner">
-  <a class="wordmark" href="/" aria-label="Summrizei 홈">Summr<i>zei</i></a>
+  <a class="wordmark" href="/" aria-label="Summrizei 홈">Summr<i>i</i>zei</a>
   <h1 class="header-title">내 노트</h1>
-  <span class="grow"></span>
-  <button id="lockBtn" type="button" hidden>잠그기</button>
 </div></header>
 <main id="main" class="lib-main">
-  <section class="step" aria-labelledby="stepFileH">
+  <section class="step" id="stepFile" aria-labelledby="stepFileH">
     <h2 id="stepFileH"><span class="stepno" aria-hidden="true">1</span> 노트 파일 불러오기</h2>
     <div class="drop" id="drop">
       <p class="drop-hint">다운로드 폴더의 Summrizei 폴더를 고르세요</p>
@@ -86,7 +88,7 @@
     </div>
     <p class="status" id="fileStatus" role="status"></p>
   </section>
-  <section class="step" aria-labelledby="stepKeyH">
+  <section class="step" id="stepKey" aria-labelledby="stepKeyH">
     <h2 id="stepKeyH"><span class="stepno" aria-hidden="true">2</span> 보관함 암호</h2>
     <form id="keyForm">
       <input id="passInput" type="password" autocomplete="current-password" required aria-label="보관함 암호" placeholder="보관함 암호">
@@ -95,13 +97,19 @@
     <p class="status" id="keyStatus" role="status"></p>
     <ul class="fail" id="failList"></ul>
   </section>
+  <div class="open-bar" id="openBar" hidden>
+    <p class="count" id="openCount"></p>
+    <span class="grow"></span>
+    <button id="addBtn" type="button">파일 더 불러오기</button>
+    <button id="lockBtn" type="button">잠그기</button>
+  </div>
   <p class="privacy">복호화는 이 브라우저 안에서만 일어나며, 파일·암호·노트 내용은 어디에도 전송하거나 저장하지 않습니다.</p>
   <section id="listView" aria-label="강의 목록" hidden>
     <div class="cards" id="cards"></div>
   </section>
   <section id="noteView" hidden>
     <a class="back" id="backLink" href="#">← 목록으로</a>
-    <h1 class="note-title" id="noteTitle"></h1>
+    <h1 class="note-title" id="noteTitle" tabindex="-1"></h1>
     <div class="toolbar" id="toolbar">
       <label>정답 위치
         <select id="answersSel">
