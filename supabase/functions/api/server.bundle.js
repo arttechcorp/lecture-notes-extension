@@ -2061,18 +2061,49 @@ function createServer(env=process.env,deps={}){
   // 모델별 제공자 슬롯. 대기자는 FIFO로 슬롯을 물려받고 타임아웃은 .refund로 구분한다 —
   // 슬롯을 얻지 못한 요청은 제공자에 아무것도 보내지 않았으므로 예약을 정확히 되돌려야 한다.
   const slot=s=>{s.running++;let used=false;return()=>{if(used)return;used=true;s.running--;const w=s.queue.find(x=>!x.done);if(w){s.queue.splice(s.queue.indexOf(w),1);w.grant();}};};
-  function acquire(model,signal,patient){
+  const busyErr=()=>Object.assign(new Error("provider_busy"),{refund:true,code:"provider_busy",retryAfterMs:2000});
+  const abortErr=patient=>patient?new Error("aborted"):Object.assign(new Error("aborted"),{refund:true,code:"request_cancelled_or_timed_out"});
+  function acquire(model,signal,patient,store){
     if(!model)return Promise.resolve(()=>{});
     let s=sems.get(model);if(!s)sems.set(model,s={running:0,queue:[]});
-    if(!s.queue.length&&s.running<(c.providerConcurrency[model]||16))return Promise.resolve(slot(s));
+    // 장부가 Postgres(store.slot)면 로컬 슬롯 뒤에 전역 슬롯도 잡는다 — 프로세스 메모리 세마포어는 워커마다 따로 센다.
+    // 로컬·전역 대기를 합쳐 providerQueueMs 안에 못 잡으면 로컬을 놓고 같은 provider_busy로 되돌린다.
+    const g=store&&store.slot,deadline=patient?Infinity:Date.now()+c.providerQueueMs;
+    const granted=local=>{
+      if(!g)return Promise.resolve(local);
+      let id=null;
+      const finish=()=>{let used=false;return()=>{if(used)return;used=true;if(id)g.release(id).catch(()=>{});local();};};
+      const pause=()=>new Promise((res,rej)=>{
+        if(signal?.aborted)return rej(abortErr(patient));
+        const left=deadline-Date.now();
+        if(!patient&&left<=0)return rej(busyErr());
+        const t=setTimeout(()=>{signal?.removeEventListener("abort",off);res();},Math.min(250,left));
+        const off=()=>{clearTimeout(t);rej(abortErr(patient));};
+        signal?.addEventListener("abort",off,{once:true});
+      });
+      return (async()=>{
+        for(;;){
+          if(signal?.aborted)throw abortErr(patient);
+          if(!patient&&Date.now()>=deadline)throw busyErr();
+          try{id=await g.acquire(model,c.providerConcurrency[model]||16,c.timeout+30000);}catch{}
+          // 꽉 찼거나(null) RPC가 실패해도 250ms 뒤 다시 본다. 잡는 사이 기한·연결이 닫혔으면 잡은 슬롯을 돌려놓는다.
+          if(id){
+            if((patient||Date.now()<deadline)&&!signal?.aborted)return finish();
+            g.release(id).catch(()=>{});id=null;
+          }
+          await pause();
+        }
+      })().catch(e=>{local();throw e;});
+    };
+    if(!s.queue.length&&s.running<(c.providerConcurrency[model]||16))return granted(slot(s));
     return new Promise((resolve,reject)=>{
       const w={};
       w.leave=(fn,v)=>{if(w.done)return;w.done=true;clearTimeout(w.timer);signal?.removeEventListener("abort",w.onAbort);const i=s.queue.indexOf(w);if(i>=0)s.queue.splice(i,1);fn(v);};
-      w.grant=()=>{if(w.done)return;w.done=true;clearTimeout(w.timer);signal?.removeEventListener("abort",w.onAbort);resolve(slot(s));};
+      w.grant=()=>{if(w.done)return;w.done=true;clearTimeout(w.timer);signal?.removeEventListener("abort",w.onAbort);granted(slot(s)).then(resolve,reject);};
       // patient(판정의 항목 단위 대기)은 큐 타임아웃을 두지 않고 abort도 refund 표시 없이 거절한다 —
       // 일부 항목이 이미 결제된 뒤 예약을 되돌리면 공짜 호출을 나눠 주는 셈이 된다.
-      if(!patient)w.timer=setTimeout(()=>w.leave(reject,Object.assign(new Error("provider_busy"),{refund:true,code:"provider_busy",retryAfterMs:2000})),c.providerQueueMs);
-      w.onAbort=()=>w.leave(reject,patient?new Error("aborted"):Object.assign(new Error("aborted"),{refund:true,code:"request_cancelled_or_timed_out"}));
+      if(!patient)w.timer=setTimeout(()=>w.leave(reject,busyErr()),deadline-Date.now());
+      w.onAbort=()=>w.leave(reject,abortErr(patient));
       s.queue.push(w);signal?.addEventListener("abort",w.onAbort,{once:true});
     });
   }
@@ -2099,9 +2130,9 @@ function createServer(env=process.env,deps={}){
       try{
         // 예약을 기다리는 사이 끊긴 요청은 제공자에 아무것도 보내지 않았으므로 환불이다.
         if(controller.signal.aborted)throw Object.assign(new Error("aborted"),{refund:true,code:"request_cancelled_or_timed_out"});
-        const release=await acquire(model,controller.signal);
+        const release=await acquire(model,controller.signal,false,store);
         try{
-          const r=await run(controller.signal);
+          const r=await run(controller.signal,store);
           // 비용을 보고하지 않은 요청은 amount 가 null 이다 — 장부는 예약액을 그대로 청구한다. 공짜였다고 가정하지 않는다.
           payload=r.payload;amount=r.reported?r.amount:null;
         }finally{release();}
@@ -2212,7 +2243,7 @@ function createServer(env=process.env,deps={}){
     // 항목마다 시스템 프롬프트가 다시 붙고 출력은 알파벳 1토큰이다. 바이트 수를 보수적 토큰 상한으로 쓴다.
     const reserve=Math.ceil((inputBytes*pi+items.length*po)/1e6*100*1.2);
     // 요청 단위 슬롯은 잡지 않는다(model 없음) — 잡으면 항목 슬롯 대기와 서로를 기다리는 교착이 생긴다.
-    return await withReservation({account,requestId:input.requestId,digest,reserve,res,meta:{stage:"judge."+input.task,provider:"openrouter",model:input.model}},async signal=>{
+    return await withReservation({account,requestId:input.requestId,digest,reserve,res,meta:{stage:"judge."+input.task,provider:"openrouter",model:input.model}},async (signal,store)=>{
       const ctl=new AbortController(),stop=()=>ctl.abort();
       signal.addEventListener("abort",stop,{once:true});if(signal.aborted)stop();
       const ctx={c,fetcher,signal:ctl.signal,model:input.model,task:input.task},call=JUDGE_VIA[JUDGE_MODELS[input.model].via];
@@ -2220,7 +2251,7 @@ function createServer(env=process.env,deps={}){
       const worker=async()=>{
         // 첫 실패에서 전체를 중단한다 — 나머지 호출은 어차피 버릴 결과에 돈을 쓴다.
         while(next<items.length&&!ctl.signal.aborted){
-          const i=next++,release=await acquire(input.model,ctl.signal,true);
+          const i=next++,release=await acquire(input.model,ctl.signal,true,store);
           // abort 직전 큐에 들어간 대기자도 슬롯은 물려받는다 — 슬롯을 얻고도 호출은 나가면 안 된다.
           try{if(ctl.signal.aborted)throw new Error("aborted");results[i]=await call(ctx,items[i]);}catch(e){ctl.abort();throw e;}finally{release();}
         }
@@ -2627,6 +2658,11 @@ function supabaseUsage({url,key,http}){
       throw new Error("usage_store_failed");
     },
     async plan(user){const r=await rpc("effective_plan",{p_user:user});return typeof r==="string"&&/^[a-z][a-z0-9_]{0,31}$/.test(r)?r:null;},
+    // 제공자 동시 호출의 전역 상한(server/index.js 의 acquire). 잡으면 uuid, 꽉 차면 null. fileUsage 에는 없다 — 정적 배포는 프로세스 안 상한만 쓴다.
+    slot:{
+      acquire:(provider,max,ttlMs)=>rpc("acquire_provider_slot",{p_provider:provider,p_max:max,p_ttl_ms:ttlMs}),
+      release:id=>rpc("release_provider_slot",{p_id:id}),
+    },
     // 첫 로그인 때 한 번. 이미 있으면 건드리지 않는다(plan 을 되돌리지 않도록 ignore-duplicates).
     ensureProfile:user=>http(url+"/rest/v1/profiles?on_conflict=user_id",{method:"POST",headers:{...auth,"content-type":"application/json",prefer:"resolution=ignore-duplicates,return=minimal"},body:JSON.stringify({user_id:user})},false),
     // 계정 삭제(§9, D8)의 ②③단계. ② 는 행 삭제 + usage_events 비식별화 RPC, ③ 은 auth 사용자 삭제(GoTrue admin API, 서비스 롤 키)다. 둘 다 멱등이다.

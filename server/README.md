@@ -57,7 +57,7 @@ PLAN_FEATURES_JSON={"essential":{"features":["vision","stt","judge","background"
 
 현재 RATES는 2026-09-11 확인한 후보 단가다. 제공자 요금이 바뀌면 예약 계산을 갱신해야 한다. OpenRouter 키 자체에도 비용 한도를 설정해 이중으로 제한한다. 비용 상한은 결제 및 소매 단위 차감 시스템을 대신하지 않는다.
 
-`FEATURE_FLAGS_JSON`은 기능별 전역 스위치다. `false`로 지정한 기능은 계정 권한과 무관하게 `/v1/me` 목록과 라우트에서 꺼진다(기본 `{}` = 모두 켬). `REMOTE_CONFIG_JSON`은 클라이언트에 내려가는 원격 설정으로 기본값 `{concurrency:{download:4,decode:1,stt:4,vision:8,judge:2,write:8},throughputMbps:50,minClientVersion:"0.0.0",promptVersion:"v1",schemaVersion:1}` 위에 병합된다. 알 수 없는 키나 0 이하 수치는 기동을 거부한다. `minClientVersion`보다 낮은 `x-client-version` 헤더의 클라이언트는 426을 받는다. `ACCOUNT_CONCURRENCY`는 계정당 동시 진행 요청 상한(기본 12), `PROVIDER_CONCURRENCY_JSON`은 모델별 제공자 동시 슬롯(기본 16), `PROVIDER_QUEUE_MS`는 슬롯 대기 상한(기본 10000, 넘으면 `provider_busy`), `ACCOUNT_RATE_PER_MIN`은 계정당 분당 POST 상한(기본 300)이다.
+`FEATURE_FLAGS_JSON`은 기능별 전역 스위치다. `false`로 지정한 기능은 계정 권한과 무관하게 `/v1/me` 목록과 라우트에서 꺼진다(기본 `{}` = 모두 켬). `REMOTE_CONFIG_JSON`은 클라이언트에 내려가는 원격 설정으로 기본값 `{concurrency:{download:4,decode:1,stt:4,vision:8,judge:2,write:8},throughputMbps:50,minClientVersion:"0.0.0",promptVersion:"v1",schemaVersion:1}` 위에 병합된다. 알 수 없는 키나 0 이하 수치는 기동을 거부한다. `minClientVersion`보다 낮은 `x-client-version` 헤더의 클라이언트는 426을 받는다. `ACCOUNT_CONCURRENCY`는 계정당 동시 진행 요청 상한(기본 12), `PROVIDER_CONCURRENCY_JSON`은 모델별 제공자 동시 슬롯(기본 16), `PROVIDER_QUEUE_MS`는 슬롯 대기 상한(기본 10000, 넘으면 `provider_busy`), `ACCOUNT_RATE_PER_MIN`은 계정당 분당 POST 상한(기본 300)이다. Supabase가 설정된 배포에서는 슬롯이 Postgres `provider_slots`로 전역이다 — Edge 워커가 몇이든 같은 상한을 나누고, 워커가 죽어도 슬롯은 요청 타임아웃+30초 뒤 만료로 회수된다. 정적·파일 장부 배포는 프로세스 안 상한만 쓴다.
 
 ## Supabase Edge Function 배포 (확장만 불러와 테스트할 때)
 

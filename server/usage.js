@@ -53,6 +53,11 @@ function supabaseUsage({url,key,http}){
       throw new Error("usage_store_failed");
     },
     async plan(user){const r=await rpc("effective_plan",{p_user:user});return typeof r==="string"&&/^[a-z][a-z0-9_]{0,31}$/.test(r)?r:null;},
+    // 제공자 동시 호출의 전역 상한(server/index.js 의 acquire). 잡으면 uuid, 꽉 차면 null. fileUsage 에는 없다 — 정적 배포는 프로세스 안 상한만 쓴다.
+    slot:{
+      acquire:(provider,max,ttlMs)=>rpc("acquire_provider_slot",{p_provider:provider,p_max:max,p_ttl_ms:ttlMs}),
+      release:id=>rpc("release_provider_slot",{p_id:id}),
+    },
     // 첫 로그인 때 한 번. 이미 있으면 건드리지 않는다(plan 을 되돌리지 않도록 ignore-duplicates).
     ensureProfile:user=>http(url+"/rest/v1/profiles?on_conflict=user_id",{method:"POST",headers:{...auth,"content-type":"application/json",prefer:"resolution=ignore-duplicates,return=minimal"},body:JSON.stringify({user_id:user})},false),
     // 계정 삭제(§9, D8)의 ②③단계. ② 는 행 삭제 + usage_events 비식별화 RPC, ③ 은 auth 사용자 삭제(GoTrue admin API, 서비스 롤 키)다. 둘 다 멱등이다.

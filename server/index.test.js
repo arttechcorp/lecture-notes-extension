@@ -1529,6 +1529,8 @@ function supabaseFake() {
   const f = {
     jwks: { keys: [] }, jwksCalls: 0, jwksDown: false, down: false, plan: "free", planCalls: 0, reserveResult: null, failRpc: {}, upsertOk: true,
     rpcs: [], calls: [], upserts: [], gets: [], reservations: new Map(), other: async () => provider(),
+    // Postgres provider_slots 의 최소 흉내: id → {provider, expires}. slotQueue 에 응답을 밀어 두면 만료·상한 계산 없이 그대로 돌려준다.
+    slots: new Map(), slotQueue: null,
     // 보관함: objects 는 Storage("<버킷>/<경로>" → 본문), failStorage/failRows 는 HTTP 메서드별 실패 스위치다.
     objects: new Map(), storageCalls: [], failStorage: {}, failRows: {},
     // 계정 삭제: auth 사용자 목록(admin API 가 지운다)과 그 실패 스위치. failStorage.LIST 는 목록 호출만 실패시킨다(업로드는 POST 라 따로).
@@ -1598,6 +1600,16 @@ function supabaseFake() {
         f.reservations.set(key, args.p_digest);
         return ok("reserved");
       }
+      if (rpc === "acquire_provider_slot") {
+        if (f.slotQueue && f.slotQueue.length) return ok(f.slotQueue.shift());
+        const now = Date.now();
+        for (const [id, s] of f.slots) if (s.expires <= now) f.slots.delete(id);
+        if ([...f.slots.values()].filter(s => s.provider === args.p_provider).length >= args.p_max) return ok(null);
+        const id = crypto.randomUUID();
+        f.slots.set(id, { provider: args.p_provider, expires: now + args.p_ttl_ms });
+        return ok(id);
+      }
+      if (rpc === "release_provider_slot") { f.slots.delete(args.p_id); return ok(null); }
     }
     if (name === "profiles") { f.upserts.push({ search: u.search, headers, body: JSON.parse(init.body) }); return { ok: f.upsertOk, status: f.upsertOk ? 201 : 500 }; }
     if ((name === "plans" || name === "monthly_usage") && f.failGet) return { ok: false, status: 500, json: async () => ({}) };
@@ -1780,7 +1792,7 @@ test("an unreachable JWKS answers a retryable 503 instead of logging users out, 
 test("static tokens keep the file ledger while JWT accounts use Postgres", async () => {
   await withSupabase(async ({ url, root, sb }) => {
     assert.equal((await req(url, "/v1/write", "POST", input)).status, 200);
-    assert.equal(sb.rpcs.length, 0, "정적 토큰 계정은 Supabase 장부를 쓰지 않는다");
+    assert.equal(sb.rpcs.length, 0, "정적 토큰 계정은 Supabase 장부를 쓰지 않는다 — 전역 슬롯 RPC 도 없다");
     assert.equal(sb.calls.length, 0);
     const ledger = () => readState(path.join(root, "usage.json")).accounts;
     assert.equal(ledger().A.jobs["request-one"].status, "completed");
@@ -1848,7 +1860,7 @@ test("a successful write reserves then settles through PostgREST with content-fr
   await withSupabase(async ({ url, sb }) => {
     const res = await req(url, "/v1/write", "POST", input, ec1(), origin, { "x-client-version": "1.2.3" });
     assert.equal(res.status, 200);
-    assert.deepEqual(sb.rpcs.map(r => r.rpc), ["effective_plan", "reserve_usage", "settle_usage"]);
+    assert.deepEqual(sb.rpcs.map(r => r.rpc), ["effective_plan", "reserve_usage", "acquire_provider_slot", "release_provider_slot", "settle_usage"]);
     for (const c of sb.calls) {
       assert.equal(c.headers.apikey, SERVICE_KEY);
       assert.equal(c.headers.authorization, "Bearer " + SERVICE_KEY);
@@ -1876,6 +1888,93 @@ test("a successful write reserves then settles through PostgREST with content-fr
     assert.ok(Number.isInteger(p_latency_ms) && p_latency_ms >= 0 && p_latency_ms < 5000);
     assert.equal(sb.rpcs.at(-1).rpc, "settle_usage");
   });
+});
+
+// ── 전역 제공자 슬롯(provider_slots): 로컬 세마포어 뒤에 Postgres 상한을 한 겹 더 둔다. ──
+test("a write holds a global provider slot between reserve and settle", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    // 제공자 호출은 Supabase 출처가 아니라 calls/rpcs 에 안 남으므로 마커를 끼워 순서를 본다.
+    sb.other = async () => { sb.rpcs.push({ rpc: "provider-fetch", args: {} }); return noteReply(s1Out); };
+    assert.equal((await req(url, "/v1/write", "POST", input, ec1())).status, 200);
+    assert.equal(sb.slots.size, 0, "응답 전에 슬롯을 돌려놓는다");
+    assert.deepEqual(sb.rpcs.map(r => r.rpc), ["effective_plan", "reserve_usage", "acquire_provider_slot", "provider-fetch", "release_provider_slot", "settle_usage"]);
+    const acq = sb.rpcNamed("acquire_provider_slot"), rel = sb.rpcNamed("release_provider_slot");
+    assert.equal(acq.length, 1);
+    assert.deepEqual(acq[0].args, { p_provider: model, p_max: 2, p_ttl_ms: 70000 }, "상한은 PROVIDER_CONCURRENCY_JSON, 만료는 요청 타임아웃+30초");
+    assert.equal(rel.length, 1);
+    assert.equal(rel[0].args.p_id.length, 36);
+  }, { env: { PROVIDER_CONCURRENCY_JSON: JSON.stringify({ [model]: 2 }), OPENROUTER_TIMEOUT_MS: "40000" } });
+});
+
+test("a failed provider call still releases the global slot", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    sb.other = async () => ({ ok: false, status: 500, json: async () => ({}) });
+    const e = await errorOf(await req(url, "/v1/write", "POST", input, ec1()), 502, "provider_failed_or_invalid_output");
+    assert.equal(e.retryable, true);
+    assert.equal(sb.rpcNamed("release_provider_slot").length, 1);
+    assert.equal(sb.slots.size, 0);
+    assert.equal(settledOf(sb, 0).p_status, "error");
+  });
+});
+
+test("a full global pool answers provider_busy after the queue wait and refunds", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    let calls = 0;
+    sb.other = async () => { calls++; return noteReply(s1Out); };
+    // 다른 워커가 잡아 둔 슬롯 — p_max 1 이라 이 요청의 획득은 계속 null 을 받는다.
+    sb.slots.set(crypto.randomUUID(), { provider: model, expires: Date.now() + 60000 });
+    const t0 = Date.now();
+    const e = await errorOf(await req(url, "/v1/write", "POST", input, ec1()), 429, "provider_busy");
+    assert.equal(e.retryable, true);
+    assert.equal(e.retryAfterMs, 2000);
+    assert.ok(Date.now() - t0 >= 350, "로컬+전역 대기 합산이 대기 상한이다");
+    assert.equal(calls, 0, "전역 슬롯을 못 얻은 요청은 제공자를 호출하지 않는다");
+    assert.ok(sb.rpcNamed("acquire_provider_slot").length > 1, "잡힐 때까지 250ms 간격으로 다시 본다");
+    const args = settledOf(sb, 0);
+    assert.equal(args.p_status, "refunded");
+    assert.equal(args.p_error_code, "provider_busy");
+  }, { env: { PROVIDER_CONCURRENCY_JSON: JSON.stringify({ [model]: 1 }), PROVIDER_QUEUE_MS: "400" } });
+});
+
+test("empty answers and RPC errors in the global pool are retried, then the write succeeds", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    sb.slotQueue = [null];
+    sb.failRpc.acquire_provider_slot = 1;
+    assert.equal((await req(url, "/v1/write", "POST", input, ec1())).status, 200);
+    assert.equal(sb.rpcNamed("acquire_provider_slot").length, 3, "오류 1번 + 빈 응답 1번 뒤 세 번째에 잡는다");
+    assert.equal(sb.rpcNamed("release_provider_slot").length, 1);
+  });
+});
+
+test("a release_rpc failure does not change a successful response", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    sb.failRpc.release_provider_slot = 1;
+    assert.equal((await req(url, "/v1/write", "POST", input, ec1())).status, 200);
+    assert.equal(sb.rpcNamed("release_provider_slot").length, 1);
+    assert.equal(sb.slots.size, 1, "놓기 RPC가 실패해도 응답은 그대로다 — 슬롯은 만료로 회수된다");
+  });
+});
+
+test("a client abort during the global wait refunds and frees the local slot", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    let calls = 0;
+    sb.other = async () => { calls++; return noteReply(s1Out); };
+    const held = crypto.randomUUID();
+    sb.slots.set(held, { provider: model, expires: Date.now() + 60000 });
+    const ac = new AbortController();
+    const queued = fetch(url + "/v1/write", { method: "POST", signal: ac.signal, headers: { authorization: "Bearer " + ec1(), origin, "content-type": "application/json" }, body: JSON.stringify(input) }).catch(() => null);
+    await new Promise(r => setTimeout(r, 350));
+    ac.abort(); await queued;
+    for (let i = 0; i < 20 && !sb.rpcNamed("settle_usage").length; i++) await new Promise(r => setTimeout(r, 10));
+    const args = settledOf(sb, 0);
+    assert.equal(args.p_status, "refunded");
+    assert.equal(args.p_error_code, "request_cancelled_or_timed_out");
+    assert.equal(calls, 0);
+    // 전역 대기에서 나갈 때 로컬 슬롯도 놓았다 — 점유 슬롯을 지우면 다음 요청은 바로 간다(로컬 상한 1).
+    sb.slots.delete(held);
+    assert.equal((await req(url, "/v1/write", "POST", { ...input, requestId: "after-abort" }, ec1())).status, 200);
+    assert.equal(calls, 1);
+  }, { env: { PROVIDER_CONCURRENCY_JSON: JSON.stringify({ [model]: 1 }), PROVIDER_QUEUE_MS: "5000" } });
 });
 
 test("unreported costs settle as null and reported charges settle in micros", async () => {

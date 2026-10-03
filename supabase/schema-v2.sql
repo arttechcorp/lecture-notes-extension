@@ -183,6 +183,15 @@ drop trigger if exists usage_events_guard on usage_events;
 create trigger usage_events_guard before update or delete on usage_events
   for each row execute function usage_events_guard();
 
+-- 제공자 동시 호출의 전역 상한. 서버 메모리의 세마포어는 워커마다 따로라 Postgres에 하나를 둔다(server/index.js acquire).
+-- 사용자 데이터는 없고 슬롯은 expires_at이 지나면 만료다 — 계정 삭제·정기 정리 경로에는 넣지 않는다.
+create table if not exists provider_slots (
+  id uuid primary key default gen_random_uuid(),
+  provider text not null check (provider ~ '^[A-Za-z0-9][A-Za-z0-9_./:-]{0,127}$'),
+  expires_at timestamptz not null
+);
+create index if not exists provider_slots_provider_idx on provider_slots (provider, expires_at);
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 4. 보관함·피드백 (암호문 본체는 Storage 버킷. 여기엔 메타데이터만)
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -219,12 +228,13 @@ alter table usage_reservations enable row level security;
 alter table usage_events enable row level security;
 alter table vault_objects enable row level security;
 alter table feedback enable row level security;
+alter table provider_slots enable row level security;
 -- 정책 없음 = 전면 차단. 이후에도 여기에 정책을 추가하지 않는다.
 
 -- 서버(service_role)는 RLS를 우회하지만 테이블 권한은 따로 필요하다. 플랫폼의 기본 권한에 기대지 않고 명시한다
 -- (보관함 목록·프로필 upsert·피드백 기록·/v1/me의 한도 조회가 직접 접근이다). anon/authenticated에는 주지 않는다.
 grant select, insert, update, delete on plans, global_caps, global_usage, profiles, entitlements, monthly_usage,
-  usage_reservations, usage_events, vault_objects, feedback to service_role;
+  usage_reservations, usage_events, vault_objects, feedback, provider_slots to service_role;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 5. 함수
@@ -592,6 +602,44 @@ begin
 end;
 $$;
 
+-- 제공자 슬롯 하나를 잡는다. 조언 락으로 provider 별 직렬화를 하고 만료 행을 치운 뒤 세므로 워커가 몇이든 p_max를 넘지 않는다.
+-- 꽉 차면 null — 호출자는 잠깐 기다렸다 다시 부른다. 잡은 슬롯은 p_ttl_ms 뒤에 만료된다(워커가 죽어도 다음 획득이 회수한다).
+create or replace function acquire_provider_slot(p_provider text, p_max int, p_ttl_ms int)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id uuid;
+begin
+  if p_max is null or p_max < 1 or p_ttl_ms is null or p_ttl_ms < 1000 or p_ttl_ms > 600000 then
+    raise exception 'invalid_slot_args' using errcode = '22023';
+  end if;
+  perform pg_advisory_xact_lock(hashtext('provider_slot:' || p_provider));
+  delete from provider_slots where provider = p_provider and expires_at <= now();
+  if (select count(*) from provider_slots where provider = p_provider) >= p_max then
+    return null;
+  end if;
+  insert into provider_slots (provider, expires_at)
+    values (p_provider, now() + make_interval(secs => p_ttl_ms / 1000.0))
+    returning id into v_id;
+  return v_id;
+end;
+$$;
+
+-- 잡은 슬롯을 돌려놓는다. 없는 id는 못 찾은 것으로 본다(멱등).
+create or replace function release_provider_slot(p_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  delete from provider_slots where id = p_id;
+end;
+$$;
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 6. 계정 메뉴·가격 표 (랜딩 /account, 확장 패널, 랜딩 어드민)
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -698,12 +746,16 @@ revoke all on function effective_plan(uuid, timestamptz) from public, anon, auth
 revoke all on function reserve_usage(uuid, text, text, bigint, date, int) from public, anon, authenticated;
 revoke all on function settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text) from public, anon, authenticated;
 revoke all on function delete_account_data(uuid) from public, anon, authenticated;
+revoke all on function acquire_provider_slot(text, int, int) from public, anon, authenticated;
+revoke all on function release_provider_slot(uuid) from public, anon, authenticated;
 revoke all on function admin_usage(int) from public, anon;
 revoke all on function admin_grant_plan(uuid, text, timestamptz, timestamptz) from public, anon;
 grant execute on function effective_plan(uuid, timestamptz) to service_role;
 grant execute on function reserve_usage(uuid, text, text, bigint, date, int) to service_role;
 grant execute on function settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text) to service_role;
 grant execute on function delete_account_data(uuid) to service_role;
+grant execute on function acquire_provider_slot(text, int, int) to service_role;
+grant execute on function release_provider_slot(uuid) to service_role;
 grant execute on function admin_usage(int) to authenticated;
 grant execute on function admin_grant_plan(uuid, text, timestamptz, timestamptz) to authenticated;
 revoke all on function my_account() from public, anon;
@@ -775,7 +827,7 @@ declare
   f regprocedure;
 begin
   foreach t in array array['plans', 'global_caps', 'global_usage', 'profiles', 'entitlements', 'monthly_usage',
-                           'usage_reservations', 'usage_events', 'vault_objects', 'feedback', 'billing_events'] loop
+                           'usage_reservations', 'usage_events', 'vault_objects', 'feedback', 'billing_events', 'provider_slots'] loop
     if not (select relrowsecurity from pg_class where oid = ('public.' || t)::regclass) then
       raise exception 'FAIL: % 의 RLS가 꺼져 있다', t;
     end if;
@@ -789,7 +841,9 @@ begin
     'reserve_usage(uuid, text, text, bigint, date, int)'::regprocedure,
     'settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text)'::regprocedure,
     'delete_account_data(uuid)'::regprocedure,
-    'apply_billing_event(text, text, uuid, text, boolean, text, timestamptz, timestamptz)'::regprocedure
+    'apply_billing_event(text, text, uuid, text, boolean, text, timestamptz, timestamptz)'::regprocedure,
+    'acquire_provider_slot(text, int, int)'::regprocedure,
+    'release_provider_slot(uuid)'::regprocedure
   ] loop
     if has_function_privilege('anon', f, 'execute') or has_function_privilege('authenticated', f, 'execute')
        or not has_function_privilege('service_role', f, 'execute') then

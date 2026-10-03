@@ -257,12 +257,15 @@ const NEW_TABLES = {
   vault_objects: "user_id object_id size updated_at storage_path",
   feedback: "user_id job_id rating tags created_at",
   billing_events: "id type user_id received_at",
+  provider_slots: "id provider expires_at",
 };
 const SERVICE_FUNCTIONS = [
   "effective_plan(uuid, timestamptz)",
   "reserve_usage(uuid, text, text, bigint, date, int)",
   "settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text)",
   "delete_account_data(uuid)",
+  "acquire_provider_slot(text, int, int)",
+  "release_provider_slot(uuid)",
 ];
 
 describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
@@ -439,6 +442,47 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
     assert.equal(ledger(user)[0].host, "learnus.yonsei.ac.kr");
     fails(`insert into vault_objects (user_id, object_id, size, storage_path) values (${lit(user)}, 'o1', 1, '강의/제목.pdf')`, SVC, /23514/);
     fails(`insert into feedback (user_id, job_id, rating, tags) values (${lit(user)}, 'j1', 5, array['한 줄 평 입니다'])`, SVC, /23514/);
+  });
+
+  test("provider_slots: p_max까지 잡히고, 반납·만료로 풀리고, provider끼리 따로 센다", () => {
+    const acq = (p, max = 2, ttl = 60000) => q(`select acquire_provider_slot(${lit(p)}, ${max}, ${ttl})`, SVC);
+    const full = (p, max = 2) => q(`select acquire_provider_slot(${lit(p)}, ${max}, 60000) is null`, SVC);
+
+    // p_max까지 각각 다른 uuid, 그 다음은 null.
+    const a = acq("slot-a"), b = acq("slot-a");
+    assert.match(a, /^[0-9a-f]{8}-[0-9a-f-]{27}$/);
+    assert.match(b, /^[0-9a-f]{8}-[0-9a-f-]{27}$/);
+    assert.notEqual(a, b);
+    assert.equal(full("slot-a"), "t");
+
+    // 하나를 놓으면 정확히 하나가 풀린다 — 다음은 다시 null.
+    q(`select release_provider_slot(${lit(a)})`, SVC);
+    const c = acq("slot-a");
+    assert.notEqual(c, b);
+    assert.equal(full("slot-a"), "t");
+    // 없는 id를 놓아도 오류가 아니다(멱등).
+    q("select release_provider_slot(gen_random_uuid())", SVC);
+
+    // 만료된 슬롯은 다음 획득이 회수한다.
+    q(`update provider_slots set expires_at = now() - interval '1 second' where provider = 'slot-a'`);
+    assert.match(acq("slot-a"), /^[0-9a-f]{8}-/);
+    assert.equal(q(`select count(*) from provider_slots where provider = 'slot-a'`), "1");
+
+    // provider가 다르면 상한을 따로 센다.
+    assert.match(acq("slot-b", 1), /^[0-9a-f]{8}-/);
+    assert.equal(full("slot-b", 1), "t");
+
+    // 인자 검사.
+    fails("select acquire_provider_slot('bad', 0, 60000)", SVC, /invalid_slot_args/);
+    fails("select acquire_provider_slot('bad', 2, 999)", SVC, /invalid_slot_args/);
+    fails("select acquire_provider_slot('bad', 2, 600001)", SVC, /invalid_slot_args/);
+    fails("insert into provider_slots (provider, expires_at) values ('빈 칸', now() + interval '1 minute')", SVC, /23514/);
+
+    // anon/authenticated는 두 함수를 못 부른다.
+    for (const role of ["anon", "authenticated"]) {
+      fails("select acquire_provider_slot('x', 1, 60000)", { as: role }, /42501|permission denied/);
+      fails("select release_provider_slot(gen_random_uuid())", { as: role }, /42501|permission denied/);
+    }
   });
 
   test("경계: 새 테이블은 모두 RLS 켜짐, 정책 0개, anon/authenticated 접근 차단", () => {
