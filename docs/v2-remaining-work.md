@@ -1,6 +1,6 @@
 # v2 남은 작업과 테스트 준비
 
-확인 기준: `w/dev`, 2026-10-03. 코드가 바뀌면 다시 대조한다.
+확인 기준: `w/dev`, 2026-10-03 두 번째 묶음까지(HEAD `7213f6b`). 코드가 바뀌면 다시 대조한다.
 
 - 확정된 결정은 여기 두지 않는다. 노트는 `docs/note-contract.md` §18, 정책·출시는 `docs/policy-drafts-v2.md` §0, 설계는 `docs/architecture-v2.md` §3(D16~D18)과 §22에 있다.
 - 구현 범위는 `README.md` "구현 현황"이 기준이다.
@@ -11,13 +11,15 @@
 
 **한 번만 하는 준비(운영자), 이 순서로:**
 
-1. 비밀값을 넣는다. 표는 `server/README.md` "Supabase Edge Function 배포"에 있다. OpenRouter 키 하나로 요약·비전·판정·STT가 모두 된다.
-2. 함수를 배포한다.
+1. 비밀값을 넣는다. 표는 `server/README.md` "Supabase Edge Function 배포"(api)와 "Groble 결제 웹훅"(billing-webhook)에 있다. OpenRouter 키 하나로 계획·작성·비전·판정·STT가 모두 된다.
+2. 함수를 배포한다(`api`는 묶음을 먼저 다시 만든다).
    ```bash
+   node tools/build-edge.mjs
    supabase functions deploy api --use-api
    supabase functions deploy delete-account --use-api
+   supabase functions deploy billing-webhook --use-api
    ```
-3. 원격 DB에 `supabase/schema-v2.sql`을 다시 적용한다(등급·사용량 일원화, `plan_catalog()`, 결제 구독 검사). 옛 탈퇴 RPC를 지우므로 2번 뒤에 한다.
+3. 원격 DB에 `supabase/schema-v2.sql`을 다시 적용한다(등급·사용량 일원화, `plan_catalog()`, 결제 구독 검사, `provider_slots`, `billing_events`). 옛 탈퇴 RPC를 지우므로 2번 뒤에 한다.
    ```bash
    supabase db query --linked -f supabase/schema-v2.sql
    ```
@@ -32,12 +34,14 @@
    supabase db query --linked "insert into entitlements (user_id, plan, starts_at, source) select id, 'essential', now(), 'manual' from auth.users where email = '<이메일>'"
    ```
 4. 설정에서 이용 동의 2항목, 클라우드 인식(화면·음성 전송), 외부 요약 처리에 동의한다(동의 문구 버전 2026-10-03).
-5. 사이드 패널을 다시 열면 "백그라운드로 처리" 카드가 보인다. HLS 강의 탭에서 실행한다. 결과는 기기에 암호화해 저장되고, 노트 보기 화면은 아직 없다(§3의 1).
-6. 실시간 캡처(Free)는 기존 v1 화면 그대로이고, 요약은 같은 서비스의 `/v1/summary`를 쓴다.
+5. 사이드 패널을 다시 열면 "백그라운드로 처리" 카드가 보인다. HLS 강의 탭에서 실행한다. 결과는 기기에 암호화해 저장되고 패널의 "보관함"(`library.html` 목록)과 "노트 열기"(`note.html`)로 본다. 외부 요약 동의 없이 돌리면 인식만 끝나 `note.html`이 인식 결과를 보여 주고, 동의 후 같은 화면의 "노트 만들기"로 노트를 만든다.
+6. 실시간 캡처도 완료되면 같은 v2 단계(`/v1/plan`·`/v1/write`)로 노트를 만들어 보관함에 넣고 노트 화면이 연다. 예전 `/v1/summary` 경로는 없다.
 
 로컬 서버로 시험할 때만 설정의 "서비스 URL (개발용)"을 `http://127.0.0.1:8788`로 바꾼다. 비우면 기본값으로 돌아간다.
 
-## 2. 이번에 끝낸 것 (2026-10-03)
+## 2. 이번에 끝낸 것
+
+### 첫 묶음 (2026-10-03)
 
 - 등급·가격·사용량 표 일원화: `plans`(free·essential 24,000원/학생 14,000원·professional 28,900원), 구독 상태는 `entitlements`, 사용량은 `monthly_usage`. 옛 `subscriptions`·`usage_monthly`·`paid` 등급 삭제.
 - 랜딩 탈퇴가 보관함 암호문을 남기던 문제: Edge Function `delete-account`(행 → Storage → 계정). 결제 구독이 남아 있으면 아무것도 지우지 않고 거절.
@@ -47,48 +51,62 @@
 - P1: 요약 동의 없이는 백그라운드를 시작하지 않음(인식 결과 보기 화면이 없어서). 완료 고지를 한국어와 시각 구간으로 표시. 일시정지 사유별 버튼. DRM(EME 계열)은 실시간 모드를 권하지 않음(`SRC_DRM`).
 - 판정 기능 스위치: 서버가 `judge`를 끄면 유료 작업이 판정 없이 진행(`NOTE_JUDGE_SKIPPED`).
 
+### 두 번째 묶음 (같은 날, `7213f6b`)
+
+- **노트 계약 `lecture-note-2`**(`938ccc2`, `108df9e`): 요청별 생성 옵션 `options:{syntheticExamples, externalAugmentation}`(기본 꺼짐·유료 전용). 서버는 계정 기능 `augment`로 막고(`feature_not_in_account_plan`), 켠 항목의 basis(`synthetic`·`external`)만 출력 스키마와 코드 검사가 허용한다(`lib/note-contract.js` §6).
+- **파이프라인 단계 재작성**(`ff85fef`, `1156501`, `673d176`): `lib/stages.js`가 계획 정규화 → 섹션별 근거 전송 → blockId repair 1회 → 주장 단위 T5 지지(낮으면 블록 보류 + `NOTE_CLAIMS_UNSUPPORTED`) → 전역 입력 요약(6-4) → 조립까지 돌린다. 도표 레지스트리·크롭은 `lib/figures.js`와 캡처 쪽 크롭 저장이 맡는다(`e8603c7`, `c0d1c84`, `393e0e0` — `~` 구분자가 저장소 id 규칙에 안 맞아 크롭 블롭 쓰기·읽기가 둘 다 실패하던 것을 고침).
+- **Free 월 분 한도를 `/v1/plan`에서 센다**: 로컬 인식만 쓰는 계정은 STT에 안 걸려 한도가 항상 0분이던 구멍을 메웠다(유닛 시각 범위를 올림한 분).
+- **노트 렌더**(`7d73b47`, `fc359be`, `023ddaf`): `lib/note-spec.js`(`render-4` 템플릿·문서 순서·css)와 `lib/note-render.js`(결정적 HTML + 경고 집계), `lib/note-export.js`(Markdown, `58462be`), `lib/library.js` 암호화 보관함(`4f5394d`). 노트는 항상 밝은 종이 토큰으로 그리고 인쇄는 A4만 낸다.
+- **보관함·노트 화면**(`1991e99`, `568e31f`, `7213f6b`): `library.html` 목록과 `note.html` 뷰어가 기기 암호화 저장소를 직접 읽는다. Markdown 내보내기, PDF(`PRINT_NOTE` → 인쇄 매체 렌더 → 인쇄), 시험 모드·답안 위치·필기 공간 옵션, 유료 노트의 생성 옵션 "다시 만들기", 인식만 끝난 패키지의 "노트 만들기"(요약 동의 필요 안내 포함).
+- **사이드 패널 v2**(`c64a563`): 노트·인식 결과 렌더를 `sandbox.html`에 위임(`RENDER_NOTE`·`PRINT_NOTE`·`RENDER_RECOGNITION`). `product-panel.css`는 나누지 않았다 — 샌드박스가 안 읽고 `NoteSpec.css`를 쓴다. 인식 결과는 화면에만 보이고 Markdown·PDF로 내보내지 않는다. 외부 요약 동의 없는 백그라운드는 막지 않고 인식만 돌려 `recognition-only`로 저장한다(`CONSENT_SUMMARY_REQUIRED` 고지).
+- **v1 BYOK 경로 제거**(`849e57d`, `68d9b32`): OpenRouter 키 입력란, `openrouter.ai` 호스트 권한, `lib/summary.js`, `lib/openrouter-client.js`, 서버 `/v1/summary` 라우트. 남은 경로는 `/v1/plan`·`/v1/write`뿐이다.
+- **전역 공급자 동시성**(`d5b01de`): `provider_slots` 표 + `acquire_provider_slot`/`release_provider_slot` RPC로 Edge 워커 수와 무관하게 모델별 공급자 상한을 공유한다. 워커가 죽어도 슬롯은 TTL(요청 타임아웃+30초)로 회수된다.
+- **Groble 결제 웹훅**(`ffba000`, `c0d1c84`): `billing-webhook` 함수가 HMAC 서명을 확인하고 `apply_billing_event`가 `billing_events` 멱등 원장을 거쳐 `entitlements`에 반영한다. 학생가 자격은 `edu_eligible` RPC(확인된 로그인 메일이 `.ac.kr`·`.edu`).
+- **어드민 작업·산출물 탭**(`9e7f908`), **정책 문서 v2 반영**(`b16d4b8`, 랜딩 게시 페이지 시행 2026.10.11·공고 10.03).
+- **브라우저 렌더 스모크**(`80b8009`, `8f23608`): `tools/note-render-smoke.cjs`가 패키지 클로저를 `http://localhost`에 서빙하고 CDP로 fixture 노트 렌더·1280/400px·A4 PDF를 확인한다.
+
 ## 3. 아직 구현하지 않은 것
 
-**노트(Phase 6·7, `docs/note-contract.md` §17)**
-1. 6-2 슬롯 교체부터 6-8 생성 옵션까지, 7-1 템플릿부터 7-5 렌더 QA까지 전부 남았다. 끝나야 v2 노트 보기·PDF가 나온다.
-2. 노트 생성 옵션 UI: 가상 사례·강의 밖 보강(유료 전용, 기본 꺼짐)과 시험 모드 버튼(6-8·7-3).
-3. 인쇄 v2(`sandbox.html`), Markdown 내보내기(`noteText` 대체), `product-panel.css`를 패널과 노트 렌더로 나누기.
-
-**파이프라인·확장**
-4. 실시간(Free) 캡처는 아직 v1 요약 경로(`lib/summary.js` → `/v1/summary`)다. v2 단계(`lib/stages.js`)로 옮기지 않았다.
-5. Free의 월 분 한도는 집계되지 않는다. 분은 클라우드 STT에서만 세므로, 로컬 인식만 쓰는 Free는 항상 0분이다. 요청 수·비용 한도만 걸린다.
-6. v1 경로 제거: OpenRouter 키 입력란, `openrouter.ai` 호스트 권한, `lib/summary.js`, `lib/openrouter-client.js`.
-7. 보관함 목록·재생성 화면(설계 §12).
-8. 개발용 어드민의 작업 탭과 산출물 검사 탭(설계 §13).
-9. 진단 파일 내보내기가 꺼져 있다. `lib/diagnostics.js` `OPERATOR_KEYS`가 비어 있다(§4의 7).
-10. 인식 결과만 볼 화면이 없다. 지금은 요약 동의를 시작 조건으로 막아 두었다.
-
-**서버·계정**
-11. 결제 연동: grogle 웹훅 → `entitlements`(`source='payment'`, `edu`, `cancel_at_period_end`). `landing/billing-config.js`의 결제창·포털 주소가 비어 있다.
-12. 학생가 자격은 계정 페이지가 이메일 도메인(`.ac.kr`·`.edu`)으로만 표시한다. 실제 인증 절차가 없다.
-13. Edge Function에서는 서버 메모리의 캐시·동시성 제한·분당 버킷이 워커마다 따로다. 한도·중복 요청은 Postgres가 판정해 정확성에는 문제가 없지만, 공급자 동시 호출 상한은 전역으로 걸리지 않는다.
-14. 실서비스 검증: 배포한 함수와 실제 강의로 백그라운드 작업을 끝까지 한 번 돌린다. 특히 확인할 것은 MAI-Transcribe 2의 한국어 품질, WAV 업로드 크기(5분 약 9.6 MB), Edge 150초 제한 안에 응답이 오는지다.
-
-**정책·문서**
-15. 개인정보처리방침·약관·환불·저작권 방침과 스토어 문구를 v2 동작에 맞춘다(`docs/policy-drafts-v2.md` §1~§5). 확장 동의창은 고쳤지만 게시 방침은 그대로다(§4의 4).
+1. **운영자 진단 키**: `lib/diagnostics.js`의 `OPERATOR_KEYS`가 비어 있어 진단 파일 내보내기는 꺼져 있다. `node tools/decrypt-diagnostic.mjs --generate-keypair <저장소 밖 폴더>`로 키쌍을 만들고 공개키를 넣는다 — 개인키 보관 위치는 §4의 사용자 결정.
+2. **결제창·포털 주소**: `landing/billing-config.js`의 `checkout`·`portal`이 비어 있다. 사용자가 Groble에서 결제 링크를 만들어 넣어야 학생가를 포함한 결제 경로가 연다.
+3. **학생가 자격의 실제 인증 없음**: `edu_eligible`은 확인된 로그인 메일의 도메인(`.ac.kr`·`.edu`)만 본다. 재학 증빙 같은 진짜 인증 절차는 없다(§4).
+4. **실서비스 종단 검증**: 배포한 함수와 실제 강의로 백그라운드 작업을 끝까지 한 번 돌린다. 확인할 것 — MAI-Transcribe 2의 한국어 품질, WAV 업로드 크기(5분 약 9.6 MB), Edge 150초 제한 안에 응답이 오는지.
+5. **`chrome-extension://` 경계의 브라우저 스모크**: 이 맥의 Chrome stable은 `--load-extension`을 무시해 언팩 확장을 못 올린다. `tools/note-render-smoke.cjs`는 패키지 클로저를 `http://localhost`로만 확인한다 — 확장 원점(매니페스트 샌드박스 CSP, `chrome.runtime` 메시지 경계)은 Chrome for Testing 같은 다른 브라우저가 필요하다.
+6. **원격 반영(사용자 실행)**: `schema-v2.sql` 재적용(`provider_slots`·`billing_events` 추가분 포함) → `node tools/build-edge.mjs` → `supabase functions deploy api --use-api`·`billing-webhook --use-api` → `GROBLE_*` 비밀값(`server/README.md` "Groble 결제 웹훅").
+7. **노트 없는 재실행의 덮어쓰기**: `saveResult`는 `note==null`을 삭제로 읽는다. 재생성은 막았다(`568e31f`)만, 백그라운드 작업이 같은 packageId로 다시 저장될 때 `res.note`가 없으면 기존 노트를 지울 수 있다 — 발생 조건이 좁아 관찰만 남긴다.
 
 ## 4. 결정이 필요한 것 (사용자)
 
-1. **원격 반영 실행**: §1의 비밀값·함수 배포·DB 적용. 자동 실행은 운영 배포라 막혀 있어 직접 실행하거나 허용해야 한다.
+1. **원격 반영 실행**: §1의 비밀값·함수 배포·DB 적용(§3의 6). 자동 실행은 운영 배포라 막혀 있어 직접 실행하거나 허용해야 한다.
 2. **등급별 한도 수치**: 지금은 임시값이다. free 월 100분·$0.3·300요청, essential 1,800분·$8·5,000요청, professional 3,600분·$14·10,000요청(`plans`, `placeholder = true`). 강의 1시간 원가는 약 270~305원(설계 §18)이다.
 3. **Pro와 Essential의 차이**: 지금은 기능이 같고 한도만 다르다. 랜딩은 Pro를 "상세 노트"로 소개한다. 노트 깊이를 등급별로 나눌지 정해야 한다.
-4. **개인정보처리방침 개정 시점**: 방침은 이용자에게 불리한 변경을 7일 전에 알리게 돼 있다. 음성 전송(유료 백그라운드)을 넣는 개정을 언제 게시할지, 시행일을 언제로 할지.
-5. **정책 문서의 열린 항목**(`docs/policy-drafts-v2.md` §0): Supabase 리전(지금 시드니), 서버 호스팅(이제 Supabase Edge, 리전 확인 필요), 국외 이전 고지 방식, Jev 채택, 운영자 표기, 온디바이스 요약(Gemini Nano) 존속, 법률 검토 일정.
-6. **확장 ID 고정**: 저장소 폴더를 옮기면 ID가 바뀌어 로그인 리디렉트와 `EXTENSION_ORIGIN`이 어긋난다. `manifest.json`에 개발용 `key`를 넣을지.
-7. **운영자 진단 키 보관**: 키쌍을 만들고 개인키를 어디에 둘지(`node tools/decrypt-diagnostic.mjs --generate-keypair <저장소 밖 폴더>`).
-8. **모델·공급자 고정**: 요약·계획·작성·비전·판정 모델과 ZDR 공급자 태그(`OPENROUTER_PROVIDERS_JSON`).
-9. **PR #14 병합 시점**: 병합하면 랜딩 가격(24,000원·14,000원)과 탈퇴 방식이 바로 바뀐다. 함수 배포와 DB 적용 뒤에 병합한다.
-10. **`AGENTS.md`의 미커밋 변경**(aside 사용, 저렴한 모델 서브에이전트 지시): 커밋할지.
+4. **정책 문서의 열린 항목**(`docs/policy-drafts-v2.md` §0): Supabase 리전(지금 시드니), 서버 호스팅(Supabase Edge, 리전 확인 필요), 국외 이전 고지 방식, Jev 채택, 운영자 표기, 온디바이스 요약(Gemini Nano) 존속, 법률 검토 일정. 시행일은 게시 페이지에 2026.10.11로 정해졌으나 초안 문서에는 "(미정)"으로 남아 있다(대조 필요).
+5. **확장 ID 고정**: 저장소 폴더를 옮기면 ID가 바뀌어 로그인 리디렉트와 `EXTENSION_ORIGIN`이 어긋난다. `manifest.json`에 개발용 `key`를 넣을지.
+6. **운영자 진단 키 보관**: 개인키를 어디에 둘지(`node tools/decrypt-diagnostic.mjs --generate-keypair <저장소 밖 폴더>`).
+7. **모델·공급자 고정**: 계획·작성·비전·판정 모델과 ZDR 공급자 태그(`OPENROUTER_PROVIDERS_JSON`).
+8. **PR #14 병합 시점**: 병합하면 랜딩 가격(24,000원·14,000원)과 탈퇴 방식이 바로 바뀐다. 함수 배포와 DB 적용 뒤에 병합한다.
+9. **`AGENTS.md`의 미커밋 변경**(Devin·aside 사용, 저렴한 모델 서브에이전트 지시): 메인 체크아웃에 아직 미커밋으로 있다. 커밋할지.
+10. **학생가 인증 수준**: 도메인 확인만으로 충분한지, 학교 이메일 인증·재학 증빙 같은 절차를 둘지.
+11. **`wip(...)` 커밋 정리**: `wip(note)`·`wip(stages)`·`wip(v2)`가 히스토리에 남아 있다. push 전에 정리(`git reset --soft`로 다시 묶기)할지.
 
-## 5. 테스트 도구
+## 5. 오늘 코드가 반영한 결정 (사용자가 뒤집을 수 있는 것)
+
+이번 묶음에서 새로 굳은 동작이다. 전부 코드와 테스트로 고정됐다 — 바꾸려면 §18과 함께 고친다.
+
+1. **가상 사례·강의 밖 보강의 허용 위치**(`lib/note-contract.js` `augOk`): 가상 사례는 B08 전체·B05 `examples`·B14 `premise`, 강의 밖 보강은 B05 `explanation`·`mechanism`·`examples`·B12 `note`. 전역 블록·정의·비교·답안·공지·계산에는 둘 다 금지다. 꺼진 옵션의 basis는 출력 스키마에서 빠진다(`restrictBasis`) — 모델이 만들 수 없다.
+2. **T5 지지가 낮은 주장이 있는 블록은 보류(`null`)로 바꾸고 `NOTE_CLAIMS_UNSUPPORTED`로 고지**한다. T5는 `basis:"lecture"` 주장만 본다 — 가상·보강·교육용은 대상이 아니다.
+3. **숫자가 든 표·모든 그래프는 크롭 표시**: 백그라운드는 도표 숫자 대조용 로컬 OCR을 돌리지 않는다(`figureData.ocr`이 항상 비어 `isSimpleChart`가 참이 될 수 없고, `isSimpleTable`은 숫자 없는 표만 통과).
+4. **노트는 항상 밝은 종이 토큰으로 렌더**한다(`NoteSpec.css`의 `--canvas` 등 고정). 다크 테마 노트는 없다. PDF는 A4·14.3mm 여백만 낸다.
+5. **`product-panel.css`는 분리하지 않는다**: 샌드박스가 그 파일을 아예 읽지 않게 하고 노트 스타일은 `NoteSpec.css`로 둔다(랜딩 데모 화면은 그대로).
+6. **인식 결과 텍스트는 화면에만 보인다**: `RENDER_RECOGNITION`은 textContent로만 넣고 Markdown·PDF 내보내기(`note-export`)는 인식 결과를 다루지 않는다.
+7. **요약 동의 없는 백그라운드는 허용하되 인식만 돌린다**: `runNote`가 서비스 호출 없이 `recognition-only`를 돌려주고 `CONSENT_SUMMARY_REQUIRED`를 고지한다. 재생성 화면의 "노트 만들기"로 이어진다.
+8. **재생성은 노트 없는 결과로 기존 노트를 덮어쓰지 않는다**(§3의 7과 같은 보호).
+
+## 6. 테스트 도구
 
 - 단위·계약: `node --test lib/*.test.js server/*.test.js tools/*.test.mjs`. DB 스키마 테스트는 Postgres가 있으면 돈다(`PG_BIN_DIR`, 이 맥은 `/opt/homebrew/opt/postgresql@17/bin`, `LC_ALL=en_US.UTF-8` 필요).
 - 패키저 감사: `node tools/package-cws.mjs --dry-run`.
 - Edge 묶음: 서버 코드를 고치면 `node tools/build-edge.mjs`. `tools/edge-api.test.mjs`가 어긋남을 잡는다. Deno로 직접 띄워 볼 수도 있다(`deno run --allow-env --allow-read --allow-write --allow-net --allow-sys supabase/functions/api/index.js`, 비밀값은 환경변수).
-- 브라우저 스모크(`tools/*-smoke.cjs`): Playwright를 저장소 밖에 설치하고 `PLAYWRIGHT_MODULE`·`CHROME_PATH`를 지정한다. 번들 Chromium은 H.264·AAC를 못 풀어 실제 Chrome이 필요하다.
+- 노트 렌더 스모크: `node tools/note-render-smoke.cjs`(Playwright 불필요 — 패키지 클로저를 localhost에 서빙하고 Chrome을 CDP로 직접 움직인다. 산출물은 `/tmp/v2orch/smoke/`). 한 번은 Chrome 부트 타이밍에 기다림이 끊긴 적이 있다 — 재실행으로 확인한다.
+- 그 외 브라우저 스모크(`tools/*-smoke.cjs`): Playwright를 저장소 밖에 설치하고 `PLAYWRIGHT_MODULE`·`CHROME_PATH`를 지정한다. 번들 Chromium은 H.264·AAC를 못 풀어 실제 Chrome이 필요하다.
 - 합성 HLS: `node tools/make-hls-fixture.mjs <저장소 밖 폴더>`(ffmpeg 필요). 실제 골든셋은 `docs/bench-v2.md` §1.

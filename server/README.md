@@ -5,7 +5,7 @@ Node.js 22 이상, 추가 의존성/빌드 없이 `node server/index.js`. 기본
 운영자 OpenRouter 키는 서버에서만 사용한다. 계정은 두 종류다.
 
 - **정적 토큰 계정**(`APP_TOKENS_JSON`): 운영·개발·테스트용. 한도는 `ACCOUNT_LIMITS_JSON`, 장부는 JSON 파일(`usage.json`)이라 **상태를 보존하는 단일 프로세스**로 실행한다.
-- **Supabase 계정**(`SUPABASE_URL` 설정 시): 확장이 Supabase Auth 로그인으로 받은 액세스 토큰(JWT)을 `Authorization: Bearer`로 보낸다. 한도·예약·사용량 원장이 Postgres에 있어 이 계정의 요청 처리는 서버에 상태를 남기지 않는다(아래 "Supabase 계정과 장부"). 소비자 결제(Paddle) 연동은 아직 없다. 등급은 `admin_grant_plan()`으로 수동 부여한다.
+- **Supabase 계정**(`SUPABASE_URL` 설정 시): 확장이 Supabase Auth 로그인으로 받은 액세스 토큰(JWT)을 `Authorization: Bearer`로 보낸다. 한도·예약·사용량 원장이 Postgres에 있어 이 계정의 요청 처리는 서버에 상태를 남기지 않는다(아래 "Supabase 계정과 장부"). 소비자 결제는 Groble 웹훅(`billing-webhook` 함수)이 구독 이벤트를 `entitlements`에 반영한다(아래 "Groble 결제 웹훅"). 결제창·포털 주소는 `landing/billing-config.js`에 아직 비어 있다. 수동 부여는 `admin_grant_plan()`.
 
 ## 설정
 
@@ -89,14 +89,38 @@ supabase secrets set --env-file <저장소 밖의 env 파일>
 node tools/build-edge.mjs
 supabase functions deploy api --use-api
 supabase functions deploy delete-account --use-api
+supabase functions deploy billing-webhook --use-api
 ```
 
 배포 뒤 확인: 확장 설정 → Google 로그인 → 사이드 패널 계정 메뉴에 등급이 보이고, 유료 등급(`entitlements`에 `essential`)이면 "백그라운드로 처리" 카드가 나온다.
 
 한계:
-- 워커는 짧게 살아서 서버 메모리의 캐시·동시성 세마포어·분당 버킷은 워커마다 따로다. 한도·중복 요청은 Postgres가 판정하므로 정확성에는 영향이 없다.
+- 워커는 짧게 살아서 서버 메모리의 캐시와 계정 동시성·분당 버킷은 워커마다 따로다. 한도·중복 요청·공급자 슬롯은 Postgres가 판정하므로 정확성에는 영향이 없다.
 - 요청 하나는 150초 안에 응답해야 한다(Edge 유휴 제한). 제공자 호출 상한은 120초다.
 - 정적 토큰 계정(`APP_TOKENS_JSON`)의 파일 장부와 보관함은 `/tmp`(워커 수명)라 남지 않는다. Edge에서는 Supabase 로그인 계정으로 시험한다.
+
+## Groble 결제 웹훅
+
+`supabase/functions/billing-webhook/index.js`는 Groble 구독 이벤트를 받아 `apply_billing_event` RPC 하나로 `entitlements`에 반영한다. 독립 함수다 — `api` 묶음(`server.bundle.js`)과 무관하고 `tools/build-edge.mjs`도 건드리지 않는다.
+
+- 배포: `supabase functions deploy billing-webhook --use-api`. 주소는 `https://<ref>.supabase.co/functions/v1/billing-webhook`이고 Groble 웹훅 설정에 그대로 넣는다. `config.toml`의 `[functions.billing-webhook]`은 게이트웨이 JWT 검사를 끈다(`verify_jwt = false`) — 서버간 호출이라 Groble의 HMAC 서명을 함수가 직접 검증한다.
+- 비밀값: `GROBLE_WEBHOOK_SECRET`(필수), `GROBLE_WEBHOOK_SECRET_PREVIOUS`(시크릿 교체 중에만 — 두 서명 헤더를 현재·이전 키 양쪽으로 받는다), `GROBLE_PLANS_JSON`(필수 — 아래). `SUPABASE_URL`·`SUPABASE_SERVICE_ROLE_KEY`는 런타임이 넣는다.
+- `GROBLE_PLANS_JSON` 모양: `{"<optionId 또는 content.id>": {"plan": "essential", "edu": false}}`. 이벤트의 `options[]`에서 먼저 맞는 `optionId`가 우선이고, 없으면 `content.id`를 본다. `edu: true`면 학생가로 기록한다. 모르는 상품의 결제 완료는 `ignored:"unknown_plan"`으로 승인한다 — 맵을 고친 뒤 같은 이벤트를 다시 던져야 한다.
+- 서명: `HMAC-SHA256("<x-groble-timestamp>.<원문 본문>")`의 hex를 `x-groble-signature`(교체 중엔 `x-groble-signature-previous`) 헤더와 `timingSafeEqual`로 비교한다. 타임스탬프는 ±5분 안이어야 하고 본문은 64 KiB까지다.
+- 이벤트 → `apply_billing_event`:
+
+  | 이벤트 | 반영 |
+  |---|---|
+  | `subscription_payment.completed` | `(source:'payment', external_id)` 줄을 만들거나 기간을 늘린다. `starts_at`=구독 `activatedAt`(없으면 수신 시각). `ends_at` = 다음 결제일(`nextBillingDate`) 당일 23:59:59 KST + 3일 유예. `nextBillingDate`가 없으면 수신 시각 + `billingCycleMonths`(기본 1)×31일 + 3일 |
+  | `subscription.cancel_requested` | `cancel_at_period_end=true`, `ends_at`=`serviceEndsAt`(없으면 기존 기한 유지) |
+  | `subscription.terminated` | 기간을 `termination.terminatedAt`(없으면 수신 시각)까지로 닫는다 |
+  | `subscription_payment.refunded` | 기간을 수신 시각까지로 닫는다 |
+  | `subscription_payment.failed` 등 그 외 | RPC도 부르지 않고 200 `{ignored:true}` |
+
+  `apply_billing_event`는 service_role만 부른다 — 비대칭 키 아래의 발신자 이름 조작·직접 RPC 호출 둘 다 막는다. 멱등은 `billing_events` 원장(`(source, external_id)` 기본키, `on conflict do nothing`)이 잡는다 — 같은 이벤트 재전송은 `'duplicate'`를 돌려준다. 이벤트 id는 `x-groble-idempotency-key`(없으면 `ev.id`)를 쓰고, 모양이 깨진 id는 서명 검증 전에 400으로 거절해 서명한 내용만 비교한다.
+
+- 계정 대조: 체크아웃 링크의 `?ref=<supabase user id>`가 이벤트의 `sellerReference`로 돌아온다(계정 페이지가 붙인다). UUID가 아니거나 없으면 구매자 이메일로 Auth admin 목록을 페이지 넘겨 찾고, 못 찾으면 `ignored:"unknown_user"` — 링크에서 `ref`가 빠지는 결함이 제일 흔한 원인이다.
+- 재시도: Groble은 408·429·5xx에 재시도하고 400번대는 최종 실패, 410은 엔드포인트 비활성화다. 함수는 내부(DB·Auth) 실패에만 503 `apply_failed`를 내고, 모양이 깨진 요청·서명 불일치·오래된 시각은 4xx(최종)다. 410은 절대 쓰지 않는다.
 
 ## Supabase 계정과 장부
 
