@@ -119,7 +119,7 @@ supabase functions deploy billing-webhook --use-api
 
   `apply_billing_event`는 service_role만 부른다 — 비대칭 키 아래의 발신자 이름 조작·직접 RPC 호출 둘 다 막는다. 멱등은 `billing_events` 원장(`(source, external_id)` 기본키, `on conflict do nothing`)이 잡는다 — 같은 이벤트 재전송은 `'duplicate'`를 돌려준다. 이벤트 id는 `x-groble-idempotency-key`(없으면 `ev.id`)를 쓰고, 모양이 깨진 id는 서명 검증 전에 400으로 거절해 서명한 내용만 비교한다.
 
-- 계정 대조: 체크아웃 링크의 `?ref=<supabase user id>`가 이벤트의 `sellerReference`로 돌아온다(계정 페이지가 붙인다). UUID가 아니거나 없으면 구매자 이메일로 Auth admin 목록을 페이지 넘겨 찾고, 못 찾으면 `ignored:"unknown_user"` — 링크에서 `ref`가 빠지는 결함이 제일 흔한 원인이다.
+- 계정 대조: 체크아웃 링크의 `?ref=<supabase user id>`가 이벤트의 `sellerReference`로 돌아온다(계정 페이지가 붙인다). UUID가 아니거나 없으면 구매자 이메일로 Auth admin 목록을 페이지 넘겨 찾고, 못 찾으면 `ignored:"unknown_user"` — 링크에서 `ref`가 빠지는 결함이 제일 흔한 원인이다. 찾은 계정이 이벤트 도착 전에 지워졌어도 `apply_billing_event`가 `'unknown_user'`를 돌려주고(아무것도 쓰지 않는다 — 이벤트 id도 태우지 않아 재가입 뒤 재전송은 적용된다) 함수는 200 `ignored:"unknown_user"`로 끊는다. 없으면 FK 위반으로 503·무한 재시도가 됐을 것이다.
 - 재시도: Groble은 408·429·5xx에 재시도하고 400번대는 최종 실패, 410은 엔드포인트 비활성화다. 함수는 내부(DB·Auth) 실패에만 503 `apply_failed`를 내고, 모양이 깨진 요청·서명 불일치·오래된 시각은 4xx(최종)다. 410은 절대 쓰지 않는다.
 
 ## Supabase 계정과 장부

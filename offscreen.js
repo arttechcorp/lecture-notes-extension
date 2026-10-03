@@ -65,14 +65,18 @@ const hostOf=url=>{try{return new URL(url).hostname;}catch{return null;}};
 async function cropRegions(blob,doc){
   const bmp=await createImageBitmap(blob),crops={},hashes={},formulas=[],canvas=(w,h)=>new OffscreenCanvas(w,h);
   const bytes=async b=>new Uint8Array(await b.arrayBuffer());
+  // 프레임의 90%를 넘는 영역은 사실상 통째 슬라이다 — 저장하지 않고 내용 없는 경고 코드만 남긴다(불변식: Never store whole slides).
+  const whole=b=>((b?.w??0)*(b?.h??0))>0.9;
   try{
     for(const f of (doc.figures||[]).filter(f=>["table","chart","diagram"].includes(f.kind)&&f.bbox&&f.id).slice(0,3)){
+      if(whole(f.bbox)){events.emit({stage:"crop",level:"warn",code:"CROP_WHOLE_FRAME"});continue;}
       const key=`${doc.slideId}/${f.id}`;crops[key]=await bytes(await Figures.cropFigure(bmp,f.bbox,{createCanvas:canvas}));
       const c=canvas(9,8),g=c.getContext("2d",{willReadFrequently:true});
       g.drawImage(bmp,f.bbox.x*bmp.width,f.bbox.y*bmp.height,Math.max(1,f.bbox.w*bmp.width),Math.max(1,f.bbox.h*bmp.height),0,0,9,8);
       hashes[key]=Figures.dHash({width:9,height:8,data:g.getImageData(0,0,9,8).data,channels:4});
     }
     for(const f of (doc.formulas||[]).filter(f=>f.bbox&&f.id).slice(0,4)){
+      if(whole(f.bbox)){events.emit({stage:"crop",level:"warn",code:"CROP_WHOLE_FRAME"});continue;}
       const key=`${doc.slideId}/${f.id}`;crops[key]=await bytes(await Figures.cropFigure(bmp,f.bbox,{createCanvas:canvas,maxSide:900}));formulas.push(key);
     }
   }finally{bmp.close();}
@@ -81,6 +85,8 @@ async function cropRegions(blob,doc){
 // 끝난 노트(또는 인식 결과만)를 로컬 보관함에 둔다: 메타·재생성 입력·노트·크롭(F#·G# 키로 옮김). 강의 내용은 기기 안 암호문으로만 남는다.
 async function saveLibrary(pkg,input,res,{source,host}){
   const store=await storeP,crops={},note=res.note||null;
+  // saveResult 는 note==null 을 삭제로 읽는다 — 노트 없는 결과(인식만·재실행)로 저장 노트를 지우지 않는다. 재생성은 앞에서 이미 거절하고, 여기는 백그라운드·실시간 경로의 마지막 방어다.
+  if(!note&&(await NoteLibrary.load(store,pkg).catch(()=>null))?.note){events.emit({stage:"library",level:"warn",code:"LIBRARY_NOTE_KEPT"});return false;}
   for(const [id,key] of Object.entries(res.cropMap||{})){const b=await store.getBytes("blobs",`${pkg}:c:${key.replace(/[^A-Za-z0-9_.:-]/g,"_")}`).catch(()=>null);if(b)crops[id]=b;}
   const questions=note?note.sections.flatMap(s=>s.blocks).filter(b=>b.type==="B14").reduce((n,b)=>n+b.content.items.length,0):0;
   await NoteLibrary.saveResult(store,{packageId:pkg,input,note,crops,recognition:res.recognition??null,meta:{packageId:pkg,title:input.meta?.title??null,host,source,tier:input.tier,

@@ -195,6 +195,27 @@ test("nextBillingDate 없으면 billingCycleMonths*31일 + 3일", async () => {
   assert.equal(calls[0][2].p_ends, new Date(NOW + 12 * 31 * 86400000 + 3 * 86400000).toISOString());
 });
 
+test("nextBillingDate가 전체 ISO 시각이어도 앞 날짜만 쓰고, 날짜 모양이 아니면 추정으로 간다", async () => {
+  // "2026-11-10T05:00:00Z"+"T23:59:59+09:00"는 Invalid Date다 — 앞 10자만 취해 날짜만 온 것과 같은 결과여야 한다.
+  const f1 = fakeFetch();
+  const o1 = OBJ({ subscription: { status: "active", nextBillingDate: "2026-11-10T05:00:00Z", activatedAt: "2026-10-03T11:00:00Z", billingCycleMonths: 1 } });
+  const r = await handle(post(ev("subscription_payment.completed", o1)), ENV, f1.fetch);
+  assert.equal(r.status, 200);
+  assert.equal(f1.calls[0][2].p_ends, "2026-11-13T14:59:59.000Z", "날짜만 온 경우와 동일: 11-10 말일 KST + 3일");
+  const f2 = fakeFetch();
+  const o2 = OBJ({ subscription: { status: "active", nextBillingDate: "11/10/2026", activatedAt: "2026-10-03T11:00:00Z", billingCycleMonths: 1 } });
+  await handle(post(ev("subscription_payment.completed", o2)), ENV, f2.fetch);
+  assert.equal(f2.calls[0][2].p_ends, new Date(NOW + 31 * 86400000 + 3 * 86400000).toISOString(), "날짜 모양이 아니면 추정치");
+});
+
+test("apply_billing_event가 unknown_user를 돌려주면 재시도를 끊고 200 ignored", async () => {
+  const { fetch, calls } = fakeFetch({ rpcResult: "unknown_user" });
+  const r = await handle(post(ev("subscription_payment.completed", OBJ())), ENV, fetch);
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { ignored: "unknown_user" });
+  assert.equal(calls.length, 1, "RPC 결과가 ignored로 바뀐다 — Groble은 200이면 재시도하지 않는다");
+});
+
 test("GET -> 405, secret 없으면 500 misconfigured", async () => {
   const g = await handle(new Request("https://fn.local/billing-webhook", { method: "GET" }), ENV);
   assert.equal(g.status, 405);

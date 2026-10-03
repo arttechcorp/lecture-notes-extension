@@ -50,7 +50,7 @@
       const url = URL.createObjectURL(new Blob([md], { type: "text/markdown" }));
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${safeName(note.title)}.md`;
+      a.download = `${safeName(note.meta?.title)}.md`;
       a.click();
       URL.revokeObjectURL(url);
     });

@@ -379,6 +379,18 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
     assert.equal(q(`select count(*) from billing_events where user_id = ${lit(u)}`), "4");
   });
 
+  test("결제 웹훅: 지워진 계정의 이벤트는 unknown_user를 돌려주고 아무것도 쓰지 않는다", () => {
+    // 탈퇴 뒤 도착한(또는 ref가 틀린) 이벤트 — FK 위반으로 503·무한 재시도가 되면 안 된다.
+    const gone = crypto.randomUUID();
+    const apply = id => q(`select apply_billing_event(${lit(id)}, 'subscription_payment.completed', ${lit(gone)}, 'essential', false, 'c:gone', now(), now() + interval '30 days')`, SVC);
+    assert.equal(apply("e_gone"), "unknown_user");
+    assert.equal(q(`select count(*) from billing_events where id = 'e_gone'`), "0", "원장에도 남기지 않는다 — 재시도는 다시 unknown_user");
+    assert.equal(q(`select count(*) from entitlements where user_id = ${lit(gone)}`), "0");
+    // 같은 이벤트 id는 태우지 않는다: 나중에 그 계정이 생기면(재가입) 그때 적용된다
+    q(`insert into auth.users (id, email) values ('${gone}', '${gone}@example.com')`);
+    assert.equal(apply("e_gone"), "applied");
+  });
+
   test("학생가 자격: 확인된 학교 도메인 메일만 참이고 로그인 사용자만 부른다", () => {
     const mk = (email, confirmed) => { const id = crypto.randomUUID(); q(`insert into auth.users (id, email, email_confirmed_at) values ('${id}', ${lit(email)}, ${confirmed ? "now()" : "null"})`); return id; };
     const as = id => ({ as: "authenticated", claims: { sub: id, role: "authenticated" } });

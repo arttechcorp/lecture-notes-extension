@@ -789,6 +789,10 @@ begin
   if p_type not in ('subscription_payment.completed', 'subscription.cancel_requested', 'subscription.terminated', 'subscription_payment.refunded') then
     return 'ignored';
   end if;
+  -- 이미 지워진 계정의 이벤트: FK 위반(=웹훅 503·무한 재시도) 대신 아무것도 쓰지 않고 구별 값을 돌려준다.
+  if p_user is not null and not exists (select 1 from auth.users u where u.id = p_user) then
+    return 'unknown_user';
+  end if;
   insert into billing_events (id, type, user_id) values (p_event_id, p_type, p_user) on conflict (id) do nothing;
   if not found then return 'duplicate'; end if;
   if p_type = 'subscription_payment.completed' then

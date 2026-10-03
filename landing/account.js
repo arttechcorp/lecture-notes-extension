@@ -19,6 +19,9 @@
     return n;
   };
   const date = (iso) => (iso ? new Date(iso).toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" }) : "—");
+  // ends_at에는 결제일 말일 뒤 3일 유예가 더해져 있다(supabase/functions/billing-webhook/index.js 의 GRACE 와 같은 값).
+  // "다음 결제일"은 실제 청구일이라 그 유예를 뺀다. 해지 예약 시 ends_at은 serviceEndsAt(유예 없음)이라 그대로 둔다.
+  const BILLING_GRACE_MS = 3 * 86400000;
   // Groble 결제창 주소에 사용자 id를 ref로 붙인다 — 웹훅(supabase/functions/billing-webhook)이 sellerReference로 받아 이 계정에 등급을 준다.
   // 주소가 비었거나 잘못되면 null.
   function withUser(url, user) {
@@ -62,7 +65,10 @@
     const label = window.summrizeiAuth.planLabel(acct.plan) + (acct.edu ? " (EDU)" : "");
     row("플랜", label);
     row("상태", STATUS[acct.status] || acct.status);
-    if (acct.plan !== "free") row(acct.cancel_at_period_end ? "해지 예정" : "다음 결제일", date(acct.current_period_end) + (acct.cancel_at_period_end ? "까지 이용" : ""));
+    if (acct.plan !== "free") {
+      const e = acct.current_period_end, billed = e && !acct.cancel_at_period_end ? new Date(new Date(e).getTime() - BILLING_GRACE_MS).toISOString() : e;
+      row(acct.cancel_at_period_end ? "해지 예정" : "다음 결제일", date(billed) + (acct.cancel_at_period_end ? "까지 이용" : ""));
+    }
     c.append(dl);
     return c;
   }

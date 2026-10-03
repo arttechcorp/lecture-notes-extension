@@ -67,7 +67,8 @@ export async function handle(req,env,fetchImpl=fetch){
     let p_starts=null,p_ends=null;
     if(type==="subscription_payment.completed"){
       p_starts=sub.activatedAt||null;
-      const nb=sub.nextBillingDate?new Date(sub.nextBillingDate+"T23:59:59+09:00"):null; // 청구일 말일(KST) + 유예 3일
+      // 청구일 말일(KST) + 유예 3일. Groble은 날짜만 보내지만 전체 시각이 와도 앞 10자만 쓴다 — 그래도 YYYY-MM-DD 가 아니면 추정으로 넘긴다.
+      const day=String(sub.nextBillingDate||"").slice(0,10),nb=/^\d{4}-\d{2}-\d{2}$/.test(day)?new Date(day+"T23:59:59+09:00"):null;
       p_ends=nb&&!isNaN(nb)?new Date(nb.getTime()+GRACE).toISOString():new Date(now+(sub.billingCycleMonths||1)*31*DAY+GRACE).toISOString();
     }else if(type==="subscription.cancel_requested")p_ends=o.serviceEndsAt||null;
     else if(type==="subscription.terminated")p_ends=o.termination?.terminatedAt||new Date(now).toISOString();
@@ -75,7 +76,8 @@ export async function handle(req,env,fetchImpl=fetch){
     const rpc=await fetchImpl(url+"/rest/v1/rpc/apply_billing_event",{method:"POST",headers:json,body:JSON.stringify({
       p_event_id:eventId,p_type:type,p_user:user,p_plan:plan?plan.plan:null,p_edu:plan?!!plan.edu:null,p_external_id:ext,p_starts,p_ends})});
     if(!rpc.ok)return fail(503,"apply_failed"); // Groble이 재시도하게 503
-    return ok({result:await rpc.json().catch(()=>null)});
+    const result=await rpc.json().catch(()=>null);
+    return ok(result==="unknown_user"?{ignored:"unknown_user"}:{result}); // 지워진 계정은 재시도해도 안 풀리니 승인한다
   }catch{
     return fail(503,"apply_failed");
   }

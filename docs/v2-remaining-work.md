@@ -73,7 +73,6 @@
 4. **실서비스 종단 검증**: 배포한 함수와 실제 강의로 백그라운드 작업을 끝까지 한 번 돌린다. 확인할 것 — MAI-Transcribe 2의 한국어 품질, WAV 업로드 크기(5분 약 9.6 MB), Edge 150초 제한 안에 응답이 오는지.
 5. **`chrome-extension://` 경계의 브라우저 스모크**: 이 맥의 Chrome stable은 `--load-extension`을 무시해 언팩 확장을 못 올린다. `tools/note-render-smoke.cjs`는 패키지 클로저를 `http://localhost`로만 확인한다 — 확장 원점(매니페스트 샌드박스 CSP, `chrome.runtime` 메시지 경계)은 Chrome for Testing 같은 다른 브라우저가 필요하다.
 6. **원격 반영(사용자 실행)**: `schema-v2.sql` 재적용(`provider_slots`·`billing_events` 추가분 포함) → `node tools/build-edge.mjs` → `supabase functions deploy api --use-api`·`billing-webhook --use-api` → `GROBLE_*` 비밀값(`server/README.md` "Groble 결제 웹훅").
-7. **노트 없는 재실행의 덮어쓰기**: `saveResult`는 `note==null`을 삭제로 읽는다. 재생성은 막았다(`568e31f`)만, 백그라운드 작업이 같은 packageId로 다시 저장될 때 `res.note`가 없으면 기존 노트를 지울 수 있다 — 발생 조건이 좁아 관찰만 남긴다.
 
 ## 4. 결정이 필요한 것 (사용자)
 
@@ -100,7 +99,7 @@
 5. **`product-panel.css`는 분리하지 않는다**: 샌드박스가 그 파일을 아예 읽지 않게 하고 노트 스타일은 `NoteSpec.css`로 둔다(랜딩 데모 화면은 그대로).
 6. **인식 결과 텍스트는 화면에만 보인다**: `RENDER_RECOGNITION`은 textContent로만 넣고 Markdown·PDF 내보내기(`note-export`)는 인식 결과를 다루지 않는다.
 7. **요약 동의 없는 백그라운드는 허용하되 인식만 돌린다**: `runNote`가 서비스 호출 없이 `recognition-only`를 돌려주고 `CONSENT_SUMMARY_REQUIRED`를 고지한다. 재생성 화면의 "노트 만들기"로 이어진다.
-8. **재생성은 노트 없는 결과로 기존 노트를 덮어쓰지 않는다**(§3의 7과 같은 보호).
+8. **노트 없는 결과로 기존 노트를 덮어쓰지 않는다**: 재생성은 앞에서 거절하고, 백그라운드·실시간 경로는 `saveLibrary`가 막는다(`LIBRARY_NOTE_KEPT`).
 
 ## 6. 테스트 도구
 
