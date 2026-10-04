@@ -1,5 +1,5 @@
 const test = require("node:test"), assert = require("node:assert/strict");
-const { ENDPOINT, JUDGE_TASKS, QUESTIONS, buildRequests, parseAnswers } = require("./jev.js");
+const { ENDPOINT, JUDGE_TASKS, QUESTIONS, SUBJECTS, buildRequests, buildSubjectRequest, parseAnswers, parseSubjectAnswer } = require("./jev.js");
 
 const OPTS = { model: "typesafe/jev-1.13", providers: ["typesafe"] };
 const items = n => Array.from({ length: n }, (_, i) => ({ itemId: "it-" + i, text: "항목 " + i }));
@@ -108,4 +108,49 @@ test("parseAnswers throws judge_answer_invalid on missing or malformed answers",
 
 test("ENDPOINT is the OpenRouter decisions route", () => {
   assert.equal(ENDPOINT, "https://openrouter.ai/api/alpha/decisions");
+});
+
+test("buildSubjectRequest emits f+r choice questions over trimmed titles", () => {
+  const titles = ["운영체제 개요", "  공백 제목  ", "가".repeat(100), ...Array.from({ length: 30 }, (_, i) => "제목 " + i), ""];
+  const { body } = buildSubjectRequest(titles, OPTS);
+  assert.equal(body.model, "typesafe/jev-1.13");
+  assert.equal(body.state.titles.length, 20, "제목은 최대 20개다");
+  assert.equal(body.state.titles[1], "공백 제목", "제목은 트림한다");
+  assert.equal(body.state.titles[2], "가".repeat(80), "제목은 80자로 자른다");
+  assert.ok(!body.state.titles.includes(""), "빈 제목은 빠진다");
+  assert.deepEqual(body.provider, { only: ["typesafe"], allow_fallbacks: false, zdr: true, data_collection: "deny" });
+  assert.deepEqual(Object.keys(body.questions).sort(), ["f", "r"], "정방향·역방향 두 질문이다");
+  for (const q of [body.questions.f, body.questions.r]) assert.equal(q.type, "choice");
+  assert.deepEqual(Object.keys(body.questions.f.criteria), Object.keys(SUBJECTS), "정방향은 SUBJECTS 순서다");
+  assert.deepEqual(Object.keys(body.questions.r.criteria), [...Object.keys(SUBJECTS)].reverse(), "역방향은 뒤집은 순서다");
+  for (const [code, c] of Object.entries(body.questions.f.criteria)) {
+    assert.equal(typeof c.what, "string");
+    assert.ok(c.what.includes(SUBJECTS[code]), "기준에 한국어 라벨이 실린다: " + code);
+  }
+  assert.match(body.questions.f.criteria.other.what, /only if none fits/);
+  assert.match(body.questions.f.instructions, /Korean university lecture slide titles/);
+});
+
+const subjAns = (probs, confidence) => ({ type: "choice", choice: "x", probabilities: probs, confidence });
+
+test("parseSubjectAnswer averages the two maps and picks argmax", () => {
+  const { subject, conf } = parseSubjectAnswer({ answers: {
+    f: subjAns({ computer_communication: .8, mechanical: .1, other: .1 }, .8),
+    r: subjAns({ computer_communication: .6, mechanical: .3, other: .1 }, .6),
+  } });
+  assert.equal(subject, "computer_communication", "평균 확률이 가장 큰 분야다");
+  assert.ok(Math.abs(conf - .7) < 1e-9, "conf 는 그 평균 확률이다");
+  const r = parseSubjectAnswer({ answers: { f: subjAns({ music: .2468, other: .1 }), r: subjAns({ music: 0, other: .1 }) } });
+  assert.equal(r.subject, "music");
+  assert.equal(r.conf, .1234, "소수 4자리로 자른다");
+});
+
+test("parseSubjectAnswer throws subject_answer_invalid on malformed responses", () => {
+  assert.throws(() => parseSubjectAnswer({}), /subject_answer_invalid/);
+  assert.throws(() => parseSubjectAnswer({ answers: {} }), /subject_answer_invalid/, "답이 없다");
+  assert.throws(() => parseSubjectAnswer({ answers: { f: subjAns({ music: 1 }) } }), /subject_answer_invalid/, "역방향 답이 없다");
+  assert.throws(() => parseSubjectAnswer({ answers: { f: subjAns({ music: 1 }), r: { type: "noul", noul: .5 } } }), /subject_answer_invalid/, "다른 타입의 답");
+  assert.throws(() => parseSubjectAnswer({ answers: { f: { type: "choice" }, r: subjAns({ music: 1 }) } }), /subject_answer_invalid/, "probabilities 없음");
+  assert.throws(() => parseSubjectAnswer({ answers: { f: subjAns({}), r: subjAns({}) } }), /subject_answer_invalid/, "확률 질량이 하나도 없다");
+  assert.throws(() => parseSubjectAnswer("not json"), /subject_answer_invalid/);
 });

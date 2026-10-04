@@ -1641,6 +1641,74 @@ test("/v1/plan reserves the lecture span as monthly minutes unless cloud recogni
   }, { setup: sb => { sb.plan = "essential"; } });
 });
 
+// ── plan 의 강의 분야 분류(Jev subject) ──
+const Jev = require("./jev.js");
+const subjectEnv = {
+  OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], [judgeModel]: ["test-provider"], [jevModel]: ["typesafe"] }),
+  ALLOWED_JUDGE_MODELS: JSON.stringify([judgeModel, jevModel]),
+};
+// 정방향 .8·역방향 .6 → 평균 .7. 제공자가 비용을 보고해도 사용자 청구에는 더하지 않는다.
+const subjectReply = { ok: true, json: async () => ({ answers: {
+  f: { type: "choice", probabilities: { electrical_electronic: .8, other: .2 }, confidence: .8 },
+  r: { type: "choice", probabilities: { electrical_electronic: .6, other: .4 }, confidence: .6 },
+}, usage: { cost: .00008 } }) };
+const wantTitles = [...new Set(noteIR.units.map(u => u.slideText.split("\n")[0].trim()).filter(Boolean))].slice(0, 20);
+
+test("/v1/plan classifies the lecture subject with Jev and settles it into the ledger", async () => {
+  assert.ok(wantTitles.length > 0, "fixture 유닛에 제목이 있어야 이 테스트가 의미 있다");
+  await withSupabase(async ({ url, sb }) => {
+    const decisions = [];
+    sb.other = async (u, o) => {
+      if (u === Jev.ENDPOINT) { decisions.push({ init: o, body: JSON.parse(o.body) }); return subjectReply; }
+      return noteReply(notePlanner);
+    };
+    const res = await req(url, "/v1/plan", "POST", planIn({ requestId: "subj-ok" }), ec1());
+    assert.equal(res.status, 200);
+    assert.equal(decisions.length, 1, "계획 요청 한 번에 분류 호출이 한 번 나간다");
+    const d = decisions[0];
+    assert.equal(d.init.method, "POST");
+    assert.equal(d.init.redirect, "error");
+    assert.equal(d.init.headers.authorization, "Bearer mock-operator-key");
+    assert.equal(d.body.model, jevModel);
+    assert.deepEqual(d.body.state.titles, wantTitles, "슬라이드 첫 줄을 distinct 로 모아 보낸다");
+    assert.deepEqual(Object.keys(d.body.questions).sort(), ["f", "r"]);
+    assert.deepEqual(d.body.provider, { only: ["typesafe"], allow_fallbacks: false, zdr: true, data_collection: "deny" });
+    const s = settledOf(sb);
+    assert.equal(s.p_subject, "electrical_electronic");
+    assert.equal(s.p_subject_conf, .7);
+    assert.equal(s.p_actual_cost_micros, 2000, "Jev 비용은 계획 청구액에 섞이지 않는다");
+  }, { env: subjectEnv });
+});
+
+test("/v1/plan keeps 200 and a null subject when the Jev classification fails", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    let decisions = 0;
+    sb.other = async u => {
+      if (u === Jev.ENDPOINT) { decisions++; return { ok: false, status: 529, json: async () => ({}) }; }
+      return noteReply(notePlanner);
+    };
+    const res = await req(url, "/v1/plan", "POST", planIn({ requestId: "subj-fail" }), ec1());
+    assert.equal(res.status, 200, "분류 실패가 계획 응답을 바꾸지 않는다");
+    assert.equal(decisions, 1);
+    const s = settledOf(sb);
+    assert.equal(s.p_status, "ok");
+    assert.equal(s.p_subject, null);
+    assert.equal(s.p_subject_conf, null);
+    assert.equal(s.p_actual_cost_micros, 2000);
+  }, { env: subjectEnv });
+});
+
+test("/v1/plan skips the decisions call when Jev is not in the judge allowlist", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    let decisions = 0;
+    sb.other = async u => { if (u === Jev.ENDPOINT) decisions++; return noteReply(notePlanner); };
+    const res = await req(url, "/v1/plan", "POST", planIn({ requestId: "subj-off" }), ec1());
+    assert.equal(res.status, 200);
+    assert.equal(decisions, 0, "허용 목록에 없으면 decisions 를 부르지 않는다");
+    assert.equal(settledOf(sb).p_subject, null);
+  }); // 기본 sbEnv 의 judgeModels 는 [judgeModel] — Jev 가 없다
+});
+
 // ── Supabase 인증·장부 (docs/architecture-v2.md §11, supabase/schema-v2.sql) ──
 // 키는 테스트 안에서 만든다. Supabase는 가짜 fetch 하나가 JWKS 엔드포인트와 PostgREST RPC·테이블을 흉내 낸다(OpenRouter 호출은 sb.other 로 넘긴다).
 const SB = "https://proj.supabase.co", SERVICE_KEY = "service-role-key-".padEnd(40, "s"), DIGEST_KEY = "usage-digest-key-".padEnd(40, "d"), JWT_SECRET = "jwt-secret-".padEnd(40, "j");

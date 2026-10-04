@@ -19,6 +19,8 @@ const JUDGE_MODELS={"openai/gpt-4.1-nano":{via:"logprob",rates:[.1,.4]},"typesaf
 // 과제별 고정 라벨 — 모델에게 나가는 선택지 알파벳(A, B, C …)과 Jev 선택지 순서가 이 표를 따른다.
 // 표는 요청·응답 변환과 함께 server/jev.js 에 둔다 — logprob 과 jev 가 같은 라벨 순서를 써야 한다.
 const Jev=require("./jev.js"),JUDGE_TASKS=Jev.JUDGE_TASKS;
+// plan 의 강의 분야 분류에 쓰는 Jev 모델 — c.judgeModels 허용 목록에 있을 때만 분류를 켠다.
+const JEV_MODEL="typesafe/jev-1.13";
 // 판정 프롬프트는 공용 전제 + 과제 블록이다. 자료 안의 지시를 무시하라는 문장이 프롬프트 인젝션 방어선이다.
 const JUDGE_PROMPTS=Object.fromEntries(Object.entries({
   utterance:"과제: 강의 중 한 문장(text)이 어느 종류인지 고른다. A: 강의내용 — 수업 주제의 개념, 정의, 수식, 절차를 직접 설명한다. B: 예시·비유 — 이해를 돕는 사례나 비유다. C: 공지·행정 — 출석, 과제, 시험 일정, 화면·장비 안내다. D: 잡담 — 주제와 무관한 말, 추임새, 농담이다. context가 있으면 앞뒤 문맥이다.",
@@ -549,7 +551,21 @@ function createServer(env=process.env,deps={}){
     // 형식 실패 재시도분까지 예약하고 정산에서 되돌린다. 시스템 본문과 스키마도 입력 토큰이다.
     const reserve=Math.ceil((Prompts.estimateTokens(system+JSON.stringify(outSchema)+user)*pi+params.max_tokens*po)/1e6*100*1.2*attempts);
     const providerOut=providerSchema(outSchema,[]);
-    return await withReservation({account,requestId:input.requestId,digest,reserve,minutes,model:input.model,res,meta:{stage:stage==="plan"?"plan":"write."+stage,provider:"openrouter",model:input.model,jobId:input.jobId,host:input.host,...(stage==="plan"?{lectureSeconds:span,slides:new Set(us.map(u=>u&&u.slideId).filter(Boolean)).size}:{})}},async signal=>{
+    // 정산에 실을 메타 — plan 의 분야 분류 결과(subject·subjectConf)는 run 안에서 더한다.
+    const meta={stage:stage==="plan"?"plan":"write."+stage,provider:"openrouter",model:input.model,jobId:input.jobId,host:input.host,...(stage==="plan"?{lectureSeconds:span,slides:new Set(us.map(u=>u&&u.slideId).filter(Boolean)).size}:{})};
+    // 분야 분류는 슬라이드 첫 줄을 제목으로 모아 Jev 에 한 번 묻는다 — plan 에서만, 제목이 없으면 건너뛴다.
+    const titles=stage==="plan"?[...new Set(us.map(u=>typeof u.slideText==="string"?u.slideText.split("\n")[0].trim():"").filter(Boolean))].slice(0,20):[];
+    return await withReservation({account,requestId:input.requestId,digest,reserve,minutes,model:input.model,res,meta},async signal=>{
+      // 분류는 계획 호출과 병렬로 시작해 계획이 끝난 뒤에만 기다린다 — 지연(자체 5초)·실패는 meta 를 비워 두고
+      // 응답·상태·청구액은 그대로다. Jev 비용은 사용자 청구에 더하지 않는다.
+      const classifying=titles.length&&c.judgeModels.includes(JEV_MODEL)?(async()=>{
+        const ctl=new AbortController(),off=()=>ctl.abort(),t=setTimeout(()=>ctl.abort(),5000);
+        signal.addEventListener("abort",off,{once:true});
+        try{
+          const response=await fetcher(Jev.ENDPOINT,{method:"POST",redirect:"error",signal:ctl.signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify(Jev.buildSubjectRequest(titles,{model:JEV_MODEL,providers:c.providers[JEV_MODEL]}).body)});
+          return response.ok?Jev.parseSubjectAnswer(await boundedResponse(response,256*1024)):null;
+        }catch{return null;}finally{clearTimeout(t);signal.removeEventListener("abort",off);}
+      })():null;
       let usage={promptTokens:0,completionTokens:0},amount=0,reported=true;
       for(let retry=0;retry<attempts;retry++){
         const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
@@ -569,6 +585,9 @@ function createServer(env=process.env,deps={}){
           if(choice?.finish_reason!=="stop")throw new Error("provider_output_incomplete");
           const parsed=parseNote(choice.message.content),r=Contracts.validate(outSchema,parsed);
           if(!r.ok)throw new Error("invalid_note_output");
+          // 계획 호출이 끝난 뒤에만 분류 결과를 기다린다 — 앞서 병렬로 나간 호출이고 이미 끝났거나 5초 안에 끝난다.
+          const classified=classifying?await classifying:null;
+          if(classified){meta.subject=classified.subject;meta.subjectConf=classified.conf;}
           return {amount,reported,payload:{...(stage==="plan"?{plan:parsed}:{output:parsed}),usage:{...usage,costUsd:reported?amount:reserve/100},promptVersion:Prompts.PROMPT_VERSION,schemaVersion:c.remoteConfig.schemaVersion,noteSpecVersion:NoteContract.NOTE_SPEC_VERSION}};
         }catch(error){if(retry===attempts-1)throw error;}
       }

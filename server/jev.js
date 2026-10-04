@@ -117,4 +117,101 @@ function parseAnswers(task, json, chunkLength) {
   }
   return out;
 }
-module.exports = { ENDPOINT, JUDGE_TASKS, QUESTIONS, buildRequests, parseAnswers };
+// 강의 분야 분류 — 교육부 학과 분류의 중분류다. plan 요청마다 슬라이드 제목 첫 줄을 모아 한 번 묻고
+// 결과는 원장(subject) 메타로만 나간다. 라벨 순서는 f(정방향)·r(역방향) 두 질문과 parse 가 같이 쓴다.
+const SUBJECTS = Object.freeze({
+  language_literature: "언어·문학",
+  humanities: "인문과학(철학·역사·종교)",
+  business_economics: "경영·경제",
+  law: "법률",
+  social_science: "사회과학",
+  education: "교육",
+  architecture: "건축",
+  civil_urban: "토목·도시",
+  transport: "교통·운송",
+  mechanical: "기계·금속",
+  electrical_electronic: "전기·전자",
+  precision_energy: "정밀·에너지",
+  materials: "소재·재료",
+  computer_communication: "컴퓨터·통신",
+  industrial: "산업공학",
+  chemical_engineering: "화공",
+  agriculture_fisheries: "농림·수산",
+  bio_chem_env: "생물·화학·환경",
+  human_ecology: "생활과학",
+  math_physics: "수학·물리·천문·지리",
+  medicine: "의료",
+  nursing: "간호",
+  pharmacy: "약학",
+  health_therapy: "치료·보건",
+  design: "디자인",
+  applied_arts: "응용예술",
+  sports_dance: "무용·체육",
+  fine_arts: "미술·조형",
+  theater_film: "연극·영화",
+  music: "음악",
+  other: "기타",
+});
+// 선택지 기준은 영어 설명에 한국어 라벨을 싣는다(다른 과제의 {what} 과 같은 모양). other 는 어느 분야에도 안 맞을 때만 고른다.
+const SUBJECT_WHAT = Object.freeze({
+  language_literature: "언어·문학: language and literature — Korean or foreign languages, literature, linguistics",
+  humanities: "인문과학(철학·역사·종교): humanities — philosophy, history, religion",
+  business_economics: "경영·경제: business administration and economics — management, accounting, finance, marketing, trade",
+  law: "법률: law and legal studies",
+  social_science: "사회과학: social sciences — political science, public administration, sociology, psychology, media/communication, social welfare",
+  education: "교육: education — pedagogy and teacher training",
+  architecture: "건축: architecture and architectural engineering",
+  civil_urban: "토목·도시: civil engineering and urban planning",
+  transport: "교통·운송: transportation and logistics",
+  mechanical: "기계·금속: mechanical engineering — automotive, shipbuilding, metal machinery",
+  electrical_electronic: "전기·전자: electrical and electronic engineering, semiconductors",
+  precision_energy: "정밀·에너지: precision instruments and energy/nuclear engineering",
+  materials: "소재·재료: materials science and engineering",
+  computer_communication: "컴퓨터·통신: computer science, software, information/communication engineering, AI",
+  industrial: "산업공학: industrial engineering and industrial management",
+  chemical_engineering: "화공: chemical, polymer and textile engineering",
+  agriculture_fisheries: "농림·수산: agriculture, forestry, fisheries and marine science",
+  bio_chem_env: "생물·화학·환경: biology, chemistry, environmental science and engineering",
+  human_ecology: "생활과학: human ecology — food and nutrition, clothing, housing, family/child studies",
+  math_physics: "수학·물리·천문·지리: mathematics, statistics, physics, astronomy, earth science and geography",
+  medicine: "의료: medicine, dentistry, Korean medicine, veterinary medicine",
+  nursing: "간호: nursing",
+  pharmacy: "약학: pharmacy and pharmaceutical sciences",
+  health_therapy: "치료·보건: health sciences and therapy — physical/occupational therapy, public health, clinical laboratory",
+  design: "디자인: design — industrial, visual, fashion and communication design",
+  applied_arts: "응용예술: applied arts — crafts, ceramics, textile art",
+  sports_dance: "무용·체육: dance and physical education/sports",
+  fine_arts: "미술·조형: fine arts — painting, sculpture, plastic arts",
+  theater_film: "연극·영화: theater, film and broadcasting",
+  music: "음악: music — composition, performance, practical music",
+  other: "기타: use only if none fits",
+});
+// 분류는 항목 청크가 아니라 제목 목록 하나를 묻는 단일 요청이다 — 질문은 f(정방향)·r(역방향) 둘뿐이다.
+function buildSubjectRequest(titles, opts = {}) {
+  const list = (Array.isArray(titles) ? titles : []).map(t => typeof t === "string" ? t.trim().slice(0, 80) : "").filter(Boolean).slice(0, 20);
+  const instructions = "The state `titles` holds Korean university lecture slide titles. Which academic field is this lecture course in?";
+  const question = reversed => {
+    const entries = Object.keys(SUBJECTS).map(k => [k, { what: SUBJECT_WHAT[k] }]);
+    if (reversed) entries.reverse();
+    return { type: "choice", instructions, criteria: Object.fromEntries(entries) };
+  };
+  return { body: { model: opts.model, state: { titles: list }, questions: { f: question(false), r: question(true) }, provider: { only: opts.providers, allow_fallbacks: false, zdr: true, data_collection: "deny" } } };
+}
+// 두 분포(정방향·역방향)를 선택지별로 평균 내 argmax 를 고른다. 어긋난 응답은 제공자 실패와 같이 던진다.
+function parseSubjectAnswer(json) {
+  const answers = json && typeof json === "object" ? json.answers : null;
+  const dist = k => {
+    const a = answers && typeof answers === "object" ? answers[k] : null;
+    if (!a || a.type !== "choice" || !a.probabilities || typeof a.probabilities !== "object") throw new Error("subject_answer_invalid");
+    return a.probabilities;
+  };
+  const f = dist("f"), r = dist("r");
+  let subject = null, best = 0;
+  for (const code of Object.keys(SUBJECTS)) {
+    const p = ((Number.isFinite(f[code]) ? f[code] : 0) + (Number.isFinite(r[code]) ? r[code] : 0)) / 2;
+    if (p > best) { best = p; subject = code; }
+  }
+  if (subject === null) throw new Error("subject_answer_invalid");
+  return { subject, conf: Math.round(best * 1e4) / 1e4 };
+}
+module.exports = { ENDPOINT, JUDGE_TASKS, QUESTIONS, SUBJECTS, buildRequests, buildSubjectRequest, parseAnswers, parseSubjectAnswer };

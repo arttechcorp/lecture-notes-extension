@@ -945,4 +945,69 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
     assert.equal(q(`select count(*) from usage_events where model = ${lit(model)} and user_id is null`), "4");
     assert.deepEqual(agg(), before);
   });
+
+  test("분석 뷰: exam_period 달력, job_facts 작업 묶기, user_monthly — anon/authenticated 는 못 읽는다", () => {
+    // 고정 국가 달력 — 각 구간의 경계 날짜만 확인한다.
+    for (const [d, want] of [
+      ["2026-04-20", "midterm"], ["2026-04-26", "midterm"], ["2026-10-19", "midterm"], ["2026-10-25", "midterm"],
+      ["2026-06-08", "final"], ["2026-06-21", "final"], ["2026-12-07", "final"], ["2026-12-20", "final"],
+      ["2026-06-22", "vacation"], ["2026-08-31", "vacation"], ["2026-12-21", "vacation"], ["2026-01-15", "vacation"], ["2028-02-29", "vacation"],
+      ["2026-03-01", "semester"], ["2026-04-19", "semester"], ["2026-04-27", "semester"], ["2026-06-07", "semester"],
+      ["2026-09-01", "semester"], ["2026-10-26", "semester"], ["2026-12-06", "semester"],
+    ]) {
+      assert.equal(q(`select exam_period(${lit(d)})`), want, d);
+    }
+
+    const user = newUser("essential");
+    // 캡처 세션(cap9)의 인식 이벤트와 라이브 요약 작업(live-cap9-1, live-cap9-2)은 같은 job_key 로 묶인다.
+    const seedJob = (id, status, meta) => {
+      assert.equal(reserve(user, id, 5000), "reserved");
+      assert.equal(settle(user, id, status === "error" ? 3000 : 4000, status, meta), status === "refunded" ? "refunded" : "settled");
+    };
+    seedJob("jf-1", "ok", { stage: "stt", job_id: "cap9", audio_seconds: 120 });
+    seedJob("jf-2", "ok", { stage: "plan", job_id: "live-cap9-1", lecture_seconds: 3600, slides: 40, subject: "law", subject_conf: 0.8, host: "learnus.yonsei.ac.kr" });
+    seedJob("jf-3", "ok", { stage: "plan", job_id: "live-cap9-2", subject: "music", subject_conf: 0.3 });
+    seedJob("jf-4", "error", { stage: "vision.full", job_id: "cap9", error_code: "provider_failed" });
+    seedJob("jf-5", "ok", { stage: "plan" }); // job_id 없음 → 뷰에서 제외
+    seedJob("jf-6", "ok", { stage: "plan", job_id: "regen-9" });
+    seedJob("jf-7", "ok", { stage: "plan", job_id: "lowconf", subject: "music", subject_conf: 0.3 });
+
+    const [job] = qj(`select json_agg(j) from (select * from job_facts where job_key = 'cap9') j`, SVC);
+    assert.equal(job.plan, "essential");
+    assert.equal(job.requests, 4, "세션 id 와 live-<id>-<n> 이 같은 키로 묶인다");
+    assert.equal(job.errors, 1);
+    assert.equal(Number(job.stt_min), 2);
+    assert.equal(Number(job.lecture_min), 60);
+    assert.equal(job.slides, 40);
+    assert.equal(job.subject, "law", "subject_conf >= 0.6 인 분야만 본다(0.3 은 제외)");
+    assert.equal(job.is_regen, false);
+    assert.equal(Number(job.cost_krw), Math.round(15000 / 1e6 * 1400));
+    assert.equal(job.host, "learnus.yonsei.ac.kr");
+    assert.ok(Number.isInteger(job.weekday) && job.weekday >= 1 && job.weekday <= 7);
+    assert.ok(Number.isInteger(job.hour) && job.hour >= 0 && job.hour <= 23);
+    assert.ok(["midterm", "final", "vacation", "semester"].includes(job.exam_period));
+    assert.ok(job.started_at && job.ended_at && job.started_kst);
+    const [regen] = qj(`select json_agg(j) from (select * from job_facts where job_key = 'regen-9') j`, SVC);
+    assert.equal(regen.is_regen, true);
+    const [low] = qj(`select json_agg(j) from (select * from job_facts where job_key = 'lowconf') j`, SVC);
+    assert.equal(low.subject, "unknown", "0.6 미만만 있으면 unknown 이다");
+    // job_id 없는 행은 뷰에 나타나지 않는다 — cap9 묶음에도 jf-5 는 없다.
+    assert.equal(q(`select count(*) from usage_events where user_id = ${lit(user)} and job_id is null`), "1");
+
+    // user_monthly: 월 잔액 행 + 활동 월 평균 분.
+    assert.equal(reserve(user, "jf-8", 100, { minutes: 30 }), "reserved");
+    const [m] = qj(`select json_agg(m) from (select * from user_monthly where user_id = ${lit(user)}) m`, SVC);
+    assert.equal(m.month, MONTH);
+    assert.equal(m.minutes, 30);
+    assert.equal(m.requests, 8);
+    assert.equal(Number(m.avg_minutes_per_active_month), 30, "한 달뿐이면 평균은 그 달 값이다");
+
+    // anon/authenticated 는 두 뷰를 모두 못 읽고 service_role 만 읽는다.
+    for (const role of ["anon", "authenticated"]) {
+      fails("select * from job_facts", { as: role }, /42501|permission denied/);
+      fails("select * from user_monthly", { as: role }, /42501|permission denied/);
+    }
+    assert.ok(Number(q("select count(*) from job_facts", SVC)) > 0);
+    assert.ok(Number(q("select count(*) from user_monthly", SVC)) > 0);
+  });
 });

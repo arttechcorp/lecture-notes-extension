@@ -190,6 +190,67 @@ drop trigger if exists usage_events_guard on usage_events;
 create trigger usage_events_guard before update or delete on usage_events
   for each row execute function usage_events_guard();
 
+-- 시험 기간 달력(한국 학기 기준). KST 날짜를 넣으면 midterm/final/vacation/semester 를 돌려준다.
+create or replace function exam_period(d date)
+returns text
+language sql
+immutable
+set search_path = public
+as $$
+  select case
+    when (extract(month from d) = 4 and extract(day from d) between 20 and 26)
+      or (extract(month from d) = 10 and extract(day from d) between 19 and 25) then 'midterm'
+    when (extract(month from d) = 6 and extract(day from d) between 8 and 21)
+      or (extract(month from d) = 12 and extract(day from d) between 7 and 20) then 'final'
+    when (extract(month from d) = 6 and extract(day from d) >= 22)
+      or extract(month from d) in (7, 8)
+      or (extract(month from d) = 12 and extract(day from d) >= 21)
+      or extract(month from d) <= 2 then 'vacation'
+    else 'semester'
+  end;
+$$;
+comment on function exam_period(date) is 'ponytail fixed national calendar; replace with per-school calendars when school is known.';
+
+-- 어드민 분석 뷰. 작업 하나를 한 줄로 묶는다 — 라이브 요약 작업(live-<세션>-<n>)은 캡처 세션 id 로 접어
+-- 인식 이벤트와 같은 작업으로 본다. security_invoker 라 호출자 권한·RLS 를 그대로 탄다.
+create or replace view job_facts
+with (security_invoker = true) as
+select
+  regexp_replace(e.job_id, '^live-(.+)-[0-9]+$', '\1') as job_key,
+  e.user_id,
+  p.plan,
+  min(e.created_at) as started_at,
+  max(e.created_at) as ended_at,
+  (min(e.created_at) at time zone 'Asia/Seoul') as started_kst,
+  extract(isodow from (min(e.created_at) at time zone 'Asia/Seoul'))::int as weekday,
+  extract(hour from (min(e.created_at) at time zone 'Asia/Seoul'))::int as hour,
+  exam_period((min(e.created_at) at time zone 'Asia/Seoul')::date) as exam_period,
+  round(max(e.lecture_seconds) / 60, 1) as lecture_min,
+  round(sum(e.audio_seconds) filter (where e.stage = 'stt') / 60, 1) as stt_min,
+  max(e.slides) as slides,
+  sum(e.images) filter (where e.stage like 'vision.%') as cloud_vision_slides,
+  coalesce(max(e.subject) filter (where e.subject_conf >= 0.6), 'unknown') as subject,
+  bool_or(e.job_id like 'regen-%') as is_regen,
+  count(*) as requests,
+  count(*) filter (where e.status = 'error') as errors,
+  round(sum(e.cost_micros) / 1e6 * 1400) as cost_krw,
+  max(e.host) as host,
+  max(e.client_version) as client_version
+from usage_events e
+  left join profiles p on p.user_id = e.user_id
+where e.job_id is not null
+group by 1, e.user_id, p.plan;
+
+-- 사용자별 월 잔액 + 활동 월 평균 분(분은 활동이 있는 달만의 평균이다 — monthly_usage 에는 쓴 달만 행이 있다).
+create or replace view user_monthly
+with (security_invoker = true) as
+select m.user_id, m.month, m.minutes, m.requests,
+       avg(m.minutes) over (partition by m.user_id) as avg_minutes_per_active_month
+from monthly_usage m;
+
+revoke all on job_facts, user_monthly from anon, authenticated;
+grant select on job_facts, user_monthly to service_role;
+
 -- 제공자 동시 호출의 전역 상한. 서버 메모리의 세마포어는 워커마다 따로라 Postgres에 하나를 둔다(server/index.js acquire).
 -- 사용자 데이터는 없고 슬롯은 expires_at이 지나면 만료다 — 계정 삭제·정기 정리 경로에는 넣지 않는다.
 create table if not exists provider_slots (

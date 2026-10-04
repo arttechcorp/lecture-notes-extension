@@ -1808,6 +1808,8 @@ const JUDGE_MODELS={"openai/gpt-4.1-nano":{via:"logprob",rates:[.1,.4]},"typesaf
 // 과제별 고정 라벨 — 모델에게 나가는 선택지 알파벳(A, B, C …)과 Jev 선택지 순서가 이 표를 따른다.
 // 표는 요청·응답 변환과 함께 server/jev.js 에 둔다 — logprob 과 jev 가 같은 라벨 순서를 써야 한다.
 const Jev=require("./jev.js"),JUDGE_TASKS=Jev.JUDGE_TASKS;
+// plan 의 강의 분야 분류에 쓰는 Jev 모델 — c.judgeModels 허용 목록에 있을 때만 분류를 켠다.
+const JEV_MODEL="typesafe/jev-1.13";
 // 판정 프롬프트는 공용 전제 + 과제 블록이다. 자료 안의 지시를 무시하라는 문장이 프롬프트 인젝션 방어선이다.
 const JUDGE_PROMPTS=Object.fromEntries(Object.entries({
   utterance:"과제: 강의 중 한 문장(text)이 어느 종류인지 고른다. A: 강의내용 — 수업 주제의 개념, 정의, 수식, 절차를 직접 설명한다. B: 예시·비유 — 이해를 돕는 사례나 비유다. C: 공지·행정 — 출석, 과제, 시험 일정, 화면·장비 안내다. D: 잡담 — 주제와 무관한 말, 추임새, 농담이다. context가 있으면 앞뒤 문맥이다.",
@@ -2338,7 +2340,21 @@ function createServer(env=process.env,deps={}){
     // 형식 실패 재시도분까지 예약하고 정산에서 되돌린다. 시스템 본문과 스키마도 입력 토큰이다.
     const reserve=Math.ceil((Prompts.estimateTokens(system+JSON.stringify(outSchema)+user)*pi+params.max_tokens*po)/1e6*100*1.2*attempts);
     const providerOut=providerSchema(outSchema,[]);
-    return await withReservation({account,requestId:input.requestId,digest,reserve,minutes,model:input.model,res,meta:{stage:stage==="plan"?"plan":"write."+stage,provider:"openrouter",model:input.model,jobId:input.jobId,host:input.host,...(stage==="plan"?{lectureSeconds:span,slides:new Set(us.map(u=>u&&u.slideId).filter(Boolean)).size}:{})}},async signal=>{
+    // 정산에 실을 메타 — plan 의 분야 분류 결과(subject·subjectConf)는 run 안에서 더한다.
+    const meta={stage:stage==="plan"?"plan":"write."+stage,provider:"openrouter",model:input.model,jobId:input.jobId,host:input.host,...(stage==="plan"?{lectureSeconds:span,slides:new Set(us.map(u=>u&&u.slideId).filter(Boolean)).size}:{})};
+    // 분야 분류는 슬라이드 첫 줄을 제목으로 모아 Jev 에 한 번 묻는다 — plan 에서만, 제목이 없으면 건너뛴다.
+    const titles=stage==="plan"?[...new Set(us.map(u=>typeof u.slideText==="string"?u.slideText.split("\n")[0].trim():"").filter(Boolean))].slice(0,20):[];
+    return await withReservation({account,requestId:input.requestId,digest,reserve,minutes,model:input.model,res,meta},async signal=>{
+      // 분류는 계획 호출과 병렬로 시작해 계획이 끝난 뒤에만 기다린다 — 지연(자체 5초)·실패는 meta 를 비워 두고
+      // 응답·상태·청구액은 그대로다. Jev 비용은 사용자 청구에 더하지 않는다.
+      const classifying=titles.length&&c.judgeModels.includes(JEV_MODEL)?(async()=>{
+        const ctl=new AbortController(),off=()=>ctl.abort(),t=setTimeout(()=>ctl.abort(),5000);
+        signal.addEventListener("abort",off,{once:true});
+        try{
+          const response=await fetcher(Jev.ENDPOINT,{method:"POST",redirect:"error",signal:ctl.signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify(Jev.buildSubjectRequest(titles,{model:JEV_MODEL,providers:c.providers[JEV_MODEL]}).body)});
+          return response.ok?Jev.parseSubjectAnswer(await boundedResponse(response,256*1024)):null;
+        }catch{return null;}finally{clearTimeout(t);signal.removeEventListener("abort",off);}
+      })():null;
       let usage={promptTokens:0,completionTokens:0},amount=0,reported=true;
       for(let retry=0;retry<attempts;retry++){
         const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
@@ -2358,6 +2374,9 @@ function createServer(env=process.env,deps={}){
           if(choice?.finish_reason!=="stop")throw new Error("provider_output_incomplete");
           const parsed=parseNote(choice.message.content),r=Contracts.validate(outSchema,parsed);
           if(!r.ok)throw new Error("invalid_note_output");
+          // 계획 호출이 끝난 뒤에만 분류 결과를 기다린다 — 앞서 병렬로 나간 호출이고 이미 끝났거나 5초 안에 끝난다.
+          const classified=classifying?await classifying:null;
+          if(classified){meta.subject=classified.subject;meta.subjectConf=classified.conf;}
           return {amount,reported,payload:{...(stage==="plan"?{plan:parsed}:{output:parsed}),usage:{...usage,costUsd:reported?amount:reserve/100},promptVersion:Prompts.PROMPT_VERSION,schemaVersion:c.remoteConfig.schemaVersion,noteSpecVersion:NoteContract.NOTE_SPEC_VERSION}};
         }catch(error){if(retry===attempts-1)throw error;}
       }
@@ -2614,7 +2633,104 @@ function parseAnswers(task, json, chunkLength) {
   }
   return out;
 }
-module.exports = { ENDPOINT, JUDGE_TASKS, QUESTIONS, buildRequests, parseAnswers };
+// 강의 분야 분류 — 교육부 학과 분류의 중분류다. plan 요청마다 슬라이드 제목 첫 줄을 모아 한 번 묻고
+// 결과는 원장(subject) 메타로만 나간다. 라벨 순서는 f(정방향)·r(역방향) 두 질문과 parse 가 같이 쓴다.
+const SUBJECTS = Object.freeze({
+  language_literature: "언어·문학",
+  humanities: "인문과학(철학·역사·종교)",
+  business_economics: "경영·경제",
+  law: "법률",
+  social_science: "사회과학",
+  education: "교육",
+  architecture: "건축",
+  civil_urban: "토목·도시",
+  transport: "교통·운송",
+  mechanical: "기계·금속",
+  electrical_electronic: "전기·전자",
+  precision_energy: "정밀·에너지",
+  materials: "소재·재료",
+  computer_communication: "컴퓨터·통신",
+  industrial: "산업공학",
+  chemical_engineering: "화공",
+  agriculture_fisheries: "농림·수산",
+  bio_chem_env: "생물·화학·환경",
+  human_ecology: "생활과학",
+  math_physics: "수학·물리·천문·지리",
+  medicine: "의료",
+  nursing: "간호",
+  pharmacy: "약학",
+  health_therapy: "치료·보건",
+  design: "디자인",
+  applied_arts: "응용예술",
+  sports_dance: "무용·체육",
+  fine_arts: "미술·조형",
+  theater_film: "연극·영화",
+  music: "음악",
+  other: "기타",
+});
+// 선택지 기준은 영어 설명에 한국어 라벨을 싣는다(다른 과제의 {what} 과 같은 모양). other 는 어느 분야에도 안 맞을 때만 고른다.
+const SUBJECT_WHAT = Object.freeze({
+  language_literature: "언어·문학: language and literature — Korean or foreign languages, literature, linguistics",
+  humanities: "인문과학(철학·역사·종교): humanities — philosophy, history, religion",
+  business_economics: "경영·경제: business administration and economics — management, accounting, finance, marketing, trade",
+  law: "법률: law and legal studies",
+  social_science: "사회과학: social sciences — political science, public administration, sociology, psychology, media/communication, social welfare",
+  education: "교육: education — pedagogy and teacher training",
+  architecture: "건축: architecture and architectural engineering",
+  civil_urban: "토목·도시: civil engineering and urban planning",
+  transport: "교통·운송: transportation and logistics",
+  mechanical: "기계·금속: mechanical engineering — automotive, shipbuilding, metal machinery",
+  electrical_electronic: "전기·전자: electrical and electronic engineering, semiconductors",
+  precision_energy: "정밀·에너지: precision instruments and energy/nuclear engineering",
+  materials: "소재·재료: materials science and engineering",
+  computer_communication: "컴퓨터·통신: computer science, software, information/communication engineering, AI",
+  industrial: "산업공학: industrial engineering and industrial management",
+  chemical_engineering: "화공: chemical, polymer and textile engineering",
+  agriculture_fisheries: "농림·수산: agriculture, forestry, fisheries and marine science",
+  bio_chem_env: "생물·화학·환경: biology, chemistry, environmental science and engineering",
+  human_ecology: "생활과학: human ecology — food and nutrition, clothing, housing, family/child studies",
+  math_physics: "수학·물리·천문·지리: mathematics, statistics, physics, astronomy, earth science and geography",
+  medicine: "의료: medicine, dentistry, Korean medicine, veterinary medicine",
+  nursing: "간호: nursing",
+  pharmacy: "약학: pharmacy and pharmaceutical sciences",
+  health_therapy: "치료·보건: health sciences and therapy — physical/occupational therapy, public health, clinical laboratory",
+  design: "디자인: design — industrial, visual, fashion and communication design",
+  applied_arts: "응용예술: applied arts — crafts, ceramics, textile art",
+  sports_dance: "무용·체육: dance and physical education/sports",
+  fine_arts: "미술·조형: fine arts — painting, sculpture, plastic arts",
+  theater_film: "연극·영화: theater, film and broadcasting",
+  music: "음악: music — composition, performance, practical music",
+  other: "기타: use only if none fits",
+});
+// 분류는 항목 청크가 아니라 제목 목록 하나를 묻는 단일 요청이다 — 질문은 f(정방향)·r(역방향) 둘뿐이다.
+function buildSubjectRequest(titles, opts = {}) {
+  const list = (Array.isArray(titles) ? titles : []).map(t => typeof t === "string" ? t.trim().slice(0, 80) : "").filter(Boolean).slice(0, 20);
+  const instructions = "The state `titles` holds Korean university lecture slide titles. Which academic field is this lecture course in?";
+  const question = reversed => {
+    const entries = Object.keys(SUBJECTS).map(k => [k, { what: SUBJECT_WHAT[k] }]);
+    if (reversed) entries.reverse();
+    return { type: "choice", instructions, criteria: Object.fromEntries(entries) };
+  };
+  return { body: { model: opts.model, state: { titles: list }, questions: { f: question(false), r: question(true) }, provider: { only: opts.providers, allow_fallbacks: false, zdr: true, data_collection: "deny" } } };
+}
+// 두 분포(정방향·역방향)를 선택지별로 평균 내 argmax 를 고른다. 어긋난 응답은 제공자 실패와 같이 던진다.
+function parseSubjectAnswer(json) {
+  const answers = json && typeof json === "object" ? json.answers : null;
+  const dist = k => {
+    const a = answers && typeof answers === "object" ? answers[k] : null;
+    if (!a || a.type !== "choice" || !a.probabilities || typeof a.probabilities !== "object") throw new Error("subject_answer_invalid");
+    return a.probabilities;
+  };
+  const f = dist("f"), r = dist("r");
+  let subject = null, best = 0;
+  for (const code of Object.keys(SUBJECTS)) {
+    const p = ((Number.isFinite(f[code]) ? f[code] : 0) + (Number.isFinite(r[code]) ? r[code] : 0)) / 2;
+    if (p > best) { best = p; subject = code; }
+  }
+  if (subject === null) throw new Error("subject_answer_invalid");
+  return { subject, conf: Math.round(best * 1e4) / 1e4 };
+}
+module.exports = { ENDPOINT, JUDGE_TASKS, QUESTIONS, SUBJECTS, buildRequests, buildSubjectRequest, parseAnswers, parseSubjectAnswer };
 
 },
 "server/llm.js": function (module, exports, require, __filename, __dirname) {
@@ -2813,7 +2929,7 @@ function fileUsage({state,record,save,month,globalCents}){
 // 정산 RPC 전체가 거절되어 예약이 열린 채 남는 일이 없게, 어긋난 값은 null 로 바꾼다. 자유 텍스트는 어떤 칸으로도 나가지 않는다.
 const text=(re,v)=>typeof v==="string"&&re.test(v)?v:null;
 const count=v=>Number.isInteger(v)&&v>=0&&v<=2147483647?v:null;
-const SHAPE={stage:/^[a-z][a-z0-9_.-]{0,31}$/,provider:/^[a-z][a-z0-9_.-]{0,31}$/,model:/^[A-Za-z0-9][A-Za-z0-9_./:@-]{0,95}$/,version:/^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$/,error:/^[a-z][a-z0-9_.-]{0,63}$/,client:/^[0-9A-Za-z][0-9A-Za-z._+-]{0,31}$/,job:/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/,host:/^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/};
+const SHAPE={stage:/^[a-z][a-z0-9_.-]{0,31}$/,provider:/^[a-z][a-z0-9_.-]{0,31}$/,model:/^[A-Za-z0-9][A-Za-z0-9_./:@-]{0,95}$/,version:/^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$/,error:/^[a-z][a-z0-9_.-]{0,63}$/,client:/^[0-9A-Za-z][0-9A-Za-z._+-]{0,31}$/,job:/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/,host:/^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/,subject:/^[a-z][a-z0-9_]{0,31}$/};
 function eventFields(status,m){
   const used=status!=="refunded",seconds=Number.isFinite(m.audioSeconds)&&m.audioSeconds>=0&&m.audioSeconds<1e7?Math.round(m.audioSeconds*100)/100:null,
     lecture=Number.isFinite(m.lectureSeconds)&&m.lectureSeconds>=0&&m.lectureSeconds<1e7?Math.round(m.lectureSeconds*100)/100:null;
@@ -2821,8 +2937,9 @@ function eventFields(status,m){
     p_input_tokens:used?count(m.inputTokens):null,p_output_tokens:used?count(m.outputTokens):null,p_audio_seconds:used?seconds:null,p_images:used?count(m.images):null,
     p_prompt_version:text(SHAPE.version,m.promptVersion),p_schema_version:count(m.schemaVersion),p_error_code:text(SHAPE.error,m.errorCode),
     p_latency_ms:count(Math.round(m.latencyMs)),p_client_version:text(SHAPE.client,m.clientVersion),p_host:text(SHAPE.host,m.host),
-    // subject 는 강의 분야 자동 분류 칸이다 — 분류기가 붙기 전까지 null 로 둔다.
-    p_job_id:text(SHAPE.job,m.jobId),p_lecture_seconds:lecture,p_slides:count(m.slides),p_subject:null,p_subject_conf:null};
+    // subject 는 plan 단계의 Jev 분야 분류 결과다 — 못 정하면(실패·건너뜀) 둘 다 null 이다.
+    p_job_id:text(SHAPE.job,m.jobId),p_lecture_seconds:lecture,p_slides:count(m.slides),
+    p_subject:text(SHAPE.subject,m.subject),p_subject_conf:Number.isFinite(m.subjectConf)&&m.subjectConf>=0&&m.subjectConf<=1?Math.round(m.subjectConf*1e4)/1e4:null};
 }
 // http(url,init,parse=true): 한도 있는 fetch → 파싱한 JSON. HTTP 오류와 시간 초과는 throw 한다.
 function supabaseUsage({url,key,http}){
