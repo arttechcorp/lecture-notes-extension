@@ -20,7 +20,12 @@ function createAuth({url,secret,getJson,now=Date.now,ttlMs=600000,cooldownMs=100
     const alg=jwk.kty==="EC"&&jwk.crv==="P-256"?"ES256":jwk.kty==="RSA"?"RS256":null;
     if(!alg||(jwk.alg!==undefined&&jwk.alg!==alg))return null;
     const key=crypto.createPublicKey({key:jwk,format:"jwk"});
-    return alg==="RS256"&&key.asymmetricKeyDetails.modulusLength<2048?null:{alg,key};
+    if(alg==="RS256"&&key.asymmetricKeyDetails.modulusLength<2048)return null;
+    // 서명 검증은 WebCrypto 로 한다 — Supabase Edge(Deno)의 node:crypto 호환층은 dsaEncoding:"ieee-p1363" 을 따르지 않아 정상 ES256 토큰을 signature 로 거절했다.
+    // 키 재료만 넘긴다(key_ops·ext·alg·use 는 런타임마다 해석이 달라 뺀다).
+    const material=alg==="ES256"?{kty:"EC",crv:"P-256",x:jwk.x,y:jwk.y}:{kty:"RSA",n:jwk.n,e:jwk.e};
+    const params=alg==="ES256"?{name:"ECDSA",namedCurve:"P-256"}:{name:"RSASSA-PKCS1-v1_5",hash:"SHA-256"};
+    return {alg,key,web:crypto.webcrypto.subtle.importKey("jwk",material,params,false,["verify"]).catch(()=>null)};
   }
   // 환경변수 JWKS 를 importKey 규칙 그대로 심는다 — 첫 요청부터 fetch 없이 검증한다. 깨진 값은 무시하고 fetch 로 떨어진다.
   try{
@@ -64,7 +69,7 @@ function createAuth({url,secret,getJson,now=Date.now,ttlMs=600000,cooldownMs=100
       const k=await keyFor(h.kid);
       if(!k)throw no("unauthorized","kid");
       if(k.alg!==h.alg)throw no("unauthorized","alg");
-      let ok=false;try{ok=h.alg==="ES256"?crypto.verify("sha256",data,{key:k.key,dsaEncoding:"ieee-p1363"},sig):crypto.verify("sha256",data,k.key,sig);}catch{}
+      let ok=false;try{ok=await crypto.webcrypto.subtle.verify(h.alg==="ES256"?{name:"ECDSA",hash:"SHA-256"}:{name:"RSASSA-PKCS1-v1_5"},await k.web,sig,data);}catch{}
       if(!ok)throw no("unauthorized","signature");
     }
     // 서명이 맞은 토큰만 거절 이유를 알려 준다 — 위조 토큰에는 어떤 단서도 주지 않는다.
