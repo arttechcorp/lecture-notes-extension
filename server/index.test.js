@@ -172,7 +172,7 @@ test("/v1/me exposes merged remote config and global flags hide and block featur
     assert.deepEqual(me.features, [], "전역 스위치가 꺼진 기능은 계정 권한이 있어도 숨긴다");
     assert.equal(me.config.throughputMbps, 30);
     assert.equal(me.config.concurrency.vision, 2, "지정한 키만 기본값 위에 올라간다");
-    assert.equal(me.config.concurrency.stt, 4);
+    assert.equal(me.config.concurrency.stt, 2);
     assert.equal(me.config.minClientVersion, "0.0.0");
     const blocked = await req(url, "/v1/vision", "POST", visionBody({ requestId: "vision-flag", image: jpeg(64) }));
     assert.equal(blocked.status, 403, "전역 스위치가 꺼지면 계정 권한이 있어도 라우트가 막힌다");
@@ -2530,7 +2530,7 @@ test("/v1/me for a JWT user returns plan, features, DB limits, remote config and
     assert.deepEqual(me, {
       accountId: UID, plan: "free", models: [model], features: [],
       routeModels: { vision: ["google/gemini-2.5-flash-lite"], stt: ["microsoft/mai-transcribe-2"], judge: ["openai/gpt-4.1-nano"] },
-      config: { concurrency: { download: 4, decode: 1, stt: 4, vision: 8, judge: 2, write: 8 }, throughputMbps: 50, minClientVersion: "0.0.0", promptVersion: "v1", schemaVersion: 1 },
+      config: { concurrency: { download: 4, decode: 1, stt: 2, vision: 3, judge: 2, write: 8 }, throughputMbps: 50, minClientVersion: "0.0.0", promptVersion: "v1", schemaVersion: 1 },
       noteSpecVersion: NoteContract.NOTE_SPEC_VERSION, promptVersion: Prompts.PROMPT_VERSION,
       quota: { month, requests: 3, maxRequests: 300, minutes: 7, maxMinutes: 600, spentCents: 12.3456, maxCents: 30 },
     });

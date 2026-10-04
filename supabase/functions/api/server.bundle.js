@@ -1963,7 +1963,7 @@ function config(env){
     if(!Array.isArray(next.models)||!next.models.length||next.models.some(m=>!allow.includes(m)))throw new Error("invalid_plan_models");
     planFeatures[name]=next;
   }
-  const remoteConfig={concurrency:{download:4,decode:1,stt:4,vision:8,judge:2,write:8},throughputMbps:50,minClientVersion:"0.0.0",promptVersion:"v1",schemaVersion:1};
+  const remoteConfig={concurrency:{download:4,decode:1,stt:2,vision:3,judge:2,write:8},throughputMbps:50,minClientVersion:"0.0.0",promptVersion:"v1",schemaVersion:1};
   const remoteIn=JSON.parse(env.REMOTE_CONFIG_JSON||"{}");
   if(!plain(remoteIn)||Object.keys(remoteIn).some(k=>!Object.hasOwn(remoteConfig,k)))throw new Error("invalid_remote_config");
   if(remoteIn.concurrency!==undefined){
