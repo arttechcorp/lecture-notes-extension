@@ -491,7 +491,11 @@ async function obCheck(step){
     timed('account',(async()=>obSession?await Account.fetchAccount(obSession):null)().catch(()=>null)),
     timed('library_key',(async()=>NoteFile.loadLibraryKey(await PackageStore.indexedDbAdapter()))().catch(()=>null)),
   ]);
-  obAcct=acct;obPlan=acct?.plan||'free';obKey=key;
+  // 플랜 조회가 실패하면 Free 로 떨어뜨리지 않는다 — 이 기기에서 마지막으로 확인한 같은 계정의 플랜을 쓴다(플랜 이름은 민감 정보가 아니다).
+  const planKey=obSession?'summrizei.plan.'+(()=>{try{return Account.decodeUser(obSession.access_token).id;}catch{return '';}})():'';
+  if(acct?.plan)try{localStorage.setItem(planKey,acct.plan);}catch{}
+  let cached=null;if(!acct&&planKey)try{cached=localStorage.getItem(planKey);}catch{}
+  obAcct=acct;obPlan=acct?.plan||cached||'free';obKey=key;
   if(obSession)obShowAccount();
   return {session:obSession,plan:obPlan,libraryKey:obKey};
 }
