@@ -6,7 +6,7 @@ const NoteContract=require("../lib/note-contract.js"),Contracts=require("../lib/
 const PROMPT_VERSION="note-v2";
 const STAGES=["plan","section","global","repair"];
 // 토큰 예산(§8.1). 서버는 바이트 / bytesPerToken 으로 어림한다 — 정확한 토크나이저가 아니라 입력 상한을 거르는 가드다.
-const LIMITS={bytesPerToken:4,tokens:{plannerInput:40000,plannerOutput:8000,writerInput:16000,writerOutput:8000,globalInput:24000,globalOutput:4000}};
+const LIMITS={bytesPerToken:4,tokens:{plannerInput:40000,plannerOutput:16000,writerInput:16000,writerOutput:8000,globalInput:24000,globalOutput:4000}};
 const T=LIMITS.tokens;
 
 // 자료 안의 지시를 무시하라는 문장이 프롬프트 인젝션 방어선이다. 수식은 다시 쓰지 않고 등록부 id 로만 가리킨다.
