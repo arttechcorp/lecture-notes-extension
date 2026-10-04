@@ -2178,7 +2178,7 @@ function createServer(env=process.env,deps={}){
       const code=!error?null:status==="refunded"?error.code||"provider_failed_or_invalid_output":controller.signal.aborted?"request_cancelled_or_timed_out":error.charged?error.code:"provider_failed_or_invalid_output";
       const u=payload?.usage||error?.charged?.usage||{};
       let stored=true;
-      try{await held.settle({status,amount,meta:{...meta,inputTokens:u.promptTokens,outputTokens:u.completionTokens,audioSeconds:u.audioSec??meta.audioSeconds,promptVersion:payload?.promptVersion,schemaVersion:payload?.schemaVersion,errorCode:code,latencyMs:Date.now()-t0,clientVersion:account.client}});}catch{stored=false;}
+      try{await held.settle({status,amount,meta:{...meta,inputTokens:u.promptTokens,outputTokens:u.completionTokens,audioSeconds:u.audioSec??meta.audioSeconds,promptVersion:payload?.promptVersion,schemaVersion:payload?.schemaVersion,errorCode:(code&&error?.detail)||code,latencyMs:Date.now()-t0,clientVersion:account.client}});}catch{stored=false;}
       // 정산이 안 닫혀도 이미 만든 결과는 돌려준다 — 예약이 reserved 로 남아 비용이 보수적으로 잡힌다. 환불만은 예약이 안 풀렸으므로 같은 requestId 재시도를 약속할 수 없다.
       if(!error)return send(res,200,payload);
       if(status==="refunded")return stored?fail(res,code,error.retryAfterMs):fail(res,"usage_store_failed");
@@ -2363,7 +2363,8 @@ function createServer(env=process.env,deps={}){
           response_format:{type:"json_schema",json_schema:{name:"lecture_note_"+stage,strict:true,schema:providerOut}},
           provider:{only:c.providers[input.model],order:c.providers[input.model],require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}
         })});
-        if(!response.ok)throw new Error("provider_failed");
+        // detail 은 사용 기록(usage_events.error_code)에만 남는 세부 사유다 — 클라이언트에는 기존 코드만 간다.
+        if(!response.ok)throw Object.assign(new Error("provider_failed"),{detail:"provider_http_"+response.status});
         const raw=await boundedResponse(response,1024*1024),u=raw.usage||{},choice=raw.choices?.[0];
         usage={promptTokens:usage.promptTokens+(Number(u.prompt_tokens)||0),completionTokens:usage.completionTokens+(Number(u.completion_tokens)||0)};
         if(typeof u.cost==="number"&&Number.isFinite(u.cost)&&u.cost>=0)amount+=u.cost;else reported=false;
@@ -2371,9 +2372,10 @@ function createServer(env=process.env,deps={}){
         if(choice?.finish_reason==="length")throw Object.assign(new Error("llm_output_truncated"),{code:"llm_output_truncated",charged:{amount,reported,usage}});
         // 형식 실패(파손·계약 불일치·repair 개수 불일치)만 같은 모델·제공자로 한 번 더 간다 — 돈은 이미 나갔다.
         try{
-          if(choice?.finish_reason!=="stop")throw new Error("provider_output_incomplete");
-          const parsed=parseNote(choice.message.content),r=Contracts.validate(outSchema,parsed);
-          if(!r.ok)throw new Error("invalid_note_output");
+          if(choice?.finish_reason!=="stop")throw Object.assign(new Error("provider_output_incomplete"),{detail:"incomplete."+String(choice?.finish_reason||"none").toLowerCase().replace(/[^a-z0-9_]/g,"").slice(0,30)});
+          let parsed;try{parsed=parseNote(choice.message.content);}catch{throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_json"});}
+          const r=Contracts.validate(outSchema,parsed);
+          if(!r.ok)throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_schema."+String(r.errors?.[0]?.path||r.errors?.[0]?.keyword||"x").toLowerCase().replace(/[^a-z0-9_.]/g,"_").slice(0,40)});
           // 계획 호출이 끝난 뒤에만 분류 결과를 기다린다 — 앞서 병렬로 나간 호출이고 이미 끝났거나 5초 안에 끝난다.
           const classified=classifying?await classifying:null;
           if(classified){meta.subject=classified.subject;meta.subjectConf=classified.conf;}

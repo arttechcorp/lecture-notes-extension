@@ -2237,7 +2237,7 @@ test("unreported costs settle as null and reported charges settle in micros", as
     const failed = settledOf(sb, 3);
     assert.equal(failed.p_status, "error");
     assert.equal(failed.p_actual_cost_micros, null);
-    assert.equal(failed.p_error_code, "provider_failed_or_invalid_output");
+    assert.equal(failed.p_error_code, "provider_http_500", "사용 기록에는 세부 사유가 남는다");
     assert.equal(failed.p_input_tokens, null);
     await errorOf(await req(url, "/v1/write", "POST", body(4), jwt), 409, "request_already_reserved_or_processed");
   }, { setup: sb => { sb.plan = "free"; } });
