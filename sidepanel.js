@@ -236,6 +236,7 @@ window.addEventListener('message',event=>{if(event.source!==els.renderFrame?.con
 const bgEl=Object.fromEntries(['bgBox','bgBtn','bgStatus','bgProgress','bgBar','bgTime','bgSave','bgRetryBtn','bgCancelBtn','bgLiveBtn','bgConsentBtn','bgSummaryLink','bgMakeBtn','bgDiscardBtn','bgBilling'].map(id=>[id,$(id)]));
 const YOUTUBE=/(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com|googlevideo\.com)$/i; // lib/background-job.js와 같은 목록(§19)
 const YT_MSG='이 사이트는 실시간 캡처만 지원합니다.';
+const UNSUP_MSG={dash:'이 강의는 DASH 방식이라 아직 백그라운드 처리를 지원하지 않습니다. 실시간 캡처를 쓰세요.',mp4:'이 강의는 MP4 파일 방식이라 아직 백그라운드 처리를 지원하지 않습니다. 실시간 캡처를 쓰세요.'};
 const BG_STATE={created:'준비',acquiring_source:'소스 확인',ingesting:'수신·인식',refining:'정제',judging:'판정',planning:'계획',writing:'작성',validating:'검증',rendering:'렌더'},BG_STAGES=Object.keys(BG_STATE),BG_COUNT={recv:'수신',decode:'해석',vision:'화면',stt:'음성',write:'작성'};
 let bg=null,bgYt=false,bgBusy=false,bgSince=0; // bg는 {jobId,source?,code?,pkg?}. 패널을 닫으면 사라진다 — 이어 할 작업은 BG_LIST가 다시 알려 준다.
 // 요약 동의는 시작 조건이 아니다 — 없으면 인식 결과만 만들 뿐이다(시작 전에 알린다). 이용 동의와 클라우드 인식 동의만 필수.
@@ -303,9 +304,16 @@ function bgDoneView(d){
   }
   return {text,live:d.suggest==='live'};
 }
-// webRequest(선택 권한)는 사용자가 누른 뒤에만 요청한다. 고른 강의 탭의 media·xhr 응답만 몇 초 보고 바로 해제하며, 주소와 MIME만 분류하고 내용은 보지 않는다.
-// ponytail: 이미 로드된 VOD 재생목록은 다시 요청되지 않아 못 찾는다 — 영상을 처음부터 다시 재생하게 안내한다. 지난 요청까지 보려면 content script에서 performance.getEntriesByType("resource")를 읽는다.
-function findPlaylist(tabId,ms=8000){
+// 목록 찾기: VOD는 재생 시작 때 .m3u8을 한 번만 요청하므로 이미 재생 중이면 네트워크에 안 보인다 — 먼저 각 프레임(iframe 포함)의 리소스 기록에서 지난 요청을 찾는다.
+// 못 찾으면 webRequest(선택 권한)로 고른 강의 탭의 media·xhr 응답만 몇 초 보고 바로 해제한다. 주소와 MIME만 분류하고 내용은 보지 않는다.
+async function findPlaylist(tabId,ms=15000){
+  const found={};
+  try{
+    for(const f of await chrome.scripting.executeScript({target:{tabId,allFrames:true},func:()=>performance.getEntriesByType('resource').map(e=>e.name)})||[])
+      for(const url of f?.result||[]){const kind=LectureMedia.classifyRequest({url});if(kind==='hls')found.hls=url;else if(kind==='dash'||kind==='mp4')found[kind]=true;}
+  }catch{} // 못 들어가는 프레임이 있거나 호출 자체가 실패해도 관찰로 넘어간다
+  if(found.hls)return found.hls;
+  if(found.dash||found.mp4)return{unsupported:found.dash?'dash':'mp4'};
   return new Promise(resolve=>{
     const end=url=>{clearTimeout(timer);chrome.webRequest.onResponseStarted.removeListener(seen);resolve(url);};
     const seen=d=>{
@@ -331,7 +339,8 @@ async function bgStart(jobId=crypto.randomUUID(),source=null){
     bgShow({text:'영상 목록을 찾는 중… 강의 탭에서 영상을 재생하세요.',progress:info,summary:!!info,busy:true});
     let url=null;
     try{if(await chrome.permissions.request({permissions:['webRequest']}))url=await findPlaylist(tab.id);}catch{} // 권한 요청은 클릭 제스처 안의 첫 await이어야 한다
-    if(!url){bgStopClock();bgShow({text:'재생 중인 영상 목록(HLS)을 찾지 못했습니다. webRequest 권한을 허용하고, 영상을 처음부터 다시 재생한 뒤 다시 시도하세요.',retry:true});return;}
+    if(url?.unsupported){bgStopClock();bgShow({text:UNSUP_MSG[url.unsupported],live:true});return;}
+    if(!url){bgStopClock();bgShow({text:'영상 목록(HLS)을 찾지 못했습니다. 영상을 처음 위치로 되감거나 새로고침해 재생한 뒤 다시 시도하세요. 이 강의가 HLS가 아닌 방식이면 실시간 캡처를 쓰세요.',retry:true});return;}
     source=bg.source={playlistUrl:url};
   }
   bgShow({text:'백그라운드 처리를 시작합니다…',progress:info,summary:!!info,busy:true,cancel:true});
