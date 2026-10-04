@@ -123,6 +123,7 @@ function liveInput(cur,{tier,models,consent,options}){
     transcript:{schemaVersion:1,engine:"whisper",model:String(cur.options.whisperModel||"local").slice(0,64),lang,
       segments:asr.map((e,i)=>({id:"a"+(i+1),t0:e.t0,t1:Math.max(e.t0,e.t1??e.t0),text:String(e.text).slice(0,4000),words:[],noSpeechProb:null,avgLogprob:null,compressionRatio:null,status:"kept"}))},
     gaps:cur.gaps||[],tier,models,consent,recognition:"local",options,meta:{title:typeof cur.options.pageTitle==="string"&&cur.options.pageTitle.trim()?cur.options.pageTitle.trim().slice(0,120):null,lang},
+    host:hostOf(cur.options.pageUrl),
   };
 }
 // 진행: 이 작업의 이벤트에서 단계 이름과 끝난 개수만 모아 1초에 한 번 패널에 민다(주소·시각·내용 없음).
@@ -177,7 +178,7 @@ async function libRegenerate(message,settings){
     const svc=noteService(settings),me=await svc.me(),options=message.options||{};
     const paid=(me.features||[]).includes("background");
     if((options.syntheticExamples||options.externalAugmentation)&&!paid)return {ok:false,error:"가상 사례·강의 밖 보강은 유료 기능입니다."};
-    const input={...data.input,models:noteModels(me),consent:{...data.input.consent,summary:true},options:paid?options:{}};
+    const input={...data.input,models:noteModels(me),consent:{...data.input.consent,summary:true},options:paid?options:{},host:data.meta.host};
     const job=await Pipeline.createJob({jobId:`regen-${message.packageId}-${Date.now().toString(36)}`.replace(/[^A-Za-z0-9-]/g,"").slice(0,64),packageId:message.packageId,store,events});
     const res=await NoteStages.runNote(job,input,svc.deps(new AbortController().signal));
     if(!["complete","partial","recognition-only"].includes(res.status)||data.note&&!res.note) // 노트 없이 끝나면 덮어쓰지 않는다 — 저장하면 기존 노트가 지워진다
