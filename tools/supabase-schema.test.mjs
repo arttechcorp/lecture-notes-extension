@@ -253,7 +253,7 @@ const NEW_TABLES = {
   entitlements: "id user_id plan starts_at ends_at source external_id created_at edu cancel_at_period_end",
   monthly_usage: "user_id month requests minutes cost_micros",
   usage_reservations: "user_id request_id digest month day reserved_cost_micros reserved_minutes status charged_cost_micros created_at settled_at",
-  usage_events: "id user_id job_id request_id stage provider model input_tokens output_tokens audio_seconds images cost_micros cost_reported prompt_version schema_version status error_code latency_ms client_version host created_at",
+  usage_events: "id user_id job_id request_id stage provider model input_tokens output_tokens audio_seconds images cost_micros cost_reported prompt_version schema_version status error_code latency_ms client_version host created_at lecture_seconds slides subject subject_conf",
   vault_objects: "user_id object_id size updated_at storage_path",
   feedback: "user_id job_id rating tags created_at",
   billing_events: "id type user_id received_at merchant_uid amount_krw coupon_code coupon_discount_krw external_id occurred_at",
@@ -262,7 +262,7 @@ const NEW_TABLES = {
 const SERVICE_FUNCTIONS = [
   "effective_plan(uuid, timestamptz)",
   "reserve_usage(uuid, text, text, bigint, date, int)",
-  "settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text)",
+  "settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text, numeric, int, text, numeric)",
   "delete_account_data(uuid)",
   "acquire_provider_slot(text, int, int)",
   "release_provider_slot(uuid)",
@@ -717,6 +717,7 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
       user_id: user, job_id: "job-1", request_id: "s-1", stage: "vision", provider: "openrouter", model: "google/gemini-2.5-flash-lite",
       input_tokens: 1200, output_tokens: 300, audio_seconds: 12.5, images: 2, cost_micros: 120_000, cost_reported: true,
       prompt_version: "v1", schema_version: 1, status: "ok", error_code: null, latency_ms: 850, client_version: "0.4.1", host: "learnus.yonsei.ac.kr",
+      lecture_seconds: null, slides: null, subject: null, subject_conf: null,
     });
     assert.equal(q(`select status || ',' || charged_cost_micros from usage_reservations where user_id = ${lit(user)} and request_id = 's-1'`), "settled,120000");
 
@@ -725,6 +726,25 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
     assert.equal(settle(user, "s-2", 150_000, "ok"), "settled");
     assert.equal(balance(user).cost_micros, 270_000);
     assert.equal(sumLedger(user), 270_000, "원장 합계와 잔액이 어긋났다");
+  });
+
+  test("정산: 작업 id·호스트·강의 길이·슬라이드 수·분야가 원장에 남고, 나쁜 host·subject는 CHECK가 거절한다", () => {
+    const user = newUser("t_big");
+    assert.equal(reserve(user, "job-a", 5000), "reserved");
+    assert.equal(settle(user, "job-a", 4000, "ok", { stage: "plan", job_id: "note-abc123", host: "learnus.yonsei.ac.kr", lecture_seconds: 3720.5, slides: 42, subject: "econ_101", subject_conf: 0.87 }), "settled");
+    const [row] = ledger(user);
+    assert.equal(row.job_id, "note-abc123");
+    assert.equal(row.host, "learnus.yonsei.ac.kr");
+    assert.equal(Number(row.lecture_seconds), 3720.5);
+    assert.equal(row.slides, 42);
+    assert.equal(row.subject, "econ_101");
+    assert.equal(Number(row.subject_conf), 0.87);
+    // 자유 텍스트·범위 밖 값은 CHECK가 막는다 — 실패한 정산은 통째로 되돌아간다.
+    for (const [i, [key, value]] of [["host", "learnus.yonsei.ac.kr/x?id=1"], ["host", "LearnUs.yonsei.ac.kr"], ["subject", "미시경제학 입문"], ["subject_conf", "1.5"]].entries()) {
+      const id = `job-b${i}`;
+      assert.equal(reserve(user, id, 5000), "reserved");
+      fails(`select settle_usage(p_user => ${lit(user)}, p_request_id => ${lit(id)}, p_actual_cost_micros => 4000, p_status => 'ok', p_stage => 'plan', p_${key} => ${lit(value)})`, SVC, /23514|check constraint/);
+    }
   });
 
   test("정산: 미보고 비용은 예약을 그대로 유지한다 (공짜로 가정하지 않음), 오류도 마찬가지", () => {

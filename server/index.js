@@ -398,8 +398,8 @@ function createServer(env=process.env,deps={}){
     if(!(account.limits.features||[]).includes("vision")||c.featureFlags.vision===false)return fail(res,"feature_not_in_account_plan");
     if(!c.visionModels.includes(input.model))return fail(res,"invalid_model");
     safePart(input.requestId);
-    const fields=["model","requestId","slideId","t0","t1","image","mode"];
-    if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)))return fail(res,"unexpected_field");
+    const fields=["model","requestId","slideId","t0","t1","image","mode"],optional=["jobId"];
+    if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)&&!optional.includes(k)))return fail(res,"unexpected_field");
     if(typeof input.slideId!=="string"||!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(input.slideId)||!Number.isFinite(input.t0)||!Number.isFinite(input.t1)||input.t0<0||input.t1<input.t0||!["full","reread"].includes(input.mode))return fail(res,"invalid_vision_params");
     const match=/^data:image\/jpeg;base64,([A-Za-z0-9+/]+={0,2})$/.exec(String(input.image||""));
     if(!match)return fail(res,"invalid_image");
@@ -412,7 +412,7 @@ function createServer(env=process.env,deps={}){
     const reasoning=reasoningFor(input.model),live=reasoning.enabled!==false,maxTokens=live?maxTokensFor(input.model):VISION_MAX_TOKENS;
     // 이미지 토큰 수는 사전에 알 수 없다. 최악값에 형식 실패 재시도분까지 잡고 정산에서 되돌린다.
     const reserve=Math.ceil(attempts*(8000*pi+maxTokens*po)/1e6*100*1.2);
-    return await withReservation({account,requestId:input.requestId,digest,reserve,model:input.model,res,meta:{stage:"vision."+input.mode,provider:"openrouter",model:input.model,images:1}},async signal=>{
+    return await withReservation({account,requestId:input.requestId,digest,reserve,model:input.model,res,meta:{stage:"vision."+input.mode,provider:"openrouter",model:input.model,images:1,jobId:input.jobId}},async signal=>{
       let usage={promptTokens:0,completionTokens:0},amount=0,reported=true;
       for(let retry=0;retry<attempts;retry++){
         const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
@@ -438,8 +438,8 @@ function createServer(env=process.env,deps={}){
     if(!(account.limits.features||[]).includes("stt")||c.featureFlags.stt===false)return fail(res,"feature_not_in_account_plan");
     if(!c.sttModels.includes(input.model))return fail(res,"invalid_model");
     safePart(input.requestId);
-    const fields=["model","requestId","t0","durationSec","lang","prompt","audio"];
-    if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)))return fail(res,"unexpected_field");
+    const fields=["model","requestId","t0","durationSec","lang","prompt","audio"],optional=["jobId"];
+    if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)&&!optional.includes(k)))return fail(res,"unexpected_field");
     if(!Number.isFinite(input.t0)||input.t0<0||input.t0>360000||!Number.isFinite(input.durationSec)||input.durationSec<=0||input.durationSec>STT_MAX_SEC||!["ko","en","auto"].includes(input.lang)||typeof input.prompt!=="string"||input.prompt.length>1000)return fail(res,"invalid_stt_params");
     const match=/^data:audio\/(mp4|wav);base64,([A-Za-z0-9+/]+={0,2})$/.exec(String(input.audio||""));
     if(!match)return fail(res,"invalid_audio");
@@ -453,7 +453,7 @@ function createServer(env=process.env,deps={}){
     const phrases=[...new Set(input.prompt.split(",").map(p=>p.trim()).filter(Boolean))].slice(0,100).map(p=>p.slice(0,50));
     const reserve=Math.ceil(STT_RATES[input.model]*Math.max(STT_MIN_BILLED_SEC,input.durationSec)/3600*100*1.2);
     // 월 인식 분량 한도(plans.monthly_minutes_cap)는 선언 길이를 올림한 분으로 센다 — 비용은 따로 제공자가 잰 길이로 정산한다.
-    return await withReservation({account,requestId:input.requestId,digest,reserve,minutes:Math.ceil(input.durationSec/60),model:input.model,res,meta:{stage:"stt",provider:"openrouter",model:input.model,audioSeconds:input.durationSec}},async signal=>{
+    return await withReservation({account,requestId:input.requestId,digest,reserve,minutes:Math.ceil(input.durationSec/60),model:input.model,res,meta:{stage:"stt",provider:"openrouter",model:input.model,audioSeconds:input.durationSec,jobId:input.jobId}},async signal=>{
       // lang auto 는 language 힌트를 보내지 않는다 — 제공자가 언어를 감지하게 둔다.
       const response=await fetcher("https://openrouter.ai/api/v1/audio/transcriptions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
         model:input.model,input_audio:{data:b64,format:match[1]==="mp4"?"m4a":"wav"},...(input.lang==="auto"?{}:{language:input.lang}),response_format:"verbose_json",timestamp_granularities:["segment","word"],
@@ -478,8 +478,8 @@ function createServer(env=process.env,deps={}){
     if(!Object.hasOwn(JUDGE_TASKS,input.task))return fail(res,"invalid_task");
     if(!c.judgeModels.includes(input.model))return fail(res,"invalid_model");
     safePart(input.requestId);
-    const fields=["task","model","requestId","items"];
-    if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)))return fail(res,"unexpected_field");
+    const fields=["task","model","requestId","items"],optional=["jobId"];
+    if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)&&!optional.includes(k)))return fail(res,"unexpected_field");
     const items=input.items;
     if(!Array.isArray(items)||!items.length||items.length>200||items.some(e=>!e||typeof e!=="object"||typeof e.itemId!=="string"||!e.itemId||e.itemId.length>64||typeof e.text!=="string"||!e.text||e.text.length>8000||(e.context!==undefined&&(typeof e.context!=="string"||e.context.length>8000))||Object.keys(e).some(k=>!["itemId","text","context"].includes(k)))||new Set(items.map(e=>e.itemId)).size!==items.length)return fail(res,"invalid_items");
     const text=JSON.stringify(items);
@@ -494,7 +494,7 @@ function createServer(env=process.env,deps={}){
     const inputBytes=via.chunk?units.reduce((s,r)=>s+Buffer.byteLength(JSON.stringify(r.body)),0):Buffer.byteLength(text)+items.length*(Buffer.byteLength(JUDGE_PROMPTS[input.task])+200);
     const reserve=Math.ceil((inputBytes*pi+(via.chunk?0:items.length*po))/1e6*100*1.2);
     // 요청 단위 슬롯은 잡지 않는다(model 없음) — 잡으면 단위 슬롯 대기와 서로를 기다리는 교착이 생긴다.
-    return await withReservation({account,requestId:input.requestId,digest,reserve,res,meta:{stage:"judge."+input.task,provider:"openrouter",model:input.model}},async (signal,store)=>{
+    return await withReservation({account,requestId:input.requestId,digest,reserve,res,meta:{stage:"judge."+input.task,provider:"openrouter",model:input.model,jobId:input.jobId}},async (signal,store)=>{
       const ctl=new AbortController(),stop=()=>ctl.abort();
       signal.addEventListener("abort",stop,{once:true});if(signal.aborted)stop();
       const ctx={c,fetcher,signal:ctl.signal,model:input.model,task:input.task},call=JUDGE_VIA[via.via];
@@ -526,8 +526,8 @@ function createServer(env=process.env,deps={}){
     if(!c.allow.includes(input.model))return fail(res,stage==="plan"?"invalid_model":"invalid_model_or_stage");
     if(!account.limits.models.includes(input.model))return fail(res,"model_not_in_account_plan");
     safePart(input.requestId);
-    const envelope=stage==="plan"?["model","requestId","noteSpecVersion"]:["model","requestId","noteSpecVersion","stage"],fields=[...envelope,...Object.keys(Prompts.REQUEST[stage].properties)];
-    if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)))return fail(res,"unexpected_field");
+    const envelope=stage==="plan"?["model","requestId","noteSpecVersion"]:["model","requestId","noteSpecVersion","stage"],fields=[...envelope,...Object.keys(Prompts.REQUEST[stage].properties)],optional=stage==="plan"?["jobId","host"]:["jobId"];
+    if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)&&!optional.includes(k)))return fail(res,"unexpected_field");
     // 다른 양식 버전의 입력은 모양부터 다를 수 있다. 본문 검사보다 먼저 버전으로 거절해야 클라이언트가 원인을 안다.
     if(input.noteSpecVersion!==NoteContract.NOTE_SPEC_VERSION)return fail(res,"note_spec_mismatch");
     // 모델 입력은 스키마 순서의 본문만이다 — 클라이언트의 키 순서가 달라도 같은 프롬프트가 나가야 재현된다.
@@ -549,7 +549,7 @@ function createServer(env=process.env,deps={}){
     // 형식 실패 재시도분까지 예약하고 정산에서 되돌린다. 시스템 본문과 스키마도 입력 토큰이다.
     const reserve=Math.ceil((Prompts.estimateTokens(system+JSON.stringify(outSchema)+user)*pi+params.max_tokens*po)/1e6*100*1.2*attempts);
     const providerOut=providerSchema(outSchema,[]);
-    return await withReservation({account,requestId:input.requestId,digest,reserve,minutes,model:input.model,res,meta:{stage:stage==="plan"?"plan":"write."+stage,provider:"openrouter",model:input.model}},async signal=>{
+    return await withReservation({account,requestId:input.requestId,digest,reserve,minutes,model:input.model,res,meta:{stage:stage==="plan"?"plan":"write."+stage,provider:"openrouter",model:input.model,jobId:input.jobId,host:input.host,...(stage==="plan"?{lectureSeconds:span,slides:new Set(us.map(u=>u&&u.slideId).filter(Boolean)).size}:{})}},async signal=>{
       let usage={promptTokens:0,completionTokens:0},amount=0,reported=true;
       for(let retry=0;retry<attempts;retry++){
         const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({

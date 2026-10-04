@@ -2048,6 +2048,7 @@ test("a successful write reserves then settles through PostgREST with content-fr
     assert.deepEqual(settled, {
       p_user: UID, p_request_id: "request-one", p_actual_cost_micros: Math.ceil(.002 * 1e6), p_status: "ok", p_stage: "write.section", p_provider: "openrouter", p_model: model,
       p_input_tokens: 800, p_output_tokens: 90, p_audio_seconds: null, p_images: null, p_prompt_version: Prompts.PROMPT_VERSION, p_schema_version: 1, p_error_code: null, p_client_version: "1.2.3", p_host: null,
+      p_job_id: null, p_lecture_seconds: null, p_slides: null, p_subject: null, p_subject_conf: null,
     });
     assert.ok(Number.isInteger(p_latency_ms) && p_latency_ms >= 0 && p_latency_ms < 5000);
     assert.equal(sb.rpcs.at(-1).rpc, "settle_usage");
@@ -2184,6 +2185,7 @@ test("a length cut-off settles as an error carrying the reported charge, not as 
     assert.deepEqual(cut, {
       p_user: UID, p_request_id: "cut-1", p_actual_cost_micros: Math.ceil(.003 * 1e6), p_status: "error", p_stage: "write.section", p_provider: "openrouter", p_model: model,
       p_input_tokens: 800, p_output_tokens: 90, p_audio_seconds: null, p_images: null, p_prompt_version: null, p_schema_version: null, p_error_code: "llm_output_truncated", p_client_version: null, p_host: null,
+      p_job_id: null, p_lecture_seconds: null, p_slides: null, p_subject: null, p_subject_conf: null,
     });
     await errorOf(await req(url, "/v1/write", "POST", sectionIn({ requestId: "cut-1" }), jwt), 409, "request_already_reserved_or_processed");
 
@@ -2216,6 +2218,7 @@ test("refund paths settle as refunded with no cost and no usage, and the same re
       p_user: UID, p_request_id: "stt-r1", p_actual_cost_micros: null, p_status: "refunded", p_stage: "stt", p_provider: "openrouter", p_model: "microsoft/mai-transcribe-2",
       p_input_tokens: null, p_output_tokens: null, p_audio_seconds: null, p_images: null, p_prompt_version: null, p_schema_version: null,
       p_error_code: "provider_failed_or_invalid_output", p_latency_ms: settledOf(sb, 0).p_latency_ms, p_client_version: null, p_host: null,
+      p_job_id: null, p_lecture_seconds: null, p_slides: null, p_subject: null, p_subject_conf: null,
     });
     mode = "busy";
     e = await errorOf(await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-r2" }), jwt), 429, "provider_busy");
@@ -2329,10 +2332,12 @@ test("no lecture content or bare hash reaches Supabase from any route and digest
     const wire = JSON.stringify([sb.rpcs, sb.upserts, sb.gets, sb.calls.map(c => c.url)]);
     for (const secret of ["원가는 생산량에 어떻게 반응하는가", "고정비", "공헌이익", "손익분기", "미분은 순간 변화율이다", "앞뒤 문맥 단서", "강의 전사", "BwcH", "생산량과 관계없이 일정 기간 동안 발생하는 비용", DIGEST_KEY, JWT_SECRET, ec1().slice(0, 40)])
       assert.ok(!wire.includes(secret), "Supabase 로 나간 본문에 있으면 안 된다: " + secret);
-    // 메타데이터 칸은 usage_events 의 CHECK 와 같은 모양이거나 null 이다. 호스트와 job id 는 보내지 않는다.
+    // 메타데이터 칸은 usage_events 의 CHECK 와 같은 모양이거나 null 이다. job id·호스트를 안 보낸 요청은 null 로 기록된다.
     for (const { args } of sb.rpcNamed("settle_usage")) {
       assert.equal(args.p_host, null);
-      assert.equal(Object.hasOwn(args, "p_job_id"), false);
+      assert.equal(args.p_job_id, null);
+      assert.equal(args.p_subject, null);
+      assert.equal(args.p_subject_conf, null);
       for (const [k, v] of Object.entries(args)) if (typeof v === "string" && !["p_user", "p_request_id"].includes(k)) assert.match(v, /^[A-Za-z0-9][A-Za-z0-9_./:@-]*$/, k);
     }
   }, { setup: sb => { sb.plan = "essential"; }, env: { ACCOUNT_RATE_PER_MIN: "1000" } });
@@ -2345,6 +2350,41 @@ test("client-chosen metadata that would violate the ledger CHECKs is dropped ins
     }
     assert.deepEqual(sb.rpcNamed("settle_usage").map(r => r.args.p_client_version), [null, null, null, "1.2.3"]);
   });
+});
+
+test("jobId and host ride the ledger metadata for job grouping without touching idempotency", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    const jwt = ec1();
+    sb.other = async (u, o) => {
+      if (u.includes("audio/transcriptions")) return { ok: true, json: async () => maiRaw() };
+      const b = JSON.parse(o.body);
+      if (b.logprobs) return judgeReply();
+      if (b.response_format?.json_schema?.name === "slide_doc") return slideProvider();
+      return noteReply(notePlanner);
+    };
+    // 계획 요청은 작업 id·호스트·강의 길이(유닛 시각 구간)·슬라이드 수(서로 다른 slideId)를 함께 정산한다.
+    const span = Math.max(...noteIR.units.map(u => u.t1)) - Math.min(...noteIR.units.map(u => u.t0));
+    assert.equal((await req(url, "/v1/plan", "POST", planIn({ requestId: "job-p", jobId: "note-01", host: "learnus.yonsei.ac.kr" }), jwt)).status, 200);
+    const plan = settledOf(sb, 0);
+    assert.equal(plan.p_job_id, "note-01");
+    assert.equal(plan.p_host, "learnus.yonsei.ac.kr");
+    assert.equal(plan.p_lecture_seconds, span);
+    assert.equal(plan.p_slides, new Set(noteIR.units.map(u => u.slideId).filter(Boolean)).size);
+    // 인식·판정 요청도 같은 작업 id를 단다 — 한 노트의 요청을 job_id로 묶을 수 있다.
+    for (const [i, [route, body]] of [["/v1/vision", visionBody({ requestId: "job-v", jobId: "note-01" })], ["/v1/stt", sttBody({ requestId: "job-s", jobId: "note-01" })], ["/v1/judge", judgeBody({ requestId: "job-j", jobId: "note-01" })]].entries()) {
+      assert.equal((await req(url, route, "POST", body, jwt)).status, 200, route);
+      assert.equal(settledOf(sb, i + 1).p_job_id, "note-01", route);
+    }
+    // 모양이 어긋난 jobId/host는 400이 아니라 null로 기록된다 — 요청은 성공한다.
+    assert.equal((await req(url, "/v1/plan", "POST", planIn({ requestId: "job-bad", jobId: "강의 제목", host: "learnus.yonsei.ac.kr/x" }), jwt)).status, 200);
+    assert.equal(settledOf(sb, 4).p_job_id, null);
+    assert.equal(settledOf(sb, 4).p_host, null);
+    // jobId가 없어도 되고, jobId/host는 멱등 digest에 들어가지 않는다 — 둘만 다른 같은 본문은 같은 해시로 예약된다.
+    assert.equal((await req(url, "/v1/plan", "POST", planIn({ requestId: "dig-a" }), jwt)).status, 200);
+    assert.equal((await req(url, "/v1/plan", "POST", planIn({ requestId: "dig-b", jobId: "note-02", host: "lms.ewha.ac.kr" }), jwt)).status, 200);
+    const digestOf = id => sb.rpcNamed("reserve_usage").find(r => r.args.p_request_id === id).args.p_digest;
+    assert.equal(digestOf("dig-a"), digestOf("dig-b"));
+  }, { setup: sb => { sb.plan = "essential"; }, env: { ACCOUNT_RATE_PER_MIN: "1000" } });
 });
 
 test("the DB plan decides features and models, closed by default, and is cached for 30 seconds", async () => {

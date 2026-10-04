@@ -162,6 +162,12 @@ create table if not exists usage_events (
 );
 create index if not exists usage_events_created_idx on usage_events (created_at);
 create index if not exists usage_events_user_idx on usage_events (user_id) where user_id is not null;
+-- 작업 단위 묶기·강의 분야 통계(2026-10-04). 이미 만든 DB를 위해 alter로 둔다.
+-- subject 는 자동 분류 코드다 — 강의 제목·내용 같은 자유 텍스트는 문자 집합 CHECK가 막는다.
+alter table usage_events add column if not exists lecture_seconds numeric(10, 2) check (lecture_seconds >= 0);
+alter table usage_events add column if not exists slides int check (slides >= 0);
+alter table usage_events add column if not exists subject text check (subject ~ '^[a-z][a-z0-9_]{0,31}$');
+alter table usage_events add column if not exists subject_conf numeric(5, 4) check (subject_conf between 0 and 1);
 
 -- 추가 전용 강제. service_role은 RLS를 우회하므로 권한만으로는 UPDATE/DELETE를 막지 못해 트리거로 막는다.
 -- 허용하는 변경은 하나뿐이다: user_id → null(계정 삭제 비식별화, FK의 on delete set null 포함).
@@ -356,6 +362,7 @@ $$;
 --                               실제 비용이 예약보다 크면 한도를 살짝 넘길 수 있다(이미 쓴 돈이라 되돌릴 수 없다).
 --   p_status = 'refunded'     : 공급자에 아무것도 보내지 않았다. 예약을 풀고(요청 수·분 포함) 예약 행을 지운다.
 -- 같은 요청의 두 번째 정산은 원장에 아무것도 쓰지 않고 already_settled를 돌려준다.
+drop function if exists settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text);
 create or replace function settle_usage(
   p_user uuid,
   p_request_id text,
@@ -374,7 +381,11 @@ create or replace function settle_usage(
   p_latency_ms int default null,
   p_client_version text default null,
   p_host text default null,        -- 호스트명만(경로 금지). 형식은 usage_events CHECK가 강제한다
-  p_job_id text default null
+  p_job_id text default null,
+  p_lecture_seconds numeric default null,
+  p_slides int default null,
+  p_subject text default null,
+  p_subject_conf numeric default null
 )
 returns text
 language plpgsql
@@ -437,11 +448,13 @@ begin
 
   insert into usage_events (
     user_id, job_id, request_id, stage, provider, model, input_tokens, output_tokens, audio_seconds, images,
-    cost_micros, cost_reported, prompt_version, schema_version, status, error_code, latency_ms, client_version, host
+    cost_micros, cost_reported, prompt_version, schema_version, status, error_code, latency_ms, client_version, host,
+    lecture_seconds, slides, subject, subject_conf
   ) values (
     p_user, p_job_id, p_request_id, p_stage, p_provider, p_model, p_input_tokens, p_output_tokens, p_audio_seconds, p_images,
     v_charged, v_refund or p_actual_cost_micros is not null, p_prompt_version, p_schema_version, p_status, p_error_code,
-    p_latency_ms, p_client_version, p_host
+    p_latency_ms, p_client_version, p_host,
+    p_lecture_seconds, p_slides, p_subject, p_subject_conf
   );
 
   return case when v_refund then 'refunded' else 'settled' end;
@@ -745,7 +758,7 @@ $$;
 -- 서버 전용 함수는 셋 중 service_role만 남기고, 어드민 함수는 schema.sql과 같이 authenticated(+is_admin 게이트)만 연다.
 revoke all on function effective_plan(uuid, timestamptz) from public, anon, authenticated;
 revoke all on function reserve_usage(uuid, text, text, bigint, date, int) from public, anon, authenticated;
-revoke all on function settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text) from public, anon, authenticated;
+revoke all on function settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text, numeric, int, text, numeric) from public, anon, authenticated;
 revoke all on function delete_account_data(uuid) from public, anon, authenticated;
 revoke all on function acquire_provider_slot(text, int, int) from public, anon, authenticated;
 revoke all on function release_provider_slot(uuid) from public, anon, authenticated;
@@ -753,7 +766,7 @@ revoke all on function admin_usage(int) from public, anon;
 revoke all on function admin_grant_plan(uuid, text, timestamptz, timestamptz) from public, anon;
 grant execute on function effective_plan(uuid, timestamptz) to service_role;
 grant execute on function reserve_usage(uuid, text, text, bigint, date, int) to service_role;
-grant execute on function settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text) to service_role;
+grant execute on function settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text, numeric, int, text, numeric) to service_role;
 grant execute on function delete_account_data(uuid) to service_role;
 grant execute on function acquire_provider_slot(text, int, int) to service_role;
 grant execute on function release_provider_slot(uuid) to service_role;
@@ -866,7 +879,7 @@ begin
   foreach f in array array[
     'effective_plan(uuid, timestamptz)'::regprocedure,
     'reserve_usage(uuid, text, text, bigint, date, int)'::regprocedure,
-    'settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text)'::regprocedure,
+    'settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text, numeric, int, text, numeric)'::regprocedure,
     'delete_account_data(uuid)'::regprocedure,
     'apply_billing_event(text, text, uuid, text, boolean, text, timestamptz, timestamptz, text, integer, text, integer, timestamptz)'::regprocedure,
     'acquire_provider_slot(text, int, int)'::regprocedure,
