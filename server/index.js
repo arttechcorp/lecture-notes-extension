@@ -6,7 +6,7 @@ const Contracts=require("../lib/contracts.js"),NoteContract=require("../lib/note
 const {createAuth}=require("./auth.js"),{fileUsage,supabaseUsage,FAIL_CODE}=require("./usage.js"),{supabaseVault}=require("./vault-store.js");
 const RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"google/gemini-2.5-pro":[1.25,10],"anthropic/claude-haiku-4.5":[1,5],"anthropic/claude-sonnet-4.6":[3,15],"anthropic/claude-sonnet-5":[2,10]};
 // 이미지 입력은 텍스트와 단가가 다르고 출력도 훨씬 짧다. /v1/plan·/v1/write 와 예약 계산을 섞지 않는다.
-const VISION_RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"mistralai/ministral-8b-2512":[.15,.15],"qwen/qwen3-vl-8b-instruct":[.12,.45]};
+const VISION_RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"mistralai/ministral-8b-2512":[.15,.15],"qwen/qwen3-vl-8b-instruct":[.12,.45],"openai/gpt-6-luna":[.1,.5]};
 // 구조화 출력은 상자 좌표까지 JSON으로 나가 순수 텍스트보다 길다.
 const VISION_MAX_TOKENS=8192;
 // MAI Transcribe 는 오디오 시간당 과금이다. 예약은 클라이언트 선언 길이로 잡되 정산은 제공자가 잰
@@ -57,7 +57,7 @@ function providerSchema(s,drop){
   return out;
 }
 const VISION_SCHEMA=providerSchema({type:"object",additionalProperties:false,required:["blocks","formulas","figures"],properties:{blocks:Contracts.SCHEMAS.slideDoc.properties.blocks,formulas:Contracts.SCHEMAS.slideDoc.properties.formulas,figures:Contracts.SCHEMAS.slideDoc.properties.figures}},["id","status"]);
-const {cachedSystem,parseNote}=require("./llm.js");
+const {cachedSystem,parseNote,reasoningFor,maxTokensFor,noTemperature}=require("./llm.js");
 const safePart=x=>{if(typeof x!=="string"||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(x))throw new Error("invalid_id");return x;};
 const tokenEqual=(a,b)=>{const x=Buffer.from(String(a)),y=Buffer.from(String(b));return x.length===y.length&&crypto.timingSafeEqual(x,y);};
 const positive=(x,fallback)=>{const n=Number(x??fallback);if(!Number.isFinite(n)||n<=0)throw new Error("invalid_limit");return n;};
@@ -404,13 +404,15 @@ function createServer(env=process.env,deps={}){
     // digest 는 프레임 내용이 아니라 그 해시로 잡는다. 사용량 파일에 이미지가 남으면 안 된다.
     const digest=digestOf(account,JSON.stringify({model:input.model,slideId:input.slideId,t0:input.t0,t1:input.t1,mode:input.mode,image:crypto.createHash("sha256").update(match[1]).digest("hex")}));
     const [pi,po]=VISION_RATES[input.model],attempts=2;
+    // 추론형 모델(llm.js 에 enabled 아닌 reasoning 설정)은 추론 토큰도 max_tokens 를 먹으므로 모델별 상한을 쓴다 — 예약도 실제로 보내는 같은 값으로 잡는다.
+    const reasoning=reasoningFor(input.model),live=reasoning.enabled!==false,maxTokens=live?maxTokensFor(input.model):VISION_MAX_TOKENS;
     // 이미지 토큰 수는 사전에 알 수 없다. 최악값에 형식 실패 재시도분까지 잡고 정산에서 되돌린다.
-    const reserve=Math.ceil(attempts*(8000*pi+VISION_MAX_TOKENS*po)/1e6*100*1.2);
+    const reserve=Math.ceil(attempts*(8000*pi+maxTokens*po)/1e6*100*1.2);
     return await withReservation({account,requestId:input.requestId,digest,reserve,model:input.model,res,meta:{stage:"vision."+input.mode,provider:"openrouter",model:input.model,images:1}},async signal=>{
       let usage={promptTokens:0,completionTokens:0},amount=0,reported=true;
       for(let retry=0;retry<attempts;retry++){
         const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
-          model:input.model,max_tokens:VISION_MAX_TOKENS,temperature:0,
+          model:input.model,max_tokens:maxTokens,...(noTemperature(input.model)?{}:{temperature:0}),...(live?{reasoning}:{}),
           messages:[{role:"system",content:input.mode==="reread"?VISION_REREAD_PROMPT:VISION_PROMPT},{role:"user",content:[{type:"text",text:"이 이미지를 규칙대로 옮겨 적어 JSON으로만 답하세요."},{type:"image_url",image_url:{url:input.image}}]}],
           response_format:{type:"json_schema",json_schema:{name:"slide_doc",strict:true,schema:VISION_SCHEMA}},
           provider:{only:c.providers[input.model],order:c.providers[input.model],require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}

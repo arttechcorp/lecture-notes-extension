@@ -25,7 +25,7 @@ const authEvent=(error,extra)=>{if(error?.status!==401||!error?.tokenInfo)return
 // (background가 절전 방지·Referer 규칙을 풀고 패널에 전한다). BG_*·LIB_* 요청은 background.js만 보낼 수 있다 — 동의 기록과 Referer 출처를 거기서 정하기 때문이다.
 // /v1/me는 요약 모델 목록만 알려 주고 인식·판정 모델은 싣지 않아 모델은 여기 한 곳에 둔다. 서버 allowlist(ALLOWED_*_MODELS)와 어긋나면 invalid_model로 멈춘다 — 다른 모델로 조용히 바꾸지 않는다.
 // ponytail: 계획·작성 모델은 둘 다 lite다(기본 allowlist에 있는 유일한 모델). 중급 Planner 선정(docs/architecture-v2.md A5)이 끝나면 plan만 바꾼다.
-const BG_MODELS={plan:"google/gemini-2.5-flash-lite",write:"google/gemini-2.5-flash-lite",judge:"openai/gpt-4.1-nano",stt:"microsoft/mai-transcribe-2",vision:"google/gemini-2.5-flash-lite"};
+const BG_MODELS={plan:"google/gemini-2.5-flash-lite",write:"google/gemini-2.5-flash-lite",judge:"openai/gpt-4.1-nano",stt:"microsoft/mai-transcribe-2",vision:"openai/gpt-6-luna"};
 const bgMe=async(settings,signal)=>ServiceClient.me({baseUrl:settings.serviceUrl,token:await tokenProvider(settings.appSessionToken,settings.serviceUrl),timeoutMs:15000,signal});
 // Referer 규칙은 background가 건다(DNR은 서비스 워커 몫). 새 호스트로 나가기 전에 그 호스트를 더해 달라고 하고 답을 기다린다 — 호스트마다 한 번, 차례로(규칙 갱신이 서로 덮어쓰지 않게).
 // ponytail: 리다이렉트로 호스트가 바뀌면 그 호스트는 규칙에 없어 Referer가 빠지고 SRC_AUTH_EXPIRED로 멈춘다. 필요하면 응답의 url을 보고 규칙을 늘린다.

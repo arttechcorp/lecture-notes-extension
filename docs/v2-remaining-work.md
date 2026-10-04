@@ -82,7 +82,7 @@
 4. **정책 문서의 열린 항목**(`docs/policy-drafts-v2.md` §0): Supabase 리전(지금 시드니), 서버 호스팅(Supabase Edge, 리전 확인 필요), 국외 이전 고지 방식, Jev 채택, 운영자 표기, 온디바이스 요약(Gemini Nano) 존속, 법률 검토 일정. 시행일은 게시 페이지에 2026.10.11로 정해졌으나 초안 문서에는 "(미정)"으로 남아 있다(대조 필요).
 5. **확장 ID 고정**: 저장소 폴더를 옮기면 ID가 바뀌어 로그인 리디렉트와 `EXTENSION_ORIGIN`이 어긋난다. `manifest.json`에 개발용 `key`를 넣을지.
 6. ~~운영자 진단 키 보관~~: 진단 파일 단순화로 필요 없어졌다.
-7. **모델·공급자 고정**: 계획·작성·비전·판정 모델과 ZDR 공급자 태그(`OPENROUTER_PROVIDERS_JSON`).
+7. **모델·공급자 고정**: 계획·작성·비전·판정 모델과 ZDR 공급자 태그(`OPENROUTER_PROVIDERS_JSON`). 비전은 2026-10-04 `openai/gpt-6-luna`(effort high, `azure`)로 정했다([vision-bench-2026-10-04.md](vision-bench-2026-10-04.md)) — 운영 반영에는 `ALLOWED_VISION_MODELS`·`OPENROUTER_PROVIDERS_JSON` 비밀값 추가와 `api` 재배포가 필요하다.
 8. **PR #14 병합 시점**: 병합하면 랜딩 가격(24,000원·14,000원)과 탈퇴 방식이 바로 바뀐다. 함수 배포와 DB 적용 뒤에 병합한다.
 9. **`AGENTS.md`의 미커밋 변경**(Devin·aside 사용, 저렴한 모델 서브에이전트 지시): 메인 체크아웃에 아직 미커밋으로 있다. 커밋할지.
 10. ~~학생가 인증 수준~~: 2026-10-03 인증 없이 판매로 결정(§3의 3).

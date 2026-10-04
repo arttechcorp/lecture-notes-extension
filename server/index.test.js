@@ -715,6 +715,34 @@ test("vision returns a structured slideDoc through strict json_schema", async ()
   } finally { await close(server); removeTemp(root); }
 });
 
+test("vision sends reasoning effort and no temperature to openai/gpt-6-luna", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  const luna = "openai/gpt-6-luna";
+  let sent = null;
+  const env = {
+    ...visionEnv(root),
+    ALLOWED_VISION_MODELS: JSON.stringify([model, luna]),
+    OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], [luna]: ["azure"] }),
+  };
+  const server = createServer(env, { fetch: async (_u, o) => { sent = JSON.parse(o.body); return slideProvider(); } });
+  await new Promise(r => server.listen(0, "127.0.0.1", r));
+  const url = "http://127.0.0.1:" + server.address().port;
+  try {
+    const res = await req(url, "/v1/vision", "POST", visionBody({ model: luna, requestId: "vl-one" }));
+    assert.equal(res.status, 200);
+    assert.deepEqual(sent.reasoning, { effort: "high" });
+    assert.ok(!Object.hasOwn(sent, "temperature"), "temperature 를 거절하는 엔드포인트에는 키를 아예 뺀다(require_parameters)");
+    assert.equal(sent.max_tokens, 16384, "추론 토큰도 max_tokens 를 먹는다");
+    assert.deepEqual(sent.provider.only, ["azure"]);
+
+    const lite = await req(url, "/v1/vision", "POST", visionBody({ requestId: "vl-two" }));
+    assert.equal(lite.status, 200);
+    assert.equal(sent.temperature, 0);
+    assert.equal(sent.max_tokens, 8192);
+    assert.ok(!Object.hasOwn(sent, "reasoning"), "기존 모델의 요청 모양은 그대로다");
+  } finally { await close(server); removeTemp(root); }
+});
+
 test("vision retries one malformed structured response then fails with the reservation kept", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
   let calls = 0, mode = "bad-then-good";

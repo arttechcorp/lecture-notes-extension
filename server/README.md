@@ -16,7 +16,8 @@ OPENROUTER_API_KEY=<운영자 키, 확장에 넣지 않음>
 EXTENSION_ORIGIN=chrome-extension://<실제 32자 확장 ID>
 APP_TOKENS_JSON={"pilot-user":"<계정마다 고유한 32자 이상 난수 앱 토큰>"}
 ALLOWED_MODELS=["google/gemini-2.5-flash-lite"]
-OPENROUTER_PROVIDERS_JSON={"google/gemini-2.5-flash-lite":["<검증한 공급자 식별자>"]}
+OPENROUTER_PROVIDERS_JSON={"google/gemini-2.5-flash-lite":["<검증한 공급자 식별자>"],"openai/gpt-6-luna":["azure"]}
+ALLOWED_VISION_MODELS=["openai/gpt-6-luna"]
 ALLOWED_STT_MODELS=["microsoft/mai-transcribe-2"]
 VAULT_DIR=<서비스 전용 영속 볼륨의 절대 경로>
 USAGE_STATE_FILE=<같은 영속 볼륨>/usage.json
@@ -40,6 +41,8 @@ PLAN_FEATURES_JSON={"essential":{"features":["vision","stt","judge","background"
 ```
 
 `OPENROUTER_PROVIDERS_JSON`은 필수다. 값은 공급사 이름이 아니라 **모델별 엔드포인트 태그**이며 모델마다 다르다(`google/gemini-2.5-flash-lite`는 `google-vertex`, `google/gemini-3.8-flash`는 `google-vertex/global`). `https://openrouter.ai/api/v1/models/<model>/endpoints`로 태그·ZDR·구조화 출력 지원을 확인하고 넣는다. 없는 태그를 넣으면 모델 요청이 400으로 실패한다. 임의 공급자 fallback을 허용하지 않는다. 공급자가 없거나 필수 파라미터를 지원하지 않으면 요청이 실패하는 것이 정상이다.
+
+화면 인식(비전) 기본 모델은 `openai/gpt-6-luna`다. ZDR 엔드포인트 태그는 `azure`이며 `ALLOWED_VISION_MODELS`과 `OPENROUTER_PROVIDERS_JSON`에 둘 다 넣어야 한다(비전 모델마다 공급자 목록이 없으면 기동을 거부한다). 이 모델은 `reasoning: {effort:"high"}`로 부르고 `temperature`를 지원하지 않는다 — 서버가 `provider.require_parameters`로 보내므로 그 키는 아예 빼고 나간다.
 
 `MAX_REQUESTS`는 기본 계정의 UTC 달력 월 요청 수(기본 10000)이고 강의 편수가 아니다. 요청 수는 거친 안전망일 뿐 진짜 상한은 아래 비용 캡이다(유료 강의 1시간이 150회 안팎을 부른다). `MAX_COST_CENTS`는 계정당 월 USD 센트, `GLOBAL_COST_CENTS`는 전체 계정 월 USD 센트다. 500센트는 $5다. 각 계정별 모델과 상한을 좁히려면 다음을 추가한다.
 
