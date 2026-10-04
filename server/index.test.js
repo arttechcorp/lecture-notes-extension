@@ -934,6 +934,7 @@ test("judge calls the provider once per item for each task", async () => {
         const checked = Contracts.validate(Contracts.SCHEMAS.judgeResult, r);
         assert.ok(checked.ok, JSON.stringify(checked.errors));
         assert.deepEqual(r.probs.map(x => x.label), expect.labels);
+        assert.equal(r.confidence, null, "logprob 경로는 confidence 가 없다");
         for (const [i, p] of expect.p.entries()) assert.ok(Math.abs(r.probs[i].p - p) < 1e-9, task + "/" + i);
         if (expect.score === null) assert.equal(r.score, null); else assert.ok(Math.abs(r.score - expect.score) < 1e-9, task + " score");
       }
@@ -968,6 +969,7 @@ test("judge passes no-judgement items through and fails wholesale when logprobs 
     assert.equal(data.results[0].probs.length, 4);
     assert.deepEqual(data.results[1].probs, [], "라벨 글자가 없는 항목은 판정 없음으로 돌아온다");
     assert.equal(data.results[1].score, null);
+    assert.equal(data.results[1].confidence, null);
     mode = "nologprobs";
     const bad = await req(url, "/v1/judge", "POST", judgeBody({ requestId: "j-nolog" }));
     assert.equal(bad.status, 502, "logprobs가 빠진 응답은 요청 전체를 실패시킨다");
@@ -1086,6 +1088,8 @@ test("judge model config validates the allowlist and explicit providers", () => 
     assert.deepEqual(serverConfig(judgeEnv(root)).judgeModels, [judgeModel], "제공자 항목이 있으면 기본으로 켜진다");
     assert.deepEqual(serverConfig({ ...judgeEnv(root), ALLOWED_JUDGE_MODELS: "[]" }).judgeModels, [], "명시적으로 끌 수 있다");
     assert.equal(JUDGE_MODELS[judgeModel].via, "logprob");
+    assert.equal(JUDGE_MODELS["typesafe/jev-1.13"].via, "jev");
+    assert.ok(JUDGE_MODELS["typesafe/jev-1.13"].chunk, "jev 는 요청 단위로 묶어 보낸다");
   } finally { removeTemp(root); }
 });
 
@@ -1105,6 +1109,74 @@ test("ServiceClient.judge round-trips results through the real client", async ()
     assert.ok(err instanceof Error);
     assert.equal(err.code, "invalid_task");
     assert.equal(err.retryable, false);
+  } finally { await close(server); removeTemp(root); }
+});
+
+// ── 판정(judge): Jev via ──
+const jevModel = "typesafe/jev-1.13";
+const jevEnv = root => ({
+  ...judgeEnv(root),
+  OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], [judgeModel]: ["test-provider"], [jevModel]: ["typesafe"] }),
+  ALLOWED_JUDGE_MODELS: JSON.stringify([judgeModel, jevModel]),
+});
+// decisions 응답은 요청 본문의 questions 키를 그대로 답으로 돌려준다 — 정방향·역방향이 같은 분포면 평균도 같다.
+const jevReplyFor = body => ({
+  ok: true,
+  json: async () => ({
+    model: "typesafe/jev-1.13-20260917", provider: "TypeSafe",
+    answers: Object.fromEntries(Object.keys(body.questions).map(k => [k, { type: "choice", choice: "lecture", probabilities: { lecture: .8, example: .1, admin: .05, chatter: .05 }, confidence: .8 }])),
+    usage: { input_tokens: 1800, output_tokens: 0, cost: .00008 },
+  }),
+});
+
+test("judge via jev batches items into decisions requests and unpacks answers", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  const urls = [], bodies = [];
+  const server = createServer(jevEnv(root), { fetch: async (u, o) => { urls.push(u); const b = JSON.parse(o.body); bodies.push(b); return jevReplyFor(b); } });
+  await new Promise(r => server.listen(0, "127.0.0.1", r));
+  const url = "http://127.0.0.1:" + server.address().port;
+  try {
+    const items = Array.from({ length: 23 }, (_, i) => ({ itemId: "it-" + i, text: "항목 " + i }));
+    const res = await req(url, "/v1/judge", "POST", judgeBody({ model: jevModel, requestId: "jev-one", items }));
+    assert.equal(res.status, 200);
+    assert.equal(bodies.length, 3, "23개 항목은 요청 3개로 묶인다(10+10+3)");
+    for (const [i, b] of bodies.entries()) {
+      assert.equal(urls[i], "https://openrouter.ai/api/alpha/decisions");
+      assert.equal(b.model, jevModel);
+      assert.deepEqual(b.provider, { only: ["typesafe"], allow_fallbacks: false, zdr: true, data_collection: "deny" });
+      assert.ok(!("require_parameters" in b) && !("temperature" in b) && !("max_tokens" in b) && !("messages" in b), "chat-completions 필드를 싣지 않는다");
+    }
+    assert.deepEqual(bodies.map(b => b.state.items.length), [10, 10, 3]);
+    assert.equal(Object.keys(bodies[0].questions).length, 20, "선택 과제는 항목마다 정방향+역방향 둘을 묻는다");
+    assert.deepEqual(Object.keys(bodies[2].questions).sort(), ["i0", "i1", "i2", "r0", "r1", "r2"]);
+    assert.deepEqual(bodies[0].state.items[0], { text: "항목 0" });
+    const data = await res.json();
+    assert.deepEqual(data.results.map(r => r.itemId), items.map(i => i.itemId), "항목 순서대로 돌아온다");
+    for (const r of data.results) {
+      const checked = Contracts.validate(Contracts.SCHEMAS.judgeResult, r);
+      assert.ok(checked.ok, JSON.stringify(checked.errors));
+      assert.deepEqual(r.probs.map(x => [x.label, x.p]), [["lecture", .8], ["example", .1], ["admin", .05], ["chatter", .05]]);
+      assert.equal(r.score, null);
+      assert.equal(r.confidence, .8);
+      assert.equal(r.model, jevModel);
+    }
+    assert.equal(data.usage.promptTokens, 5400);
+    assert.equal(data.usage.completionTokens, 0);
+    assert.ok(Math.abs(data.usage.costUsd - .00024) < 1e-9);
+  } finally { await close(server); removeTemp(root); }
+});
+
+test("judge via jev treats an upstream 529 like a provider failure", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  let calls = 0;
+  const server = createServer(jevEnv(root), { fetch: async () => { calls++; return { ok: false, status: 529, json: async () => ({}) }; } });
+  await new Promise(r => server.listen(0, "127.0.0.1", r));
+  const url = "http://127.0.0.1:" + server.address().port;
+  try {
+    const res = await req(url, "/v1/judge", "POST", judgeBody({ model: jevModel, requestId: "jev-529" }));
+    assert.equal(res.status, 502);
+    assert.equal((await res.json()).error.code, "provider_failed_or_invalid_output");
+    assert.equal(calls, 1, "항목 2개는 요청 1개라 첫 실패에서 바로 끝난다");
   } finally { await close(server); removeTemp(root); }
 });
 

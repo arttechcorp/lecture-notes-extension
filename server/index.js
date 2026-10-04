@@ -15,9 +15,10 @@ const STT_RATES={"microsoft/mai-transcribe-2":0.10};
 const STT_MIN_BILLED_SEC=10,STT_MAX_SEC=330,STT_MAX_BYTES=12*1024*1024;
 // 판정은 모델의 "호출 방식"(via)을 레지스트리로 분리한다 — 생성형이 아닌 판정 API를 얹어도
 // 여기에 항목만 더하면 되고 클라이언트 계약은 안 바뀐다. rates 는 USD/백만 입력·출력 토큰.
-const JUDGE_MODELS={"openai/gpt-4.1-nano":{via:"logprob",rates:[.1,.4]}};
-// 과제별 고정 라벨 — 모델에게 나가는 선택지 알파벳(A, B, C …)은 이 순서를 따른다.
-const JUDGE_TASKS={utterance:["lecture","example","admin","chatter"],importance:["1","2","3","4","5"],boilerplate:["yes","no"],figure:["core","supporting","decorative"],support:["supported","unsupported"]};
+const JUDGE_MODELS={"openai/gpt-4.1-nano":{via:"logprob",rates:[.1,.4]},"typesafe/jev-1.13":{via:"jev",rates:[.042,0],chunk:true}};
+// 과제별 고정 라벨 — 모델에게 나가는 선택지 알파벳(A, B, C …)과 Jev 선택지 순서가 이 표를 따른다.
+// 표는 요청·응답 변환과 함께 server/jev.js 에 둔다 — logprob 과 jev 가 같은 라벨 순서를 써야 한다.
+const Jev=require("./jev.js"),JUDGE_TASKS=Jev.JUDGE_TASKS;
 // 판정 프롬프트는 공용 전제 + 과제 블록이다. 자료 안의 지시를 무시하라는 문장이 프롬프트 인젝션 방어선이다.
 const JUDGE_PROMPTS=Object.fromEntries(Object.entries({
   utterance:"과제: 강의 중 한 문장(text)이 어느 종류인지 고른다. A: 강의내용 — 수업 주제의 개념, 정의, 수식, 절차를 직접 설명한다. B: 예시·비유 — 이해를 돕는 사례나 비유다. C: 공지·행정 — 출석, 과제, 시험 일정, 화면·장비 안내다. D: 잡담 — 주제와 무관한 말, 추임새, 농담이다. context가 있으면 앞뒤 문맥이다.",
@@ -482,30 +483,37 @@ function createServer(env=process.env,deps={}){
     if(Buffer.byteLength(text)>65536)return fail(res,"items_too_large");
     // 원장에는 본문 해시만 남긴다 — 판정 텍스트(강의 내용)가 사용량 파일에 남으면 안 된다.
     const digest=digestOf(account,JSON.stringify({route:"judge",task:input.task,model:input.model,items}));
-    const [pi,po]=JUDGE_MODELS[input.model].rates,inputBytes=Buffer.byteLength(text)+items.length*(Buffer.byteLength(JUDGE_PROMPTS[input.task])+200);
-    // 항목마다 시스템 프롬프트가 다시 붙고 출력은 알파벳 1토큰이다. 바이트 수를 보수적 토큰 상한으로 쓴다.
-    const reserve=Math.ceil((inputBytes*pi+items.length*po)/1e6*100*1.2);
-    // 요청 단위 슬롯은 잡지 않는다(model 없음) — 잡으면 항목 슬롯 대기와 서로를 기다리는 교착이 생긴다.
+    const via=JUDGE_MODELS[input.model],[pi,po]=via.rates;
+    // chunk via(Jev)는 항목을 하나의 state 로 묶어 요청 단위로 보낸다 — 예약에 쓸 본문을 지금 만든다.
+    const units=via.chunk?Jev.buildRequests(input.task,items,{model:input.model,providers:c.providers[input.model]}):items;
+    // 바이트 수를 보수적 입력 토큰 상한으로 쓴다: logprob 는 항목마다 시스템 프롬프트가 다시 붙고 출력은 알파벳 1토큰,
+    // jev 는 요청 본문 JSON 전체가 입력이고 출력은 무료다.
+    const inputBytes=via.chunk?units.reduce((s,r)=>s+Buffer.byteLength(JSON.stringify(r.body)),0):Buffer.byteLength(text)+items.length*(Buffer.byteLength(JUDGE_PROMPTS[input.task])+200);
+    const reserve=Math.ceil((inputBytes*pi+(via.chunk?0:items.length*po))/1e6*100*1.2);
+    // 요청 단위 슬롯은 잡지 않는다(model 없음) — 잡으면 단위 슬롯 대기와 서로를 기다리는 교착이 생긴다.
     return await withReservation({account,requestId:input.requestId,digest,reserve,res,meta:{stage:"judge."+input.task,provider:"openrouter",model:input.model}},async (signal,store)=>{
       const ctl=new AbortController(),stop=()=>ctl.abort();
       signal.addEventListener("abort",stop,{once:true});if(signal.aborted)stop();
-      const ctx={c,fetcher,signal:ctl.signal,model:input.model,task:input.task},call=JUDGE_VIA[JUDGE_MODELS[input.model].via];
-      const results=new Array(items.length);let next=0;
+      const ctx={c,fetcher,signal:ctl.signal,model:input.model,task:input.task},call=JUDGE_VIA[via.via];
+      const results=new Array(units.length);let next=0;
       const worker=async()=>{
         // 첫 실패에서 전체를 중단한다 — 나머지 호출은 어차피 버릴 결과에 돈을 쓴다.
-        while(next<items.length&&!ctl.signal.aborted){
+        while(next<units.length&&!ctl.signal.aborted){
           const i=next++,release=await acquire(input.model,ctl.signal,true,store);
           // abort 직전 큐에 들어간 대기자도 슬롯은 물려받는다 — 슬롯을 얻고도 호출은 나가면 안 된다.
-          try{if(ctl.signal.aborted)throw new Error("aborted");results[i]=await call(ctx,items[i]);}catch(e){ctl.abort();throw e;}finally{release();}
+          try{if(ctl.signal.aborted)throw new Error("aborted");results[i]=await call(ctx,units[i]);}catch(e){ctl.abort();throw e;}finally{release();}
         }
       };
-      try{await Promise.all(Array.from({length:Math.min(items.length,16)},()=>worker()));}finally{signal.removeEventListener("abort",stop);ctl.abort();}
+      try{await Promise.all(Array.from({length:Math.min(units.length,16)},()=>worker()));}finally{signal.removeEventListener("abort",stop);ctl.abort();}
       let amount=0,reported=true,usage={promptTokens:0,completionTokens:0};
-      for(const r of results){
+      const perItem=new Array(items.length);
+      for(const [u,r]of results.entries()){
         usage={promptTokens:usage.promptTokens+r.promptTokens,completionTokens:usage.completionTokens+r.completionTokens};
         if(typeof r.cost==="number"&&Number.isFinite(r.cost)&&r.cost>=0)amount+=r.cost;else reported=false;
+        // 요청 단위 호출(chunk)은 항목 결과 배열을 돌려준다 — itemIndexes 로 원래 자리에 편다.
+        if(via.chunk)r.results.forEach((o,j)=>{perItem[units[u].itemIndexes[j]]=o;});else perItem[u]=r;
       }
-      const payload={results:items.map((e,i)=>Contracts.assertValid(Contracts.SCHEMAS.judgeResult,{itemId:e.itemId,task:input.task,probs:results[i].probs,score:results[i].score,model:input.model},"판정 결과")),usage:{...usage,costUsd:reported?amount:reserve/100},promptVersion:c.remoteConfig.promptVersion,schemaVersion:c.remoteConfig.schemaVersion};
+      const payload={results:items.map((e,i)=>Contracts.assertValid(Contracts.SCHEMAS.judgeResult,{itemId:e.itemId,task:input.task,probs:perItem[i].probs,score:perItem[i].score,confidence:perItem[i].confidence??null,model:input.model},"판정 결과")),usage:{...usage,costUsd:reported?amount:reserve/100},promptVersion:c.remoteConfig.promptVersion,schemaVersion:c.remoteConfig.schemaVersion};
       return {amount,reported,payload};
     });
   }
@@ -672,7 +680,15 @@ const JUDGE_VIA={
     })});
     if(!response.ok)throw new Error("provider_failed");
     const raw=await boundedResponse(response,256*1024),{probs,score}=judgeProbs(raw,ctx.task),u=raw.usage||{};
-    return {probs,score,cost:u.cost,promptTokens:Number(u.prompt_tokens)||0,completionTokens:Number(u.completion_tokens)||0};
+    // logprob 경로는 확신 필드가 없다 — 계약이 confidence 를 요구하므로 null 을 둔다.
+    return {probs,score,confidence:null,cost:u.cost,promptTokens:Number(u.prompt_tokens)||0,completionTokens:Number(u.completion_tokens)||0};
+  },
+  // jev 는 buildRequests 의 한 단위(청크)를 통째로 보내고 answers 를 항목 결과 배열로 푼다 — 돌려주는 것은 항목 결과가 아니라 요청 결과다.
+  jev:async(ctx,request)=>{
+    const response=await ctx.fetcher(Jev.ENDPOINT,{method:"POST",redirect:"error",signal:ctx.signal,headers:{authorization:"Bearer "+ctx.c.key,"content-type":"application/json"},body:JSON.stringify(request.body)});
+    if(!response.ok)throw new Error("provider_failed");
+    const raw=await boundedResponse(response,1024*1024),u=raw.usage||{};
+    return {results:Jev.parseAnswers(ctx.task,raw,request.itemIndexes.length),cost:u.cost,promptTokens:Number(u.input_tokens)||0,completionTokens:Number(u.output_tokens)||0};
   },
 };
 async function boundedResponse(response,max){
