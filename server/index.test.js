@@ -1227,7 +1227,9 @@ const withNoteServer = async (fetcher, run, extra = {}) => {
 const errorOf = async (res, status, code) => {
   assert.equal(res.status, status, code);
   const body = await res.json();
-  assert.ok(Contracts.validate(Contracts.SCHEMAS.errorEnvelope, body).ok, "오류 봉투 계약: " + code);
+  // 401 인증 거절은 계약 스키마가 모르는 진단 필드(reason, detail)를 싣는다 — 봉투 검증은 나머지로 하고 반환은 전체다.
+  const { reason, detail, ...core } = body.error || {};
+  assert.ok(Contracts.validate(Contracts.SCHEMAS.errorEnvelope, { ...body, error: core }).ok, "오류 봉투 계약: " + code);
   assert.equal(body.error.code, code);
   return body.error;
 };
@@ -1859,19 +1861,24 @@ test("JWT verification accepts valid ES256 and RS256 tokens, caches the JWKS and
   });
 });
 
-test("with SUPABASE_JWT_SECRET only HS256 is accepted and the JWKS is never fetched", async () => {
+test("with SUPABASE_JWT_SECRET, HS256 uses the secret and ES256/RS256 still use the JWKS", async () => {
   await withSupabase(async ({ url, sb }) => {
     const now = Math.floor(Date.now() / 1000), hs = o => mint({ alg: "HS256", kid: null, ...o });
     const res = await req(url, "/v1/me", "GET", undefined, hs());
     assert.equal(res.status, 200);
     assert.equal((await res.json()).accountId, UID);
     await errorOf(await req(url, "/v1/me", "GET", undefined, hs({ claims: { exp: now - 60 } })), 401, "token_expired");
+    assert.equal(sb.jwksCalls, 0, "HS256 은 JWKS 를 건드리지 않는다");
+    // ES256/RS256 도 받되 오직 JWKS 키로만 검증한다 — 시크릿은 비대칭 알고리즘에 닿지 않는다.
+    assert.equal((await req(url, "/v1/me", "GET", undefined, ec1())).status, 200);
+    assert.equal((await req(url, "/v1/me", "GET", undefined, mint({ alg: "RS256", pair: RSA1, kid: "rsa-1" }))).status, 200);
+    assert.ok(sb.jwksCalls > 0);
+    const seg = ec1().split("."); seg[2] = b64u(crypto.createHmac("sha256", JWT_SECRET).update(seg[0] + "." + seg[1]).digest());
     for (const t of [hs({ secret: "another-secret".padEnd(40, "x") }), hs({ claims: { aud: "anon" } }), hs({ claims: { iss: "https://evil.supabase.co/auth/v1" } }), hs({ claims: { role: "anon" } }),
-      ec1(), mint({ alg: "RS256", pair: RSA1, kid: "rsa-1" }), mint({ alg: "none" })])
+      seg.join("."), mint({ alg: "none" })])
       await errorOf(await req(url, "/v1/me", "GET", undefined, t), 401, "unauthorized");
     const [h, p, s] = hs().split(".");
     await errorOf(await req(url, "/v1/me", "GET", undefined, h + "." + b64u({ sub: UID2, aud: "authenticated", role: "authenticated", iss: SB + "/auth/v1", exp: now + 99 }) + "." + s), 401, "unauthorized");
-    assert.equal(sb.jwksCalls, 0, "시크릿이 있으면 JWKS 를 쓰지 않는다");
   }, { env: { SUPABASE_JWT_SECRET: JWT_SECRET } });
 });
 
@@ -1922,6 +1929,28 @@ test("an unreachable JWKS answers a retryable 503 instead of logging users out, 
   await withSupabase(async ({ url }) => {
     await errorOf(await req(url, "/v1/me", "GET", undefined, ec1()), 503, "auth_unavailable");
   }, { setup: sb => { sb.jwks = { keys: [{ kty: "oct", kid: "ec-1", k: "c2VjcmV0", use: "sig", alg: "HS256" }, { kty: "RSA", kid: "weak" }] }; } });
+});
+
+test("a 401 body carries the rejection reason and SUPABASE_JWKS seeds keys without a fetch", async () => {
+  await withSupabase(async ({ url }) => {
+    const e = await errorOf(await req(url, "/v1/me", "GET", undefined, ec1({ claims: { iss: "https://evil.supabase.co/auth/v1" } })), 401, "unauthorized");
+    assert.equal(e.reason, "iss");
+    assert.deepEqual(e.detail, { expectedHost: "proj.supabase.co", gotHost: "evil.supabase.co" });
+    const aud = await errorOf(await req(url, "/v1/me", "GET", undefined, ec1({ claims: { aud: "anon" } })), 401, "unauthorized");
+    assert.equal(aud.reason, "aud");
+    assert.equal(aud.detail, "anon");
+    const format = await errorOf(await req(url, "/v1/me", "GET", undefined, "bad"), 401, "unauthorized");
+    assert.equal(format.reason, "format");
+    assert.ok(!JSON.stringify(e).includes(UID), "거절 본문에 sub 가 없다");
+  });
+  // 호스팅 환경변수 JWKS 로 시드하면 첫 요청부터 fetch 없이 검증하고 모르는 kid 만 fetch 로 떨어진다.
+  await withSupabase(async ({ url, sb }) => {
+    assert.equal((await req(url, "/v1/me", "GET", undefined, ec1())).status, 200);
+    assert.equal(sb.jwksCalls, 0, "시드된 키는 JWKS 를 부르지 않는다");
+    const e = await errorOf(await req(url, "/v1/me", "GET", undefined, ec1({ kid: "ec-9" })), 401, "unauthorized");
+    assert.equal(e.reason, "kid");
+    assert.equal(sb.jwksCalls, 1, "모르는 kid 는 fetch 로 떨어진다");
+  }, { env: { SUPABASE_JWKS: JSON.stringify({ keys: [jwkOf(EC1, "ec-1")] }) } });
 });
 
 test("static tokens keep the file ledger while JWT accounts use Postgres", async () => {

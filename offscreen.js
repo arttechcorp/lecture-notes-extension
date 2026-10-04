@@ -17,9 +17,9 @@ const tokenProvider=async(fallback,serviceUrl)=>{
   try{const u=new URL(serviceUrl);if(/^https?:$/.test(u.protocol)&&["localhost","127.0.0.1","[::1]"].includes(u.hostname)&&typeof fallback==="string"&&fallback)return fallback;}catch{}
   throw Object.assign(new Error("로그인이 필요합니다. 메뉴에서 Google로 로그인하세요."),{code:"AUTH_REQUIRED"});
 };
-// 서비스가 401로 토큰을 거부하면 검증 없이 뗀 껍데기(tokenInfo: 종류·alg·kid·발급자·남은 수명)만 진단 이벤트에 싣는다 — 본문·sub·이메일·토큰은 싣지 않는다. 돌려주는 문자열은 세션 디버그 로그 한 줄용이다.
+// 서비스가 401로 토큰을 거부하면 검증 없이 뗀 껍데기(tokenInfo: 종류·alg·kid·발급자·남은 수명)와 서버의 거절 이유(authReason·authDetail)만 진단 이벤트에 싣는다 — 본문·sub·이메일·토큰은 싣지 않는다. 돌려주는 문자열은 세션 디버그 로그 한 줄용이다.
 const tokenInfoText=t=>[t.kind,t.alg,t.kid,t.iss,t.expInSec!=null?`exp ${t.expInSec}s`:null,t.length!=null?`len ${t.length}`:null].filter(v=>v!=null&&v!=="").join(" ");
-const authEvent=(error,extra)=>{if(error?.status!==401||!error?.tokenInfo)return null;const msg=tokenInfoText(error.tokenInfo);events.emit({stage:"auth",level:"warn",code:"AUTH_REJECTED",msg,...extra});return `[인증] 서버가 토큰을 거부함 · ${msg}`;};
+const authEvent=(error,extra)=>{if(error?.status!==401||!error?.tokenInfo)return null;const msg=(tokenInfoText(error.tokenInfo)+(error.authReason?` · reason ${error.authReason}${error.authDetail?" "+error.authDetail:""}`:"")).slice(0,200);events.emit({stage:"auth",level:"warn",code:"AUTH_REJECTED",msg,...extra});return `[인증] 서버가 토큰을 거부함 · ${msg}`;};
 // ── 유료 백그라운드 작업(BG_*, docs/architecture-v2.md §5.3, §6.1, §8) ──
 // 한 번에 하나. 원본 미디어는 메모리에서만 쓰고 파생물(슬라이드·전사·노트)만 암호화 패키지 저장소에 둔다. 진행은 이벤트 버스에서 단계별 개수만 패널에 밀고, 결말은 BG_DONE으로 background에 알린다
 // (background가 절전 방지·Referer 규칙을 풀고 패널에 전한다). BG_*·LIB_* 요청은 background.js만 보낼 수 있다 — 동의 기록과 Referer 출처를 거기서 정하기 때문이다.

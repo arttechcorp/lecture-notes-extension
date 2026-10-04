@@ -228,7 +228,7 @@ function createServer(env=process.env,deps={}){
   const file=fileUsage({state,record,save,month,globalCents:c.globalCents});
   const sb=c.supabase&&supabaseUsage({url:c.supabase.url,key:c.supabase.key,http:sbHttp});
   const vstore=c.supabase&&supabaseVault({url:c.supabase.url,key:c.supabase.key,bucket:c.supabase.bucket,http:sbHttp});
-  const auth=c.supabase&&createAuth({url:c.supabase.url,secret:c.supabase.secret,getJson:url=>sbHttp(url),now:clock});
+  const auth=c.supabase&&createAuth({url:c.supabase.url,secret:c.supabase.secret,getJson:url=>sbHttp(url),now:clock,jwks:env.SUPABASE_JWKS});
   // JWT 계정은 장부 digest 를 HMAC 으로 DB에 보낸다 — 강의 본문의 맨 SHA-256 은 사전 공격이 가능하다. 파일 장부(운영자 디스크)는 기존 그대로다.
   const digestOf=(account,s)=>account.jwt?crypto.createHmac("sha256",c.supabase.digestKey).update(s).digest("hex"):crypto.createHash("sha256").update(s).digest("hex");
   // DB 등급 → 기능·모델. 같은 사용자의 연속 호출은 30초 캐시를 쓰고 /v1/me 만 새로 읽는다(한도 자체는 매 예약마다 DB가 판정하므로 캐시가 한도를 늦추지 않는다).
@@ -238,7 +238,7 @@ function createServer(env=process.env,deps={}){
     else{plan=await sb.plan(id);plans.delete(id);plans.set(id,{plan,at:clock()});if(plans.size>5000)plans.delete(plans.keys().next().value);}
     return {plan,...(c.planFeatures[plan]||c.planFeatures.free)};
   }
-  const fail=(res,code,retryAfterMs)=>{const [status,retryable,message]=ERRORS[code]||[500,false,"요청을 처리하지 못했습니다."];send(res,status,{error:{code,message,retryable,retryAfterMs:Number.isInteger(retryAfterMs)?retryAfterMs:null}});};
+  const fail=(res,code,retryAfterMs,extra)=>{const [status,retryable,message]=ERRORS[code]||[500,false,"요청을 처리하지 못했습니다."];send(res,status,{error:{code,message,retryable,retryAfterMs:Number.isInteger(retryAfterMs)?retryAfterMs:null,...extra}});};
   function send(res,status,data){
     if(res.destroyed||res.writableEnded)return;
     res.writeHead(status,{"content-type":"application/json","cache-control":"no-store","x-content-type-options":"nosniff","access-control-allow-origin":c.origin,"vary":"Origin","access-control-allow-headers":"authorization,content-type,x-client-version","access-control-allow-methods":"GET,PUT,POST,DELETE,OPTIONS"});
@@ -250,7 +250,10 @@ function createServer(env=process.env,deps={}){
     const id=Object.entries(c.tokens).find(([,v])=>tokenEqual(token,v))?.[0];
     if(id!==undefined)return {id,jwt:false,limits:limitFor(id),client};
     const r=auth?await auth.verify(token):null;
-    return r&&r.sub?{id:r.sub,jwt:true,client}:{code:r?.code||"unauthorized"};
+    if(r&&r.sub)return {id:r.sub,jwt:true,client};
+    // 거절 이유는 한 줄로만 — 토큰·sub·이메일은 절대 싣지 않는다(detail 은 auth.js 가 안전한 값만 만든다).
+    if(r&&r.reason)console.warn("auth_reject "+r.reason+(r.detail===undefined?"":" "+JSON.stringify(r.detail)));
+    return {code:r?.code||"unauthorized",reason:r?.reason,detail:r?.detail};
   }
   async function body(req,max){
     const declared=Number(req.headers["content-length"]);if(declared>max)throw new Error("request_too_large");
@@ -578,7 +581,7 @@ function createServer(env=process.env,deps={}){
     try{
       if(req.headers.origin&&req.headers.origin!==c.origin)return fail(res,"origin_not_allowed");
       if(req.method==="OPTIONS")return send(res,204,{});
-      const who=await accountFor(req);if(who.code)return fail(res,who.code);
+      const who=await accountFor(req);if(who.code)return fail(res,who.code,undefined,{reason:who.reason,detail:who.detail});
       const account=who.id;
       if(below(version(req.headers["x-client-version"]),version(c.remoteConfig.minClientVersion)))return fail(res,"client_upgrade_required");
       if(req.method==="POST"){const b=bucket(account);if(b.tokens<1)return fail(res,"rate_limited",Math.ceil((1-b.tokens)*6e4/c.ratePerMin));b.tokens--;}
