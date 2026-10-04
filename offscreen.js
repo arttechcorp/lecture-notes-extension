@@ -4,6 +4,12 @@ let session=null,generation=0,starting=false,summaryController=null,archiveBusy=
 const bus=new PipelineEvents.EventBus(),events=PipelineEvents.safe(bus);
 const storeP=PackageStore.indexedDbAdapter().then(PackageStore.createStore); // 로그와 백그라운드 작업이 한 암호화 저장소를 나눠 쓴다
 storeP.then(store=>(sink=new PipelineEvents.LogSink(bus,store)).start()).catch(()=>events.emit({stage:"system",level:"warn",code:"LOG_STORE_UNAVAILABLE"}));
+events.emit({stage:"system",code:"BOOT",msg:"offscreen"});
+// 잡히지 않은 오류도 진단에 남긴다 — error.message 는 입력 텍스트를 담을 수 있어(V8 JSON 오류) 이름과 첫 스택 프레임의 file:line:col 만 싣는다.
+const frameLoc=s=>{for(const l of String(s||"").split("\n")){if(!/^\s*at\b/.test(l))continue;const m=l.match(/[^\s()]+:\d+:\d+/g);if(m)return m.at(-1);}return "-";};
+const uncaught=(name,stack)=>events.emit({stage:"system",level:"error",code:"UNCAUGHT",msg:`${name||"Error"} ${frameLoc(stack)}`});
+globalThis.addEventListener?.("error",e=>uncaught(e.error?.name,e.error?.stack||`at ${e.filename||"-"}:${e.lineno||0}:${e.colno||0}`));
+globalThis.addEventListener?.("unhandledrejection",e=>uncaught(e.reason?.name||typeof e.reason,e.reason?.stack));
 const emit=state=>chrome.runtime.sendMessage({target:"panel",type:"SESSION_STATE",state}).catch(()=>{});
 const trusted=(sender,pages=["/background.js","/sidepanel.html","/options.html"])=>{try{const url=new URL(sender.url),base=new URL(chrome.runtime.getURL(""));return sender.id===chrome.runtime.id&&url.protocol===base.protocol&&url.host===base.host&&pages.includes(url.pathname);}catch{return false;}};
 const settingsOf=s=>({serviceUrl:String(s?.serviceUrl||""),appSessionToken:String(s?.appSessionToken||""),remoteSummaryConsent:s?.remoteSummaryConsent===true,
