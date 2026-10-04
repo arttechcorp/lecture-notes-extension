@@ -293,7 +293,8 @@ function bgNoticeLines(notices){
   return lines;
 }
 function bgDoneView(d){
-  if(['complete','partial','done'].includes(d.status))return {text:[`노트 준비됨${d.status==='partial'?' (일부 섹션 제외)':''} · 슬라이드 ${d.stats?.slides??'-'} · 음성 구간 ${d.stats?.chunks??'-'}`,...bgNoticeLines(d.notices)].join('\n')}; // 저장 안내는 공용 저장 상자(renderSaved)가 단다
+  if(d.status==='done')return {text:'이미 노트를 만든 강의입니다.'}; // BG_RUN already — 새로 돌리지 않고 저장된 결과만 다시 알린다
+  if(['complete','partial'].includes(d.status))return {text:[`노트 준비됨${d.status==='partial'?' (일부 섹션 제외)':''} · 슬라이드 ${d.stats?.slides??'-'} · 음성 구간 ${d.stats?.chunks??'-'}`,...bgNoticeLines(d.notices)].join('\n')}; // 저장 안내는 공용 저장 상자(renderSaved)가 단다
   if(d.status==='cancelled')return {text:'백그라운드 처리를 취소했습니다.'};
   const text=d.message||`백그라운드 처리를 마치지 못했습니다. 같은 문제가 반복되면 메뉴의 고객지원으로 문의해 주세요.${d.code?` (코드: ${d.code})`:''}`;
   if(d.status==='paused'){
@@ -325,8 +326,10 @@ async function findPlaylist(tabId,ms=15000){
     chrome.webRequest.onResponseStarted.addListener(seen,{urls:['<all_urls>'],tabId,types:['media','xmlhttprequest']},['responseHeaders']);
   });
 }
+// 작업 번호는 강의 탭 주소(조각 제외, 경로·질의 유지)의 SHA-256 앞 32자 — 같은 강의를 다시 누르면 같은 번호라 이전 작업의 인식 캐시를 이어 쓴다. 주소는 해시로만 둔다.
+const bgJobId=async url=>{const u=new URL(url);u.hash="";const d=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(u.href));return "lec-"+[...new Uint8Array(d)].map(b=>b.toString(16).padStart(2,"0")).join("").slice(0,32);};
 // source가 없으면 영상 목록을 찾는다(처음 시작, 그리고 강의 탭을 다시 연 뒤의 재개). 있으면 같은 jobId로 그대로 다시 보낸다.
-async function bgStart(jobId=crypto.randomUUID(),source=null){
+async function bgStart(jobId=null,source=null){
   const tab=tabs.find(t=>String(t.id)===els.tabSelect.value);
   bg={jobId,source};if(bgEl.bgSave)bgEl.bgSave.hidden=true; // 지난 작업의 저장 안내를 새 작업에 남기지 않는다
   if(!tab){bgShow({text:'선택한 강의 탭이 없습니다. 강의 창에서 확장을 다시 여세요.'});return;}
@@ -343,9 +346,12 @@ async function bgStart(jobId=crypto.randomUUID(),source=null){
     if(!url){bgStopClock();bgShow({text:'영상 목록(HLS)을 찾지 못했습니다. 영상을 처음 위치로 되감거나 새로고침해 재생한 뒤 다시 시도하세요. 이 강의가 HLS가 아닌 방식이면 실시간 캡처를 쓰세요.',retry:true});return;}
     source=bg.source={playlistUrl:url};
   }
+  jobId??=bg.jobId=await bgJobId(tab.url); // 번호가 없는 첫 클릭만 강의 주소 해시로 정한다 — 재시도·이어 하기의 명시된 번호는 그대로다
   bgShow({text:'백그라운드 처리를 시작합니다…',progress:info,summary:!!info,busy:true,cancel:true});
   const r=await rpc({type:'BG_RUN',jobId,tabId:tab.id,source});
   if(!r.ok){bgStopClock();bgShow({text:r.error||'백그라운드 처리를 시작하지 못했습니다.',retry:true});}
+  else if(r.already&&r.state==='done'){bgStopClock();bgShow({text:'이미 노트를 만든 강의입니다.'});} // 저장 상자는 곧 오는 BG_DONE이 그린다
+  else if(r.already)bgShow({text:'이전에 처리한 강의입니다. 인식 결과를 다시 쓰고 이어서 노트를 만듭니다.',busy:true,cancel:true});
 }
 // 패널을 열 때: 유료 계정이면 카드를 실시간 캡처 블록 위의 주 경로로 옮기고(bgLayout), 끝나지 않은 작업이 있으면 알린다(이어 하기는 같은 jobId로 BG_RUN).
 async function bgInit(){

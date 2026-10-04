@@ -212,7 +212,7 @@ async function bgList(settings){
   const store=await storeP,jobs=[];
   for(const id of await store.ids("jobs")){
     const r=await store.getJson("jobs",id).catch(()=>null);
-    if(r&&!["done","failed","cancelled"].includes(r.state))jobs.push({jobId:id,state:r.state,code:r.code??null,running:bg?.jobId===id});
+    if(r&&!["done","cancelled"].includes(r.state))jobs.push({jobId:id,state:r.state,code:r.code??null,running:bg?.jobId===id}); // 실패한 작업도 이어 할 수 있으니 싣는다 — 완료·취소만 숨긴다
   }
   // 요금제는 서버만 안다. 확인하지 못하면(로그아웃·오프라인) 백그라운드 처리를 보여 주지 않는다.
   const me=await bgMe(settings).catch(()=>null);
@@ -238,10 +238,21 @@ async function bgMessage(message,sender){
   if(!/^[A-Za-z0-9][A-Za-z0-9-]{7,63}$/.test(jobId)||!/^https?:\/\//i.test(source?.playlistUrl)||!/^https?:\/\//i.test(source?.pageUrl))throw new Error("백그라운드 처리 요청이 올바르지 않습니다.");
   const ctl=new AbortController();bg={jobId,ctl};
   try{
-    const store=await storeP,me=await bgMe(settings,ctl.signal);
-    const job=await Pipeline.loadJob(jobId,store,{events})??await Pipeline.createJob({jobId,store,events}); // 같은 번호면 이어서 한다
+    const store=await storeP,found=await Pipeline.loadJob(jobId,store,{events});
+    if(found?.state==="done"){
+      // 이미 노트까지 만든 강의다 — 다시 돌리지 않고, 저장된 노트가 있으면 끝난 작업처럼 파일도 다시 내보낸 뒤 결말만 알린다.
+      bg=null;
+      const data=await NoteLibrary.load(store,found.packageId).catch(()=>null);
+      const res={status:data?.note?"done":data?.recognition?"recognition-only":"done",packageId:found.packageId,
+        saved:data?.note?savedResult(await exportNote(store,found.packageId,data.meta,data.note)):null};
+      await chrome.runtime.sendMessage({target:"background",type:"BG_DONE",...bgResult(jobId,res)}).catch(()=>{});
+      return {ok:true,already:true,state:"done"};
+    }
+    const me=await bgMe(settings,ctl.signal);
+    if(found?.state==="failed"||found?.state==="cancelled")await found.reopen(); // 끝난 작업을 기록된 단계로 되돌린다 — 앞서 끝난 단계는 패키지 캐시가 메운다
+    const job=found??await Pipeline.createJob({jobId,store,events}); // 같은 번호면 이어서 한다(멈춘 작업은 runBackground가 resume 한다)
     bgJob(job,source,settings,me,ctl); // 기다리지 않는다: 결말은 BG_DONE으로 간다
-    return {ok:true};
+    return {ok:true,...(found?{already:true,state:job.state}:{})};
   }catch(error){bg=null;throw error;}
 }
 // ── 로컬 데이터 관리(options.html "데이터 관리" 카드) ──
