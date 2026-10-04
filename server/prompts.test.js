@@ -116,6 +116,11 @@ test("generation params pin temperature, cap output by the spec and skip seed wh
   assert.deepEqual(write.reasoning, { enabled: false });
   assert.equal("seed" in Prompts.modelParams("anthropic/claude-haiku-4.5", "section"), false);
   assert.equal(Prompts.modelParams("google/gemini-2.5-flash-lite", "section").seed, write.seed, "같은 seed 라야 재현된다");
+  const pro = Prompts.modelParams("xiaomi/mimo-v2.6-pro", "plan"), flash = Prompts.modelParams("xiaomi/mimo-v2.6-flash", "section");
+  assert.equal(pro.max_tokens, 16000, "추론 여유분은 단계 출력 상한 위에 얹는다");
+  assert.deepEqual(pro.reasoning, { effort: "low" });
+  assert.equal(flash.max_tokens, tokens.writerOutput);
+  assert.deepEqual(flash.reasoning, { enabled: false });
   assert.equal(Prompts.inputTokenLimit("plan"), tokens.plannerInput);
   assert.equal(Prompts.inputTokenLimit("global"), tokens.globalInput);
   for (const s of ["section", "repair"]) assert.equal(Prompts.inputTokenLimit(s), tokens.writerInput);

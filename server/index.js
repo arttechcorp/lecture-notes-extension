@@ -4,7 +4,7 @@ const fs=require("node:fs"),path=require("node:path"),http=require("node:http"),
 const Vault=require("../lib/vault.js");
 const Contracts=require("../lib/contracts.js"),NoteContract=require("../lib/note-contract.js"),Prompts=require("./prompts.js");
 const {createAuth}=require("./auth.js"),{fileUsage,supabaseUsage,FAIL_CODE}=require("./usage.js"),{supabaseVault}=require("./vault-store.js");
-const RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"google/gemini-2.5-pro":[1.25,10],"anthropic/claude-haiku-4.5":[1,5],"anthropic/claude-sonnet-4.6":[3,15],"anthropic/claude-sonnet-5":[2,10]};
+const RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"google/gemini-2.5-pro":[1.25,10],"anthropic/claude-haiku-4.5":[1,5],"anthropic/claude-sonnet-4.6":[3,15],"anthropic/claude-sonnet-5":[2,10],"xiaomi/mimo-v2.6-pro":[.435,.87],"xiaomi/mimo-v2.6-flash":[.14,.28]};
 // 이미지 입력은 텍스트와 단가가 다르고 출력도 훨씬 짧다. /v1/plan·/v1/write 와 예약 계산을 섞지 않는다.
 const VISION_RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"mistralai/ministral-8b-2512":[.15,.15],"qwen/qwen3-vl-8b-instruct":[.12,.45],"openai/gpt-6-luna":[.1,.5]};
 // 구조화 출력은 상자 좌표까지 JSON으로 나가 순수 텍스트보다 길다.
@@ -163,7 +163,7 @@ function config(env){
     supabase={url:u.origin,key:env.SUPABASE_SERVICE_ROLE_KEY,secret:env.SUPABASE_JWT_SECRET||undefined,digestKey:env.USAGE_DIGEST_KEY,bucket};
   }else if(env.SUPABASE_SERVICE_ROLE_KEY||env.SUPABASE_JWT_SECRET)throw new Error("SUPABASE_URL required");
   // JWT 계정의 기능·모델은 DB 등급(effective_plan)을 이 표로 옮겨 정한다. 모르는 등급과 null 은 free 로 닫는다.
-  const lite="google/gemini-2.5-flash-lite",planFeatures={free:{features:[],models:[allow.includes(lite)?lite:allow[0]]},essential:{features:["vision","stt","judge","background","augment"],models:allow},professional:{features:["vision","stt","judge","background","augment"],models:allow}},planIn=JSON.parse(env.PLAN_FEATURES_JSON||"{}"),free0=planFeatures.free;
+  const lite="google/gemini-2.5-flash-lite",mimo="xiaomi/mimo-v2.6-flash",planFeatures={free:{features:[],models:[allow.includes(mimo)?mimo:allow.includes(lite)?lite:allow[0]]},essential:{features:["vision","stt","judge","background","augment"],models:allow},professional:{features:["vision","stt","judge","background","augment"],models:allow}},planIn=JSON.parse(env.PLAN_FEATURES_JSON||"{}"),free0=planFeatures.free;
   if(!plain(planIn))throw new Error("invalid_plan_features");
   for(const [name,p]of Object.entries(planIn)){
     if(!/^[a-z][a-z0-9_]{0,31}$/.test(name)||!plain(p)||Object.keys(p).some(k=>!["features","models"].includes(k)))throw new Error("invalid_plan_features");

@@ -118,7 +118,7 @@ const inputTokenLimit=stage=>stage==="plan"?T.plannerInput:stage==="global"?T.gl
 // 생성 파라미터. seed 를 지원하지 않는 모델에 보내면 require_parameters 때문에 요청이 통째로 거절된다(Anthropic).
 const NO_SEED=/^anthropic\//,SEED=7;
 const modelParams=(model,stage)=>({
-  max_tokens:Math.min(LLM.maxTokensFor(model),stage==="plan"?T.plannerOutput:stage==="global"?T.globalOutput:T.writerOutput),
+  max_tokens:Math.min(LLM.maxTokensFor(model),(stage==="plan"?T.plannerOutput:stage==="global"?T.globalOutput:T.writerOutput)+LLM.reasoningBudgetFor(model)),
   reasoning:LLM.reasoningFor(model),temperature:0,...(NO_SEED.test(model)?{}:{seed:SEED}),
 });
 module.exports={PROMPT_VERSION,STAGES,LIMITS,systemFor,REQUEST,outputSchema,estimateTokens,inputTokenLimit,modelParams};

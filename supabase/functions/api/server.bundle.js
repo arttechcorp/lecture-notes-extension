@@ -1767,7 +1767,7 @@ const fs=require("node:fs"),path=require("node:path"),http=require("node:http"),
 const Vault=require("../lib/vault.js");
 const Contracts=require("../lib/contracts.js"),NoteContract=require("../lib/note-contract.js"),Prompts=require("./prompts.js");
 const {createAuth}=require("./auth.js"),{fileUsage,supabaseUsage,FAIL_CODE}=require("./usage.js"),{supabaseVault}=require("./vault-store.js");
-const RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"google/gemini-2.5-pro":[1.25,10],"anthropic/claude-haiku-4.5":[1,5],"anthropic/claude-sonnet-4.6":[3,15],"anthropic/claude-sonnet-5":[2,10]};
+const RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"google/gemini-2.5-pro":[1.25,10],"anthropic/claude-haiku-4.5":[1,5],"anthropic/claude-sonnet-4.6":[3,15],"anthropic/claude-sonnet-5":[2,10],"xiaomi/mimo-v2.6-pro":[.435,.87],"xiaomi/mimo-v2.6-flash":[.14,.28]};
 // 이미지 입력은 텍스트와 단가가 다르고 출력도 훨씬 짧다. /v1/plan·/v1/write 와 예약 계산을 섞지 않는다.
 const VISION_RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"mistralai/ministral-8b-2512":[.15,.15],"qwen/qwen3-vl-8b-instruct":[.12,.45],"openai/gpt-6-luna":[.1,.5]};
 // 구조화 출력은 상자 좌표까지 JSON으로 나가 순수 텍스트보다 길다.
@@ -1926,7 +1926,7 @@ function config(env){
     supabase={url:u.origin,key:env.SUPABASE_SERVICE_ROLE_KEY,secret:env.SUPABASE_JWT_SECRET||undefined,digestKey:env.USAGE_DIGEST_KEY,bucket};
   }else if(env.SUPABASE_SERVICE_ROLE_KEY||env.SUPABASE_JWT_SECRET)throw new Error("SUPABASE_URL required");
   // JWT 계정의 기능·모델은 DB 등급(effective_plan)을 이 표로 옮겨 정한다. 모르는 등급과 null 은 free 로 닫는다.
-  const lite="google/gemini-2.5-flash-lite",planFeatures={free:{features:[],models:[allow.includes(lite)?lite:allow[0]]},essential:{features:["vision","stt","judge","background","augment"],models:allow},professional:{features:["vision","stt","judge","background","augment"],models:allow}},planIn=JSON.parse(env.PLAN_FEATURES_JSON||"{}"),free0=planFeatures.free;
+  const lite="google/gemini-2.5-flash-lite",mimo="xiaomi/mimo-v2.6-flash",planFeatures={free:{features:[],models:[allow.includes(mimo)?mimo:allow.includes(lite)?lite:allow[0]]},essential:{features:["vision","stt","judge","background","augment"],models:allow},professional:{features:["vision","stt","judge","background","augment"],models:allow}},planIn=JSON.parse(env.PLAN_FEATURES_JSON||"{}"),free0=planFeatures.free;
   if(!plain(planIn))throw new Error("invalid_plan_features");
   for(const [name,p]of Object.entries(planIn)){
     if(!/^[a-z][a-z0-9_]{0,31}$/.test(name)||!plain(p)||Object.keys(p).some(k=>!["features","models"].includes(k)))throw new Error("invalid_plan_features");
@@ -2596,6 +2596,7 @@ module.exports = { ENDPOINT, JUDGE_TASKS, QUESTIONS, buildRequests, parseAnswers
 // tools/openrouter-endpoint-probe.mjs 가 둘을 실제 목록과 대조한다. 1차 공급자 태그(anthropic·openai·google-ai-studio)는
 // zdr:true 와 함께 쓰면 늘 404 라 고정하지 않는다. Claude 는 amazon-bedrock/global 로 보낸다.
 // maxTokens 는 reasoning 을 포함한다. 서버 예약액이 이 값에 비례하므로 단계별 상한은 prompts.js 가 더 낮게 정한다.
+// reasoningBudget 은 그 단계 출력 상한 위에 얹는 추론 토큰용 max_tokens 여유분이다 — 추론형 모델이 답을 쓰기 전 상한을 다 먹지 않게 한다(prompts.js).
 // cache: system 프롬프트에 캐시 중단점을 찍을지. Anthropic 은 cache_control 을 명시해야 붙고, Gemini 는 암묵 캐시라 표시하지 않는다.
 const MODELS={
   "google/gemini-2.5-flash-lite":{tags:["google-vertex"],reasoning:{enabled:false},maxTokens:32768},
@@ -2604,8 +2605,11 @@ const MODELS={
   "anthropic/claude-haiku-4.5":{tags:["amazon-bedrock/global"],reasoning:{enabled:false},maxTokens:32768,cache:true},
   "anthropic/claude-sonnet-4.6":{tags:["amazon-bedrock/global"],reasoning:{enabled:false},maxTokens:32768,cache:true},
   "openai/gpt-6-luna":{tags:["azure"],reasoning:{effort:"high"},maxTokens:16384,temperature:false},
+  "xiaomi/mimo-v2.6-pro":{tags:["deepinfra/fp8"],reasoning:{effort:"low"},reasoningBudget:8000,maxTokens:32768},
+  "xiaomi/mimo-v2.6-flash":{tags:["inference-net/fp8","deepinfra/fp8"],reasoning:{enabled:false},maxTokens:32768},
 };
 const reasoningFor=model=>MODELS[model]?.reasoning||{enabled:false};
+const reasoningBudgetFor=model=>MODELS[model]?.reasoningBudget||0;
 const maxTokensFor=model=>MODELS[model]?.maxTokens||8192;
 const noTemperature=model=>MODELS[model]?.temperature===false;
 // 캐시를 안 쓰는 모델에는 문자열을 그대로 보낸다. 배열 본문은 공급자마다 정규화 경로가 달라 얻는 게 없는 쪽까지 바꾸지 않는다.
@@ -2620,7 +2624,7 @@ const UNMANGLE=[
 ];
 const unmangle=s=>UNMANGLE.reduce((acc,[re,rep])=>acc.replace(re,rep),s);
 const parseNote=text=>JSON.parse(text,(_,v)=>typeof v==="string"?unmangle(v):v);
-module.exports={MODELS,reasoningFor,maxTokensFor,noTemperature,cachedSystem,parseNote};
+module.exports={MODELS,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cachedSystem,parseNote};
 
 },
 "server/prompts.js": function (module, exports, require, __filename, __dirname) {
@@ -2744,7 +2748,7 @@ const inputTokenLimit=stage=>stage==="plan"?T.plannerInput:stage==="global"?T.gl
 // 생성 파라미터. seed 를 지원하지 않는 모델에 보내면 require_parameters 때문에 요청이 통째로 거절된다(Anthropic).
 const NO_SEED=/^anthropic\//,SEED=7;
 const modelParams=(model,stage)=>({
-  max_tokens:Math.min(LLM.maxTokensFor(model),stage==="plan"?T.plannerOutput:stage==="global"?T.globalOutput:T.writerOutput),
+  max_tokens:Math.min(LLM.maxTokensFor(model),(stage==="plan"?T.plannerOutput:stage==="global"?T.globalOutput:T.writerOutput)+LLM.reasoningBudgetFor(model)),
   reasoning:LLM.reasoningFor(model),temperature:0,...(NO_SEED.test(model)?{}:{seed:SEED}),
 });
 module.exports={PROMPT_VERSION,STAGES,LIMITS,systemFor,REQUEST,outputSchema,estimateTokens,inputTokenLimit,modelParams};

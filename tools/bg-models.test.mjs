@@ -13,13 +13,13 @@ const { createServer } = require("../server/index.js");
 const src = fs.readFileSync(new URL("../offscreen.js", import.meta.url), "utf8");
 const BG_MODELS = Function("return " + src.match(/const BG_MODELS=(\{[^}]*\})/)[1])();
 
-const origin = "chrome-extension://abcdefghijklmnopabcdefghijklmnop", token = "t".repeat(40), lite = "google/gemini-2.5-flash-lite", luna = "openai/gpt-6-luna";
+const origin = "chrome-extension://abcdefghijklmnopabcdefghijklmnop", token = "t".repeat(40), lite = "google/gemini-2.5-flash-lite", luna = "openai/gpt-6-luna", pro = "xiaomi/mimo-v2.6-pro", flash = "xiaomi/mimo-v2.6-flash", jev = "typesafe/jev-1.13";
 const ENV = {
   APP_TOKENS_JSON: JSON.stringify({ dev: token }), EXTENSION_ORIGIN: origin, OPENROUTER_API_KEY: "k",
-  ALLOWED_MODELS: JSON.stringify([lite]), ALLOWED_VISION_MODELS: JSON.stringify([lite, luna]),
-  ALLOWED_STT_MODELS: JSON.stringify(["microsoft/mai-transcribe-2"]), ALLOWED_JUDGE_MODELS: JSON.stringify(["openai/gpt-4.1-nano"]),
-  OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [lite]: ["google-vertex"], "openai/gpt-4.1-nano": ["openai"], [luna]: ["azure"] }),
-  ACCOUNT_LIMITS_JSON: JSON.stringify({ dev: { models: [lite], maxRequests: 100, maxCostCents: 100, features: ["background", "stt", "vision", "judge"] } }),
+  ALLOWED_MODELS: JSON.stringify([lite, pro, flash]), ALLOWED_VISION_MODELS: JSON.stringify([lite, luna]),
+  ALLOWED_STT_MODELS: JSON.stringify(["microsoft/mai-transcribe-2"]), ALLOWED_JUDGE_MODELS: JSON.stringify([jev]),
+  OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [lite]: ["google-vertex"], [pro]: ["deepinfra/fp8"], [flash]: ["inference-net/fp8", "deepinfra/fp8"], [luna]: ["azure"], [jev]: ["typesafe"] }),
+  ACCOUNT_LIMITS_JSON: JSON.stringify({ dev: { models: [lite, pro, flash], maxRequests: 100, maxCostCents: 100, features: ["background", "stt", "vision", "judge"] } }),
 };
 
 test("every model in offscreen.js BG_MODELS is one the server's /v1/me says it accepts", async () => {

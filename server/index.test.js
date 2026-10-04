@@ -1300,6 +1300,18 @@ test("write answers each stage with the plan-keyed output schema and the stage's
   });
 });
 
+test("a write with mimo flash pins its verified provider tags and runs with reasoning off", async () => {
+  const mimo = "xiaomi/mimo-v2.6-flash";
+  let sent = null;
+  await withNoteServer(async (_u, o) => { sent = JSON.parse(o.body); return noteReply(s1Out); }, async url => {
+    assert.equal((await req(url, "/v1/write", "POST", sectionIn({ model: mimo }))).status, 200);
+    assert.equal(sent.model, mimo);
+    assert.deepEqual(sent.provider.only, ["inference-net/fp8", "deepinfra/fp8"]);
+    assert.deepEqual(sent.reasoning, { enabled: false });
+    assert.equal(sent.max_tokens, Prompts.LIMITS.tokens.writerOutput);
+  }, { ALLOWED_MODELS: JSON.stringify([model, mimo]), OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], [mimo]: ["inference-net/fp8", "deepinfra/fp8"] }) });
+});
+
 test("plan and write retry a schema-invalid or unfinished output once on the same model", async () => {
   const replies = [];
   let calls = 0;
@@ -1796,6 +1808,8 @@ test("supabase config fails closed without its secrets and plan features are val
     const lite = "anthropic/claude-haiku-4.5", two = { ...base, ALLOWED_MODELS: JSON.stringify([lite, model]), OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["p"], [lite]: ["p"] }) };
     assert.deepEqual(serverConfig(two).planFeatures.free.models, [model], "free 는 lite 요약 모델만");
     assert.deepEqual(serverConfig(two).planFeatures.essential.models, [lite, model]);
+    const mimo = "xiaomi/mimo-v2.6-flash", three = { ...base, ALLOWED_MODELS: JSON.stringify([lite, model, mimo]), OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["p"], [lite]: ["p"], [mimo]: ["p"] }) };
+    assert.deepEqual(serverConfig(three).planFeatures.free.models, [mimo], "free 는 허용되면 mimo flash 를 우선한다");
     const merged = serverConfig({ ...base, PLAN_FEATURES_JSON: JSON.stringify({ free: { features: ["judge"] }, pro: { features: ["vision"] } }) }).planFeatures;
     assert.deepEqual(merged.free, { features: ["judge"], models: [model] }, "빠진 키는 기본값을 유지한다");
     assert.deepEqual(merged.pro, { features: ["vision"], models: [model] });
