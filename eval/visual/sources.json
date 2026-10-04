@@ -1,0 +1,108 @@
+{
+  "sources": [
+    {
+      "id": "quadratic-formula",
+      "filename": "Quadratic_formula.svg",
+      "pageUrl": "https://commons.wikimedia.org/wiki/File:Quadratic_formula.svg",
+      "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/c/c4/Quadratic_formula.svg",
+      "author": "Jamie Twells",
+      "license": "Public domain (ineligible: mathematical information with no original authorship)",
+      "licenseUrl": "https://commons.wikimedia.org/wiki/Template:PD-ineligible",
+      "retrievedAt": "2026-10-02",
+      "description": "Commons page describes the quadratic formula x=(-b±√(b²−4ac))/(2a), with fraction, radical, and superscript. Page metadata checked; rendered pixels not reviewed.",
+      "collectionStatus": "downloaded",
+      "downloadedAt": "2026-10-03"
+    },
+    {
+      "id": "fraction-three-fourths",
+      "filename": "3_4_fraction.svg",
+      "pageUrl": "https://commons.wikimedia.org/wiki/File:3_4_fraction.svg",
+      "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/f/f6/3_4_fraction.svg",
+      "author": "Pbroks13",
+      "license": "Public domain (ineligible: mathematical information with no original authorship)",
+      "licenseUrl": "https://commons.wikimedia.org/wiki/Template:PD-ineligible",
+      "retrievedAt": "2026-10-02",
+      "description": "Commons page identifies a stacked 3/4 fraction (original SVG 12×25 px). Page metadata checked; rendered pixels not reviewed.",
+      "collectionStatus": "downloaded",
+      "downloadedAt": "2026-10-03"
+    },
+    {
+      "id": "linear-function-graph",
+      "filename": "Graph_describing_a_linear_function.svg",
+      "pageUrl": "https://commons.wikimedia.org/wiki/File:Graph_describing_a_linear_function.svg",
+      "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/9/95/Graph_describing_a_linear_function.svg",
+      "author": "Gallaecio",
+      "license": "CC BY-SA 3.0 (also listed under compatible older CC BY-SA versions and GFDL)",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/3.0/",
+      "retrievedAt": "2026-10-02",
+      "description": "Commons page describes y=mx+b and related formulas alongside a linear-function graph. Page metadata checked; rendered pixels not reviewed.",
+      "collectionStatus": "downloaded",
+      "downloadedAt": "2026-10-03"
+    },
+    {
+      "id": "simple-sine-wave",
+      "filename": "Simple_sine_wave.svg",
+      "pageUrl": "https://commons.wikimedia.org/wiki/File:Simple_sine_wave.svg",
+      "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/0/02/Simple_sine_wave.svg",
+      "author": "Omegatron",
+      "license": "CC BY-SA 3.0 (also listed under versions 2.5, 2.0, and 1.0)",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/3.0/",
+      "retrievedAt": "2026-10-02",
+      "description": "Commons page caption describes a simple sine wave on a grid (original SVG 512×384 px). Page metadata checked; rendered pixels not reviewed.",
+      "collectionStatus": "downloaded",
+      "downloadedAt": "2026-10-03"
+    },
+    {
+      "id": "bar-graph",
+      "filename": "Bar_graph.svg",
+      "pageUrl": "https://commons.wikimedia.org/wiki/File:Bar_graph.svg",
+      "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/b/bd/Bar_graph.svg",
+      "author": "Smallman12q",
+      "license": "CC0 1.0 Universal Public Domain Dedication",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "retrievedAt": "2026-10-02",
+      "description": "Commons page describes a non-truncated bar graph (original SVG 864×438 px). Page metadata checked; rendered pixels not reviewed.",
+      "collectionStatus": "downloaded",
+      "downloadedAt": "2026-10-03"
+    },
+    {
+      "id": "bar-chart",
+      "filename": "Bar_chart.svg",
+      "pageUrl": "https://commons.wikimedia.org/wiki/File:Bar_chart.svg",
+      "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/4/49/Bar_chart.svg",
+      "author": "Cuvwb",
+      "license": "CC BY-SA 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "retrievedAt": "2026-10-02",
+      "description": "Commons page describes an absolute-frequency distribution bar chart (original SVG 300×400 px). Page metadata checked; rendered pixels not reviewed.",
+      "collectionStatus": "excluded",
+      "exclusionReason": "Conservative SVG safety validation rejected this candidate. Bar_graph.svg covers the category; no original retained."
+    },
+    {
+      "id": "parabola",
+      "filename": "Parabola.svg",
+      "pageUrl": "https://commons.wikimedia.org/wiki/File:Parabola.svg",
+      "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/9/9e/Parabola.svg",
+      "author": "-xfi-",
+      "license": "Public domain dedication by the author",
+      "licenseUrl": "https://commons.wikimedia.org/wiki/Template:PD-self",
+      "retrievedAt": "2026-10-02",
+      "description": "Commons page describes the graph of f(x)=x² (original SVG 400×484 px). Page metadata checked; rendered pixels not reviewed.",
+      "collectionStatus": "downloaded",
+      "downloadedAt": "2026-10-03"
+    },
+    {
+      "id": "sigma-summation-notation",
+      "filename": "Sigma_summation_notation.svg",
+      "pageUrl": "https://commons.wikimedia.org/wiki/File:Sigma_summation_notation.svg",
+      "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/5/53/Sigma_summation_notation.svg",
+      "author": "Lina Maria Garcia and Sascha Lill",
+      "license": "CC BY-SA 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "retrievedAt": "2026-10-03",
+      "description": "Commons page describes capital-sigma summation notation with bounds; notation rather than an evaluated equation. Page metadata checked; rendered pixels not reviewed.",
+      "collectionStatus": "downloaded",
+      "downloadedAt": "2026-10-03"
+    }
+  ]
+}

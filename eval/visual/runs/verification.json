@@ -1,0 +1,27 @@
+{
+  "verifiedDate": "2026-10-04",
+  "tests": {
+    "pass": 144,
+    "fail": 0,
+    "total": 144,
+    "command": "node --test lib/*.test.js server/*.test.js tools/*.test.mjs",
+    "log": ".workspace/visual-measurement/final-tests.log"
+  },
+  "packaging": {
+    "passed": true,
+    "command": "node tools/package-cws.mjs --dry-run --skip-tests",
+    "log": ".workspace/visual-measurement/final-package.log",
+    "dryRun": true,
+    "zipCreated": false
+  },
+  "visualQa": {
+    "viewportWidths": [
+      390,
+      1100,
+      1440
+    ],
+    "imagesLoaded": 12,
+    "horizontalOverflow": false
+  },
+  "note": "b/visual-suppression 별도 작업 폴더에서 검증했습니다. main에 병합하거나 배포하지 않았습니다. 패키징은 dry-run 검사이며 ZIP은 생성하지 않았습니다. 실제 OCR은 공개 이미지 12개를 단일 실행했고, 합성 후보 22개 검증은 생성 모델의 오생성률이 아닙니다. 현재 원본 영역을 검증할 수 없는 그래프·표·관계도는 정상 사례도 보류합니다. 실제 이미지 재구성 및 재디자인 정확도는 미측정입니다."
+}

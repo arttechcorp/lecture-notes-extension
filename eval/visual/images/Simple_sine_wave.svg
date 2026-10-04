@@ -1,0 +1,7 @@
+<svg viewBox="0 0 1e3 750" xmlns="http://www.w3.org/2000/svg">
+ <g fill="none">
+  <path d="m653 720v-694m-306 694v-694m-306 116h918m-918 462h918" color="#808080" stroke="#7f7f7f" stroke-dasharray="5, 10" stroke-width="5"/>
+  <path d="m41 373h918" color="#808080" stroke="#7f7f7f" stroke-width="5"/>
+  <path d="m959 373c-48.5-115.5-97.5-231-153-231-111 0-195 462-306 462s-195-462-306-462c-55.5 0-104.5 115.5-153 231" stroke="#00f" stroke-linecap="round" stroke-width="10"/>
+ </g>
+</svg>

@@ -1,0 +1,21 @@
+{
+  "runId": "harness-control-exact-copy-not-model-output",
+  "reviewer": "Codex fixture author; all-pass semantics are deliberate for a known identical source",
+  "cases": [
+    {
+      "id": "quadratic-formula",
+      "status": "rendered",
+      "output": "previews/quadratic-formula.png",
+      "checks": {
+        "quadratic-formula-case-1": "pass",
+        "quadratic-formula-case-2": "pass",
+        "quadratic-formula-r1-1": "pass",
+        "quadratic-formula-r1-2": "pass",
+        "quadratic-formula-r1-3": "pass",
+        "quadratic-formula-r1-4": "pass"
+      },
+      "design": "changed",
+      "notes": "Deliberately contradictory design claim to exercise automatic exact-copy rejection. This is a harness control, NOT an inference result."
+    }
+  ]
+}

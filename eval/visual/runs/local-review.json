@@ -1,0 +1,67 @@
+{
+  "runId": "local-ppocr-2026-10-03T08:15:07.288Z",
+  "reviewer": "LUNA read-only audit, orchestrator checked raw results",
+  "scope": "OCR text/layout observations only. Not reconstruction or generative-model accuracy. Ground truth requires independent human review.",
+  "cases": [
+    {
+      "caseId": "bar-graph",
+      "preserved": "눈금 0~12000, A~E, Group 인식",
+      "limitations": "Data를 ‘중’으로 오독. 막대 5개의 높이·증가 추세와 도형 정보 없음."
+    },
+    {
+      "caseId": "formula-blurred",
+      "preserved": "항·연산자의 대략적인 순서 인식",
+      "limitations": "x²를 x2로 평탄화. 위첨자 의미 소실."
+    },
+    {
+      "caseId": "formula-clear",
+      "preserved": "ax2 + bx + c = 0 인식",
+      "limitations": "선명한 원본도 x²를 x2로 평탄화."
+    },
+    {
+      "caseId": "formula-pair",
+      "preserved": "두 식의 문자와 순서 일부 보존",
+      "limitations": "a², b², c²를 a2, b2, c2로 평탄화. 두 수식의 영역 대응은 검증되지 않음."
+    },
+    {
+      "caseId": "fraction-three-fourths",
+      "preserved": "3과 4를 두 줄로 인식",
+      "limitations": "분수선 및 분자·분모 관계 없음."
+    },
+    {
+      "caseId": "korean-plain-text",
+      "preserved": "한국어 본문 두 줄 인식",
+      "limitations": "그림이 없는 대조 사례. OCR 실행만으로 생성 단계의 무출력을 검증할 수는 없음."
+    },
+    {
+      "caseId": "linear-function-graph",
+      "preserved": "일부 라벨과 y=mx+b 인식",
+      "limitations": "x₁를 *1로 오독, 축·첨자·Δ 표기 오류. 상승 직선·절편·점선과 라벨 대응 없음."
+    },
+    {
+      "caseId": "parabola",
+      "preserved": "문자 검출 없음",
+      "limitations": "문자가 없는 원본과 일치하지만 U자 곡선 자체는 복원하지 못함."
+    },
+    {
+      "caseId": "quadratic-formula",
+      "preserved": "x, −b±, √, 2a 일부 인식",
+      "limitations": "b²를 62로 오독. 분수·근호 범위 소실. 평균 신뢰도 0.912여도 핵심 수식이 틀림."
+    },
+    {
+      "caseId": "sigma-summation-notation",
+      "preserved": "영어 설명, a(k), k=1 인식",
+      "limitations": "Σ와 위 경계 5 누락. 네 연결선과 라벨 대응 없음."
+    },
+    {
+      "caseId": "simple-sine-wave",
+      "preserved": "따옴표·마침표 같은 잡음만 검출",
+      "limitations": "원본에는 문자 라벨이 없음. 곡선·극값·참조선 구조를 담지 못함."
+    },
+    {
+      "caseId": "three-column-text",
+      "preserved": "한국어 다단 본문 19개 줄 인식",
+      "limitations": "그림 없는 본문인데 좌표 접두사가 붙음. 평균 신뢰도 0.973. 좌표 분산은 그림의 근거가 아님."
+    }
+  ]
+}

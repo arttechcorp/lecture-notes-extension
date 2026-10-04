@@ -1,0 +1,547 @@
+{
+  "runId": "synthetic-validator-suppression-v1",
+  "scope": "Deterministic synthetic candidate fixtures checked against OCR text. These are not model outputs, image-grounded judgments, or a hallucination-rate estimate.",
+  "sourceCommit": "2e972b2a7da54d4e8aad8eeb40b5a37126f86a9b",
+  "codeSha256": {
+    "before": "8ad6075e66901ca3e1dab06436c349a2635b7373d905b5c49c57137debeaba4b",
+    "after": "8ed856b6104a2f4da9acc5091897b8799a43033bc9593151efc905ec20e18e8c"
+  },
+  "corpusRun": {
+    "path": "eval/visual/runs/local-baseline.json",
+    "runId": "local-ppocr-2026-10-03T08:15:07.288Z",
+    "sha256": "5718fb0988c372c140e1c854e5283de86f3ad2aa50e8401618055713d07dec08"
+  },
+  "summary": {
+    "expected": {
+      "allowed": 3,
+      "held": 19
+    },
+    "before": {
+      "allowed": 22,
+      "held": 0,
+      "rejected": 0
+    },
+    "after": {
+      "allowed": 3,
+      "held": 19,
+      "rejected": 0
+    },
+    "mismatches": 0,
+    "positiveAbstentions": [
+      "graph-sine-positive-hold",
+      "graph-bar-positive-hold",
+      "formula-pair-positive-hold"
+    ]
+  },
+  "cases": [
+    {
+      "id": "negative-plain-mermaid",
+      "description": "Plain Korean OCR with invented Mermaid diagram",
+      "expected": "held",
+      "evidenceSource": "eval/visual/runs/local-baseline.json#korean-plain-text",
+      "before": {
+        "verdict": "allowed",
+        "candidateRetained": true,
+        "plainSectionRetained": true,
+        "held": null,
+        "dropped": 0
+      },
+      "after": {
+        "verdict": "held",
+        "candidateRetained": false,
+        "plainSectionRetained": true,
+        "held": {
+          "formulas": 0,
+          "visuals": 1
+        },
+        "dropped": 0
+      }
+    },
+    {
+      "id": "negative-plain-formula",
+      "description": "Quadratic formula invented from topic name",
+      "expected": "held",
+      "evidenceSource": "eval/visual/runs/local-baseline.json#korean-plain-text",
+      "before": {
+        "verdict": "allowed",
+        "candidateRetained": true,
+        "plainSectionRetained": true,
+        "held": null,
+        "dropped": 0
+      },
+      "after": {
+        "verdict": "held",
+        "candidateRetained": false,
+        "plainSectionRetained": true,
+        "held": {
+          "formulas": 1,
+          "visuals": 0
+        },
+        "dropped": 0
+      }
+    },
+    {
+      "id": "graph-sine-positive-hold",
+      "description": "Actual sine graph candidate held without image region verification",
+      "expected": "held",
+      "cost": "positive-visual-abstention",
+      "evidenceSource": "eval/visual/runs/local-baseline.json#simple-sine-wave",
+      "before": {
+        "verdict": "allowed",
+        "candidateRetained": true,
+        "plainSectionRetained": true,
+        "held": null,
+        "dropped": 0
+      },
+      "after": {
+        "verdict": "held",
+        "candidateRetained": false,
+        "plainSectionRetained": true,
+        "held": {
+          "formulas": 0,
+          "visuals": 1
+        },
+        "dropped": 0
+      }
+    },
+    {
+      "id": "graph-bar-positive-hold",
+      "description": "Actual bar graph candidate held without image region verification",
+      "expected": "held",
+      "cost": "positive-visual-abstention",
+      "evidenceSource": "eval/visual/runs/local-baseline.json#bar-graph",
+      "before": {
+        "verdict": "allowed",
+        "candidateRetained": true,
+        "plainSectionRetained": true,
+        "held": null,
+        "dropped": 0
+      },
+      "after": {
+        "verdict": "held",
+        "candidateRetained": false,
+        "plainSectionRetained": true,
+        "held": {
+          "formulas": 0,
+          "visuals": 1
+        },
+        "dropped": 0
+      }
+    },
+    {
+      "id": "formula-clear-wrong",
+      "description": "Quadratic OCR at 0.84 line confidence still reads ax2, not an exponent",
+      "expected": "held",
+      "evidenceSource": "eval/visual/runs/local-baseline.json#formula-clear",
+      "before": {
+        "verdict": "allowed",
+        "candidateRetained": true,
+        "plainSectionRetained": true,
+        "held": null,
+        "dropped": 0
+      },
+      "after": {
+        "verdict": "held",
+        "candidateRetained": false,
+        "plainSectionRetained": true,
+        "held": {
+          "formulas": 1,
+          "visuals": 0
+        },
+        "dropped": 0
+      }
+    },
+    {
+      "id": "formula-pair-positive-hold",
+      "description": "Correct-looking equation from multiline OCR held conservatively",
+      "expected": "held",
+      "cost": "positive-formula-abstention",
+      "evidenceSource": "eval/visual/runs/local-baseline.json#formula-pair",
+      "before": {
+        "verdict": "allowed",
+        "candidateRetained": true,
+        "plainSectionRetained": true,
+        "held": null,
+        "dropped": 0
+      },
+      "after": {
+        "verdict": "held",
+        "candidateRetained": false,
+        "plainSectionRetained": true,
+        "held": {
+          "formulas": 1,
+          "visuals": 0
+        },
+        "dropped": 0
+      }
+    },
+    {
+      "id": "fraction-structure-hold",
+      "description": "Stacked digits do not prove a fraction bar",
+      "expected": "held",
+      "evidenceSource": "eval/visual/runs/local-baseline.json#fraction-three-fourths",
+      "before": {
+        "verdict": "allowed",
+        "candidateRetained": true,
+        "plainSectionRetained": true,
+        "held": null,
+        "dropped": 0
+      },
+      "after": {
+        "verdict": "held",
+        "candidateRetained": false,
+        "plainSectionRetained": true,
+        "held": {
+          "formulas": 1,
+          "visuals": 0
+        },
+        "dropped": 0
+      }
+    },
+    {
+      "id": "literal-equation-control",
+      "description": "Complete literal OCR equation remains usable as text-grounded control",
+      "expected": "allowed",
+      "evidenceSource": "synthetic-text",
+      "before": {
+        "verdict": "allowed",
+        "candidateRetained": true,
+        "plainSectionRetained": true,
+        "held": null,
+        "dropped": 0
+      },
+      "after": {
+        "verdict": "allowed",
+        "candidateRetained": true,
+        "plainSectionRetained": true,
+        "held": {
+          "formulas": 0,
+          "visuals": 0
+        },
+        "dropped": 0
+      }
+    },
+    {
+      "id": "literal-linear-equation-control",
+      "description": "Literal OCR linear equation remains usable",
+      "expected": "allowed",
+      "evidenceSource": "synthetic-text",
+      "before": {
+        "verdict": "allowed",
+        "candidateRetained": true,
+        "plainSectionRetained": true,
+        "held": null,
+        "dropped": 0
+      },
+      "after": {
+        "verdict": "allowed",
+        "candidateRetained": true,
+        "plainSectionRetained": true,
+        "held": {
+          "formulas": 0,
+          "visuals": 0
+        },
+        "dropped": 0
+      }
+    },
+    {
+      "id": "incomplete-equation",
+      "description": "Incomplete OCR equation is held",
+      "expected": "held",
+      "evidenceSource": "synthetic-text",
+      "before": {
+        "verdict": "allowed",
+        "candidateRetained": true,
+        "plainSectionRetained": true,
+        "held": null,
+        "dropped": 0
+      },
+      "after": {
+        "verdict": "held",
+        "candidateRetained": false,
+        "plainSectionRetained": true,
+        "held": {
+          "formulas": 1,
+          "visuals": 0
+        },
+        "dropped": 0
+      }
+    },
+    {
+      "id": "multiline-equation",
+      "description": "Equation across lines is held",
+      "expected": "held",
+      "evidenceSource": "synthetic-text",
+      "before": {
+        "verdict": "allowed",
+        "candidateRetained": true,
+        "plainSectionRetained": true,
+        "held": null,
+        "dropped": 0
+      },
+      "after": {
+        "verdict": "held",
+        "candidateRetained": false,
+        "plainSectionRetained": true,
+        "held": {
+          "formulas": 1,
+          "visuals": 0
+        },
+        "dropped": 0
+      }
+    },
+    {
+      "id": "flattened-exponent",
+      "description": "OCR x2 cannot establish an exponent",
+      "expected": "held",
+      "evidenceSource": "synthetic-text",
+      "before": {
+        "verdict": "allowed",
+        "candidateRetained": true,
+        "plainSectionRetained": true,
+        "held": null,
+        "dropped": 0
+      },
+      "after": {
+        "verdict": "held",
+        "candidateRetained": false,
+        "plainSectionRetained": true,
+        "held": {
+          "formulas": 1,
+          "visuals": 0
+        },
+        "dropped": 0
+      }
+    },
+    {
+      "id": "mismatched-equation",
+      "description": "Different right-hand side is unsupported",
+      "expected": "held",
+      "evidenceSource": "synthetic-text",
+      "before": {
+        "verdict": "allowed",
+        "candidateRetained": true,
+        "plainSectionRetained": true,
+        "held": null,
+        "dropped": 0
+      },
+      "after": {
+        "verdict": "held",
+        "candidateRetained": false,
+        "plainSectionRetained": true,
+        "held": {
+          "formulas": 1,
+          "visuals": 0
+        },
+        "dropped": 0
+      }
+    },
+    {
+      "id": "substring-equation",
+      "description": "Equation embedded in longer OCR line is insufficient",
+      "expected": "held",
+      "evidenceSource": "synthetic-text",
+      "before": {
+        "verdict": "allowed",
+        "candidateRetained": true,
+        "plainSectionRetained": true,
+        "held": null,
+        "dropped": 0
+      },
+      "after": {
+        "verdict": "held",
+        "candidateRetained": false,
+        "plainSectionRetained": true,
+        "held": {
+          "formulas": 1,
+          "visuals": 0
+        },
+        "dropped": 0
+      }
+    },
+    {
+      "id": "spoofed-evidence-formulas",
+      "description": "Untrusted formula metadata cannot replace literal OCR text",
+      "expected": "held",
+      "evidenceSource": "synthetic-text",
+      "before": {
+        "verdict": "allowed",
+        "candidateRetained": true,
+        "plainSectionRetained": true,
+        "held": null,
+        "dropped": 0
+      },
+      "after": {
+        "verdict": "held",
+        "candidateRetained": false,
+        "plainSectionRetained": true,
+        "held": {
+          "formulas": 1,
+          "visuals": 0
+        },
+        "dropped": 0
+      }
+    },
+    {
+      "id": "gfm-table-prose",
+      "description": "Invented GFM table inside ordinary section prose",
+      "expected": "held",
+      "evidenceSource": "eval/visual/runs/local-baseline.json#korean-plain-text",
+      "before": {
+        "verdict": "allowed",
+        "candidateRetained": true,
+        "plainSectionRetained": true,
+        "held": null,
+        "dropped": 0
+      },
+      "after": {
+        "verdict": "held",
+        "candidateRetained": false,
+        "plainSectionRetained": true,
+        "held": {
+          "formulas": 0,
+          "visuals": 0
+        },
+        "dropped": 1
+      }
+    },
+    {
+      "id": "single-dash-gfm-table",
+      "description": "Marked accepts single-dash table separators",
+      "expected": "held",
+      "evidenceSource": "eval/visual/runs/local-baseline.json#korean-plain-text",
+      "before": {
+        "verdict": "allowed",
+        "candidateRetained": true,
+        "plainSectionRetained": true,
+        "held": null,
+        "dropped": 0
+      },
+      "after": {
+        "verdict": "held",
+        "candidateRetained": false,
+        "plainSectionRetained": true,
+        "held": {
+          "formulas": 0,
+          "visuals": 0
+        },
+        "dropped": 1
+      }
+    },
+    {
+      "id": "blockquoted-gfm-table",
+      "description": "Marked accepts tables in blockquotes",
+      "expected": "held",
+      "evidenceSource": "eval/visual/runs/local-baseline.json#korean-plain-text",
+      "before": {
+        "verdict": "allowed",
+        "candidateRetained": true,
+        "plainSectionRetained": true,
+        "held": null,
+        "dropped": 0
+      },
+      "after": {
+        "verdict": "held",
+        "candidateRetained": false,
+        "plainSectionRetained": true,
+        "held": {
+          "formulas": 0,
+          "visuals": 0
+        },
+        "dropped": 1
+      }
+    },
+    {
+      "id": "markdown-image-prose",
+      "description": "Reference Markdown image inside section prose",
+      "expected": "held",
+      "evidenceSource": "eval/visual/runs/local-baseline.json#korean-plain-text",
+      "before": {
+        "verdict": "allowed",
+        "candidateRetained": true,
+        "plainSectionRetained": true,
+        "held": null,
+        "dropped": 0
+      },
+      "after": {
+        "verdict": "held",
+        "candidateRetained": false,
+        "plainSectionRetained": true,
+        "held": {
+          "formulas": 0,
+          "visuals": 0
+        },
+        "dropped": 1
+      }
+    },
+    {
+      "id": "inline-math-prose",
+      "description": "Invented inline math inside ordinary prose",
+      "expected": "held",
+      "evidenceSource": "eval/visual/runs/local-baseline.json#korean-plain-text",
+      "before": {
+        "verdict": "allowed",
+        "candidateRetained": true,
+        "plainSectionRetained": true,
+        "held": null,
+        "dropped": 0
+      },
+      "after": {
+        "verdict": "held",
+        "candidateRetained": false,
+        "plainSectionRetained": true,
+        "held": {
+          "formulas": 0,
+          "visuals": 0
+        },
+        "dropped": 1
+      }
+    },
+    {
+      "id": "chapter-source-formula",
+      "description": "Synthesis chapter JSON formula is not raw equation OCR",
+      "expected": "held",
+      "evidenceSource": "synthetic-text",
+      "before": {
+        "verdict": "allowed",
+        "candidateRetained": true,
+        "plainSectionRetained": true,
+        "held": null,
+        "dropped": 0
+      },
+      "after": {
+        "verdict": "held",
+        "candidateRetained": false,
+        "plainSectionRetained": true,
+        "held": {
+          "formulas": 1,
+          "visuals": 0
+        },
+        "dropped": 0
+      }
+    },
+    {
+      "id": "plain-section-control",
+      "description": "Ordinary extra prose section remains available",
+      "expected": "allowed",
+      "evidenceSource": "eval/visual/runs/local-baseline.json#korean-plain-text",
+      "before": {
+        "verdict": "allowed",
+        "candidateRetained": true,
+        "plainSectionRetained": true,
+        "held": null,
+        "dropped": 0
+      },
+      "after": {
+        "verdict": "allowed",
+        "candidateRetained": true,
+        "plainSectionRetained": true,
+        "held": {
+          "formulas": 0,
+          "visuals": 0
+        },
+        "dropped": 0
+      }
+    }
+  ]
+}

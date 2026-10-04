@@ -27,7 +27,11 @@ async function archive(message){
     const note=value.summary;
     if(note?.sections?.length){
       const summaryEvidence=restored.snapshot().filter(item=>item.selection!=="filtered"&&item.status!=="superseded");
-      Object.assign(note,SummaryPipeline.validateSummary(note,summaryEvidence,{requireCoverage:note.status!=="partial",maxItems:2000,maxSections:2000,maxQuestions:2000}));
+      const oldHeld=note.held||{},checked=SummaryPipeline.validateSummary(note,summaryEvidence,{requireCoverage:note.status!=="partial",maxItems:2000,maxSections:2000,maxQuestions:2000});
+      const newlyHeld={formulas:Math.max(0,checked.held.formulas-(oldHeld.formulas||0)),visuals:Math.max(0,checked.held.visuals-(oldHeld.visuals||0))};
+      Object.assign(note,checked);
+      const warning=SummaryPipeline.heldNotice(newlyHeld);
+      if(warning)note.notice=[note.notice,warning].filter(Boolean).join("\n");
       note.evidenceRefs=restored.items.map(({id,t0,t1,source,selection,selectionReason,relatedEvidenceIds})=>({id,t0,t1,source,selection,selectionReason,relatedEvidenceIds}));
     }
     else if(note&&note.status!=="recognition-only")throw new Error("보관 노트의 형식을 확인할 수 없습니다.");

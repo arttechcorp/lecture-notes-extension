@@ -212,7 +212,7 @@
 
     let lastPrintRatio = 'a4';
 
-    // 샌드박스 iframe 은 chrome.storage 를 못 읽는다. 테마는 부모가 메시지에 실어 보낸다(lib/theme.js 의 결과값).
+    // 샌드박스 iframe은 확장 스토리지에 직접 접근할 수 없다. 테마는 부모가 메시지에 실어 보낸다(lib/theme.js 의 결과값).
     function applyTheme(theme) {
       const dark = theme === 'dark';
       document.documentElement.dataset.theme = dark ? 'dark' : 'light';

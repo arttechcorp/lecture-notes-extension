@@ -1,0 +1,1 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="560" viewBox="0 0 900 560"><rect width="100%" height="100%" fill="white"/><defs><filter id="blur"><feGaussianBlur stdDeviation="3"/></filter></defs><text x="70" y="300" font-family="Cambria Math,serif" font-size="82" fill="#111" filter="url(#blur)">ax² + bx + c = 0</text></svg>

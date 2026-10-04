@@ -1,0 +1,154 @@
+{
+  "runId": "",
+  "reviewer": "",
+  "cases": [
+    {
+      "id": "quadratic-formula",
+      "status": "",
+      "output": "",
+      "design": "",
+      "checks": {
+        "quadratic-formula-case-1": "unknown",
+        "quadratic-formula-case-2": "unknown",
+        "quadratic-formula-r1-1": "unknown",
+        "quadratic-formula-r1-2": "unknown",
+        "quadratic-formula-r1-3": "unknown",
+        "quadratic-formula-r1-4": "unknown"
+      }
+    },
+    {
+      "id": "fraction-three-fourths",
+      "status": "",
+      "output": "",
+      "design": "",
+      "checks": {
+        "fraction-three-fourths-case-1": "unknown",
+        "fraction-three-fourths-case-2": "unknown",
+        "fraction-three-fourths-r1-1": "unknown",
+        "fraction-three-fourths-r1-2": "unknown"
+      }
+    },
+    {
+      "id": "linear-function-graph",
+      "status": "",
+      "output": "",
+      "design": "",
+      "checks": {
+        "linear-function-graph-case-1": "unknown",
+        "linear-function-graph-case-2": "unknown",
+        "linear-function-graph-r1-1": "unknown",
+        "linear-function-graph-r1-2": "unknown",
+        "linear-function-graph-r1-3": "unknown",
+        "linear-function-graph-r1-4": "unknown",
+        "linear-function-graph-r1-5": "unknown",
+        "linear-function-graph-r1-6": "unknown"
+      }
+    },
+    {
+      "id": "simple-sine-wave",
+      "status": "",
+      "output": "",
+      "design": "",
+      "checks": {
+        "simple-sine-wave-case-1": "unknown",
+        "simple-sine-wave-case-2": "unknown",
+        "simple-sine-wave-r1-1": "unknown",
+        "simple-sine-wave-r1-2": "unknown",
+        "simple-sine-wave-r1-3": "unknown",
+        "simple-sine-wave-r1-4": "unknown"
+      }
+    },
+    {
+      "id": "bar-graph",
+      "status": "",
+      "output": "",
+      "design": "",
+      "checks": {
+        "bar-graph-case-1": "unknown",
+        "bar-graph-case-2": "unknown",
+        "bar-graph-r1-1": "unknown",
+        "bar-graph-r1-2": "unknown",
+        "bar-graph-r1-3": "unknown",
+        "bar-graph-r1-4": "unknown",
+        "bar-graph-r1-5": "unknown"
+      }
+    },
+    {
+      "id": "parabola",
+      "status": "",
+      "output": "",
+      "design": "",
+      "checks": {
+        "parabola-case-1": "unknown",
+        "parabola-case-2": "unknown",
+        "parabola-r1-1": "unknown",
+        "parabola-r1-2": "unknown"
+      }
+    },
+    {
+      "id": "sigma-summation-notation",
+      "status": "",
+      "output": "",
+      "design": "",
+      "checks": {
+        "sigma-summation-notation-case-1": "unknown",
+        "sigma-summation-notation-case-2": "unknown",
+        "sigma-summation-notation-r1-1": "unknown",
+        "sigma-summation-notation-r1-2": "unknown",
+        "sigma-summation-notation-r1-3": "unknown",
+        "sigma-summation-notation-r1-4": "unknown",
+        "sigma-summation-notation-r1-5": "unknown"
+      }
+    },
+    {
+      "id": "korean-plain-text",
+      "status": "",
+      "checks": {
+        "korean-plain-text-case-1": "unknown",
+        "korean-plain-text-case-2": "unknown"
+      }
+    },
+    {
+      "id": "three-column-text",
+      "status": "",
+      "checks": {
+        "three-column-text-case-1": "unknown",
+        "three-column-text-case-2": "unknown"
+      }
+    },
+    {
+      "id": "formula-pair",
+      "status": "",
+      "output": "",
+      "design": "",
+      "checks": {
+        "formula-pair-case-1": "unknown",
+        "formula-pair-case-2": "unknown",
+        "formula-pair-r1-1": "unknown",
+        "formula-pair-r2-1": "unknown"
+      }
+    },
+    {
+      "id": "formula-clear",
+      "status": "",
+      "output": "",
+      "design": "",
+      "checks": {
+        "formula-clear-case-1": "unknown",
+        "formula-clear-r1-1": "unknown",
+        "formula-clear-r1-2": "unknown"
+      }
+    },
+    {
+      "id": "formula-blurred",
+      "status": "",
+      "output": "",
+      "design": "",
+      "checks": {
+        "formula-blurred-case-1": "unknown",
+        "formula-blurred-r1-1": "unknown",
+        "formula-blurred-r1-2": "unknown"
+      }
+    }
+  ]
+}
