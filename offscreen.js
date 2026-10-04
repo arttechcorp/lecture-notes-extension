@@ -259,6 +259,14 @@ async function localData(message,sender){
   finally{archiveBusy=false;}
   return {ok:true};
 }
+// 패널이 잰 로그인 단계별 시간. 이 한 모양(stage:"login", code:"LOGIN_TIMING")만 버스에 싣는다 — 단계 이름과 ms뿐이라 토큰·계정 값은 구조적으로 실릴 수 없다.
+async function diagEvent(e){
+  const msg=e?.msg;
+  if(e?.stage!=="login"||e?.code!=="LOGIN_TIMING"||!Number.isFinite(e?.ms)||e.ms<0||e.ms>600000||typeof msg!=="string"||!/^[a-z_ ]{0,80}$/.test(msg))return {ok:false};
+  await storeP.catch(()=>{}); // 로그 싱크가 붙은 뒤에 실어 암호화 로그에도 남는다
+  events.emit({stage:"login",code:"LOGIN_TIMING",ms:e.ms,msg});
+  return {ok:true};
+}
 chrome.runtime.onConnect.addListener(port=>{
   if(port.name!=="admin-events")return;
   let ok=false;
@@ -282,6 +290,7 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
   }
   if(!trusted(sender)){reply({ok:false,error:"허용되지 않은 요청입니다."});return;}
   (async()=>{
+    if(message.type==="DIAG_EVENT")return diagEvent(message.event);
     if(String(message.type).startsWith("BG_")||["LIB_REGENERATE","LIB_EXPORT_ALL"].includes(message.type))return bgMessage(message,sender);
     if(message.type==="GET_STATE")return {ok:true,state:session?.state()||null};
     if(message.type==="TAB_GONE"){

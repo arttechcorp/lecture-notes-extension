@@ -12,7 +12,10 @@ const setStatus=text=>els.status.textContent=text||'';
 const AUTH_CODES=['AUTH_REQUIRED','unauthorized','token_expired'];
 let lastAuth={text:'',code:''};
 const setError=(text,code)=>{if(text&&AUTH_CODES.includes(code))lastAuth={text,code};else if(text!==lastAuth.text)lastAuth={text:'',code:''};for(const alert of [els.readyAlert,els.panelAlert,els.doneAlert]){alert.hidden=!text;alert.textContent=text||'';if(text&&lastAuth.text===text){const b=document.createElement('button');b.type='button';b.textContent='Google로 로그인';b.addEventListener('click',alertLogin);alert.append(b);}}};
-async function alertLogin(){try{await Account.signIn();}catch{return;}await obCheck();setError('');updateReadyCard();}
+// 로그인 한 번의 단계별 시간. 진단 로그(LOGIN_TIMING)에는 단계 이름과 ms만 싣고 보내기를 기다리지 않는다 — 토큰·이메일은 애초에 싣지 않는다.
+const loginStep=(name,ms)=>{try{rpc({type:'DIAG_EVENT',event:{stage:'login',code:'LOGIN_TIMING',ms:Math.max(0,Math.round(ms)),msg:name}}).catch(()=>{});}catch{}};
+const loginClock=()=>{const t0=Date.now(),rec=loginStep;return{rec,total:()=>rec('total',Date.now()-t0),signIn:()=>typeof Auth==='undefined'?Account.signIn():Auth.signIn({onStep:rec})};};
+async function alertLogin(){const{rec,total,signIn}=loginClock();try{await signIn();let s=Date.now();settings=settings||await loadSettings();rec('settings',Date.now()-s);await obCheck(rec);s=Date.now();setError('');updateReadyCard();rec('render',Date.now()-s);bgInit();}catch{}finally{total();}}
 function setStage(name){els.stageReady.hidden=name!=='ready';els.stageLive.hidden=name!=='live';els.stageDone.hidden=name!=='done';els.onboard.hidden=name!=='onboard';for(const [id,on] of [['stepReady',name==='ready'],['stepLive',name==='live'],['stepDone',name==='done']]){const node=$(id);if(node)node.className=on?'active':'';}if(name!=='ready'&&els.settingsDrawer.open)els.settingsDrawer.close();}
 function controls(){const has=!!state&&state.status!=='disposed';els.startBtn.disabled=busy||active(state)||!tabs.some(tab=>String(tab.id)===els.tabSelect.value);els.stopBtn.disabled=busy||!active(state);if(els.pauseBtn){els.pauseBtn.disabled=busy||!['running','paused'].includes(state?.status);els.pauseBtn.textContent=state?.status==='paused'?'다시 시작':'일시정지';}if(els.disposeBtn)els.disposeBtn.disabled=busy||active(state)||!has;els.notesBtn.disabled=busy||regenBusy||!['completed','failed'].includes(state?.status)||!((state?.counts?.visual||0)+(state?.counts?.audio||0)>0);if(els.makeNoteBtn)els.makeNoteBtn.disabled=regenBusy;if(els.genAgainBtn)els.genAgainBtn.disabled=regenBusy;if(els.retryNoteBtn)els.retryNoteBtn.disabled=busy||regenBusy;}
 function format(t){return `${Math.floor((t||0)/60)}:${String(Math.floor((t||0)%60)).padStart(2,'0')}`;}
@@ -470,12 +473,17 @@ document.addEventListener('keydown',e=>{
 // render는 settings.consentAccepted가 아니라 이 플래그로 온보딩 화면을 고른다 - 동의는 끝났는데 보관함 암호가 없는 경우처럼 부분만 다시 열어야 해서다.
 let onboardingOpen=false,obSession=null,obPlan='free',obSteps=[],obAcct=null,obKey=null;
 // 지금 상태의 로그인 세션·플랜·보관함 키. 각 조회 실패는 로그아웃·Free·키 없음으로 접는다(Account·NoteFile이 없는 테스트 환경 포함).
-async function obCheck(){
-  try{obSession=await Account.getSession();}catch{obSession=null;}
-  obPlan='free';obAcct=null;
-  if(obSession){obAcct=await Account.fetchAccount(obSession).catch(()=>null);obPlan=obAcct?.plan||'free';}
-  obKey=null;
-  try{obKey=await NoteFile.loadLibraryKey(await PackageStore.indexedDbAdapter());}catch{}
+// step이 오면 각 조회 시간을 단계 이름과 함께 넘긴다(로그인 진단). 계정 조회와 보관함 키 열기는 서로를 기다릴 게 없어 같이 시작한다.
+async function obCheck(step){
+  const timed=(name,work)=>{const s=Date.now();return Promise.resolve(work).finally(()=>{try{step?.(name,Date.now()-s);}catch{}});};
+  try{obSession=await timed('session',Account.getSession());}catch{obSession=null;}
+  if(obSession)obShowAccount(); // 세션이 확인되는 즉시 이메일 행부터 보여 주고 플랜은 조회 뒤에 채운다
+  const[acct,key]=await Promise.all([
+    timed('account',(async()=>obSession?await Account.fetchAccount(obSession):null)().catch(()=>null)),
+    timed('library_key',(async()=>NoteFile.loadLibraryKey(await PackageStore.indexedDbAdapter()))().catch(()=>null)),
+  ]);
+  obAcct=acct;obPlan=acct?.plan||'free';obKey=key;
+  if(obSession)obShowAccount();
   return {session:obSession,plan:obPlan,libraryKey:obKey};
 }
 // 열어야 할 온보딩 단계 목록. 모두 갖췄으면 [].
@@ -527,16 +535,18 @@ function openOnboarding(steps){
 }
 els.obLogin.addEventListener('click',async()=>{
   els.obLogin.disabled=true;els.obAccountErr.hidden=true;
+  const{rec,total,signIn}=loginClock();
   try{
-    await Account.signIn();
-    settings=await loadSettings();
-    const{libraryKey}=await obCheck();
+    await signIn();
+    // 로그인은 설정을 바꾸지 않는다 — 열릴 때 읽은 설정을 그대로 쓰고 없을 때만 읽는다.
+    let s=Date.now();settings=settings||await loadSettings();rec('settings',Date.now()-s);
+    const{libraryKey}=await obCheck(rec);
     // 로그인으로 알게 된 플랜이 유료면 새로 필요해진 동의 단계를 더 연다. 계정 단계는 <email> · <plan> 확인을 보여 주기 위해 그대로 둔다.
     const next=onboardingSteps(settings,obSession,obPlan,libraryKey);
     if(obSteps.includes('account')&&!next.includes('account'))next.unshift('account');
-    openOnboarding(next);
+    s=Date.now();openOnboarding(next);rec('render',Date.now()-s);
   }catch(error){els.obAccountErr.textContent=error.message||'로그인하지 못했습니다. 다시 시도해 주세요.';els.obAccountErr.hidden=false;}
-  finally{els.obLogin.disabled=false;obValidate();}
+  finally{total();els.obLogin.disabled=false;obValidate();}
 });
 els.obSummary.addEventListener('change',obValidate);
 els.obCloud.addEventListener('change',obValidate);
