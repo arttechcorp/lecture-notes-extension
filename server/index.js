@@ -598,6 +598,7 @@ function createServer(env=process.env,deps={}){
           if(choice?.finish_reason!=="stop")throw Object.assign(new Error("provider_output_incomplete"),{detail:"incomplete."+String(choice?.finish_reason||"none").toLowerCase().replace(/[^a-z0-9_]/g,"").slice(0,30)});
           let parsed;try{parsed=parseNote(choice.message.content);}catch{throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_json"});}
           if(stage==="plan")parsed=NoteContract.canonicalPlanIds(parsed); // 제공자가 id pattern 을 강제하지 않는다 — 검사 전에 C1../S1.. 로 다시 매긴다
+          else parsed=NoteContract.canonicalMapKeys(parsed); // 지도 노드 키도 n1.. 로
           // 어긋난 블록만 null 로 — 섹션 전체를 버리지 않는다. 비운 블록의 원래 봉투는 salvaged 로 돌려줘 클라이언트가 repair 로 고치게 한다.
           // salvagedErrors: 비운 블록마다 스키마 오류의 위치와 사유(블록 안 경로 + 메시지, 내용 없음) — 클라이언트가 repair 지시에 그대로 싣는다.
           let salvaged=null,salvagedErrors=null;
