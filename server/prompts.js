@@ -119,6 +119,6 @@ const inputTokenLimit=stage=>stage==="plan"?T.plannerInput:stage==="global"?T.gl
 const NO_SEED=/^anthropic\//,SEED=7;
 const modelParams=(model,stage)=>({
   max_tokens:Math.min(LLM.maxTokensFor(model),(stage==="plan"?T.plannerOutput:stage==="global"?T.globalOutput:T.writerOutput)+LLM.reasoningBudgetFor(model)),
-  reasoning:LLM.reasoningFor(model),temperature:0,...(NO_SEED.test(model)?{}:{seed:SEED}),
+  reasoning:LLM.reasoningFor(model),...(LLM.noTemperature(model)?{}:{temperature:0}),...(NO_SEED.test(model)?{}:{seed:SEED}), // temperature 를 거절하는 모델(GPT 추론형)에 보내면 require_parameters 로 404 가 난다
 });
 module.exports={PROMPT_VERSION,STAGES,LIMITS,systemFor,REQUEST,outputSchema,estimateTokens,inputTokenLimit,modelParams};

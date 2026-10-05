@@ -126,3 +126,10 @@ test("generation params pin temperature, cap output by the spec and skip seed wh
   for (const s of ["section", "repair"]) assert.equal(Prompts.inputTokenLimit(s), tokens.writerInput);
   assert.equal(Prompts.estimateTokens("a".repeat(Prompts.LIMITS.bytesPerToken * 10)), 10);
 });
+
+test("modelParams never sends temperature to a model that rejects it (GPT-6.1 Sol: require_parameters would 404)", () => {
+  const sol = Prompts.modelParams("openai/gpt-6.1-sol", "plan");
+  assert.equal("temperature" in sol, false);
+  assert.deepEqual({ ...sol.reasoning }, { effort: "medium" });
+  assert.equal(Prompts.modelParams("xiaomi/mimo-v2.6-flash", "plan").temperature, 0);
+});
