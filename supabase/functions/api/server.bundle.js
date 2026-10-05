@@ -175,7 +175,23 @@ const __defs = {
 
   const freeze = o => { for (const v of Object.values(o)) if (v && typeof v === "object") freeze(v); return Object.freeze(o); };
   const SCHEMAS = freeze({ bbox, slideDoc, transcript, unit, evidenceItem, judgeResult, errorEnvelope });
-  const api = { CONTRACT_VERSION, SCHEMAS, validate, assertValid, isStrictCompatible };
+  // 제공자는 strict json_schema 의 pattern·길이·개수 같은 제약을 강제하지 않는다. 스키마에 어긋난 출력 전체를 버리지 않고
+  // 어긋난 가장 바깥 null 허용 칸은 null 로, 배열은 어긋난 항목만 빼서 살린다 — 블록 하나가 섹션 하나를 죽이지 않게(빈 블록은 호출자가 repair 한다).
+  // 고친 개수를 돌려준다. 결과가 여전히 어긋나면(필수 칸 등) 호출자가 검사에서 거절한다.
+  function salvage(schema, value) {
+    let n = 0;
+    const walk = (sc, v) => {
+      if (check1(sc, v)) return v;
+      if ([].concat(sc.type).includes("null")) { n++; return null; }
+      if (Array.isArray(v) && sc.items) { const kept = v.filter(x => check1(sc.items, x)); n += v.length - kept.length; const out = kept.length === v.length ? v.map(x => walk(sc.items, x)) : kept; if (sc.maxItems != null && out.length > sc.maxItems) { n++; return out.slice(0, sc.maxItems); } return out; }
+      if (v && typeof v === "object" && !Array.isArray(v) && sc.properties) return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, sc.properties[k] ? walk(sc.properties[k], x) : x]));
+      return v;
+    };
+    const check1 = (sc, v) => { const e = []; check(sc, v, "", e); return !e.length; };
+    lint(schema);
+    return { value: walk(schema, value), fixed: n };
+  }
+  const api = { CONTRACT_VERSION, SCHEMAS, validate, assertValid, isStrictCompatible, salvage };
   globalThis.Contracts = api;
   if (typeof module !== "undefined") module.exports = api;
 })();
@@ -2573,6 +2589,7 @@ function createServer(env=process.env,deps={}){
           if(choice?.finish_reason!=="stop")throw Object.assign(new Error("provider_output_incomplete"),{detail:"incomplete."+String(choice?.finish_reason||"none").toLowerCase().replace(/[^a-z0-9_]/g,"").slice(0,30)});
           let parsed;try{parsed=parseNote(choice.message.content);}catch{throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_json"});}
           if(stage==="plan")parsed=NoteContract.canonicalPlanIds(parsed); // 제공자가 id pattern 을 강제하지 않는다 — 검사 전에 C1../S1.. 로 다시 매긴다
+          if(!Contracts.validate(outSchema,parsed).ok)parsed=Contracts.salvage(outSchema,parsed).value; // 어긋난 블록만 null 로 — 섹션 전체를 버리지 않는다
           const r=Contracts.validate(outSchema,parsed);
           if(!r.ok)throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_schema."+String(r.errors?.[0]?.path||r.errors?.[0]?.keyword||"x").toLowerCase().replace(/[^a-z0-9_.]/g,"_").slice(0,40)});
           // 계획 호출이 끝난 뒤에만 분류 결과를 기다린다 — 앞서 병렬로 나간 호출이고 이미 끝났거나 5초 안에 끝난다.
