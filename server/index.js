@@ -625,7 +625,7 @@ function createServer(env=process.env,deps={}){
           if(choice?.finish_reason!=="stop")throw Object.assign(new Error("provider_output_incomplete"),{detail:"incomplete."+String(choice?.finish_reason||"none").toLowerCase().replace(/[^a-z0-9_]/g,"").slice(0,30)});
           let parsed;try{parsed=parseNote(choice.message.content);}catch{throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_json"});}
           if(stage==="plan")parsed=NoteContract.canonicalPlanIds(parsed); // 제공자가 id pattern 을 강제하지 않는다 — 검사 전에 C1../S1.. 로 다시 매긴다
-          else parsed=NoteContract.canonicalMapKeys(parsed); // 지도 노드 키도 n1.. 로
+          else parsed=NoteContract.canonicalMapKeys(parsed,rest.section?.sectionId??null); // 지도 노드 키는 n1.. 로, 섹션 안 "B3" 참조는 "S2_B3" 로
           // 어긋난 블록만 null 로 — 섹션 전체를 버리지 않는다. 비운 블록의 원래 봉투는 salvaged 로 돌려줘 클라이언트가 repair 로 고치게 한다.
           // salvagedErrors: 비운 블록마다 스키마 오류의 위치와 사유(블록 안 경로 + 메시지, 내용 없음) — 클라이언트가 repair 지시에 그대로 싣는다.
           let salvaged=null,salvagedErrors=null;
@@ -711,7 +711,8 @@ function createServer(env=process.env,deps={}){
   return server;
 }
 const repetitive=t=>{if(typeof t!=="string"||t.length<2000)return false;const tail=t.slice(-4000),parts=[];for(let i=0;i+40<=tail.length;i+=40)parts.push(tail.slice(i,i+40));return new Set(parts).size/parts.length<0.5;};
-const shapeOf=v=>v.slice(0,24).replace(/[A-Za-z]/g,"A").replace(/[0-9]/g,"9").replace(/[가-힣]/g,"가").replace(/A+/g,"A").replace(/9+/g,"9").replace(/가+/g,"가");
+// id 처럼 생긴 짧은 값(영문 1~3자 + 숫자, 기호 _ - / .)은 글자를 그대로 둔다 — 강의 내용이 아니라 어느 형식을 썼는지가 보여야 고칠 수 있다.
+const shapeOf=v=>/^[A-Za-z]{1,3}[0-9]{0,4}([_\-/.][A-Za-z]{0,3}[0-9]{0,4}){0,2}$/.test(v)?v.slice(0,24):v.slice(0,24).replace(/[A-Za-z]/g,"A").replace(/[0-9]/g,"9").replace(/[가-힣]/g,"가").replace(/A+/g,"A").replace(/9+/g,"9").replace(/가+/g,"가");
 // 모델이 빠뜨린 필드를 채우지 않는다 — 없는 값은 없는 대로 두고 계약 검사가 걸러낸다.
 const clamp01=x=>Number.isFinite(x)?Math.min(1,Math.max(0,x)):x;
 const box=b=>b!==null&&typeof b==="object"&&!Array.isArray(b)?{x:clamp01(b.x),y:clamp01(b.y),w:clamp01(b.w),h:clamp01(b.h)}:b;

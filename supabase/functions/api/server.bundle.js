@@ -785,8 +785,17 @@ const __defs = {
   // 스키마 검사 전에 개념을 C1.., 섹션을 S1.. 로 차례대로 다시 매기고 참조를 같은 표로 옮긴다. 표에 없는 참조는 그대로 둬 repairPlan 이 뗀다.
   // 작성 출력의 지도 블록(B03) 노드 키도 같은 사정이다(필드: key·from·to 패턴 위반으로 블록이 통째로 비었다).
   // 노드를 n1.. 로 차례대로 다시 매기고 간선의 from·to 를 같은 표로 옮긴다. 표에 없는 간선 끝은 그대로 둬 검증이 거른다. 입력은 바꾸지 않는다.
-  function canonicalMapKeys(output) {
+  // 섹션 출력이면(sectionId) 같은 섹션 블록을 섹션 접두 없이 쓴 참조("B3", "b3")를 "S2_B3" 로 고친다(필드: targetIds 형식 위반 8건, 모양 A9).
+  const fixRefs = (node, sectionId) => {
+    if (Array.isArray(node)) return node.map(x => fixRefs(x, sectionId));
+    if (!node || typeof node !== "object") return node;
+    return Object.fromEntries(Object.entries(node).map(([k, v]) => [k, (k === "targetIds" || k === "reviewIds") && Array.isArray(v)
+      ? v.map(x => { const m = typeof x === "string" && /^B([0-9]{1,2})$/i.exec(x.trim()); return m ? `${sectionId}_B${+m[1]}` : x; })
+      : fixRefs(v, sectionId)]));
+  };
+  function canonicalMapKeys(output, sectionId = null) {
     if (!output || typeof output !== "object" || !output.blocks || typeof output.blocks !== "object") return output;
+    if (sectionId && /^S[0-9]{1,3}$/.test(sectionId)) output = { ...output, blocks: fixRefs(output.blocks, sectionId) };
     const key = v => typeof v === "string" || typeof v === "number" ? String(v) : null;
     const blocks = Object.fromEntries(Object.entries(output.blocks).map(([id, env]) => {
       const c = env?.content;
@@ -2671,7 +2680,7 @@ function createServer(env=process.env,deps={}){
           if(choice?.finish_reason!=="stop")throw Object.assign(new Error("provider_output_incomplete"),{detail:"incomplete."+String(choice?.finish_reason||"none").toLowerCase().replace(/[^a-z0-9_]/g,"").slice(0,30)});
           let parsed;try{parsed=parseNote(choice.message.content);}catch{throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_json"});}
           if(stage==="plan")parsed=NoteContract.canonicalPlanIds(parsed); // 제공자가 id pattern 을 강제하지 않는다 — 검사 전에 C1../S1.. 로 다시 매긴다
-          else parsed=NoteContract.canonicalMapKeys(parsed); // 지도 노드 키도 n1.. 로
+          else parsed=NoteContract.canonicalMapKeys(parsed,rest.section?.sectionId??null); // 지도 노드 키는 n1.. 로, 섹션 안 "B3" 참조는 "S2_B3" 로
           // 어긋난 블록만 null 로 — 섹션 전체를 버리지 않는다. 비운 블록의 원래 봉투는 salvaged 로 돌려줘 클라이언트가 repair 로 고치게 한다.
           // salvagedErrors: 비운 블록마다 스키마 오류의 위치와 사유(블록 안 경로 + 메시지, 내용 없음) — 클라이언트가 repair 지시에 그대로 싣는다.
           let salvaged=null,salvagedErrors=null;
@@ -2757,7 +2766,8 @@ function createServer(env=process.env,deps={}){
   return server;
 }
 const repetitive=t=>{if(typeof t!=="string"||t.length<2000)return false;const tail=t.slice(-4000),parts=[];for(let i=0;i+40<=tail.length;i+=40)parts.push(tail.slice(i,i+40));return new Set(parts).size/parts.length<0.5;};
-const shapeOf=v=>v.slice(0,24).replace(/[A-Za-z]/g,"A").replace(/[0-9]/g,"9").replace(/[가-힣]/g,"가").replace(/A+/g,"A").replace(/9+/g,"9").replace(/가+/g,"가");
+// id 처럼 생긴 짧은 값(영문 1~3자 + 숫자, 기호 _ - / .)은 글자를 그대로 둔다 — 강의 내용이 아니라 어느 형식을 썼는지가 보여야 고칠 수 있다.
+const shapeOf=v=>/^[A-Za-z]{1,3}[0-9]{0,4}([_\-/.][A-Za-z]{0,3}[0-9]{0,4}){0,2}$/.test(v)?v.slice(0,24):v.slice(0,24).replace(/[A-Za-z]/g,"A").replace(/[0-9]/g,"9").replace(/[가-힣]/g,"가").replace(/A+/g,"A").replace(/9+/g,"9").replace(/가+/g,"가");
 // 모델이 빠뜨린 필드를 채우지 않는다 — 없는 값은 없는 대로 두고 계약 검사가 걸러낸다.
 const clamp01=x=>Number.isFinite(x)?Math.min(1,Math.max(0,x)):x;
 const box=b=>b!==null&&typeof b==="object"&&!Array.isArray(b)?{x:clamp01(b.x),y:clamp01(b.y),w:clamp01(b.w),h:clamp01(b.h)}:b;

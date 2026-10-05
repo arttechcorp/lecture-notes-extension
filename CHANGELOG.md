@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.4 — 2026-10-05
+
+- 서버가 섹션 출력의 targetIds·reviewIds 에서 섹션 접두 없는 블록 참조(B3)를 S2_B3 로 고친다(필드: targetIds 형식 위반 8건, 모양 A9).
+- 서버가 비운 블록 사유에서 id 처럼 생긴 값은 모양 대신 값 그대로 남긴다(강의 내용 아님).
+
 ## 1.3.3 — 2026-10-05
 
 - 장부에 실 결제 금액을 적는다: 작성·계획·비전 요청이 만든 OpenRouter 생성(gen id)마다 관리 키(OPENROUTER_MANAGEMENT_KEY)로 /api/v1/generation 의 total_cost 를 조회해 정산한다. 조회 실패 시 응답 보고 비용·토큰 계산.
