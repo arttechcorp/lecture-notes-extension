@@ -327,7 +327,9 @@ async function findPlaylist(tabId,ms=15000){
   });
 }
 // 작업 번호는 강의 탭 주소(조각 제외, 경로·질의 유지)의 SHA-256 앞 32자 — 같은 강의를 다시 누르면 같은 번호라 이전 작업의 인식 캐시를 이어 쓴다. 주소는 해시로만 둔다.
-const bgJobId=async url=>{const u=new URL(url);u.hash="";const d=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(u.href));return "lec-"+[...new Uint8Array(d)].map(b=>b.toString(16).padStart(2,"0")).join("").slice(0,32);};
+// BG_INGEST_V를 올리면 해시가 바뀌어 모든 강의가 새 번호를 받는다 — 인식 게이트·파이프라인이 바뀔 때 올려 다시 인식하게 한다.
+const BG_INGEST_V="g2";
+const bgJobId=async url=>{const u=new URL(url);u.hash="";const d=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(BG_INGEST_V+"\n"+u.href));return "lec-"+[...new Uint8Array(d)].map(b=>b.toString(16).padStart(2,"0")).join("").slice(0,32);};
 // source가 없으면 영상 목록을 찾는다(처음 시작, 그리고 강의 탭을 다시 연 뒤의 재개). 있으면 같은 jobId로 그대로 다시 보낸다.
 async function bgStart(jobId=null,source=null){
   const tab=tabs.find(t=>String(t.id)===els.tabSelect.value);
