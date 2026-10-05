@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Rules for Codex, Claude Code, and Antigravity.
+Rules for Codex, Claude Code, Antigravity, Devin.
 
 지침파일은 명시적인 지시가 있을 때만 수정할것
 
@@ -48,6 +48,8 @@ Rules for Codex, Claude Code, and Antigravity.
 - Archify: Create and render architecture, workflow, sequence, data-flow, and lifecycle diagrams (`.agents/skills/archify`).
 - QA Agent: `gemini-flash` (`.agents/agents/gemini-flash.md`) using Gemini 3.8 Flash, configured strictly for Antigravity CLI (`agy --agent gemini-flash`) for high-speed implementation, syntax checks, invariant audits, and QA test verification.
 - Superpowers (`.agents/skills/`, obra/superpowers): `using-superpowers` governs skill invocation. Approved skills only: `brainstorming` (explore intent/requirements before creative work), `subagent-driven-development` (execute plan tasks via subagents), `systematic-debugging` (root-cause before fixes). Ignore other installed superpowers skills.
+- Use aside when web search is needed.
+- 비용효율성을 위해, 중요도가 낮은 태스크는 저렴한 모델을 서브에이전트로 불러와 사용할것.
 
 ## 5. Verification
 

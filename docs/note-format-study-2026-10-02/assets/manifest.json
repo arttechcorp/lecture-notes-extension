@@ -1,5 +1,5 @@
 {
-  "version": "1.0",
+  "version": "3.0",
   "date": "2026-10-02",
   "blocks": [
     {
@@ -146,5 +146,113 @@
       "scope": ".study-notes",
       "content": "editable sample; replace content and provenance before use"
     }
-  ]
+  ],
+  "stylesheets": [
+    "note.css",
+    "page-design.css"
+  ],
+  "pageTemplates": [
+    {
+      "id": "P01",
+      "name": "개념·비교",
+      "referenceStyle": "같은 기준의 비교표 + 곁설명",
+      "templateFile": "page-templates.html",
+      "widthMm": 210,
+      "heightMm": 297,
+      "origin": "synthetic_example"
+    },
+    {
+      "id": "P02",
+      "name": "심화 자료",
+      "referenceStyle": "자료·해석·판단 범위의 분리",
+      "templateFile": "page-templates.html",
+      "widthMm": 210,
+      "heightMm": 297,
+      "origin": "synthetic_example"
+    },
+    {
+      "id": "P03",
+      "name": "개념 정리",
+      "referenceStyle": "단원 번호 + 개념과 조건",
+      "templateFile": "page-templates.html",
+      "widthMm": 210,
+      "heightMm": 297,
+      "origin": "synthetic_example"
+    },
+    {
+      "id": "P04",
+      "name": "사례 분석",
+      "referenceStyle": "같은 Point 번호로 근거와 해석 연결",
+      "templateFile": "page-templates.html",
+      "widthMm": 210,
+      "heightMm": 297,
+      "origin": "synthetic_example"
+    },
+    {
+      "id": "P05",
+      "name": "인출 연습",
+      "referenceStyle": "번호로 구분한 질문 + 필기 격자",
+      "templateFile": "page-templates.html",
+      "widthMm": 210,
+      "heightMm": 297,
+      "origin": "synthetic_example"
+    },
+    {
+      "id": "P06",
+      "name": "OX·해설",
+      "referenceStyle": "판단 · 이유 · 해설의 연결",
+      "templateFile": "page-templates.html",
+      "widthMm": 210,
+      "heightMm": 297,
+      "origin": "synthetic_example"
+    }
+  ],
+  "vectors": [
+    {
+      "file": "vectors/stage-ribbons.svg",
+      "name": "학습 단계 칩"
+    },
+    {
+      "file": "vectors/number-markers.svg",
+      "name": "단원 번호"
+    },
+    {
+      "file": "vectors/point-labels.svg",
+      "name": "Point 대응 표식"
+    },
+    {
+      "file": "vectors/analysis-labels.svg",
+      "name": "해설·분석 라벨"
+    },
+    {
+      "file": "vectors/margin-pencil.svg",
+      "name": "곁설명 연필"
+    },
+    {
+      "file": "vectors/insight-bulb.svg",
+      "name": "심화 자료 전구"
+    },
+    {
+      "file": "vectors/memo-grid.svg",
+      "name": "필기 격자"
+    },
+    {
+      "file": "vectors/answer-strip.svg",
+      "name": "정답표"
+    },
+    {
+      "file": "concept-map.svg",
+      "name": "개념 관계도"
+    },
+    {
+      "file": "logic-chain.svg",
+      "name": "논리 연결도"
+    },
+    {
+      "file": "memo-grid.svg",
+      "name": "5mm 필기 격자"
+    }
+  ],
+  "visualReference": "../../../landing/design.md",
+  "tokenFile": "brand-tokens.json"
 }
