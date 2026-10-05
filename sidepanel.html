@@ -306,6 +306,15 @@
     </span>
   </section>
 
+  <section class="step" data-step="courses">
+    <span class="n">5</span>
+    <span class="c">
+      <b>내 과목 <span class="why">(선택)</span></b>
+      <span class="why">노트를 보관함 폴더 안의 과목별 폴더에 나눠 저장합니다. 강의를 시작할 때 탭 제목으로 과목을 골라 두고, 바꿀 수도 있어요. 비워 두면 과목 없이 저장합니다.</span>
+      <textarea id="obCourses" rows="3" maxlength="1500" placeholder="과목명을 쉼표나 줄바꿈으로 구분해 입력&#10;예: 회로이론, 선형대수, 일반물리학"></textarea>
+    </span>
+  </section>
+
   <p class="why" id="obError" role="alert" hidden></p>
   <button class="primary" id="obDone" type="button" disabled>시작하기</button>
 </div>
@@ -325,6 +334,10 @@
     <div class="checkrow">
       <span class="mark" id="markTab">·</span><span class="what">영상 탭</span>
       <span class="val" id="tabState">—</span>
+    </div>
+    <div class="checkrow">
+      <span class="mark" id="markCourse">·</span><span class="what">과목</span>
+      <span class="tab-select-wrap"><select class="tab-select" id="courseSelect" aria-label="노트를 저장할 과목"></select></span>
     </div>
     <div class="checkrow">
       <span class="mark" id="markAccount">·</span><span class="what">계정</span>

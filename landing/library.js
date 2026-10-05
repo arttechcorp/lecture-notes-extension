@@ -146,11 +146,23 @@
   }
 
   function paintList() {
+    // 과목별로 묶고(과목 없는 노트는 맨 뒤), 과목 안에서는 최근 것부터.
+    const course = e => e.meta?.course || "";
     const list = [...entries.values()].sort((a, b) =>
+      (!course(a) - !course(b)) || course(a).localeCompare(course(b), "ko") ||
       String(b.meta?.updatedAt ?? "").localeCompare(String(a.meta?.updatedAt ?? "")));
+    const grouped = list.some(course);
     cards.textContent = "";
+    let group = null;
     for (const e of list) {
       const m = e.meta || {};
+      if (grouped && course(e) !== group) {
+        group = course(e);
+        const g = document.createElement("h2");
+        g.className = "course-head";
+        g.textContent = group || "과목 없음";
+        cards.append(g);
+      }
       const c = document.createElement("button");
       c.type = "button";
       c.className = "card";
