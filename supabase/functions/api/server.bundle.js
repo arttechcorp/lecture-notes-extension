@@ -746,7 +746,7 @@ const __defs = {
 
   // §8.2: 스키마는 맞지만 의미 규칙을 깬 계획을 모델을 다시 부르지 않고 코드가 고친다.
   // 입력(plannerOutput 통과본)은 바꾸지 않고 고친 복사본을 돌려준다. fixes 는 id·코드만 싣는다(내용 없음, §10).
-  // 고칠 수 없는 계획도 남는다(홈에 정의가 아예 없는 defined 개념 등) — 호출자가 normalizePlan 으로 최종 판정한다.
+  // 고칠 수 없는 계획도 남는다(곁설명 하나뿐인 섹션, 유닛 60개 초과 섹션 등) — 호출자가 normalizePlan 으로 최종 판정한다.
   function repairPlan(output, { units = [], formulaUnits = {}, figures = [] } = {}) {
     const out = JSON.parse(JSON.stringify(output)), fixes = [];
     const fix = m => { if (fixes.length < 40) fixes.push(m); };
