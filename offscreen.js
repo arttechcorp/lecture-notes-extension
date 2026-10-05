@@ -35,7 +35,7 @@ const authEvent=(error,extra)=>{if(error?.status!==401||!error?.tokenInfo)return
 // /v1/me는 요약 모델 목록만 알려 주고 인식·판정 모델은 싣지 않아 모델은 여기 한 곳에 둔다. 서버 allowlist(ALLOWED_*_MODELS)와 어긋나면 invalid_model로 멈춘다 — 다른 모델로 조용히 바꾸지 않는다.
 // ponytail: 계획·작성 분담은 MiMo Pro/Flash 다(2026-10-04 결정).
 // 계획은 GPT-6.1 Sol(추론 medium) — 100초 안에 못 끝내면 stages가 작성 모델(Flash)로 한 번 다시 계획한다. MiMo Pro는 무료 Edge 150초 안에 못 끝내 뺐다(필드 3/3 시간 초과).
-const BG_MODELS={plan:"openai/gpt-6.1-sol",write:"xiaomi/mimo-v2.6-flash",judge:"typesafe/jev-1.13",stt:"microsoft/mai-transcribe-2",vision:"openai/gpt-6-luna"};
+const BG_MODELS={plan:"openai/gpt-6.1-sol",write:"xiaomi/mimo-v2.6-flash",writeAlt:"openai/gpt-6.1-sol",judge:"typesafe/jev-1.13",stt:"microsoft/mai-transcribe-2",vision:"openai/gpt-6-luna"};
 const bgMe=async(settings,signal)=>ServiceClient.me({baseUrl:settings.serviceUrl,token:await tokenProvider(settings.appSessionToken,settings.serviceUrl),timeoutMs:15000,signal});
 // Referer 규칙은 background가 건다(DNR은 서비스 워커 몫). 새 호스트로 나가기 전에 그 호스트를 더해 달라고 하고 답을 기다린다 — 호스트마다 한 번, 차례로(규칙 갱신이 서로 덮어쓰지 않게).
 // ponytail: 리다이렉트로 호스트가 바뀌면 그 호스트는 규칙에 없어 Referer가 빠지고 SRC_AUTH_EXPIRED로 멈춘다. 필요하면 응답의 url을 보고 규칙을 늘린다.
@@ -66,7 +66,8 @@ async function paintMasks(blob,boxes){
 }
 // ── v2 노트 공통(실시간·백그라운드) ──
 // 계획·작성 모델은 계정 모델 목록(/v1/me)에서 고른다: BG_MODELS 가 목록에 있으면 그것, 없으면 첫 모델. 판정은 judge 기능이 켜진 계정만.
-const noteModels=me=>{const ms=Array.isArray(me?.models)?me.models:[],pick=m=>ms.includes(m)?m:ms[0];return {plan:pick(BG_MODELS.plan),write:pick(BG_MODELS.write),judge:(me?.features||[]).includes("judge")?BG_MODELS.judge:null};};
+// writeAlt(대체 작성 모델, 다른 제공자)는 목록에 있을 때만 — 없으면 실패한 부분은 대체 없이 빠진다.
+const noteModels=me=>{const ms=Array.isArray(me?.models)?me.models:[],pick=m=>ms.includes(m)?m:ms[0];return {plan:pick(BG_MODELS.plan),write:pick(BG_MODELS.write),writeAlt:ms.includes(BG_MODELS.writeAlt)?BG_MODELS.writeAlt:null,judge:(me?.features||[]).includes("judge")?BG_MODELS.judge:null};};
 // GENERATE_NOTES·LIB_REGENERATE 가 같은 모양으로 runNote 를 부른다 — /v1/me 와 서비스 묶음을 한 곳에서 만든다. 토큰은 매 서비스 호출마다 새로 받는다.
 const noteService=settings=>{
   const config=settingsOf(settings),token=()=>tokenProvider(config.appSessionToken,config.serviceUrl);

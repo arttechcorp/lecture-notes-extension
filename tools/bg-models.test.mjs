@@ -30,7 +30,9 @@ test("every model in offscreen.js BG_MODELS is one the server's /v1/me says it a
     const res = await fetch(`http://127.0.0.1:${server.address().port}/v1/me`, { headers: { authorization: "Bearer " + token, origin } });
     assert.equal(res.status, 200);
     const me = await res.json();
-    assert.deepEqual(Object.keys(BG_MODELS).sort(), ["judge", "plan", "stt", "vision", "write"]);
+    assert.deepEqual(Object.keys(BG_MODELS).sort(), ["judge", "plan", "stt", "vision", "write", "writeAlt"]);
+    assert.ok(me.models.includes(BG_MODELS.writeAlt), `writeAlt ${BG_MODELS.writeAlt} ∉ ${me.models}`);
+    assert.notEqual(BG_MODELS.writeAlt, BG_MODELS.write, "대체 모델은 주 모델과 달라야 한다");
     assert.ok(me.models.includes(BG_MODELS.plan), `plan ${BG_MODELS.plan} ∉ ${me.models}`);
     assert.ok(me.models.includes(BG_MODELS.write), `write ${BG_MODELS.write} ∉ ${me.models}`);
     for (const route of ["vision", "stt", "judge"]) assert.ok(me.routeModels[route].includes(BG_MODELS[route]), `${route} ${BG_MODELS[route]} ∉ ${me.routeModels[route]}`);

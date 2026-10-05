@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Summrizei — 강의 노트",
-  "version": "1.2.6",
+  "version": "1.3.0",
   "description": "재생 중인 강의 영상의 화면·음성으로 학습 노트를 만듭니다. 완성된 노트는 이 컴퓨터에 암호화해 저장하고 Summrizei 웹사이트에서 엽니다.",
   "permissions": [
     "storage",
