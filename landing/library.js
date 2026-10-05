@@ -1,4 +1,5 @@
 // 내 노트 페이지: .summrizei 파일을 브라우저 안에서 복호화해 목록과 노트를 보여준다.
+// 파일은 확장 프로그램의 보관함 폴더에서 자동으로 받는다(library-bridge.js 콘텐츠 스크립트 — 암호문만 건넨다). 확장이 없는 브라우저에서만 폴더를 직접 고른다.
 // 열쇠는 로그인한 계정의 노트 키(서비스 library_key())다 — 별도 비밀번호는 없다. 복호화 결과·키는 메모리에만 두고
 // 잠그기·로그아웃으로 전부 버린다. 이 페이지는 어떤 저장소에도 노트나 키를 쓰지 않는다(로그인 세션은 supabase-js 가 따로 둔다). 저장 문자열은 전부 textContent/DOM
 // 으로만 넣고, 렌더러가 돌려주는 이스케이프된 HTML 만 innerHTML 로 둔다.
@@ -12,7 +13,7 @@
   const drop = $("drop"), folderBtn = $("folderBtn"), filesBtn = $("filesBtn");
   const folderInput = $("folderInput"), filesInput = $("filesInput");
   const fileStatus = $("fileStatus"), authText = $("authText"), loginBtn = $("loginBtn"), logoutBtn = $("logoutBtn");
-  const openBtn = $("openBtn"), keyStatus = $("keyStatus"), failList = $("failList");
+  const reopenBtn = $("reopenBtn"), keyStatus = $("keyStatus"), failList = $("failList");
   const stepFile = $("stepFile"), stepKey = $("stepKey"), openBar = $("openBar");
   const openCount = $("openCount"), addBtn = $("addBtn");
   const listView = $("listView"), cards = $("cards"), noteView = $("noteView");
@@ -34,6 +35,7 @@
   let current = null;            // 지금 열린 {meta, note, crops}
   let busy = false;
   let adding = false;            // 이미 연 노트가 있는데 파일을 더 불러오는 중
+  let manual = false;            // 확장에서 받지 못해 폴더를 직접 고르는 중
   let lastCard = null;           // 노트에서 목록으로 돌아갈 때 포커스를 돌려줄 카드
 
   // h:mm:ss(1시간 이상) 또는 m:ss. durationSec가 null이면 빈 문자열.
@@ -55,7 +57,7 @@
     fileStatus.textContent = files.length
       ? `파일 ${files.length}개${skipped ? ` · 건너뜀 ${skipped}개` : ""}`
       : "";
-    openBtn.disabled = files.length === 0 || busy || !session;
+    reopenBtn.hidden = !session || busy || entries.size > 0;
   }
 
   async function addFiles(list) {
@@ -68,6 +70,7 @@
       catch { skipped++; }
     }
     paintFiles();
+    if (session && files.length) await openFiles();
   }
 
   folderBtn.addEventListener("click", () => folderInput.click());
@@ -135,18 +138,31 @@
   // 노트를 보는 동안에는 목록과 "파일 더 불러오기"를 숨긴다.
   function paintChrome() {
     const unlocked = entries.size > 0;
-    stepFile.hidden = stepKey.hidden = unlocked && !adding;
+    stepKey.hidden = unlocked && !adding;
+    stepFile.hidden = !(manual || adding) || (unlocked && !adding);
     openBar.hidden = !unlocked;
     openCount.textContent = `노트 ${entries.size}개 열림`;
     addBtn.hidden = !noteView.hidden;
   }
 
   function paintList() {
+    // 과목별로 묶고(과목 없는 노트는 맨 뒤), 과목 안에서는 최근 것부터.
+    const course = e => e.meta?.course || "";
     const list = [...entries.values()].sort((a, b) =>
+      (!course(a) - !course(b)) || course(a).localeCompare(course(b), "ko") ||
       String(b.meta?.updatedAt ?? "").localeCompare(String(a.meta?.updatedAt ?? "")));
+    const grouped = list.some(course);
     cards.textContent = "";
+    let group = null;
     for (const e of list) {
       const m = e.meta || {};
+      if (grouped && course(e) !== group) {
+        group = course(e);
+        const g = document.createElement("h2");
+        g.className = "course-head";
+        g.textContent = group || "과목 없음";
+        cards.append(g);
+      }
       const c = document.createElement("button");
       c.type = "button";
       c.className = "card";
@@ -201,10 +217,11 @@
     const was = session;
     session = next || null;
     if (was && !session) lock();
+    if (!was && session && !entries.size) autoOpen();
     const email = session?.user?.email;
     authText.textContent = session
       ? `${email || "로그인됨"} 계정으로 로그인했습니다.`
-      : "노트를 만든 계정으로 로그인하면 노트가 열립니다. 별도 비밀번호는 없습니다.";
+      : "노트를 만든 계정으로 로그인하면 확장 프로그램에서 고른 보관함 폴더의 노트가 바로 열립니다. 별도 비밀번호는 없습니다.";
     loginBtn.hidden = !!session;
     logoutBtn.hidden = !session;
     paintFiles();
@@ -225,11 +242,53 @@
   });
   logoutBtn.addEventListener("click", () => { client?.auth.signOut(); });
 
+  // 확장 프로그램과 주고받기: 같은 창의 콘텐츠 스크립트(library-bridge.js)가 답한다. 확장이 없으면 답이 없어 null.
+  function ext(op, name) {
+    return new Promise(resolve => {
+      const id = crypto.randomUUID();
+      const done = v => { clearTimeout(timer); removeEventListener("message", on); resolve(v); };
+      const on = e => { if (e.source === window && e.data?.srz === "lib-reply" && e.data.id === id) done(e.data); };
+      const timer = setTimeout(() => done(null), op === "list" ? 2500 : 60000);
+      addEventListener("message", on);
+      postMessage({ srz: "lib", id, op, name }, location.origin);
+    });
+  }
+  const EXT_WHY = {
+    "no-folder": "확장 프로그램에서 아직 보관함 폴더를 고르지 않았습니다. 사이드 패널이나 설정에서 폴더를 고르세요.",
+    "no-permission": "브라우저가 보관함 폴더 권한을 거뒀습니다. 확장 프로그램 사이드 패널의 '다시 허용'을 누른 뒤 보관함 열기를 누르세요.",
+  };
+  // 확장의 보관함 폴더에서 파일을 받아 바로 연다. 확장이 없거나 폴더를 못 읽으면 직접 고르기를 연다.
+  async function autoOpen() {
+    if (busy || !session) return;
+    busy = true;
+    paintFiles();
+    keyStatus.textContent = "보관함 폴더를 여는 중…";
+    failList.textContent = "";
+    const list = await ext("list");
+    if (!list?.ok) {
+      busy = false;
+      manual = true;
+      keyStatus.textContent = list ? (EXT_WHY[list.code] || "보관함 폴더를 읽지 못했습니다.") : "이 브라우저에서 Summrizei 확장 프로그램을 찾지 못했습니다. 아래에서 폴더를 직접 고르세요.";
+      paintFiles();
+      paintChrome();
+      return;
+    }
+    files.length = 0;
+    for (const name of list.names) {
+      const r = await ext("read", name);
+      if (r?.ok && typeof r.text === "string") files.push({ name, text: r.text });
+      else fail(name, new Error("파일을 읽지 못했습니다."));
+    }
+    busy = false;
+    if (!files.length) { keyStatus.textContent = list.names.length ? "" : `보관함 폴더(${list.folder || "Summrizei"})에 아직 노트가 없습니다.`; paintFiles(); return; }
+    await openFiles();
+  }
+  reopenBtn.addEventListener("click", autoOpen);
+
   // 복호화: 이 계정의 키를 한 번 받아 모든 파일을 같은 키로 연다. 다른 계정으로 만든 파일은 실패 목록에 이유와 함께 남는다.
-  openBtn.addEventListener("click", async () => {
+  async function openFiles() {
     if (!files.length || busy || !session) return;
     busy = true;
-    openBtn.disabled = true;
     keyStatus.textContent = "여는 중…";
     failList.textContent = "";
     try {
@@ -247,10 +306,10 @@
     } catch (err) { fail("계정", err); }
     busy = false;
     keyStatus.textContent = "";
-    adding = failList.children.length > 0; // 실패 줄이 남았으면 단계를 열어 둬서 오류가 보이게 한다
+    adding = manual && failList.children.length > 0; // 직접 고르다 실패 줄이 남았으면 단계를 열어 둬서 오류가 보이게 한다
     paintFiles();
     paintList();
-  });
+  }
 
   answersSel.addEventListener("change", () => render("web"));
   examCb.addEventListener("change", () => render("web"));
@@ -278,9 +337,9 @@
 
   // 파일 더 불러오기: 이미 연 노트는 그대로 두고 1·2단계를 다시 연다.
   addBtn.addEventListener("click", () => {
-    adding = true;
+    adding = manual = true;
     paintChrome();
-    openBtn.focus();
+    folderBtn.focus();
   });
 
   // 잠그기: 복호화 결과·키·불러온 파일을 전부 버리고 DOM을 비워 처음 단계로 돌아간다.

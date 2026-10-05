@@ -107,12 +107,40 @@ async function exportNote(store,pkg,meta,note){
     const lk=await NoteFile.loadLibraryKey(store.adapter).catch(()=>null);
     if(!lk){events.emit({stage:"library",level:"warn",code:"LIBRARY_NO_KEY"});return "no-key";}
     const text=await NoteFile.encryptFile({meta,note,crops:await NoteLibrary.cropUrls(store,pkg)},lk.key);
-    await LibraryFolder.write(store.adapter,NoteFile.fileName(meta),text);
+    await LibraryFolder.write(store.adapter,NoteFile.fileName(meta),text,NoteFile.courseFolder(meta));
     return "file";
   }catch(e){
     if(e?.code==="no-folder"||e?.code==="no-permission"){events.emit({stage:"library",level:"warn",code:"LIBRARY_NO_FOLDER"});return "no-folder";}
     events.emit({stage:"library",level:"warn",code:"LIBRARY_EXPORT_FAILED"});return "failed";
   }
+}
+// 다시 만들기 자료 백업: 기기 패키지 하나(메타·재생성 입력·노트·인식 결과·크롭)를 계정 키로 싸서 보관함 폴더 data/ 에 둔다.
+// 재설치·다른 기기에서 폴더를 고르면 restoreMissing 이 되살려 옵션을 바꾼 다시 만들기를 할 수 있다. 실패는 코드만 남기고 노트 저장에 영향을 주지 않는다.
+const bytesB64=b=>{let s="";for(let i=0;i<b.length;i+=0x8000)s+=String.fromCharCode.apply(null,b.subarray(i,i+0x8000));return btoa(s);};
+const b64Bytes=s=>Uint8Array.from(atob(s),ch=>ch.charCodeAt(0));
+async function backupPackage(store,pkg){
+  try{
+    const lk=await NoteFile.loadLibraryKey(store.adapter).catch(()=>null),data=lk&&await NoteLibrary.load(store,pkg);
+    if(!data)return false;
+    const crops=Object.fromEntries(Object.entries(await NoteLibrary.crops(store,pkg)).map(([id,b])=>[id,bytesB64(b)]));
+    await LibraryFolder.writeFile(store.adapter,LibraryFolder.dataPath(pkg),await NoteFile.encryptData({meta:data.meta,input:data.input??null,note:data.note??null,recognition:data.recognition??null,crops},lk.key));
+    return true;
+  }catch(e){if(!["no-folder","no-permission"].includes(e?.code))events.emit({stage:"library",level:"warn",code:"LIBRARY_BACKUP_FAILED"});return false;}
+}
+// 폴더의 백업 중 이 기기에 없는 패키지만 되살린다(있는 것은 기기 쪽이 최신이라 건드리지 않는다). 다른 계정 백업은 열리지 않아 건너뛴다.
+async function restoreMissing(store){
+  const lk=await NoteFile.loadLibraryKey(store.adapter).catch(()=>null);
+  if(!lk)return 0;
+  let restored=0;
+  for(const path of await LibraryFolder.listData(store.adapter).catch(()=>[])){
+    try{
+      const d=await NoteFile.decryptData(await LibraryFolder.readFile(store.adapter,path),lk.key),pkg=d.meta.packageId;
+      if(await NoteLibrary.load(store,pkg).catch(()=>null))continue;
+      await NoteLibrary.saveResult(store,{packageId:pkg,meta:d.meta,input:d.input??undefined,note:d.note,recognition:d.recognition??undefined,crops:Object.fromEntries(Object.entries(d.crops).map(([id,v])=>[id,b64Bytes(v)]))});
+      restored++;
+    }catch{events.emit({stage:"library",level:"warn",code:"LIBRARY_RESTORE_SKIPPED"});}
+  }
+  return restored;
 }
 // saveLibrary 의 반환값은 넷("file"|"no-folder"|"no-key"|"failed")만 의미 있다 — 노트를 지키며 건너뛴 false 나 저장만 한 경우는 null 로 본다.
 const savedResult=v=>["file","no-folder","no-key","failed"].includes(v)?v:null;
@@ -123,9 +151,10 @@ async function saveLibrary(pkg,input,res,{source,host}){
   if(!note&&(await NoteLibrary.load(store,pkg).catch(()=>null))?.note){events.emit({stage:"library",level:"warn",code:"LIBRARY_NOTE_KEPT"});return false;}
   for(const [id,key] of Object.entries(res.cropMap||{})){const b=await store.getBytes("blobs",`${pkg}:c:${key.replace(/[^A-Za-z0-9_.:-]/g,"_")}`).catch(()=>null);if(b)crops[id]=b;}
   const questions=note?note.sections.flatMap(s=>s.blocks).filter(b=>b.type==="B14").reduce((n,b)=>n+b.content.items.length,0):0;
-  const meta=await NoteLibrary.saveResult(store,{packageId:pkg,input,note,crops,recognition:res.recognition??null,meta:{packageId:pkg,title:input.meta?.title??null,host,source,tier:input.tier,
+  const meta=await NoteLibrary.saveResult(store,{packageId:pkg,input,note,crops,recognition:res.recognition??null,meta:{packageId:pkg,title:input.meta?.title??null,course:input.meta?.course??null,host,source,tier:input.tier,
     status:res.status==="recognition-only"?"recognition-only":note?.status||"partial",durationSec:note?Math.max(0,note.meta.processed.t1-note.meta.processed.t0):null,
     noteSpecVersion:note?.noteSpecVersion??null,options:{...NoteContract.policyOf(input.options),exam:false},counts:note?{sections:note.sections.length,questions}:null}});
+  await backupPackage(store,pkg);
   return note?await exportNote(store,pkg,meta,note):null;
 }
 // 실시간 세션 → runNote 입력(Free 와 유료의 실시간 모드). 슬라이드 t1 은 다음 슬라이드의 시작이고, 발화는 기기 Whisper 의 근거 항목에서 만든다(화자 없음).
@@ -137,7 +166,7 @@ function liveInput(cur,{tier,models,consent,options}){
     slides:docs.map((d,i)=>({...d,t1:Math.max(d.t0,docs[i+1]?.t0??d.t1??d.t0)})),
     transcript:{schemaVersion:1,engine:"whisper",model:String(cur.options.whisperModel||"local").slice(0,64),lang,
       segments:asr.map((e,i)=>({id:"a"+(i+1),t0:e.t0,t1:Math.max(e.t0,e.t1??e.t0),text:String(e.text).slice(0,4000),words:[],noSpeechProb:null,avgLogprob:null,compressionRatio:null,status:"kept"}))},
-    gaps:cur.gaps||[],tier,models,consent,recognition:"local",options,meta:{title:typeof cur.options.pageTitle==="string"&&cur.options.pageTitle.trim()?cur.options.pageTitle.trim().slice(0,120):null,lang},
+    gaps:cur.gaps||[],tier,models,consent,recognition:"local",options,meta:{title:typeof cur.options.pageTitle==="string"&&cur.options.pageTitle.trim()?cur.options.pageTitle.trim().slice(0,120):null,course:typeof cur.options.course==="string"&&cur.options.course.trim()?cur.options.course.trim().slice(0,40):null,lang},
     host:hostOf(cur.options.pageUrl),
   };
 }
@@ -181,7 +210,7 @@ async function bgJob(job,source,settings,me,ctl){
   chrome.runtime.sendMessage({target:"background",type:"BG_DONE",...done}).catch(()=>{});
   writeJobDiag(job.jobId); // 기다리지 않는다
 }
-// 작업이 끝날 때마다(성공·실패·멈춤) 그 작업의 진단 기록을 노트 폴더 옆 Downloads/Summrizei/diagnostics/ 에 남긴다 — 문의할 때 따로 내보내지 않고 바로 첨부하게.
+// 작업이 끝날 때마다(성공·실패·멈춤) 그 작업의 진단 기록을 보관함 폴더 diagnostics/ 에 남긴다(폴더를 못 쓰면 Downloads/Summrizei/diagnostics/) — 문의할 때 따로 내보내지 않고 바로 첨부하게.
 // 이벤트는 처음부터 내용 없는 코드·수치뿐이다(§10). 계정·환경 정보는 넣지 않는다 — 그건 설정의 "진단 내보내기"가 사용자가 누를 때만 모은다.
 async function writeJobDiag(jobId){
   try{
@@ -189,7 +218,10 @@ async function writeJobDiag(jobId){
     const evs=(await (await storeP).readLogs()).filter(e=>e.jobId===jobId);
     if(!evs.length)return;
     const bundle=Diagnostics.exportBundle(evs,{version:await versionP});
-    await chrome.runtime.sendMessage({target:"background",type:"DIAG_EXPORT",jobId,text:JSON.stringify(bundle,null,2)});
+    const text=JSON.stringify(bundle,null,2),day=new Date().toISOString().slice(0,10);
+    try{await LibraryFolder.writeFile((await storeP).adapter,`diagnostics/summrizei-diagnostic-${day}-${jobId}.json`,text);return;}
+    catch(e){if(!["no-folder","no-permission"].includes(e?.code))throw e;}
+    await chrome.runtime.sendMessage({target:"background",type:"DIAG_EXPORT",jobId,text});
   }catch{events.emit({stage:"library",jobId,level:"warn",code:"DIAG_EXPORT_FAILED"});}
 }
 // 보관함 패키지의 저장 입력으로 노트를 다시 만든다(옵션 변경·인식만 끝난 강의의 노트화). background.js만 부를 수 있다(BG_*와 같다).
@@ -219,15 +251,17 @@ async function libExportAll(){
   if(starting||archiveBusy||summaryController||bg||session&&!["completed","failed","disposed"].includes(session.status))return {ok:false,busy:true,error:"다른 처리가 진행 중입니다. 끝난 뒤 다시 시도하세요."};
   const store=await storeP;
   if(!await NoteFile.loadLibraryKey(store.adapter).catch(()=>null))return {ok:false,error:"보관함 키가 없습니다. 로그인한 뒤 다시 시도하세요."};
-  let count=0,failed=0;archiveBusy=true; // 내보내는 동안 지우기·새 작업이 끼어들지 못하게 한다
+  let count=0,failed=0,restored=0;archiveBusy=true; // 내보내는 동안 지우기·새 작업이 끼어들지 못하게 한다
   try{
+    restored=await restoreMissing(store); // 새로 고른 폴더(재설치·다른 기기)의 백업부터 되살린다
     for(const meta of await NoteLibrary.list(store)){
+      await backupPackage(store,meta.packageId);
       const data=await NoteLibrary.load(store,meta.packageId).catch(()=>null);
       if(!data?.note)continue;
       if(await exportNote(store,meta.packageId,meta,data.note)==="file")count++;else failed++;
     }
   }finally{archiveBusy=false;}
-  return {ok:true,count,failed};
+  return {ok:true,count,failed,restored};
 }
 async function bgList(settings){
   const store=await storeP,jobs=[];
@@ -245,6 +279,12 @@ async function bgMessage(message,sender){
   const settings=message.settings||{};
   if(message.type==="LIB_REGENERATE")return libRegenerate(message,settings);
   if(message.type==="LIB_EXPORT_ALL")return libExportAll();
+  // 웹 /library 가 확장을 거쳐 보관함 폴더를 읽는다(background 가 사이트 탭인지 확인한 뒤 보낸다). 암호문만 돌려준다.
+  if(message.type==="LIB_FILES"){
+    const adapter=(await storeP).adapter;
+    try{return message.op==="list"?{ok:true,...await LibraryFolder.list(adapter)}:{ok:true,text:await LibraryFolder.read(adapter,message.name)};}
+    catch(e){return {ok:false,code:["no-folder","no-permission"].includes(e?.code)?e.code:"failed"};}
+  }
   if(message.type==="BG_DISCARD"){
     const{jobId}=message;
     if(typeof jobId!=="string"||!/^[A-Za-z0-9][A-Za-z0-9-]{7,63}$/.test(jobId))throw new Error("작업 번호가 올바르지 않습니다.");
@@ -323,7 +363,7 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
   if(!trusted(sender)){reply({ok:false,error:"허용되지 않은 요청입니다."});return;}
   (async()=>{
     if(message.type==="DIAG_EVENT")return diagEvent(message.event);
-    if(String(message.type).startsWith("BG_")||["LIB_REGENERATE","LIB_EXPORT_ALL"].includes(message.type))return bgMessage(message,sender);
+    if(String(message.type).startsWith("BG_")||["LIB_REGENERATE","LIB_EXPORT_ALL","LIB_FILES"].includes(message.type))return bgMessage(message,sender);
     if(message.type==="GET_STATE")return {ok:true,state:session?.state()||null};
     if(message.type==="TAB_GONE"){
       if(message.tabId===session?.options.tabId&&!session.closed)await session.fail("강의 탭이 닫히거나 이동하여 인식을 중단했습니다.");

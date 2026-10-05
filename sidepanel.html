@@ -289,7 +289,7 @@
     <span class="n">3</span>
     <span class="c">
       <b>보관함 폴더</b>
-      <span class="why">완성된 노트는 여기서 고른 폴더에 암호화해 자동으로 저장합니다. 저장할 때마다 묻지 않습니다. 비밀번호도 따로 없습니다 — Summrizei 웹사이트에서 같은 계정으로 로그인하면 열립니다. 문서 안에 새 폴더를 만들어 고르면 편합니다.</span>
+      <span class="why">완성된 노트는 여기서 고른 폴더에 암호화해 자동으로 저장합니다. 저장할 때마다 묻지 않습니다. 비밀번호도 따로 없습니다 — Summrizei 웹사이트에서 같은 계정으로 로그인하면 이 폴더가 자동으로 열립니다. 다시 만들기 자료(암호화)·설정·진단 기록도 함께 백업되어, 재설치하거나 다른 컴퓨터에서 같은 폴더를 고르면 되살아납니다.<br>권장 위치: 홈 폴더 바로 아래에 새 폴더 <b>Summrizei</b>를 만들어 고르세요(macOS <code>/Users/이름/Summrizei</code>, Windows <code>C:\Users\이름\Summrizei</code>).</span>
       <button id="obFolderBtn" type="button">폴더 고르기</button>
       <span class="why" id="obFolderName" hidden></span>
       <span class="why" id="obFolderErr" role="alert" hidden></span>
@@ -303,6 +303,15 @@
       <span class="why">Whisper가 기기 안에서 강의 음성을 글로 옮깁니다. 처음 켜면 모델을 내려받습니다.<br>화면 글자는 기기 안의 PP-OCRv5로 읽습니다.</span>
       <label class="checkline"><input type="checkbox" id="obWhisper" checked />
         <span>말소리도 받아쓰기 (권장)</span></label>
+    </span>
+  </section>
+
+  <section class="step" data-step="courses">
+    <span class="n">5</span>
+    <span class="c">
+      <b>내 과목 <span class="why">(선택)</span></b>
+      <span class="why">노트를 보관함 폴더 안의 과목별 폴더에 나눠 저장합니다. 강의를 시작할 때 탭 제목으로 과목을 골라 두고, 바꿀 수도 있어요. 비워 두면 과목 없이 저장합니다.</span>
+      <textarea id="obCourses" rows="3" maxlength="1500" placeholder="과목명을 쉼표나 줄바꿈으로 구분해 입력&#10;예: 회로이론, 선형대수, 일반물리학"></textarea>
     </span>
   </section>
 
@@ -325,6 +334,10 @@
     <div class="checkrow">
       <span class="mark" id="markTab">·</span><span class="what">영상 탭</span>
       <span class="val" id="tabState">—</span>
+    </div>
+    <div class="checkrow">
+      <span class="mark" id="markCourse">·</span><span class="what">과목</span>
+      <span class="tab-select-wrap"><select class="tab-select" id="courseSelect" aria-label="노트를 저장할 과목"></select></span>
     </div>
     <div class="checkrow">
       <span class="mark" id="markAccount">·</span><span class="what">계정</span>

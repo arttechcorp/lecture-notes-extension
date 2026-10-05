@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>시작하기 — Summrizei</title>
+<meta name="description" content="결제가 끝났어요. 설치부터 첫 노트까지 Summrizei 사용법을 안내합니다.">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#F7F7F4">
+<link rel="icon" href="/images/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/images/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hedvig+Letters+Serif:opsz@12..24&family=Geist+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="landing.css?v=20260923-offer">
+<style>
+:root{--accent:#E04800;--accent-soft:rgba(224,72,0,.1);--gray:#EDEDE9;--gray-2:#DEDED9}
+.wl-main{padding-block:40px 96px;word-break:keep-all}
+.wl-col{max-width:760px;margin:0 auto}
+.wl-hero{text-align:center;margin-bottom:40px}
+.wl-hero .check{display:inline-flex;align-items:center;justify-content:center;width:52px;height:52px;border-radius:999px;background:var(--gray);color:var(--accent);font-size:24px;margin:0 0 18px}
+.wl-hero h1{margin:0 0 12px;font-size:clamp(30px,5vw,44px);line-height:1.2;letter-spacing:-.03em;font-weight:600}
+.wl-hero p{margin:0;color:var(--muted);font-size:16px;line-height:1.7}
+.wl-progress{display:flex;align-items:center;gap:12px;margin:28px auto 0;max-width:360px;font:500 12px var(--mono);color:var(--muted)}
+.wl-progress .bar{flex:1;height:6px;border-radius:99px;background:var(--line);overflow:hidden}
+.wl-progress .bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .3s}
+.wl-h2{margin:56px 0 6px;font-size:24px;letter-spacing:-.02em;font-weight:600}
+.wl-sub{margin:0 0 20px;color:var(--muted);font-size:14px;line-height:1.7}
+.steps{list-style:none;margin:0;padding:0;display:grid;gap:12px}
+.step{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:22px 22px 20px;box-shadow:var(--shadow);display:grid;grid-template-columns:auto 1fr;gap:4px 16px}
+.step.done{opacity:.6}
+.step.done h3{text-decoration:line-through}
+.step input{grid-row:1/span 2;width:22px;height:22px;margin:2px 0 0;accent-color:var(--accent);cursor:pointer}
+.step h3{margin:0;font-size:17px;line-height:1.5;font-weight:600}
+.step h3 small{font:500 11px var(--mono);color:var(--ink);background:var(--gray-2);border-radius:99px;padding:2px 8px;margin-right:8px;letter-spacing:.04em;vertical-align:2px}
+.step .body{grid-column:2;color:#3f3f46;font-size:14px;line-height:1.75}
+.step .body p{margin:6px 0 0}
+.step .body ul{margin:8px 0 0;padding-left:18px}
+.step .body li{margin:2px 0}
+kbd{font:500 12px var(--mono);background:var(--soft);border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;padding:1px 7px;color:var(--ink)}
+.mock{margin:14px 0 2px;border-radius:12px;background:var(--gray);padding:10px 12px;display:flex;align-items:center;gap:8px;color:#5f6368;font-size:13px}
+.mock .url{flex:1;min-width:0;background:var(--paper);border-radius:99px;padding:7px 14px;font:12px var(--mono);color:#80868b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mock .ico{flex:none;width:32px;height:32px;border-radius:99px;display:inline-flex;align-items:center;justify-content:center}
+.mock .ico svg,.mock .ico img{width:20px;height:20px;display:block}
+.mock .ico.hl{background:var(--paper);box-shadow:0 0 0 2px var(--accent)}
+.how{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0 0;padding:0;list-style:none;counter-reset:how}
+.how li{counter-increment:how;background:var(--soft);border-radius:10px;padding:10px 12px;font-size:13px;line-height:1.55;display:flex;gap:8px;align-items:flex-start}
+.how li::before{content:counter(how);flex:none;width:20px;height:20px;border-radius:99px;background:var(--gray-2);color:var(--ink);font:500 11px/20px var(--mono);text-align:center}
+.how svg{width:16px;height:16px;vertical-align:-3px;color:var(--ink)}
+.callout{margin:14px 0 0;border-radius:12px;padding:12px 14px;font-size:13.5px;line-height:1.7;background:var(--soft);color:#3f3f46}
+.callout b{color:var(--ink)}
+.callout.warn{background:var(--gray);border-left:4px solid var(--accent);color:#3f3f46}
+.callout.warn b{color:var(--accent)}
+.pin-alert{margin:40px 0 0;background:var(--gray);color:var(--ink);border-radius:18px;padding:26px 24px;border-left:6px solid var(--accent)}
+.pin-alert .eyebrow{color:var(--accent);margin:0 0 8px}
+.pin-alert h2{margin:0 0 10px;font-size:22px;letter-spacing:-.02em;font-weight:600}
+.pin-alert p{margin:0;color:#3f3f46;font-size:14px;line-height:1.75}
+.pin-alert ul{margin:12px 0 0;padding-left:18px;color:#27272a;font-size:14px;line-height:1.8}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.card{background:var(--gray);border-radius:16px;padding:20px;color:var(--ink)}
+.card .tag{display:inline-block;font:500 11px var(--mono);letter-spacing:.04em;color:#fff;background:var(--accent);border-radius:99px;padding:2px 9px;margin-bottom:10px}
+.card h3{margin:0 0 6px;font-size:16px;font-weight:600}
+.card p{margin:0;font-size:13.5px;line-height:1.7;color:#52525b}
+.flow{width:100%;border-collapse:collapse;background:var(--paper);border:1px solid var(--line);border-radius:16px;overflow:hidden;font-size:13.5px}
+.flow th,.flow td{padding:12px 14px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;line-height:1.6}
+.flow th{background:var(--gray);color:var(--ink);font-weight:600;font-size:12.5px}
+.flow tr:last-child td{border-bottom:0}
+.flow .no{color:#15803d;font-weight:600;white-space:nowrap}
+.flow .yes{color:var(--accent);font-weight:600;white-space:nowrap}
+.faq-list details{background:var(--paper);border:1px solid var(--line);border-radius:14px;margin-bottom:8px}
+.faq-list summary{cursor:pointer;padding:16px 18px;font-weight:600;font-size:15px;list-style:none;display:flex;justify-content:space-between;gap:12px}
+.faq-list summary::-webkit-details-marker{display:none}
+.faq-list summary::after{content:"+";color:var(--muted);font-weight:400;font-size:20px;line-height:1}
+.faq-list details[open] summary::after{content:"−"}
+.faq-list details>div{padding:0 18px 16px;font-size:14px;line-height:1.75;color:#3f3f46}
+.faq-list details>div p{margin:0 0 6px}
+.wl-end{margin-top:56px;text-align:center}
+.wl-end .actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:18px}
+.wl-end p{color:var(--muted);font-size:14px;line-height:1.7;margin:0}
+a.inline{color:var(--ink);text-decoration:underline;text-underline-offset:3px}
+@media(max-width:640px){.grid2,.how{grid-template-columns:1fr}.step{padding:18px 16px}.flow th:nth-child(3),.flow td:nth-child(3){display:none}}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">본문으로 이동</a>
+<header class="site-header wrap">
+  <a class="brand" href="/" aria-label="Summrizei 홈">Summr<span>i</span>zei<span class="brand-dot">.</span></a>
+</header>
+<main id="main" class="wl-main wrap">
+<div class="wl-col">
+
+  <section class="wl-hero">
+    <p class="check" aria-hidden="true">✓</p>
+    <h1>결제가 끝났어요.<br>이제 첫 노트를 만들어 볼까요?</h1>
+    <p>아래 다섯 단계면 끝나요. 10분이면 충분합니다.<br>끝낸 단계는 체크해 두면 다음에 와도 이어서 볼 수 있어요.</p>
+    <div class="wl-progress" aria-live="polite"><span class="bar"><i id="progBar"></i></span><span id="progText">0 / 5</span></div>
+  </section>
+
+  <h2 class="wl-h2">첫 노트까지 다섯 단계</h2>
+  <p class="wl-sub">Chrome 데스크톱 브라우저에서 진행해 주세요. 모바일에서는 확장 프로그램을 쓸 수 없어요.</p>
+
+  <ol class="steps">
+    <li class="step" data-step="install">
+      <input type="checkbox" aria-label="1단계 완료">
+      <h3><small>STEP 1</small>설치하고 툴바에 고정하기</h3>
+      <div class="body">
+        <p>Chrome 웹 스토어에서 Summrizei를 추가하세요. 설치 직후에는 아이콘이 퍼즐 메뉴 안에 숨어 있어요. 꺼내 두지 않으면 매번 찾아야 합니다.</p>
+        <div class="mock" aria-hidden="true">
+          <span class="url">강의 사이트 주소</span><span class="ico"><svg viewBox="-0.5 1 31 31" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 5.2H24.6A2 2 0 0 1 26.6 7.2V28.6A2 2 0 0 1 24.6 30.6H3.5A2 2 0 0 1 1.5 28.6V21.5A4 4 0 0 0 1.5 13.5V7.2A2 2 0 0 1 3.5 5.2Z"/><path d="M10.4 5.2A3.6 3.6 0 0 1 17.6 5.2ZM26.6 14.1A3.4 3.4 0 0 1 26.6 20.9Z" fill="currentColor" stroke="none"/></svg></span><span class="ico hl"><img src="images/favicon.svg" alt=""></span>
+        </div>
+        <ol class="how">
+          <li><span>주소창 오른쪽 <svg viewBox="-0.5 1 31 31" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" class="pz" aria-hidden="true"><path d="M3.5 5.2H24.6A2 2 0 0 1 26.6 7.2V28.6A2 2 0 0 1 24.6 30.6H3.5A2 2 0 0 1 1.5 28.6V21.5A4 4 0 0 0 1.5 13.5V7.2A2 2 0 0 1 3.5 5.2Z"/><path d="M10.4 5.2A3.6 3.6 0 0 1 17.6 5.2ZM26.6 14.1A3.4 3.4 0 0 1 26.6 20.9Z" fill="currentColor" stroke="none"/></svg> 확장 프로그램 아이콘 누르기</span></li>
+          <li><span>목록에서 Summrizei 옆 핀 아이콘 누르기</span></li>
+          <li><span>툴바에 <img src="images/favicon.svg" alt="Summrizei" width="16" height="16" style="vertical-align:-3px;border-radius:4px"> 아이콘이 생기면 완료</span></li>
+        </ol>
+        <p style="margin-top:14px"><a class="button dark" href="https://chromewebstore.google.com/search/Summrizei" target="_blank" rel="noopener">Chrome 웹 스토어에서 추가</a></p>
+      </div>
+    </li>
+
+    <li class="step" data-step="login">
+      <input type="checkbox" aria-label="2단계 완료">
+      <h3><small>STEP 2</small>결제한 계정으로 로그인하기</h3>
+      <div class="body">
+        <p>아이콘을 눌러 사이드 패널을 열고 로그인하세요. 요금제는 결제할 때 쓴 계정에 붙어 있어요.</p>
+        <div class="callout"><b>다른 이메일로 로그인하면 Free로 보여요.</b> 결제 화면에서 쓴 계정과 같은지 확인해 주세요. 지금 이 브라우저에서 로그인한 계정은 <a class="inline" href="account/">계정 페이지</a>에서 볼 수 있어요.</div>
+      </div>
+    </li>
+
+    <li class="step" data-step="setup">
+      <input type="checkbox" aria-label="3단계 완료">
+      <h3><small>STEP 3</small>처음 한 번, 설정 마치기</h3>
+      <div class="body">
+        <p>패널을 처음 열면 짧은 설정이 나와요. 미리 알아 두면 고민 없이 넘어갈 수 있어요.</p>
+        <ul>
+          <li><b>외부 요약 동의 (필수)</b>: 기기에서 글자로 바꾼 텍스트만 서버로 보내 노트를 만들어요. 원본 영상과 음성은 보내지 않아요.</li>
+          <li><b>이용 동의 2개 (유료)</b>: 개인 학습용으로만 쓰고, 내가 볼 권한이 있는 강의에만 쓴다는 약속이에요. 백그라운드 처리를 하려면 필요해요.</li>
+          <li><b>보관함 폴더</b>: 완성된 노트를 암호화해 자동으로 저장할 폴더를 한 번 골라요. 문서 안에 새 폴더를 만들어 고르면 편해요. 비밀번호는 따로 없어요.</li>
+          <li><b>말소리 받아쓰기</b>: 켜 두는 걸 권해요. 처음 한 번 음성 모델을 내려받아요.</li>
+          <li><b>내 과목 (선택)</b>: 듣는 과목을 적어 두면 노트가 보관함 폴더 안에서 과목별 폴더로 나뉘어 저장돼요.</li>
+        </ul>
+      </div>
+    </li>
+
+    <li class="step" data-step="capture">
+      <input type="checkbox" aria-label="4단계 완료">
+      <h3><small>STEP 4</small>강의 탭에서 캡처 시작하기</h3>
+      <div class="body">
+        <p>강의 영상이 있는 탭에서 <b>툴바 아이콘을 직접 누르세요</b>. 탭을 고르는 것만으로는 캡처 권한이 생기지 않아요. 영상을 재생하고 시작 버튼을 누르면 됩니다.</p>
+        <div class="callout"><b>주소창과 툴바가 없는 팝업 창이라면</b> 그 창을 클릭한 뒤 <kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd>를 누르세요. 해당 탭이 선택된 캡처 창이 열려요.</div>
+        <div class="callout warn"><b>Free 실시간 캡처는 탭을 켜 두어야 해요.</b> 강의가 끝날 때까지 그 탭을 닫지 마세요. 유료 요금제는 지원되는 사이트에서 백그라운드 처리를 고를 수 있어요.</div>
+      </div>
+    </li>
+
+    <li class="step" data-step="library">
+      <input type="checkbox" aria-label="5단계 완료">
+      <h3><small>STEP 5</small>웹 보관함에서 노트 열기</h3>
+      <div class="body">
+        <p>완성된 노트는 패널에 바로 뜨지 않아요. 암호화된 파일로 <b>설정에서 고른 보관함 폴더</b>에 자동 저장됩니다.</p>
+        <p><a class="inline" href="library.html">내 노트(보관함)</a>에서 같은 계정으로 로그인하고 그 폴더를 고르면 브라우저 안에서 열려요. 노트 파일은 서버로 올라가지 않아요.</p>
+        <p style="margin-top:14px"><a class="button quiet" href="library.html">보관함 열기</a></p>
+      </div>
+    </li>
+  </ol>
+
+  <section class="pin-alert" aria-labelledby="pinTitle">
+    <p class="eyebrow">꼭 읽어 주세요</p>
+    <h2 id="pinTitle">노트는 만든 계정으로만 열려요.</h2>
+    <p>노트를 여는 열쇠는 로그인한 계정마다 하나씩 있어요. 다른 계정으로 로그인하면 노트를 열 수 없고, 회원 탈퇴하면 열쇠도 함께 지워져 그동안 만든 노트를 다시 열 수 없습니다.</p>
+    <ul>
+      <li>확장 프로그램과 웹 보관함에 같은 계정으로 로그인하세요.</li>
+      <li>보관함 폴더를 지우거나 옮기면 노트 파일도 함께 사라져요. 백업할 땐 폴더째 복사해 두세요.</li>
+      <li>탈퇴하기 전에 남길 노트는 Markdown이나 PDF로 저장해 두세요.</li>
+    </ul>
+  </section>
+
+  <h2 class="wl-h2">요금제별로 더 쓸 수 있는 것</h2>
+  <p class="wl-sub">지금 요금제는 <a class="inline" href="account/subscription.html">구독 설정</a>에서, 이번 달 사용량은 <a class="inline" href="account/">계정 페이지</a>에서 볼 수 있어요.</p>
+  <div class="grid2">
+    <div class="card"><span class="tag">ESSENTIAL</span><h3>PDF로 노트앱에서 이어 쓰기</h3><p>보관함에서 노트를 PDF로 내보내 GoodNotes나 Notability로 옮기세요. 노트 위에 직접 필기하며 복습할 수 있어요.</p></div>
+    <div class="card"><span class="tag">PRO</span><h3>상세 노트</h3><p>개념이 어떻게 이어지는지, 왜 그렇게 판단하는지까지 풀어 쓴 노트를 받아요. 사용량도 더 넉넉해요.</p></div>
+    <div class="card"><span class="tag">유료 공통</span><h3>백그라운드 처리</h3><p>지원되는 강의는 탭을 켜 두지 않아도 빠르게 처리해요. 패널에서 '백그라운드로 처리'를 고르세요. YouTube나 보호된 영상은 실시간 모드만 쓸 수 있어요.</p></div>
+    <div class="card"><span class="tag">모든 요금제</span><h3>옵션 바꿔 다시 만들기</h3><p>노트가 마음에 들지 않으면 패널에서 생성 옵션을 바꿔 다시 만들 수 있어요. 강의를 다시 틀 필요가 없어요.</p></div>
+  </div>
+
+  <h2 class="wl-h2">노트, 이렇게 쓰면 좋아요</h2>
+  <div class="grid2">
+    <div class="card"><h3>근거 시각으로 되짚기</h3><p>노트의 각 내용에는 강의 속 시각이 붙어 있어요. 헷갈리는 부분은 그 시각으로 돌아가 다시 들어 보세요.</p></div>
+    <div class="card"><h3>요약과 타임라인 오가기</h3><p>개념별 요약으로 큰 그림을 잡고, 타임라인으로 강의 흐름을 따라가세요.</p></div>
+    <div class="card"><h3>강의 직후 바로 만들기</h3><p>기억이 남아 있을 때 노트를 훑으면 오독도 바로 잡을 수 있어요. 노트는 자동 생성물이라 틀린 글자가 섞일 수 있어요.</p></div>
+    <div class="card"><h3>시험 전엔 질문부터</h3><p>노트의 확인 질문에 먼저 답해 보고, 막히는 개념만 골라 다시 읽으세요.</p></div>
+  </div>
+
+  <h2 class="wl-h2">어떤 데이터가 기기 밖으로 나가나요?</h2>
+  <p class="wl-sub">처리하는 동안에는 서비스와 모델 제공자가 내용을 보지만, 저장하지는 않아요.</p>
+  <table class="flow">
+    <thead><tr><th>데이터</th><th>기기 밖으로</th><th>설명</th></tr></thead>
+    <tbody>
+      <tr><td>강의 음성</td><td class="no">나가지 않음*</td><td>기기 안의 Whisper가 글로 옮겨요. *유료 서버 인식을 켜고 따로 동의한 경우에만 보내요.</td></tr>
+      <tr><td>강의 화면</td><td class="no">나가지 않음*</td><td>기기 안에서 글자를 읽어요. *유료 서버 인식을 켠 경우 학번·이름 영역을 가리고 보내요.</td></tr>
+      <tr><td>인식한 텍스트</td><td class="yes">요약할 때만</td><td>외부 요약에 동의하면 정리된 텍스트만 보내 노트를 만들어요.</td></tr>
+      <tr><td>완성된 노트</td><td class="no">나가지 않음</td><td>암호화해 내가 고른 보관함 폴더에 저장해요.</td></tr>
+      <tr><td>노트 열쇠</td><td class="yes">계정에 보관</td><td>계정마다 하나씩 서비스에 보관하고, 로그인하면 이 기기로 받아요. 노트 파일은 올라가지 않아요.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 class="wl-h2">막혔다면</h2>
+  <div class="faq-list">
+    <details><summary>툴바에 아이콘이 안 보여요</summary><div><p>주소창 오른쪽 퍼즐(🧩) 아이콘을 눌러 Summrizei 옆 핀을 누르세요. 목록에 없다면 설치가 끝나지 않은 거예요. <code>chrome://extensions</code>에서 켜져 있는지 확인해 주세요.</p></div></details>
+    <details><summary>캡처가 시작되지 않아요</summary><div><p>강의 탭에서 아이콘을 직접 눌렀는지 확인하세요. 팝업 창이라면 <kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd>를 쓰세요.</p><p>시작 전에 패널이 이유를 알려 줘요. '보호된 영상'이라고 나오면 DRM이 걸린 영상이라 처리할 수 없어요. 오류가 아니라 보호 조치를 지키는 정상 동작이에요.</p></div></details>
+    <details><summary>어떤 사이트에서 쓸 수 있나요?</summary><div><p>페이지에 일반 영상 플레이어가 있으면 대부분 돼요. 학교 강의 사이트, YouTube 등 사이트를 가리지 않아요. 백그라운드 처리는 지원되는 사이트에서만 고를 수 있어요.</p></div></details>
+    <details><summary>결제했는데 Free로 나와요</summary><div><p>결제한 계정으로 로그인했는지 먼저 확인하세요. 같은 계정이라면 패널을 닫았다 다시 열어 보세요. 그래도 그대로라면 결제 이메일과 함께 아래 주소로 알려 주세요.</p></div></details>
+    <details><summary>노트가 안 보여요</summary><div><p>노트는 패널이 아닌 <a class="inline" href="library.html">웹 보관함</a>에서 열어요. 설정에서 고른 보관함 폴더에 파일이 있는지 확인하고, 웹 보관함에서 같은 계정으로 로그인한 뒤 그 폴더를 골라 주세요.</p></div></details>
+    <details><summary>노트가 저장되지 않았어요</summary><div><p>브라우저가 보관함 폴더 쓰기 권한을 거두면 저장을 멈춰요. 노트는 기기 안에 안전하게 남아 있으니, 패널 준비 화면의 '다시 허용'을 한 번 누르면 이어서 저장돼요.</p></div></details>
+    <details><summary>노트가 열리지 않아요</summary><div><p>노트를 만든 계정으로 로그인했는지 확인하세요. 노트는 그 계정의 열쇠로만 열려요.</p></div></details>
+    <details><summary>사용량이 얼마나 남았는지 궁금해요</summary><div><p><a class="inline" href="account/">계정 페이지</a>의 '이번 달 사용량'에서 볼 수 있어요.</p></div></details>
+    <details><summary>해지나 환불은 어떻게 하나요?</summary><div><p><a class="inline" href="account/subscription.html">구독 설정</a>에서 언제든 해지할 수 있어요. 환불 기준은 <a class="inline" href="policies/refund.html">결제 및 환불 정책</a>을 확인해 주세요.</p></div></details>
+  </div>
+
+  <section class="wl-end">
+    <p>노트는 개인 학습용이에요. 강의 내용을 다른 사람에게 공유하거나 배포하지 말아 주세요.</p>
+    <p style="margin-top:8px">더 궁금한 점은 <a class="inline" href="mailto:summrizei.support@gmail.com">summrizei.support@gmail.com</a>으로 보내 주세요.</p>
+    <div class="actions">
+      <a class="button dark" href="library.html">내 노트 열기</a>
+      <a class="button quiet" href="account/">계정 페이지</a>
+    </div>
+  </section>
+
+</div>
+</main>
+<script>
+(() => {
+
+  const KEY = "summrizei.welcome.done";
+  let done = [];
+  try { done = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch {}
+  const steps = [...document.querySelectorAll(".step")];
+  const render = () => {
+    const n = steps.filter(s => s.classList.contains("done")).length;
+    document.getElementById("progBar").style.width = (n / steps.length * 100) + "%";
+    document.getElementById("progText").textContent = n + " / " + steps.length;
+  };
+  for (const step of steps) {
+    const box = step.querySelector("input");
+    box.checked = done.includes(step.dataset.step);
+    step.classList.toggle("done", box.checked);
+    box.addEventListener("change", () => {
+      step.classList.toggle("done", box.checked);
+      const ids = steps.filter(s => s.classList.contains("done")).map(s => s.dataset.step);
+      try { localStorage.setItem(KEY, JSON.stringify(ids)); } catch {}
+      render();
+    });
+  }
+  render();
+})();
+</script>
+</body>
+</html>

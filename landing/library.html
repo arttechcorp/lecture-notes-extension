@@ -38,8 +38,7 @@
   .status{margin:10px 0 0;font-size:13px;color:var(--muted)}
   #authRow{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
   #authText{margin:0;font-size:13px;color:var(--muted)}
-  #openRow{margin-top:12px}
-  #openBtn{min-height:40px}
+  #manualWhy{margin:0 0 10px}
   .fail{margin:10px 0 0;padding-left:18px;font-size:12px;color:var(--accentText)}
   .fail li+li{margin-top:2px}
   .open-bar{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:0 0 4px;padding:10px 14px;background:var(--paper);border:1px solid var(--line);border-radius:10px}
@@ -47,6 +46,8 @@
   .open-bar .grow{flex:1}
   .privacy{margin:12px 0 20px;font-size:12px;color:var(--muted)}
   .cards{display:grid;gap:12px}
+  .course-head{margin:14px 0 0;font-size:13px;font-weight:600;color:var(--muted)}
+  .course-head:first-child{margin-top:0}
   .card{display:block;width:100%;padding:14px 16px;text-align:left;background:var(--paper);border:1px solid var(--line);border-radius:10px;color:inherit;font:inherit;cursor:pointer}
   .card:hover{border-color:var(--accentText)}
   .card h3{margin:0 0 4px;font-size:15px;font-weight:600}
@@ -76,17 +77,21 @@
 </div></header>
 <main id="main" class="lib-main">
   <section class="step" id="stepKey" aria-labelledby="stepKeyH">
-    <h2 id="stepKeyH"><span class="stepno" aria-hidden="true">1</span> 로그인</h2>
+    <h2 id="stepKeyH">로그인하면 보관함이 열립니다</h2>
     <div id="authRow">
-      <p id="authText" role="status">노트를 만든 계정으로 로그인하면 노트가 열립니다. 별도 비밀번호는 없습니다.</p>
+      <p id="authText" role="status">노트를 만든 계정으로 로그인하면 확장 프로그램에서 고른 보관함 폴더의 노트가 바로 열립니다. 별도 비밀번호는 없습니다.</p>
       <button id="loginBtn" type="button" class="primary" disabled>Google로 로그인</button>
+      <button id="reopenBtn" type="button" class="primary" hidden>보관함 열기</button>
       <button id="logoutBtn" type="button" hidden>로그아웃</button>
     </div>
+    <p class="status" id="keyStatus" role="status"></p>
+    <ul class="fail" id="failList"></ul>
   </section>
-  <section class="step" id="stepFile" aria-labelledby="stepFileH">
-    <h2 id="stepFileH"><span class="stepno" aria-hidden="true">2</span> 노트 파일 불러오기</h2>
+  <section class="step" id="stepFile" aria-labelledby="stepFileH" hidden>
+    <h2 id="stepFileH">폴더 직접 고르기</h2>
+    <p class="drop-sub" id="manualWhy">이 브라우저에 Summrizei 확장 프로그램이 없을 때(다른 컴퓨터 등)만 필요합니다.</p>
     <div class="drop" id="drop">
-      <p class="drop-hint">확장 프로그램에서 고른 보관함 폴더를 고르세요</p>
+      <p class="drop-hint">보관함 폴더(Summrizei)를 고르세요</p>
       <div class="drop-actions">
         <button id="folderBtn" type="button">폴더 선택</button>
         <button id="filesBtn" type="button">파일 선택</button>
@@ -96,9 +101,6 @@
       <input id="filesInput" type="file" multiple accept=".summrizei" hidden>
     </div>
     <p class="status" id="fileStatus" role="status"></p>
-    <div id="openRow"><button id="openBtn" type="button" class="primary" disabled>열기</button></div>
-    <p class="status" id="keyStatus" role="status"></p>
-    <ul class="fail" id="failList"></ul>
   </section>
   <div class="open-bar" id="openBar" hidden>
     <p class="count" id="openCount"></p>
