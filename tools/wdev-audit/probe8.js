@@ -1,0 +1,10 @@
+const C = require("./probe-common.js");
+const nl = (a, y) => ({ text: a, box: { x: 100, y, width: 400, height: 30 }, confidence: 0.9 });
+const slide = C.localSlideDoc([nl("MOSFET 동작 영역", 40), nl("문턱 전압 이하에서는 차단 영역이다", 100)], 1280, 720, { slideId: "s1", t0: 0, t1: 60 });
+const r = C.refine([slide], [], "free");
+const plan = C.plan1("t", null, ["U1"], [{ type: "B05", purpose: "p", conceptIds: ["C1"], formulaIds: [], figureIds: [] }, { type: "B03", purpose: "map", conceptIds: [], formulaIds: [], figureIds: [] }]);
+const map = C.env({ title: "지도", nodes: [{ key: "n1", label: "MOSFET", targetId: null }, { key: "n2", label: "양자 터널링", targetId: null }, { key: "n3", label: "BJT", targetId: null }], edges: [{ from: "n1", to: "n2", relation: "includes", claim: null }, { from: "n3", to: "n1", relation: "precedes", claim: null }] });
+const out = { gist: null, checks: [], blocks: { S1_B1: C.b05("MOSFET", "MOSFET 동작 영역", ["U1.s1"]), S1_B2: map } };
+const { check, note } = C.assemble({ r, tier: "free", plan, outputs: out });
+console.log("B03 with labels/relations absent from the lecture -> errors:", JSON.stringify(check.blocks[1].errors), " dropped:", JSON.stringify(note.dropped), " note.status:", note.status);
+console.log("Markdown export of the map:", C.md(note).split("\n").filter(l => /→|BJT|터널링/.test(l)));
