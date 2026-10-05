@@ -1271,10 +1271,20 @@
       id: e.id, latex: e.latex ?? null, text: e.text ?? null, status: e.status,
       slideId: String(e.slideId ?? ""), t0: e.t0, display: displayOf("formula", e, cropSet.has(e.id)),
     }));
-    const figs = figures.map(f => ({
-      id: f.id, evidenceId: f.evidenceId, kind: f.kind, title: f.title ?? null, cells: f.cells ?? null,
-      chartData: f.chartData ?? null, t0: f.t0, display: displayOf("figure", f, cropSet.has(f.id)),
-    }));
+    // 비전 출력 스키마는 "" 와 빈 목록을 허용하지만 노트 스키마는 최소 1글자·1개다 — 빈 칸은 null, 그래도 안 맞는 그래프 값은 버린다(크롭·확인 표시로).
+    const blank = v => typeof v === "string" && v.trim() ? v : null;
+    const chartOf = d => {
+      if (!d) return null;
+      const c = { ...d, unit: blank(d.unit), xLabel: blank(d.xLabel), yLabel: blank(d.yLabel) };
+      return Contracts.validate(schemas.note.properties.figures.items.properties.chartData, c).ok ? c : null;
+    };
+    const figs = figures.map(f => {
+      const chartData = chartOf(f.chartData);
+      return {
+        id: f.id, evidenceId: f.evidenceId, kind: f.kind, title: blank(f.title), cells: f.cells ?? null,
+        chartData, t0: f.t0, display: displayOf("figure", f.display === "chart" && !chartData ? {} : f, cropSet.has(f.id)),
+      };
+    });
     const concepts = (plan.concepts || []).map(c => ({
       conceptId: c.conceptId, name: c.name, depth: c.depth,
       // 홈 B05 가 빠지면 링크만 끊는다 — 개념 참조 자체는 유지한다(§12.2).
