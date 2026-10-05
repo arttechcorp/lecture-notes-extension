@@ -744,6 +744,31 @@ const __defs = {
     return { ok: true, plan };
   }
 
+  // 제공자는 json_schema 의 pattern 을 강제하지 않아 모델이 개념·섹션 id 를 제멋대로 쓴다(필드 관찰: concepts[0].conceptId 로 4연속 거절).
+  // 스키마 검사 전에 개념을 C1.., 섹션을 S1.. 로 차례대로 다시 매기고 참조를 같은 표로 옮긴다. 표에 없는 참조는 그대로 둬 repairPlan 이 뗀다.
+  function canonicalPlanIds(plan) {
+    if (!plan || typeof plan !== "object") return plan;
+    const cMap = new Map(), sMap = new Map(), key = v => typeof v === "string" || typeof v === "number" ? String(v) : null;
+    const concepts = Array.isArray(plan.concepts) ? plan.concepts.map((c, i) => {
+      const k = key(c?.conceptId), id = "C" + (i + 1);
+      if (k !== null && !cMap.has(k)) cMap.set(k, id);
+      return c && typeof c === "object" ? { ...c, conceptId: id } : c;
+    }) : plan.concepts;
+    const sections = Array.isArray(plan.sections) ? plan.sections.map((s, i) => {
+      const k = key(s?.sectionId), id = "S" + (i + 1);
+      if (k !== null && !sMap.has(k)) sMap.set(k, id);
+      return s && typeof s === "object" ? { ...s, sectionId: id } : s;
+    }) : plan.sections;
+    const ids = a => Array.isArray(a) ? a.map(x => cMap.get(key(x)) ?? x) : a;
+    const blocks = a => Array.isArray(a) ? a.map(b => b && typeof b === "object" ? { ...b, conceptIds: ids(b.conceptIds) } : b) : a;
+    return {
+      ...plan,
+      concepts: Array.isArray(concepts) ? concepts.map(c => c && typeof c === "object" ? { ...c, homeSectionId: sMap.get(key(c.homeSectionId)) ?? c.homeSectionId } : c) : concepts,
+      sections: Array.isArray(sections) ? sections.map(s => s && typeof s === "object" ? { ...s, blocks: blocks(s.blocks) } : s) : sections,
+      global: blocks(plan.global),
+    };
+  }
+
   // §8.2: 스키마는 맞지만 의미 규칙을 깬 계획을 모델을 다시 부르지 않고 코드가 고친다.
   // 입력(plannerOutput 통과본)은 바꾸지 않고 고친 복사본을 돌려준다. fixes 는 id·코드만 싣는다(내용 없음, §10).
   // 고칠 수 없는 계획도 남는다(곁설명 하나뿐인 섹션, 유닛 60개 초과 섹션 등) — 호출자가 normalizePlan 으로 최종 판정한다.
@@ -1630,7 +1655,7 @@ const __defs = {
   const api = freeze({
     NOTE_SPEC_VERSION, NOTE_SCHEMA_VERSION, POLICY, TYPES, SECTION_TYPES, GLOBAL_TYPES, WRITER_TYPES, IDS,
     schemas, envelopeSchema, sectionOutputSchemaFor, repairOutputSchemaFor, globalOutputSchemaFor,
-    normalizePlan, repairPlan, checkCalc, displayOf, citedRefs, validateSection, validateGlobal, assembleNote, restrictBasis, policyOf, AUG,
+    normalizePlan, repairPlan, canonicalPlanIds, checkCalc, displayOf, citedRefs, validateSection, validateGlobal, assembleNote, restrictBasis, policyOf, AUG,
   });
   globalThis.NoteContract = api;
   if (typeof module !== "undefined") module.exports = api;
@@ -2541,6 +2566,7 @@ function createServer(env=process.env,deps={}){
         try{
           if(choice?.finish_reason!=="stop")throw Object.assign(new Error("provider_output_incomplete"),{detail:"incomplete."+String(choice?.finish_reason||"none").toLowerCase().replace(/[^a-z0-9_]/g,"").slice(0,30)});
           let parsed;try{parsed=parseNote(choice.message.content);}catch{throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_json"});}
+          if(stage==="plan")parsed=NoteContract.canonicalPlanIds(parsed); // 제공자가 id pattern 을 강제하지 않는다 — 검사 전에 C1../S1.. 로 다시 매긴다
           const r=Contracts.validate(outSchema,parsed);
           if(!r.ok)throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_schema."+String(r.errors?.[0]?.path||r.errors?.[0]?.keyword||"x").toLowerCase().replace(/[^a-z0-9_.]/g,"_").slice(0,40)});
           // 계획 호출이 끝난 뒤에만 분류 결과를 기다린다 — 앞서 병렬로 나간 호출이고 이미 끝났거나 5초 안에 끝난다.
@@ -2989,7 +3015,7 @@ const STAGE={
     "섹션 경계는 청크나 분량이 아니라 내용의 흐름으로 정한다. 섹션 id는 S1부터 순서대로, 각 섹션은 IR 순서로 연속한 유닛을 갖고, 모든 유닛은 정확히 한 섹션에 속한다. 강의 전개 순서를 바꾸지 않는다.",
     `섹션은 최대 40개, 섹션 하나의 유닛은 60개 이하, 블록은 12개 이하다. 한 섹션의 작성 입력(그 유닛의 근거 전부)이 약 ${T.writerInput}토큰 안에 들도록 유닛을 묶는다.`,
     "섹션마다 title(15~40자), question(그 단원이 답하는 질문, 없으면 null), stage(understand·relate·apply·check), 블록 구성(type, purpose 한 문장, 다루는 conceptIds·formulaIds·figureIds)을 정한다. 다른 섹션의 정정이나 정의가 꼭 필요하면 그 유닛을 crossUnitIds(10개 이하)로 잇는다.",
-    "개념(concepts): 강의가 정의하는 개념은 depth defined이고, 홈 섹션에 그 개념 하나만 다루는 B05가 정확히 하나 있다. 이름만 언급되면 mentioned이고 B05를 만들지 않는다.",
+    "개념(concepts): conceptId는 C1, C2처럼 C 뒤에 차례 번호다. 강의가 정의하는 개념은 depth defined이고, 홈 섹션에 그 개념 하나만 다루는 B05가 정확히 하나 있다. 이름만 언급되면 mentioned이고 B05를 만들지 않는다.",
     "B12는 섹션의 첫 블록이 될 수 없다. 섹션마다 B14 자기 점검을 두는 편이 좋고 노트 전체 문항은 4~8개가 적당하다. 수업 공지가 있으면 그 섹션에 B18을 둔다.",
     "global에는 B02(한눈에), 필요하면 B03(강의 지도), B13(연결 정리)을 각각 최대 1개 둔다.",
     "제목, 질문, 개념 이름에 숫자를 쓰면 그 숫자는 해당 유닛 자료에 있어야 한다.",

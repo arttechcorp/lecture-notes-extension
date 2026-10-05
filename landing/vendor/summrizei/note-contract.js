@@ -420,6 +420,31 @@
     return { ok: true, plan };
   }
 
+  // 제공자는 json_schema 의 pattern 을 강제하지 않아 모델이 개념·섹션 id 를 제멋대로 쓴다(필드 관찰: concepts[0].conceptId 로 4연속 거절).
+  // 스키마 검사 전에 개념을 C1.., 섹션을 S1.. 로 차례대로 다시 매기고 참조를 같은 표로 옮긴다. 표에 없는 참조는 그대로 둬 repairPlan 이 뗀다.
+  function canonicalPlanIds(plan) {
+    if (!plan || typeof plan !== "object") return plan;
+    const cMap = new Map(), sMap = new Map(), key = v => typeof v === "string" || typeof v === "number" ? String(v) : null;
+    const concepts = Array.isArray(plan.concepts) ? plan.concepts.map((c, i) => {
+      const k = key(c?.conceptId), id = "C" + (i + 1);
+      if (k !== null && !cMap.has(k)) cMap.set(k, id);
+      return c && typeof c === "object" ? { ...c, conceptId: id } : c;
+    }) : plan.concepts;
+    const sections = Array.isArray(plan.sections) ? plan.sections.map((s, i) => {
+      const k = key(s?.sectionId), id = "S" + (i + 1);
+      if (k !== null && !sMap.has(k)) sMap.set(k, id);
+      return s && typeof s === "object" ? { ...s, sectionId: id } : s;
+    }) : plan.sections;
+    const ids = a => Array.isArray(a) ? a.map(x => cMap.get(key(x)) ?? x) : a;
+    const blocks = a => Array.isArray(a) ? a.map(b => b && typeof b === "object" ? { ...b, conceptIds: ids(b.conceptIds) } : b) : a;
+    return {
+      ...plan,
+      concepts: Array.isArray(concepts) ? concepts.map(c => c && typeof c === "object" ? { ...c, homeSectionId: sMap.get(key(c.homeSectionId)) ?? c.homeSectionId } : c) : concepts,
+      sections: Array.isArray(sections) ? sections.map(s => s && typeof s === "object" ? { ...s, blocks: blocks(s.blocks) } : s) : sections,
+      global: blocks(plan.global),
+    };
+  }
+
   // §8.2: 스키마는 맞지만 의미 규칙을 깬 계획을 모델을 다시 부르지 않고 코드가 고친다.
   // 입력(plannerOutput 통과본)은 바꾸지 않고 고친 복사본을 돌려준다. fixes 는 id·코드만 싣는다(내용 없음, §10).
   // 고칠 수 없는 계획도 남는다(곁설명 하나뿐인 섹션, 유닛 60개 초과 섹션 등) — 호출자가 normalizePlan 으로 최종 판정한다.
@@ -1306,7 +1331,7 @@
   const api = freeze({
     NOTE_SPEC_VERSION, NOTE_SCHEMA_VERSION, POLICY, TYPES, SECTION_TYPES, GLOBAL_TYPES, WRITER_TYPES, IDS,
     schemas, envelopeSchema, sectionOutputSchemaFor, repairOutputSchemaFor, globalOutputSchemaFor,
-    normalizePlan, repairPlan, checkCalc, displayOf, citedRefs, validateSection, validateGlobal, assembleNote, restrictBasis, policyOf, AUG,
+    normalizePlan, repairPlan, canonicalPlanIds, checkCalc, displayOf, citedRefs, validateSection, validateGlobal, assembleNote, restrictBasis, policyOf, AUG,
   });
   globalThis.NoteContract = api;
   if (typeof module !== "undefined") module.exports = api;
