@@ -6,6 +6,11 @@ const trustedPage = sender => {
   catch { return false; }
 };
 // 토큰 요청은 offscreen 문서(chrome.storage가 없다)도 보낸다. 같은 확장의 offscreen.html 그 자체만 허용한다.
+// 웹 /library 의 다리(lib/library-bridge.js): 이 확장의 콘텐츠 스크립트이고, 그 탭 주소가 사이트(개발용 localhost 포함)의 /library 일 때만.
+const libraryPage = sender => {
+  try { const u = new URL(sender.url); return sender.id === chrome.runtime.id && !!sender.tab && (u.origin === "https://summrizei.vercel.app" || u.protocol === "http:" && u.hostname === "localhost") && /^\/library(\.html)?$/.test(u.pathname); }
+  catch { return false; }
+};
 const offscreenPage = sender => sender.id === chrome.runtime.id && !sender.tab && sender.url === chrome.runtime.getURL("offscreen.html");
 // ── 유료 백그라운드 작업(docs/architecture-v2.md §6.1, §17) ──
 // 작업 상태는 offscreen이 갖는다. 여기는 절전 방지와 Referer 규칙만 맡고 전역에 아무것도 두지 않는다: chrome.power와 DNR 세션 규칙은 브라우저가 상태를 쥔다.
@@ -131,7 +136,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     return;
   }
   if (message?.target !== "background") return;
-  if (!(OFFSCREEN_ONLY.has(message.type) ? offscreenPage(sender) : trustedPage(sender) || message.type === "AUTH_TOKEN" && offscreenPage(sender))) { reply({ ok: false, error: "허용되지 않은 요청입니다." }); return; }
+  if (!(message.type === "LIB_FILES" ? libraryPage(sender) : OFFSCREEN_ONLY.has(message.type) ? offscreenPage(sender) : trustedPage(sender) || message.type === "AUTH_TOKEN" && offscreenPage(sender))) { reply({ ok: false, error: "허용되지 않은 요청입니다." }); return; }
   (async () => {
     if (message.type === "AUTH_TOKEN") return { ok: true, token: await Auth.token() };
     if (message.type === "BG_REFERER") return bgReferer(message);
@@ -139,6 +144,12 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     if (message.type === "BG_RUN") return bgRun(message);
     if (message.type === "BG_LIST") { await ensureOffscreen(); return chrome.runtime.sendMessage({ target: "session", type: "BG_LIST", settings: await bgSettings() }); } // BG_CANCEL은 아래의 일반 전달을 탄다
     if (message.type === "DIAG_EXPORT") return diagExport(message);
+    // 보관함 폴더의 파일 이름·암호문만 건넨다 — 읽기는 폴더 핸들을 가진 offscreen 이 한다.
+    if (message.type === "LIB_FILES") {
+      if (!["list", "read"].includes(message.op) || message.op === "read" && (typeof message.name !== "string" || message.name.length > 220)) return { ok: false, code: "bad-request" };
+      await ensureOffscreen();
+      return chrome.runtime.sendMessage({ target: "session", type: "LIB_FILES", op: message.op, name: message.op === "read" ? message.name : undefined });
+    }
     if (message.type === "LIB_EXPORT_ALL") { await ensureOffscreen(); return chrome.runtime.sendMessage({ target: "session", type: "LIB_EXPORT_ALL" }); }
     if (message.type === "PANEL_OPENED") { try { if (await chrome.action.getBadgeText({}) === "✓") await chrome.action.setBadgeText({ text: "" }); } catch { /* 배지를 못 읽어도 패널 열기는 성공 */ } return { ok: true }; }
     if (message.type === "BG_DISCARD" && (typeof message.jobId !== "string" || !JOB_ID.test(message.jobId))) return { ok: false, error: "작업 요청이 올바르지 않습니다." }; // 유효한 것만 아래 일반 전달을 탄다

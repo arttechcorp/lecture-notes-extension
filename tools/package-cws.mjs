@@ -98,6 +98,8 @@ export function resolveRuntimeClosure() {
   if (manifest.background?.service_worker) enqueue(manifest.background.service_worker);
   if (manifest.side_panel?.default_path) enqueue(manifest.side_panel.default_path);
   if (manifest.options_page) enqueue(manifest.options_page);
+  // 선언형 콘텐츠 스크립트(웹 /library 다리 lib/library-bridge.js 등)도 묶음에 넣는다 — 빠지면 Chrome 이 확장을 불러오지 못한다.
+  for (const cs of manifest.content_scripts || []) for (const f of [...(cs.js || []), ...(cs.css || [])]) enqueue(f);
   if (Array.isArray(manifest.sandbox?.pages)) {
     for (const p of manifest.sandbox.pages) enqueue(p);
   }

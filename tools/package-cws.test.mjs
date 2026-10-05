@@ -197,6 +197,11 @@ test("4. 런타임 클로저가 개발 전용 어드민 파일을 포함하지 �
   for (const rel of ["library.html", "library-page.js", "note.html", "note-page.js"]) assert.ok(!files.includes(rel), `${rel}은 클로저에 들어가면 안 됨`);
 });
 
+test("4-1. manifest 의 선언형 콘텐츠 스크립트(웹 /library 다리)가 클로저에 들어간다", () => {
+  const { files } = resolveRuntimeClosure();
+  assert.ok(files.includes("lib/library-bridge.js"));
+});
+
 test("5. 감사기가 개발 전용 파일 포함을 오류로 반환", () => {
   // admin.html은 실제로 존재하지 않아도 된다 — 읽기 전에 차단되는지가 검증 대상
   const errors = auditSecurityAndInvariants(["admin.html"]);

@@ -51,10 +51,17 @@ async function ensureLibraryKey(){
 // 사용자 클릭 안에서만 부른다: 권한만 거둬졌으면 다시 허용, 아니면 폴더 선택 창. 취소(AbortError)는 조용히 넘긴다.
 async function chooseFolder(){
   const adapter=await PackageStore.indexedDbAdapter();
-  try{return (await LibraryFolder.status(adapter)).state==='needs-permission'?await LibraryFolder.regrant(adapter):await LibraryFolder.pick(adapter);}
+  try{
+    if((await LibraryFolder.status(adapter)).state==='needs-permission')return await LibraryFolder.regrant(adapter);
+    const st=await LibraryFolder.pick(adapter);
+    // 재설치·다른 기기: 폴더에 남은 설정 백업을 들인다(동의·로그인은 백업하지 않는다).
+    if(await LibraryFolder.adoptSettings(adapter,loadSettings,saveSettings).catch(()=>false)){settings=await loadSettings();setStatus('보관함 폴더의 설정 백업을 불러왔습니다.');}
+    return st;
+  }
   catch(error){if(error?.name==='AbortError')return null;throw error;}
   finally{obFolder=await LibraryFolder.status(adapter).catch(()=>obFolder);updateReadyRows();}
 }
+if(typeof LibraryFolder!=='undefined')LibraryFolder.watchSettings(()=>PackageStore.indexedDbAdapter(),loadSettings);
 // 저장 상태 상자. 완료 화면과 (이후) 백그라운드 작업 카드가 같은 함수를 쓴다.
 // saved: "file"(폴더에 저장됨) / "no-folder"(폴더 없음·권한 필요) / "no-key"(기기에 계정 키 없음) / "failed"(저장 실패) / null(표시 없음).
 function renderSaved(box,saved,packageId){

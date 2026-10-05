@@ -173,11 +173,14 @@ async function wireLibraryFolder(){
   };
   try{await refresh();}catch{return unavailable();}
   refreshLibraryFolder=refresh;
+  LibraryFolder.watchSettings(()=>PackageStore.indexedDbAdapter(),loadSettings);
   btn.addEventListener('click',async()=>{
     btn.disabled=true;
     try{
       const adapter=await PackageStore.indexedDbAdapter(),lapsed=(await LibraryFolder.status(adapter)).state==='needs-permission';
       const st=lapsed?await LibraryFolder.regrant(adapter):await LibraryFolder.pick(adapter);
+      // 새로 고른 폴더에 설정 백업이 있으면 들인다(재설치·다른 기기). 화면 값은 새로고침으로 맞춘다.
+      if(!lapsed&&st.state==='ok'&&await LibraryFolder.adoptSettings(adapter,loadSettings,saveSettings).catch(()=>false)){notice('보관함 폴더의 설정 백업을 불러왔습니다. 화면을 새로 고칩니다.');setTimeout(()=>location.reload(),1200);}
       if(st.state==='ok'){const r=await local('LIB_EXPORT_ALL').catch(()=>null);notice(r?`노트 파일 ${r.count??0}개를 보관함 폴더에 저장했습니다.`+(r.failed?` 실패 ${r.failed}개.`:''):'보관함 폴더를 지정했습니다.');}
       await refresh();
     }catch(error){if(error?.name!=='AbortError')notice(error.message);}finally{btn.disabled=false;}
