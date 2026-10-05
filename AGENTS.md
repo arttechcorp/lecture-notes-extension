@@ -41,6 +41,20 @@ Rules for Codex, Claude Code, Antigravity, Devin.
 - Never commit directly to `main`; merge via PR from `<initial>/dev`.
 - Use Conventional Commits (`feat:`, `fix:`).
 
+### Versioning & releases
+
+- Single source: `manifest.json` `version`, written `X.Y.Z.W` (Chrome allows up to four integers, each 0-65535, no leading zeros; a `W` of 0 is left off, so `1.3.9` = `1.3.9.0`). The service's `x-client-version`, diagnostics and the CWS package name all read it. Change it only with `node tools/bump-version.mjs build|patch|minor|major`, which also opens the `CHANGELOG.md` entry. Never hand-edit.
+- Level, lowest that fits (a higher bump zeroes the digits after it):
+  - `build` (W): bug fix, tuning or internal change. The default for a commit.
+  - `patch` (Z): small user-visible improvement worth calling out.
+  - `minor` (Y): new feature or any change that alters note output.
+  - `major` (X): large update, or a break of the server contract or a stored format (archives, checkpoints, settings).
+- When: bump in the same commit as the change when it alters shipped behavior (extension or server runtime). No bump for docs, tests, tools or diagnostics-only commits. One bump per commit; never fold several fixes under one number afterwards.
+- Record: fill the new `CHANGELOG.md` entry in that commit, in Korean, one bullet per change: the effect first, then the field symptom (`필드: ...`). End the commit subject with `; vX.Y.Z`.
+- Parallel lines (`w/dev`, `b/dev`) bump from the same base, so a `manifest.json`/`CHANGELOG.md` conflict on merge is expected. Keep main's entries and renumber yours above the highest version already on main. Never leave two entries with one number or a number lower than main's.
+- CWS: every upload needs a version greater than the last uploaded one, so a rollback is the revert plus a new patch bump, never an old number. Raise `minClientVersion` (server `REMOTE_CONFIG_JSON`; older clients get 426) only when old clients cannot work with the server, and make that change `major`.
+- Release: when a version goes to CWS, tag it on `main` after the PR merge and the section 5 gate: `git tag -a vX.Y.Z -m vX.Y.Z`, then push the tag. Do not use `bump-version.mjs --tag` for this, it bumps again.
+
 ## 4. Agent Rules & Skills
 
 - Ponytail: Follow lazy senior dev mode (`.agents/rules/ponytail.md`, `.agents/skills/ponytail`). Prefer YAGNI, standard platform features, and minimal diffs.
