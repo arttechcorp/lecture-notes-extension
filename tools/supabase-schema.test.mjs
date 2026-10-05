@@ -255,6 +255,7 @@ const NEW_TABLES = {
   usage_reservations: "user_id request_id digest month day reserved_cost_micros reserved_minutes status charged_cost_micros created_at settled_at",
   usage_events: "id user_id job_id request_id stage provider model input_tokens output_tokens audio_seconds images cost_micros cost_reported prompt_version schema_version status error_code latency_ms client_version host created_at lecture_seconds slides subject subject_conf",
   vault_objects: "user_id object_id size updated_at storage_path",
+  library_keys: "user_id key created_at",
   feedback: "user_id job_id rating tags created_at",
   billing_events: "id type user_id received_at merchant_uid amount_krw coupon_code coupon_discount_krw external_id occurred_at",
   provider_slots: "id provider expires_at",
@@ -341,6 +342,20 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
     assert.ok(paid.current_period_end);
     assert.equal(paid.minutes_used, 42);
     assert.equal(paid.minutes_limit, Number(q("select monthly_minutes_cap from plans where plan = 'essential'")));
+  });
+
+  test("library_key: 로그인만, 계정마다 하나의 256비트 키를 만들어 같은 값을 돌려주고 남의 키는 못 읽는다", () => {
+    fails("select library_key()", { as: "anon" }, /42501|permission denied/);
+    fails("select library_key()", { as: "authenticated", claims: {} }, /28000.*not_authenticated/s);
+    const a = newUser("free"), b = newUser("free");
+    const key = u => q("select library_key()", { as: "authenticated", claims: { sub: u } });
+    const ka = key(a);
+    assert.match(ka, /^[0-9a-f]{64}$/);
+    assert.equal(key(a), ka, "두 번째 호출도 같은 키");
+    assert.notEqual(key(b), ka, "계정마다 다른 키");
+    assert.equal(q(`select count(*) from library_keys`), "2");
+    assert.equal(q("select count(*) from library_keys", { as: "authenticated", claims: { sub: a } }), "0", "RLS: 직접 읽기는 자기 행도 보이지 않는다");
+    fails(`insert into library_keys (user_id, key) values (${lit(a)}, 'short')`, SVC, /23505|23514/);
   });
 
   test("delete_account_data: 해지 예약 없는 결제 구독이 있으면 아무것도 지우지 않고 거절한다", () => {
@@ -536,6 +551,7 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
     q(`insert into entitlements (user_id, plan) values (${lit(w)}, 'essential');
        insert into vault_objects (user_id, object_id, size, storage_path) values (${lit(w)}, 'o1', 10, '${w}/o1');
        insert into feedback (user_id, job_id, rating) values (${lit(w)}, 'j1', 4)`);
+    q("select library_key()", { as: "authenticated", claims: { sub: w } });
     for (const table of names) {
       assert.ok(Number(q(`select count(*) from ${table}`)) > 0, `${table}에 행이 없어 검증이 무의미`);
       for (const role of ["anon", "authenticated"]) {

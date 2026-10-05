@@ -11,7 +11,7 @@ const offscreenPage = sender => sender.id === chrome.runtime.id && !sender.tab &
 // 작업 상태는 offscreen이 갖는다. 여기는 절전 방지와 Referer 규칙만 맡고 전역에 아무것도 두지 않는다: chrome.power와 DNR 세션 규칙은 브라우저가 상태를 쥔다.
 // ponytail: offscreen이 BG_DONE 없이 사라지면 절전 방지와 규칙이 남는다(확장을 다시 불러오거나 브라우저를 재시작하면 풀린다). 서비스 워커 시작 때 offscreen 문서가 없으면 풀어 주는 정리를 더할 수 있다.
 const BG_RULE = 900002; // admin.js 소스 진단 규칙(900001)과 겹치지 않는다
-const OFFSCREEN_ONLY = new Set(["BG_REFERER", "BG_DONE", "LIB_EXPORT", "DIAG_EXPORT"]); // 패널이 Referer 규칙을 걸거나 작업 종료·파일 쓰기를 흉내 내지 못하게 한다
+const OFFSCREEN_ONLY = new Set(["BG_REFERER", "BG_DONE", "DIAG_EXPORT"]); // 패널이 Referer 규칙을 걸거나 작업 종료·파일 쓰기를 흉내 내지 못하게 한다
 const BG_SETTINGS = ["serviceUrl", "appSessionToken", "whisperLang", "remoteSummaryConsent", "visionConsent", "visionConsentVersion", "backgroundConsent", "noteOptions"];
 // 동의 기록은 패널이 보낸 값이 아니라 저장소에서 읽는다. 로그인 세션(authSession)은 offscreen에 넘기지 않는다 — 토큰은 AUTH_TOKEN으로만 건넨다.
 const bgSettings = async () => { const s = await loadSettings(); return Object.fromEntries(BG_SETTINGS.map(k => [k, s[k]])); };
@@ -37,7 +37,7 @@ async function bgReferer({ host, referer }) {
 }
 // 작업이 어떤 결말로 끝나든(완료·일시정지·실패·취소) 절전 방지와 규칙을 풀고, 패널에는 내용 없는 결말만 전한다.
 const PKG_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/, JOB_ID = /^[A-Za-z0-9][A-Za-z0-9-]{7,63}$/;
-const NOTE_NAME = /^[^/\\:*?"<>|\x00-\x1f\x7f]{1,60}$/, BG_SAVED = new Set(["file", "no-passphrase", "failed"]);
+const BG_SAVED = new Set(["file", "no-folder", "no-key", "failed"]);
 async function bgDone({ jobId, status, code, reason, suggest, message, stats, notices, packageId, saved }) {
   chrome.power.releaseKeepAwake();
   await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [BG_RULE] }).catch(() => {});
@@ -46,27 +46,12 @@ async function bgDone({ jobId, status, code, reason, suggest, message, stats, no
   chrome.runtime.sendMessage({ target: "panel", type: "BG_DONE", jobId, status, code, reason, suggest, message, stats, notices, packageId: typeof packageId === "string" && PKG_ID.test(packageId) ? packageId : null, saved: BG_SAVED.has(saved) ? saved : null }).catch(() => {});
   return { ok: true };
 }
-// offscreen이 만든 암호화 노트 봉투(ASCII)를 Downloads/Summrizei/에 쓴다 — 정해진 이름 모양과 크기·머리말만 받는다.
-async function libExport({ packageId, fileName, text }) {
-  const suffix = `-${packageId}.summrizei`, base = typeof fileName === "string" && fileName.startsWith("Summrizei/") && fileName.endsWith(suffix) ? fileName.slice(10, -suffix.length) : null;
-  if (typeof packageId !== "string" || !PKG_ID.test(packageId) || base === null || !NOTE_NAME.test(base)
-    || typeof text !== "string" || text.length > 40 * 1024 * 1024 || !/^[\x20-\x7e]*$/.test(text) || !text.startsWith('{"format":"summrizei-note"')) return { ok: false, error: "노트 파일 요청이 올바르지 않습니다." };
-  const downloadId = await chrome.downloads.download({ url: "data:application/octet-stream;base64," + btoa(text), filename: fileName, conflictAction: "overwrite", saveAs: false });
-  return { ok: true, downloadId };
-}
 // 끝난 백그라운드 작업의 진단 기록(JSON, 내용 없는 이벤트)을 Downloads/Summrizei/diagnostics/ 에 쓴다. 같은 작업은 덮어쓴다.
 async function diagExport({ jobId, text }) {
   if (typeof jobId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9-]{7,63}$/.test(jobId) || typeof text !== "string" || text.length > 8 * 1024 * 1024 || !text.startsWith('{\n  "v":')) return { ok: false, error: "진단 파일 요청이 올바르지 않습니다." };
   const day = new Date().toISOString().slice(0, 10);
   const downloadId = await chrome.downloads.download({ url: "data:application/json;base64," + btoa(unescape(encodeURIComponent(text))), filename: `Summrizei/diagnostics/summrizei-diagnostic-${day}-${jobId}.json`, conflictAction: "overwrite", saveAs: false });
   return { ok: true, downloadId };
-}
-// 저장된 노트 파일을 다운로드 폴더에서 가리킨다. 없거나 지워졌으면 폴더만 연다.
-async function libShow({ packageId }) {
-  if (typeof packageId !== "string" || !PKG_ID.test(packageId)) return { ok: false, error: "노트 파일 요청이 올바르지 않습니다." };
-  const [found] = await chrome.downloads.search({ filenameRegex: packageId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\.summrizei$", orderBy: ["-startTime"], limit: 1 });
-  if (found && found.exists !== false) await chrome.downloads.show(found.id); else await chrome.downloads.showDefaultFolder();
-  return { ok: true };
 }
 const captureError = error => {
   const message = error?.message || "";
@@ -153,9 +138,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     if (message.type === "BG_DONE") return bgDone(message);
     if (message.type === "BG_RUN") return bgRun(message);
     if (message.type === "BG_LIST") { await ensureOffscreen(); return chrome.runtime.sendMessage({ target: "session", type: "BG_LIST", settings: await bgSettings() }); } // BG_CANCEL은 아래의 일반 전달을 탄다
-    if (message.type === "LIB_EXPORT") return libExport(message);
     if (message.type === "DIAG_EXPORT") return diagExport(message);
-    if (message.type === "LIB_SHOW") return libShow(message);
     if (message.type === "LIB_EXPORT_ALL") { await ensureOffscreen(); return chrome.runtime.sendMessage({ target: "session", type: "LIB_EXPORT_ALL" }); }
     if (message.type === "PANEL_OPENED") { try { if (await chrome.action.getBadgeText({}) === "✓") await chrome.action.setBadgeText({ text: "" }); } catch { /* 배지를 못 읽어도 패널 열기는 성공 */ } return { ok: true }; }
     if (message.type === "BG_DISCARD" && (typeof message.jobId !== "string" || !JOB_ID.test(message.jobId))) return { ok: false, error: "작업 요청이 올바르지 않습니다." }; // 유효한 것만 아래 일반 전달을 탄다

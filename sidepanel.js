@@ -1,6 +1,6 @@
 // Display and control only. The offscreen document owns all lecture data.
 const $=id=>document.getElementById(id);
-const els=Object.fromEntries(['tabSelect','modeSelect','langSelect','startBtn','stopBtn','pauseBtn','disposeBtn','notesBtn','status','renderFrame','stageReady','stageLive','stageDone','onboard','obLogin','obAccount','obAccountErr','obSummary','obCloud','obCloudRow','obPersonal','obPersonalRow','obAccess','obAccessRow','obPass','obPassErr','obError','obWhisper','obDone','settingsToggle','settingsClose','settingsDrawer','optionsLink','refreshTabsBtn','ocrEnabledToggle','whisperEnabledToggle','whisperField','cntSlides','cntVoice','cntQueue','feedLines','readyAlert','panelAlert','doneSummary','donePill','doneAlert','againBtn','retryNoteBtn','ocrField','popoutBtn','debugDetails','debugLog','markEngine','engineBanner','markVoice','voiceState','markTab','tabState','settingsSummary','legalLine','cropField','cropRow','cropWrap','cropImg','cropBox','cropHint','previewBtn','working','workingText','saveBox','doneNotices','recognitionBox','makeNoteBtn','genBox','genSynthetic','genAugment','genAgainBtn'].map(id=>[id,$(id)]));
+const els=Object.fromEntries(['tabSelect','modeSelect','langSelect','startBtn','stopBtn','pauseBtn','disposeBtn','notesBtn','status','renderFrame','stageReady','stageLive','stageDone','onboard','obLogin','obAccount','obAccountErr','obSummary','obCloud','obCloudRow','obPersonal','obPersonalRow','obAccess','obAccessRow','obFolderBtn','obFolderName','obFolderErr','obError','obWhisper','obDone','settingsToggle','settingsClose','settingsDrawer','optionsLink','refreshTabsBtn','ocrEnabledToggle','whisperEnabledToggle','whisperField','cntSlides','cntVoice','cntQueue','feedLines','readyAlert','panelAlert','doneSummary','donePill','doneAlert','againBtn','retryNoteBtn','ocrField','popoutBtn','debugDetails','debugLog','markEngine','engineBanner','markVoice','voiceState','markTab','tabState','settingsSummary','legalLine','cropField','cropRow','cropWrap','cropImg','cropBox','cropHint','previewBtn','working','workingText','saveBox','doneNotices','recognitionBox','makeNoteBtn','genBox','genSynthetic','genAugment','genAgainBtn'].map(id=>[id,$(id)]));
 let settings,state,busy=false,tabs=[],cropRect=null,cropTabId=null;
 const active=s=>['preparing','running','paused','draining','summarizing'].includes(s?.status);
 const label={preparing:'준비 중',running:'캡처 중',paused:'일시정지',draining:'마지막 구간 처리 중',summarizing:'요약 중',completed:'노트 준비됨',failed:'처리 중단',disposed:''};
@@ -39,11 +39,24 @@ function liveClock(){
   elapsedEl.textContent=h?`${h}:${String(m).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`:`${String(m).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
 }
 if(typeof setInterval==='function')setInterval(liveClock,1000); // 테스트 VM에는 setInterval이 없어 건너뛴다
-// 패널은 노트를 보여 주지 않는다 — 완성 노트는 암호화 파일로 저장돼 웹사이트 보관함(Account.SITE/library)에서
-// 보관함 암호를 넣어 연다. 샌드박스에는 인식 결과 미리보기만 보낸다(RENDER_RECOGNITION).
+// 패널은 노트를 보여 주지 않는다 — 완성 노트는 암호화 파일로 보관함 폴더에 저장돼 웹사이트 보관함(Account.SITE/library)에서
+// 같은 계정으로 로그인해 연다. 샌드박스에는 인식 결과 미리보기만 보낸다(RENDER_RECOGNITION).
 const postToFrame=message=>els.renderFrame?.contentWindow?.postMessage(message,'*');
+// 이 계정의 노트 키를 기기에 둔다(이미 있으면 그대로, 다른 계정 것이면 새로 받는다). 로그인하지 않았으면 null.
+async function ensureLibraryKey(){
+  const session=obSession||await Account.getSession();
+  if(!session)throw new Error('로그인이 필요합니다.');
+  return NoteFile.ensureLibraryKey(await PackageStore.indexedDbAdapter(),Account.decodeUser(session.access_token).id,()=>Account.fetchLibraryKey(session));
+}
+// 사용자 클릭 안에서만 부른다: 권한만 거둬졌으면 다시 허용, 아니면 폴더 선택 창. 취소(AbortError)는 조용히 넘긴다.
+async function chooseFolder(){
+  const adapter=await PackageStore.indexedDbAdapter();
+  try{return (await LibraryFolder.status(adapter)).state==='needs-permission'?await LibraryFolder.regrant(adapter):await LibraryFolder.pick(adapter);}
+  catch(error){if(error?.name==='AbortError')return null;throw error;}
+  finally{obFolder=await LibraryFolder.status(adapter).catch(()=>obFolder);updateReadyRows();}
+}
 // 저장 상태 상자. 완료 화면과 (이후) 백그라운드 작업 카드가 같은 함수를 쓴다.
-// saved: "file"(파일로 저장됨) / "no-passphrase"(보관함 암호 없음) / "failed"(저장 실패) / null(표시 없음).
+// saved: "file"(폴더에 저장됨) / "no-folder"(폴더 없음·권한 필요) / "no-key"(기기에 계정 키 없음) / "failed"(저장 실패) / null(표시 없음).
 function renderSaved(box,saved,packageId){
   if(!box)return;
   const key=`${saved||''}:${packageId||''}`;
@@ -78,23 +91,17 @@ function renderSaved(box,saved,packageId){
     if(state)render(state);
   };
   if(saved==='file'){
-    say('노트를 암호화해 다운로드/Summrizei 폴더에 저장했습니다. 웹사이트에서 보관함 PIN을 넣어 엽니다.');
+    say('노트를 암호화해 보관함 폴더에 저장했습니다. 웹사이트에서 같은 계정으로 로그인하면 열립니다.');
     const row=document.createElement('div');
     row.className='btnrow';
-    row.append(
-      button('웹에서 노트 열기',()=>chrome.tabs.create({url:Account.SITE+'/library'})),
-      button('저장 폴더 열기',async()=>{
-        const r=await rpc({type:'LIB_SHOW',packageId});
-        if(!r?.ok)setStatus(r?.error||'저장 폴더를 열지 못했습니다.');
-      }),
-    );
+    row.append(button('웹에서 노트 열기',()=>chrome.tabs.create({url:Account.SITE+'/library'})));
     box.append(row);
-  }else if(saved==='no-passphrase'){
-    say('보관함 PIN이 없어 파일로 저장하지 못했습니다.');
-    box.append(button('암호 정하고 저장',async()=>{
-      if(await openOnboarding(['passphrase'])!==true)return;
-      await exportAll();
-    }));
+  }else if(saved==='no-folder'){
+    say('보관함 폴더에 쓸 수 없어 저장하지 못했습니다. 폴더를 지정하거나 권한을 다시 허용하세요.');
+    box.append(button('폴더 지정하고 저장',async()=>{if(await chooseFolder())await exportAll();}));
+  }else if(saved==='no-key'){
+    say('이 기기에 계정 보관함 키가 없어 저장하지 못했습니다. 인터넷에 연결된 상태에서 다시 시도하세요.');
+    box.append(button('다시 시도',async()=>{await ensureLibraryKey();await exportAll();}));
   }else if(saved==='failed'){
     say('노트 파일을 저장하지 못했습니다.');
     box.append(button('다시 저장',exportAll));
@@ -177,7 +184,7 @@ function setRow(mark,val,kind,text){if(!mark||!val)return;mark.className='mark'+
 // 유료(free가 아닌 모든 플랜)는 화면·음성 모두 서버에서 인식한다 — 클라우드 인식 동의가 있을 때만.
 const cloudMode=()=>obPlan!=='free'&&cloudRecognitionAllowed(settings);
 function updateReadyCard(){if(!settings)return;const cloud=cloudMode();setRow(els.markEngine,els.engineBanner,cloud?'ok':els.ocrEnabledToggle?.checked===false?'off':'ok',cloud?'화면 인식 · 서버 (고화질)':els.ocrEnabledToggle?.checked===false?'꺼짐':settings.ocrEngine==='vision-cloud'?'고화질 화면 인식 (서비스 경유)':'PP-OCRv5 한국어 (WASM)');setRow(els.markVoice,els.voiceState,cloud?'ok':settings.whisperEnabled?'ok':'warn',cloud?'음성 인식 · 서버':settings.whisperEnabled?`Whisper ${settings.whisperModel==='base-wasm'?'Base 저사양 · WASM':'Small q8/q4 · WebGPU'} (로컬)`:'꺼짐 — 음성은 기록되지 않습니다');if(els.ocrField)els.ocrField.hidden=cloud;if(els.whisperField)els.whisperField.hidden=cloud;const tabOpt=els.tabSelect?.selectedOptions?.[0];setRow(els.markTab,els.tabState,tabOpt?'ok':'warn',tabOpt?tabOpt.textContent:'선택된 탭 없음');const isRegion=els.modeSelect.value==='region';if(els.cropRow)els.cropRow.style.display=isRegion?'flex':'none';if(!isRegion&&els.cropWrap)els.cropWrap.style.display='none';if(els.cropField)els.cropField.hidden=els.ocrEnabledToggle?.checked===false;let modeDesc='영상 전체';if(els.modeSelect.value==='caption')modeDesc='하단 자막 띠';else if(isRegion)modeDesc=cropRect?`영역 지정 (${Math.round(cropRect.w*100)}%×${Math.round(cropRect.h*100)}%)`:'영역 지정 (슬라이드)';if(els.settingsSummary)els.settingsSummary.textContent=`${modeDesc} · ${{auto:'자동 감지(한국어 우선)',ko:'한국어',en:'영어'}[settings.whisperLang]||'한국어'}`;if(els.legalLine)els.legalLine.textContent=cloud?'화면·음성은 Summrizei 서비스에서 인식하고 저장하지 않습니다. 노트도 로그인한 계정으로 서비스가 만듭니다.':'화면·음성 인식은 기기 안에서 하고, 노트는 로그인한 계정으로 Summrizei 서비스가 만듭니다.';updateReadyRows();}
-// 준비 카드의 계정·노트 저장 행. obCheck()가 채운 캐시(obSession·obPlan·obAcct·obKey)로 그리고, 부족한 쪽엔 바로가기 버튼을 단다.
+// 준비 카드의 계정·노트 저장 행. obCheck()가 채운 캐시(obSession·obPlan·obAcct·obFolder)로 그리고, 부족한 쪽엔 바로가기 버튼을 단다.
 const readyEl=Object.fromEntries(['markAccount','accountState','accountLoginBtn','markStore','storeState','storePassBtn'].map(id=>[id,$(id)]));
 function updateReadyRows(){
   if(!obSession){
@@ -190,11 +197,15 @@ function updateReadyRows(){
     setRow(readyEl.markAccount,readyEl.accountState,'ok',`${email||'로그인됨'} · ${PLANS[obPlan]||obPlan}`+(limit!=null?` · 이번 달 ${obAcct?.minutes_used??0}/${limit}분`:''));
     readyEl.accountLoginBtn.hidden=true;
   }
-  setRow(readyEl.markStore,readyEl.storeState,obKey?'ok':'warn',obKey?'보관함 PIN 설정됨':'보관함 PIN 없음');
-  readyEl.storePassBtn.hidden=!!obKey;
+  const f=obFolder.state;
+  setRow(readyEl.markStore,readyEl.storeState,f==='ok'?'ok':'warn',f==='ok'?`보관함 폴더 · ${obFolder.name}`:f==='needs-permission'?'보관함 폴더 권한 필요':'보관함 폴더 없음');
+  readyEl.storePassBtn.textContent=f==='needs-permission'?'다시 허용':'폴더 고르기';
+  readyEl.storePassBtn.hidden=f==='ok';
 }
 if(readyEl.accountLoginBtn)readyEl.accountLoginBtn.addEventListener('click',login);
-if(readyEl.storePassBtn)readyEl.storePassBtn.addEventListener('click',()=>openOnboarding(['passphrase']));
+if(readyEl.storePassBtn)readyEl.storePassBtn.addEventListener('click',async()=>{
+  try{if(await chooseFolder())rpc({type:'LIB_EXPORT_ALL'});}catch(error){setStatus(error.message||'폴더를 지정하지 못했습니다.');}
+});
 // One indicator for both waits the user actually has to sit through: summarising, and the recognition backlog
 // that has to drain before a note can be made.
 function setWorking(){if(!els.working)return;const s=state?.status,queued=(state?.backlog?.images||0)+(state?.backlog?.audio||0);const making=regenBusy||s==='summarizing';els.working.hidden=!(making||s==='draining'||(active(state)&&queued>0));if(els.workingText)els.workingText.textContent=making?'노트를 만드는 중입니다. 몇 분 걸릴 수 있습니다.':'남은 인식을 마무리하는 중입니다.';}
@@ -208,7 +219,7 @@ function autoSummarize(){const key=`${state.sessionId}:${state.generation}`;if(a
 async function action(type,extra={}){if(busy&&type!=='STOP_SESSION'&&type!=='CANCEL_SUMMARY')return null;busy=true;setError('');if(type==='START_SESSION')setStatus('강의 탭 확인 중…');setWorking();controls();try{const result=await rpc({type,...extra,...(state&&type!=='START_SESSION'?{sessionId:state.sessionId,generation:state.generation}:{})});if(result.state!==undefined)render(result.state);if(!result.ok){const error=new Error(result.error||'요청을 완료하지 못했습니다.');error.code=result.code;throw error;}return result;}catch(error){setError(error.message,error.code);return null;}finally{busy=false;setWorking();controls();}}
 async function loadTabs(){const selected=els.tabSelect.value,requested=new URLSearchParams(location.search).get('tabId');const [all,[focused]]=await Promise.all([chrome.tabs.query({}),chrome.tabs.query({active:true,currentWindow:true})]);tabs=all.filter(tab=>/^https?:/.test(tab.url||''));els.tabSelect.textContent='';for(const tab of tabs){const opt=document.createElement('option');opt.value=tab.id;opt.textContent=`${new URL(tab.url).hostname} — ${(tab.title||'강의 탭').slice(0,60)}`;els.tabSelect.append(opt);}const target=selected||requested||String(focused?.id??'');if(target)els.tabSelect.value=target;controls();updateReadyCard();bgTabCheck();}
 function rect(){if(els.modeSelect.value==='caption')return{x:0,y:.8,w:1,h:.2};if(els.modeSelect.value==='region'&&cropRect)return cropRect;return{x:0,y:0,w:1,h:1};}
-async function start(){settings=await loadSettings();await obCheck();const steps=onboardingSteps(settings,obSession,obPlan,obKey);if(steps.length){if(await openOnboarding(steps)!==true)return;settings=await loadSettings();}if(!tabs.some(tab=>String(tab.id)===els.tabSelect.value)){setError('선택한 강의 탭이 없습니다. 강의 창에서 확장을 다시 여세요.');return;}const cloud=cloudMode();if(!cloud&&!els.ocrEnabledToggle.checked&&!settings.whisperEnabled){setError('화면 또는 음성 인식 중 하나를 켜세요.');return;}if((cloud||els.ocrEnabledToggle.checked)&&els.modeSelect.value==='region'&&(!cropRect||cropTabId!==els.tabSelect.value)){els.settingsDrawer.showModal();els.cropHint.textContent='현재 강의 화면을 불러오고 인식할 슬라이드 영역을 드래그하세요.';setError('화면을 불러온 뒤 인식할 슬라이드 영역을 드래그하세요.');els.previewBtn.focus();return;}await action('START_SESSION',{settings,options:{tabId:Number(els.tabSelect.value),pageTitle:(tabs.find(tab=>String(tab.id)===els.tabSelect.value)?.title||'').slice(0,200),rect:rect(),recognition:cloud?'cloud':'local',ocrEnabled:cloud?true:els.ocrEnabledToggle.checked,ocrEngine:cloud?'vision-cloud':settings.ocrEngine||'ppocr-v5-wasm',visionConsent:settings.visionConsent===true,whisperEnabled:cloud?true:settings.whisperEnabled,whisperModel:settings.whisperModel,whisperLang:settings.whisperLang,speedCorrection:settings.speedCorrection===true}});}
+async function start(){settings=await loadSettings();await obCheck();const steps=onboardingSteps(settings,obSession,obPlan,obFolder);if(steps.length){if(await openOnboarding(steps)!==true)return;settings=await loadSettings();}if(!tabs.some(tab=>String(tab.id)===els.tabSelect.value)){setError('선택한 강의 탭이 없습니다. 강의 창에서 확장을 다시 여세요.');return;}const cloud=cloudMode();if(!cloud&&!els.ocrEnabledToggle.checked&&!settings.whisperEnabled){setError('화면 또는 음성 인식 중 하나를 켜세요.');return;}if((cloud||els.ocrEnabledToggle.checked)&&els.modeSelect.value==='region'&&(!cropRect||cropTabId!==els.tabSelect.value)){els.settingsDrawer.showModal();els.cropHint.textContent='현재 강의 화면을 불러오고 인식할 슬라이드 영역을 드래그하세요.';setError('화면을 불러온 뒤 인식할 슬라이드 영역을 드래그하세요.');els.previewBtn.focus();return;}await action('START_SESSION',{settings,options:{tabId:Number(els.tabSelect.value),pageTitle:(tabs.find(tab=>String(tab.id)===els.tabSelect.value)?.title||'').slice(0,200),rect:rect(),recognition:cloud?'cloud':'local',ocrEnabled:cloud?true:els.ocrEnabledToggle.checked,ocrEngine:cloud?'vision-cloud':settings.ocrEngine||'ppocr-v5-wasm',visionConsent:settings.visionConsent===true,whisperEnabled:cloud?true:settings.whisperEnabled,whisperModel:settings.whisperModel,whisperLang:settings.whisperLang,speedCorrection:settings.speedCorrection===true}});}
 els.startBtn.addEventListener('click',start);els.stopBtn.addEventListener('click',()=>action(state?.status==='summarizing'?'CANCEL_SUMMARY':'STOP_SESSION'));els.notesBtn.addEventListener('click',async()=>action('GENERATE_NOTES',{settings:await loadSettings()}));if(els.retryNoteBtn)els.retryNoteBtn.addEventListener('click',async()=>action('GENERATE_NOTES',{settings:await loadSettings()}));els.againBtn.addEventListener('click',()=>action('DISPOSE_SESSION'));els.settingsToggle.addEventListener('click',()=>els.settingsDrawer.showModal());els.settingsClose.addEventListener('click',()=>els.settingsDrawer.close());els.refreshTabsBtn.addEventListener('click',loadTabs);els.tabSelect.addEventListener('change',()=>{cropRect=null;cropTabId=null;els.cropBox.style.display='none';controls();updateReadyCard();bgTabCheck();});els.ocrEnabledToggle.addEventListener('change',async()=>{settings=await saveSettings({ocrEnabled:els.ocrEnabledToggle.checked});updateReadyCard();});els.whisperEnabledToggle.addEventListener('change',async()=>{settings=await saveSettings({whisperEnabled:els.whisperEnabledToggle.checked});updateReadyCard();});els.modeSelect.addEventListener('change',updateReadyCard);els.langSelect.addEventListener('change',async()=>{settings=await saveSettings({whisperLang:els.langSelect.value});updateReadyCard();});els.optionsLink.addEventListener('click',event=>{event.preventDefault();chrome.runtime.openOptionsPage();});
 if(els.pauseBtn)els.pauseBtn.addEventListener('click',()=>action(state?.status==='paused'?'RESUME_SESSION':'PAUSE_SESSION'));if(els.disposeBtn)els.disposeBtn.addEventListener('click',()=>action('DISPOSE_SESSION'));
 if(els.popoutBtn)els.popoutBtn.addEventListener('click',()=>chrome.windows?.create?.({url:chrome.runtime.getURL(`sidepanel.html?tabId=${encodeURIComponent(els.tabSelect.value)}`),type:'popup',width:480,height:760}));
@@ -461,8 +472,8 @@ async function login(){
   // 로그인으로 달라진 계정·플랜으로 온보딩 필요 여부를 다시 본다(새 동의·보관함 암호가 필요할 수 있다).
   try{
     settings=await loadSettings();
-    const{libraryKey}=await obCheck();
-    const steps=onboardingSteps(settings,obSession,obPlan,libraryKey);
+    const{folder}=await obCheck();
+    const steps=onboardingSteps(settings,obSession,obPlan,folder);
     if(steps.length){closeMenu();openOnboarding(steps);}else{onboardingOpen=false;obFinish(true);} // 메뉴가 온보딩을 가리지 않게 닫고 연다
     render(state);bgInit();
   }catch{}
@@ -485,35 +496,35 @@ document.addEventListener('keydown',e=>{
   }
 });
 
-// ── 온보딩: 계정 → 동의 → 보관함 암호 → 받아쓰기. 부족한 단계만 연다(openOnboarding).
-// render는 settings.consentAccepted가 아니라 이 플래그로 온보딩 화면을 고른다 - 동의는 끝났는데 보관함 암호가 없는 경우처럼 부분만 다시 열어야 해서다.
-let onboardingOpen=false,obSession=null,obPlan='free',obSteps=[],obAcct=null,obKey=null;
-// 지금 상태의 로그인 세션·플랜·보관함 키. 각 조회 실패는 로그아웃·Free·키 없음으로 접는다(Account·NoteFile이 없는 테스트 환경 포함).
-// step이 오면 각 조회 시간을 단계 이름과 함께 넘긴다(로그인 진단). 계정 조회와 보관함 키 열기는 서로를 기다릴 게 없어 같이 시작한다.
+// ── 온보딩: 계정 → 동의 → 보관함 폴더 → 받아쓰기. 부족한 단계만 연다(openOnboarding).
+// render는 settings.consentAccepted가 아니라 이 플래그로 온보딩 화면을 고른다 - 동의는 끝났는데 보관함 폴더가 없는 경우처럼 부분만 다시 열어야 해서다.
+let onboardingOpen=false,obSession=null,obPlan='free',obSteps=[],obAcct=null,obFolder={state:'none',name:''};
+// 지금 상태의 로그인 세션·플랜·보관함 폴더. 로그인돼 있으면 이 계정의 노트 키도 기기에 둔다(이미 있으면 네트워크 없이). 각 조회 실패는 로그아웃·Free·폴더 없음으로 접는다(Account·NoteFile이 없는 테스트 환경 포함).
+// step이 오면 각 조회 시간을 단계 이름과 함께 넘긴다(로그인 진단). 계정 조회와 키 확보·폴더 확인은 서로를 기다릴 게 없어 같이 시작한다.
 async function obCheck(step){
   const timed=(name,work)=>{const s=Date.now();return Promise.resolve(work).finally(()=>{try{step?.(name,Date.now()-s);}catch{}});};
   try{obSession=await timed('session',Account.getSession());}catch{obSession=null;}
   if(obSession)obShowAccount(); // 세션이 확인되는 즉시 이메일 행부터 보여 주고 플랜은 조회 뒤에 채운다
-  const[acct,key]=await Promise.all([
+  const[acct,folder]=await Promise.all([
     timed('account',(async()=>obSession?await Account.fetchAccount(obSession):null)().catch(()=>null)),
-    timed('library_key',(async()=>NoteFile.loadLibraryKey(await PackageStore.indexedDbAdapter()))().catch(()=>null)),
+    timed('library_key',(async()=>{if(obSession)await ensureLibraryKey().catch(()=>null);return LibraryFolder.status(await PackageStore.indexedDbAdapter());})().catch(()=>({state:'none',name:''}))),
   ]);
   // 플랜 조회가 실패하면 Free 로 떨어뜨리지 않는다 — 이 기기에서 마지막으로 확인한 같은 계정의 플랜을 쓴다(플랜 이름은 민감 정보가 아니다).
   const planKey=obSession?'summrizei.plan.'+(()=>{try{return Account.decodeUser(obSession.access_token).id;}catch{return '';}})():'';
   if(acct?.plan)try{localStorage.setItem(planKey,acct.plan);}catch{}
   let cached=null;if(!acct&&planKey)try{cached=localStorage.getItem(planKey);}catch{}
-  obAcct=acct;obPlan=acct?.plan||cached||'free';obKey=key;
+  obAcct=acct;obPlan=acct?.plan||cached||'free';obFolder=folder;
   if(obSession)obShowAccount();
-  return {session:obSession,plan:obPlan,libraryKey:obKey};
+  return {session:obSession,plan:obPlan,folder:obFolder};
 }
 // 열어야 할 온보딩 단계 목록. 모두 갖췄으면 [].
-function onboardingSteps(settings,session,plan,libraryKey){
+function onboardingSteps(settings,session,plan,folder){
   const steps=[],paid=plan!=='free',bg=settings?.backgroundConsent||{};
   if(!session)steps.push('account');
   if(!summaryAllowed(settings)
     ||(paid&&!cloudRecognitionAllowed(settings))
     ||(paid&&(bg.personalUse===true||bg.accessRights===true)&&!backgroundAllowed(settings)))steps.push('consent');
-  if(!libraryKey)steps.push('passphrase');
+  if(folder?.state==='none')steps.push('folder'); // 권한만 거둬진 폴더(needs-permission)는 막지 않는다 — 준비 카드의 '다시 허용'과 저장 뒤 안내가 맡는다
   if(settings?.consentAccepted!==true)steps.push('engine');
   return steps;
 }
@@ -529,7 +540,7 @@ function obValidate(){
   if(obSteps.includes('account')&&!obSession)ok=false;
   if(obSteps.includes('consent')&&!els.obSummary.checked)ok=false;
   if(obSteps.includes('consent')&&obPlan!=='free'&&!els.obCloud.checked)ok=false;
-  if(obSteps.includes('passphrase')&&!/^\d{4}$/.test(els.obPass.value))ok=false;
+  if(obSteps.includes('folder')&&obFolder.state!=='ok')ok=false;
   els.obDone.disabled=!ok;
 }
 // 열린 온보딩을 기다리는 약속: 완료하면 true, 다른 단계로 다시 열려 대체되면 false로 끝낸다.
@@ -560,9 +571,9 @@ els.obLogin.addEventListener('click',async()=>{
     await signIn();
     // 로그인은 설정을 바꾸지 않는다 — 열릴 때 읽은 설정을 그대로 쓰고 없을 때만 읽는다.
     let s=Date.now();settings=settings||await loadSettings();rec('settings',Date.now()-s);
-    const{libraryKey}=await obCheck(rec);
+    const{folder}=await obCheck(rec);
     // 로그인으로 알게 된 플랜이 유료면 새로 필요해진 동의 단계를 더 연다. 계정 단계는 <email> · <plan> 확인을 보여 주기 위해 그대로 둔다.
-    const next=onboardingSteps(settings,obSession,obPlan,libraryKey);
+    const next=onboardingSteps(settings,obSession,obPlan,folder);
     if(obSteps.includes('account')&&!next.includes('account'))next.unshift('account');
     s=Date.now();openOnboarding(next);rec('render',Date.now()-s);
   }catch(error){els.obAccountErr.textContent=error.message||'로그인하지 못했습니다. 다시 시도해 주세요.';els.obAccountErr.hidden=false;}
@@ -570,11 +581,19 @@ els.obLogin.addEventListener('click',async()=>{
 });
 els.obSummary.addEventListener('change',obValidate);
 els.obCloud.addEventListener('change',obValidate);
-els.obPass.addEventListener('input',()=>{const bad=els.obPass.value!==''&&!/^\d{4}$/.test(els.obPass.value);els.obPassErr.textContent=bad?'숫자 4자리를 입력하세요.':'';els.obPassErr.hidden=!bad;obValidate();});
+// 폴더 선택 창은 사용자 클릭 안에서만 열린다. 고른 폴더 이름을 보여 주고, 이후 노트는 묻지 않고 여기에 저장한다.
+els.obFolderBtn.addEventListener('click',async()=>{
+  els.obFolderBtn.disabled=true;els.obFolderErr.hidden=true;
+  try{
+    await chooseFolder();
+    els.obFolderName.textContent=obFolder.state==='ok'?`선택한 폴더: ${obFolder.name}`:'';els.obFolderName.hidden=obFolder.state!=='ok';
+  }catch(error){els.obFolderErr.textContent=error.message||'폴더를 지정하지 못했습니다.';els.obFolderErr.hidden=false;}
+  finally{els.obFolderBtn.disabled=false;obValidate();}
+});
 els.obDone.addEventListener('click',async()=>{
   els.obDone.disabled=true;els.obError.hidden=true;
   try{
-    // 요약 동의는 동의 단계를 열고 체크했을 때만 새로 찍는다 — 암호·엔진 단계만 다시 열어도 동의를 주거나 시각을 갱신하면 안 된다.
+    // 요약 동의는 동의 단계를 열고 체크했을 때만 새로 찍는다 — 폴더·엔진 단계만 다시 열어도 동의를 주거나 시각을 갱신하면 안 된다.
     const patch={consentAccepted:true};
     if(obSteps.includes('consent')){
       if(els.obSummary.checked){patch.remoteSummaryConsent=true;patch.summaryConsentVersion=TERMS_VERSION;patch.summaryConsentAt=Date.now();}
@@ -583,11 +602,7 @@ els.obDone.addEventListener('click',async()=>{
     }
     if(obSteps.includes('engine'))patch.whisperEnabled=els.obWhisper.checked;
     await saveSettings(patch);
-    if(obSteps.includes('passphrase')){
-      try{await NoteFile.saveLibraryKey(await PackageStore.indexedDbAdapter(),els.obPass.value);}
-      catch(error){els.obPassErr.textContent=error.message;els.obPassErr.hidden=false;return;}
-      finally{els.obPass.value='';}
-    }
+    if(obSteps.includes('folder'))rpc({type:'LIB_EXPORT_ALL'}); // 이전에 만든 노트가 있으면 새 폴더에도 써 둔다(처리 중이면 건너뛴다)
     settings=await loadSettings();
     els.whisperEnabledToggle.checked=settings.whisperEnabled===true; // 엔진 단계가 저장한 값으로 서랍 토글도 맞춘다
     await obCheck(); // 닫힐 때 준비 카드의 계정·노트 저장 행도 새 캐시로 고친다

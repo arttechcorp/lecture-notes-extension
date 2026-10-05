@@ -273,6 +273,14 @@ create table if not exists vault_objects (
   primary key (user_id, object_id)
 );
 
+-- 노트 파일(.summrizei) 암호화 키: 계정마다 하나. 로그인한 사용자만 library_key()로 받는다 — 별도 비밀번호 없이 "로그인하면 열린다".
+-- 노트 파일은 서버에 올라오지 않는다(이 기기 폴더에만 있다). 서버는 키만 갖고, 키는 강의 내용과 무관한 난수다. 계정 삭제 때 cascade 로 함께 지워진다.
+create table if not exists library_keys (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  key text not null check (key ~ '^[0-9a-f]{64}$'),
+  created_at timestamptz not null default now()
+);
+
 create table if not exists feedback (
   user_id uuid not null references auth.users(id) on delete cascade,
   job_id text not null check (job_id ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$'),
@@ -295,6 +303,7 @@ alter table monthly_usage enable row level security;
 alter table usage_reservations enable row level security;
 alter table usage_events enable row level security;
 alter table vault_objects enable row level security;
+alter table library_keys enable row level security;
 alter table feedback enable row level security;
 alter table provider_slots enable row level security;
 -- 정책 없음 = 전면 차단. 이후에도 여기에 정책을 추가하지 않는다.
@@ -302,7 +311,7 @@ alter table provider_slots enable row level security;
 -- 서버(service_role)는 RLS를 우회하지만 테이블 권한은 따로 필요하다. 플랫폼의 기본 권한에 기대지 않고 명시한다
 -- (보관함 목록·프로필 upsert·피드백 기록·/v1/me의 한도 조회가 직접 접근이다). anon/authenticated에는 주지 않는다.
 grant select, insert, update, delete on plans, global_caps, global_usage, profiles, entitlements, monthly_usage,
-  usage_reservations, usage_events, vault_objects, feedback, provider_slots to service_role;
+  usage_reservations, usage_events, vault_objects, library_keys, feedback, provider_slots to service_role;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 5. 함수
@@ -742,6 +751,29 @@ begin
 end $$;
 drop function if exists delete_my_account();
 
+-- 내 노트 암호화 키(64자리 hex). 없으면 만든다. 호출자 본인 것만 돌려준다(auth.uid()).
+-- gen_random_bytes 는 extensions 스키마라 search_path 에서 안 보여 코어의 gen_random_uuid() 두 개(CSPRNG)를 이어 256비트를 만든다.
+create or replace function library_key()
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  uid uuid := auth.uid();
+  k text;
+begin
+  if uid is null then
+    raise exception 'not_authenticated' using errcode = '28000';
+  end if;
+  insert into library_keys (user_id, key)
+    values (uid, replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', ''))
+    on conflict (user_id) do nothing;
+  select key into k from library_keys where user_id = uid;
+  return k;
+end;
+$$;
+
 -- 내 등급·이번 달 사용량. 서버의 한도와 같은 표(effective_plan, plans, monthly_usage)를 읽는다.
 -- 반환 모양은 옛 schema.sql 판과 같다(lib/account.js, landing/account.js). status는 결제 상태를 따로 두지 않아 언제나 'active'다.
 create or replace function my_account()
@@ -833,6 +865,8 @@ grant execute on function acquire_provider_slot(text, int, int) to service_role;
 grant execute on function release_provider_slot(uuid) to service_role;
 grant execute on function admin_usage(int) to authenticated;
 grant execute on function admin_grant_plan(uuid, text, timestamptz, timestamptz) to authenticated;
+revoke all on function library_key() from public, anon;
+grant execute on function library_key() to authenticated;
 revoke all on function my_account() from public, anon;
 revoke all on function plan_catalog() from public;
 revoke all on function admin_stats() from public, anon;

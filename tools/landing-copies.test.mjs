@@ -39,14 +39,14 @@ test("landing/vendor/katex 는 lib/vendor/katex 와 동일", () => {
   }
 });
 
-test("landing/library.html 은 외부 스크립트 없이 connect-src 'none' 을 선언", () => {
+// 평문 노트를 다루는 페이지라 네트워크는 로그인·키 조회용 Supabase 한 곳으로만 열고, 외부 스크립트는 supabase-js(jsDelivr) 하나만 허용한다.
+test("landing/library.html 은 Supabase 한 곳으로만 연결하고 외부 스크립트는 supabase-js 뿐", () => {
   const html = fs.readFileSync(path.join(ROOT, "landing/library.html"), "utf8");
-  assert.ok(
-    !/<script[^>]+src=["']https?:\/\//i.test(html),
-    "landing/library.html 에 http(s) 스크립트 src가 있으면 안 됩니다",
-  );
-  assert.ok(
-    html.includes("connect-src 'none'"),
-    "landing/library.html CSP에 connect-src 'none' 이 필요합니다",
-  );
+  const external = [...html.matchAll(/<script[^>]+src=["'](https?:\/\/[^"']+)["']/gi)].map(m => m[1]);
+  assert.deepEqual(external, ["https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"]);
+  const csp = /Content-Security-Policy"[^>]*content="([^"]+)"/.exec(html)?.[1] ?? "";
+  assert.match(csp, /connect-src https:\/\/[a-z0-9]+\.supabase\.co;/, "connect-src 는 프로젝트 Supabase 주소 하나뿐");
+  assert.ok(!/connect-src[^;]*\*/.test(csp) && !/connect-src[^;]*'self'/.test(csp));
+  assert.match(csp, /script-src 'self' https:\/\/cdn\.jsdelivr\.net;/);
+  assert.ok(csp.includes(new URL(JSON.parse(JSON.stringify({ u: /url: "([^"]+)"/.exec(fs.readFileSync(path.join(ROOT, "landing/supabase-config.js"), "utf8"))[1] })).u).origin), "CSP 의 Supabase 주소가 supabase-config.js 와 같아야 한다");
 });

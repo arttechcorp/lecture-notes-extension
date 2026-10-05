@@ -99,19 +99,23 @@ async function cropRegions(blob,doc){
   }finally{bmp.close();}
   return {crops,hashes,formulas};
 }
-// 끝난 노트를 보관함 암호(NoteFile)로 암호화해 background 에 파일로 내보낸다 — 내려받기는 background 몫. 저장은 이미 끝났으니 결말("file"|"no-passphrase"|"failed")만 돌려주고, 이벤트에는 코드만 싣는다.
+// 끝난 노트를 로그인 계정 키(NoteFile)로 암호화해 사용자가 온보딩에서 고른 폴더에 바로 쓴다(LibraryFolder) — 저장 때 따로 묻지 않는다.
+// 저장은 이미 끝났으니 결말("file"|"no-folder"|"no-key"|"failed")만 돌려주고, 이벤트에는 코드만 싣는다.
+// no-folder: 폴더를 안 골랐거나 브라우저가 권한을 거둠 / no-key: 이 기기에 계정 키가 아직 없음(패널을 열어 로그인하면 받아 둔다).
 async function exportNote(store,pkg,meta,note){
   try{
     const lk=await NoteFile.loadLibraryKey(store.adapter).catch(()=>null);
-    if(!lk){events.emit({stage:"library",level:"warn",code:"LIBRARY_NO_PASSPHRASE"});return "no-passphrase";}
-    const text=await NoteFile.encryptFile({meta,note,crops:await NoteLibrary.cropUrls(store,pkg)},lk.key,lk.salt);
-    const reply=await chrome.runtime.sendMessage({target:"background",type:"LIB_EXPORT",packageId:pkg,fileName:NoteFile.fileName(meta),text}).catch(()=>null);
-    if(reply?.ok)return "file";
+    if(!lk){events.emit({stage:"library",level:"warn",code:"LIBRARY_NO_KEY"});return "no-key";}
+    const text=await NoteFile.encryptFile({meta,note,crops:await NoteLibrary.cropUrls(store,pkg)},lk.key);
+    await LibraryFolder.write(store.adapter,NoteFile.fileName(meta),text);
+    return "file";
+  }catch(e){
+    if(e?.code==="no-folder"||e?.code==="no-permission"){events.emit({stage:"library",level:"warn",code:"LIBRARY_NO_FOLDER"});return "no-folder";}
     events.emit({stage:"library",level:"warn",code:"LIBRARY_EXPORT_FAILED"});return "failed";
-  }catch{events.emit({stage:"library",level:"warn",code:"LIBRARY_EXPORT_FAILED"});return "failed";}
+  }
 }
-// saveLibrary 의 반환값은 셋("file"|"no-passphrase"|"failed")만 의미 있다 — 노트를 지키며 건너뛴 false 나 저장만 한 경우는 null 로 본다.
-const savedResult=v=>v==="file"||v==="no-passphrase"||v==="failed"?v:null;
+// saveLibrary 의 반환값은 넷("file"|"no-folder"|"no-key"|"failed")만 의미 있다 — 노트를 지키며 건너뛴 false 나 저장만 한 경우는 null 로 본다.
+const savedResult=v=>["file","no-folder","no-key","failed"].includes(v)?v:null;
 // 끝난 노트(또는 인식 결과만)를 로컬 보관함에 둔다: 메타·재생성 입력·노트·크롭(F#·G# 키로 옮김). 강의 내용은 기기 안 암호문으로만 남는다.
 async function saveLibrary(pkg,input,res,{source,host}){
   const store=await storeP,crops={},note=res.note||null;
@@ -210,11 +214,11 @@ async function libRegenerate(message,settings){
     return {ok:true,status:res.status,code:res.code??null,saved:savedResult(saved)};
   }finally{archiveBusy=false;}
 }
-// 보관함의 저장 노트를 암호 파일로 전부 다시 내보낸다. 보관함 암호가 없으면 시작하지 않는다.
+// 보관함의 저장 노트를 암호 파일로 전부 다시 폴더에 쓴다(폴더를 새로 골랐거나 권한을 다시 허용했을 때). 키가 없으면 시작하지 않는다.
 async function libExportAll(){
   if(starting||archiveBusy||summaryController||bg||session&&!["completed","failed","disposed"].includes(session.status))return {ok:false,busy:true,error:"다른 처리가 진행 중입니다. 끝난 뒤 다시 시도하세요."};
   const store=await storeP;
-  if(!await NoteFile.loadLibraryKey(store.adapter).catch(()=>null))return {ok:false,error:"보관함 PIN을 먼저 정하세요."};
+  if(!await NoteFile.loadLibraryKey(store.adapter).catch(()=>null))return {ok:false,error:"보관함 키가 없습니다. 로그인한 뒤 다시 시도하세요."};
   let count=0,failed=0;archiveBusy=true; // 내보내는 동안 지우기·새 작업이 끼어들지 못하게 한다
   try{
     for(const meta of await NoteLibrary.list(store)){
