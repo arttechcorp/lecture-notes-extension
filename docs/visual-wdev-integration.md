@@ -65,7 +65,7 @@
 
 | # | 우리 부품 | `w/dev`에 끼울 위치 | 바꿀 것 | 단계 |
 |---|---|---|---|---|
-| 1 | **슬라이드 전환 판정(사라짐 기준)** | `lib/visual-gate.js` OCR 모드 분기(`w/dev` 66-80, 여전히 `delta>.32`) | 기준 화면 + 내용 사라짐 규칙을 OCR 모드에 이식한다. 비전 모드는 `w/dev`가 타일 15% 규칙으로 새로 썼으므로 실측(§6) 후 결정한다 | 지금 |
+| 1 | **슬라이드 전환 판정(사라짐 기준)** | `lib/visual-gate.js` OCR 모드 분기(`w/dev` 66-80, 여전히 `delta>.32`) | 기준 화면 + 내용 사라짐 규칙을 **OCR 모드에만** 이식한다. 실측(§6)에서 `w/dev` OCR 모드는 실제 전환을 하나도 못 잡았고, 비전 모드(타일 15% 규칙)는 정상이었다 | 지금 |
 | 2 | **판서 층** | 실시간: `session.js` `captureVisual`(`gate.inspect` 169와 JPEG 176 사이) → `createOcrEngine`(10-26). 백그라운드: `background-job.js` `onFrame`(253-263) | 판서는 텍스트 접두어가 아니라 **SlideDoc 안에서 표현**해야 한다. ① `contracts.js:93` role에 `annotation`을 추가한다(서버 `VISION_SCHEMA`와 함께 배포). 또는 ② 판서 전용 SlideDoc(`engine:"ppocr-v5-ink"`)을 둔다. 어느 쪽이든 `preprocess.js:47` `usableBlocks`, 근거 종류, 작성 프롬프트 규칙(`server/prompts.js`)을 같이 바꾼다. 백그라운드는 256×144 표본과 JPEG만 있어, 원해상도 기준 화면이 필요하면 `media-decode.js:85-111`과 메모리 예산(`mem.hold`)을 손봐야 한다 | 3단계와 병행 |
 | 3 | **그림 영역 탐지(텍스트 vs 그림)** — Free | `layout.js:52-74` `localSlideDoc`의 `figures: []` 자리. PP-OCR 줄 상자는 이미 있고(54), 픽셀은 `session.js:17-22`에서 `image.close()` 전에 접근할 수 있다 | 픽셀 규칙 시제품(`tools/visual-region-probe.mjs`)이나 PP-DocLayout으로 `figures[{bbox,kind}]`를 채운다. 그러면 Free의 `NOTE_FIGURES_NOT_DETECTED`가 해소된다 | **3단계 핵심** |
 | 4 | **실시간 경로 크롭** | `session.js` → `offscreen.js` `cropRegions` | 지금은 백그라운드만 크롭한다. 실시간·Free에서도 3번의 영역으로 크롭해 패키지에 보관한다(불변식 허용 범위) | 3단계 |
@@ -81,7 +81,7 @@
 
 | 우리 변경 | `w/dev` 상태 | 처리 |
 |---|---|---|
-| `lib/visual-gate.js` 사라짐 기준 전환, `fresh`, `reset` 새 슬라이드 | 같은 줄을 `w/dev`도 고쳤다(비전 모드 타일·EMA·`minGapMs`) | **OCR 모드만 이식.** 비전 모드는 §6 실측 후 결정 |
+| `lib/visual-gate.js` 사라짐 기준 전환, `fresh`, `reset` 새 슬라이드 | 같은 줄을 `w/dev`도 고쳤다(비전 모드 타일·EMA·`minGapMs`) | **OCR 모드만 이식.** `w/dev` 비전 모드는 실측(§6)에서 정상이라 유지 |
 | `lib/ink-layer.js` | 없음(충돌 없음) | 그대로 가져가 §3-2 위치에 연결 |
 | `lib/session.js` `(판서)` 접두어·`slideBase` | `session.js`가 크게 바뀌었다. 노트는 `result.data.slideDoc`을 쓴다 | 접두어 방식은 폐기. SlideDoc 표현(§3-2)으로 다시 구현 |
 | `lib/summary.js` 검증기(`richStructure`, `simpleEquation`, held) | **삭제됨** | 폐기. 같은 위험이 v2 검증(`note-contract.js`, `formulas.js`, `note-render.js`)에 있는지는 §6에서 따로 점검 |
@@ -108,7 +108,18 @@
 
 ## 6. 진행 중인 확인 (결과가 나오면 이 절을 갱신)
 
-- **`w/dev` 슬라이드 전환 판정 실측:** 우리의 재생 시퀀스(판서 추가·지움·전환, 실제 강의 화면 3장, 흰 화면 → 슬라이드)를 `w/dev` 판정의 OCR 모드와 비전 모드(실시간·백그라운드 설정)에 넣어 본다.
+- **`w/dev` 슬라이드 전환 판정 실측 (완료).** 우리의 재생 시퀀스를 넣어 봤다.
+  - 시퀀스: 판서 추가·지움·전환, 실제 강의 화면 3장, 흰 화면 → 슬라이드.
+  - 비전 모드는 2초 간격 표본, 이미지당 12초씩 넣었다.
+
+  | 판정 | 슬라이드 전환 | 판서 추가·지움 |
+  |---|---|---|
+  | `w/dev` OCR 모드(32% 규칙) | **9건 중 0건 잡음** — 슬라이드 번호가 계속 0 | 같은 슬라이드 유지 |
+  | `w/dev` 비전 모드(실시간 `minGapMs` 8000, 백그라운드 3500) | 전부 잡음 | 전송 0건 |
+  | 우리 판정(사라짐 기준) OCR·비전 | 전부 잡음 | 같은 슬라이드 유지, 비전 전송 0건 |
+
+  - 결론: **`w/dev` 비전 모드는 그대로 두고, OCR 모드(Free 실시간)에만 사라짐 기준을 이식한다.**
+  - 비전 모드에서 판서가 화면 타일의 15%를 넘게 덮는 경우(판서가 아주 많은 경우)는 시험하지 않았다. 실제 영상 검증 때 함께 본다.
 - **v2 검증 체계 점검:** 2단계에서 찾은 문제가 v2에도 있는지 본다.
   - 정상 문장 오탐(`Graph theory` 제목, `|x|`, `$5…$10`)
   - OCR 오독 통과(`x = 12`, 첨자 소실)
