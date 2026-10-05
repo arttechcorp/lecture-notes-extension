@@ -68,6 +68,11 @@
   #accountMenu button[role="menuitem"] { width: 100%; text-align: left; border: 0; background: none; box-shadow: none; color: var(--ink); padding: 9px 10px; border-radius: 8px; font-size: 13px; }
   #accountMenu button[role="menuitem"]:hover, #accountMenu button[role="menuitem"]:focus-visible { background: var(--sunk); transform: none; outline-offset: -2px; }
   #accountMenu hr { border: 0; border-top: 1px solid var(--rule); margin: 6px 4px; }
+  #accountMenu .am-primary { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 650; }
+  .am-primary svg { flex: none; width: 18px; height: 18px; }
+  .am-foot { display: flex; flex-wrap: wrap; margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--rule); }
+  #accountMenu .am-foot button[role="menuitem"] { width: auto; padding: 7px 8px; font-size: 11.5px; color: var(--ash); }
+  #accountMenu .am-foot button[role="menuitem"]:hover { color: var(--ink); }
   .am-head { padding: 8px 10px 10px; border-bottom: 1px solid var(--rule); margin-bottom: 6px; }
   .am-user { display: flex; gap: 10px; align-items: center; min-width: 0; }
   .am-avatar { flex: none; width: 36px; height: 36px; border-radius: 50%; background: var(--sunk); border: 1px solid var(--rule); display: grid; place-items: center; font-weight: 650; overflow: hidden; }
@@ -232,16 +237,18 @@
       <div id="accountMenu" role="menu" aria-label="계정 메뉴" hidden>
         <div class="am-head" id="amHead"></div>
         <p class="am-err" id="amErr" role="alert" hidden></p>
+        <button role="menuitem" type="button" data-path="/library" class="am-primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19v-3"/><path d="M9 7.5h6M9 11h4"/></svg>내 노트 (웹)</button>
+        <hr role="separator" />
         <button role="menuitem" type="button" data-path="/account">사용자 정보</button>
-        <button role="menuitem" type="button" data-path="/library">내 노트 (웹)</button>
         <button role="menuitem" type="button" data-path="/account/billing">결제 정보</button>
         <button role="menuitem" type="button" data-act="options">인앱 설정</button>
         <button role="menuitem" type="button" data-path="/account/subscription">구독 설정</button>
-        <hr role="separator" />
-        <button role="menuitem" type="button" data-href="mailto:jihwanbu26@gmail.com">고객지원</button>
-        <button role="menuitem" type="button" data-path="/policies/terms">이용약관</button>
-        <button role="menuitem" type="button" data-path="/policies/privacy">개인정보처리방침</button>
-        <button role="menuitem" type="button" data-act="logout" id="amLogout" hidden>로그아웃</button>
+        <div class="am-foot" role="none">
+          <button role="menuitem" type="button" data-href="mailto:jihwanbu26@gmail.com">고객지원</button>
+          <button role="menuitem" type="button" data-path="/policies/terms">이용약관</button>
+          <button role="menuitem" type="button" data-path="/policies/privacy">개인정보처리방침</button>
+          <button role="menuitem" type="button" data-act="logout" id="amLogout" hidden>로그아웃</button>
+        </div>
       </div>
     </div>
   </div>
