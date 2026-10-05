@@ -759,12 +759,18 @@ const __defs = {
       if (k !== null && !sMap.has(k)) sMap.set(k, id);
       return s && typeof s === "object" ? { ...s, sectionId: id } : s;
     }) : plan.sections;
-    const ids = a => Array.isArray(a) ? a.map(x => cMap.get(key(x)) ?? x) : a;
-    const blocks = a => Array.isArray(a) ? a.map(b => b && typeof b === "object" ? { ...b, conceptIds: ids(b.conceptIds) } : b) : a;
+    // id 배열은 모양이 틀린 항목을 떼고 상한까지만 둔다(수식·도표 id 를 지어내거나 넘치게 다는 일, 필드 관찰: sections[5].blocks[1].formulaIds 4연속 거절).
+    // 존재하지 않는 id 는 모양만 맞으면 남겨 repairPlan 이 섹션 소유 규칙으로 뗀다.
+    const cut = (o, k, n) => typeof o[k] === "string" && o[k].length > n ? { [k]: o[k].slice(0, n) } : {}; // 글자 수 상한은 상자 크기라 자른다
+    const keep = (a, re, max) => Array.isArray(a) ? a.filter(x => typeof x === "string" && re.test(x)).slice(0, max) : a;
+    const ids = a => Array.isArray(a) ? keep(a.map(x => cMap.get(key(x)) ?? x), /^C[0-9]{1,3}$/, 6) : a;
+    const blocks = a => Array.isArray(a) ? a.map(b => b && typeof b === "object" ? { ...b, ...cut(b, "purpose", 200), conceptIds: ids(b.conceptIds),
+      ...(Array.isArray(b.formulaIds) ? { formulaIds: keep(b.formulaIds, /^F[0-9]{1,6}$/, 6) } : {}),
+      ...(Array.isArray(b.figureIds) ? { figureIds: keep(b.figureIds, /^G[0-9]{1,4}$/, 3) } : {}) } : b) : a;
     return {
       ...plan,
-      concepts: Array.isArray(concepts) ? concepts.map(c => c && typeof c === "object" ? { ...c, homeSectionId: sMap.get(key(c.homeSectionId)) ?? c.homeSectionId } : c) : concepts,
-      sections: Array.isArray(sections) ? sections.map(s => s && typeof s === "object" ? { ...s, blocks: blocks(s.blocks) } : s) : sections,
+      concepts: Array.isArray(concepts) ? concepts.slice(0, 40).map(c => c && typeof c === "object" ? { ...c, ...cut(c, "name", 60), homeSectionId: sMap.get(key(c.homeSectionId)) ?? c.homeSectionId } : c) : concepts,
+      sections: Array.isArray(sections) ? sections.map(s => s && typeof s === "object" ? { ...s, ...cut(s, "title", 80), ...cut(s, "question", 160), blocks: blocks(Array.isArray(s.blocks) ? s.blocks.slice(0, 12) : s.blocks), ...(Array.isArray(s.crossUnitIds) ? { crossUnitIds: keep(s.crossUnitIds, /^U[0-9]{1,4}$/, 10) } : {}) } : s) : sections,
       global: blocks(plan.global),
     };
   }
