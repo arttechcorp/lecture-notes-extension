@@ -2139,6 +2139,15 @@ test("a write holds a global provider slot between reserve and settle", async ()
   }, { env: { PROVIDER_CONCURRENCY_JSON: JSON.stringify({ [model]: 2 }), OPENROUTER_TIMEOUT_MS: "40000" } });
 });
 
+test("a 4xx provider rejection (no endpoint for the parameters) refunds the reservation — nothing was generated", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    sb.other = async () => ({ ok: false, status: 404, json: async () => ({}) });
+    await errorOf(await req(url, "/v1/write", "POST", input, ec1()), 502, "provider_failed_or_invalid_output");
+    assert.equal(settledOf(sb, 0).p_status, "refunded");
+    assert.equal(settledOf(sb, 0).p_error_code, "provider_http_404");
+  });
+});
+
 test("a failed provider call still releases the global slot", async () => {
   await withSupabase(async ({ url, sb }) => {
     sb.other = async () => ({ ok: false, status: 500, json: async () => ({}) });
