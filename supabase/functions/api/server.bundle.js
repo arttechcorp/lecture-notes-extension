@@ -180,12 +180,19 @@ const __defs = {
   // 고친 개수를 돌려준다. 결과가 여전히 어긋나면(필수 칸 등) 호출자가 검사에서 거절한다.
   function salvage(schema, value) {
     let n = 0;
+    // 안쪽부터 고친다: 어긋난 가장 깊은 null 허용 칸만 null, 배열은 고쳐도 안 맞는 항목만 뺀다. 고친 결과도 안 맞을 때만 이 칸 전체를 null 로 —
+    // 필드: 블록 안 한 칸(설명·인용 번호 하나)의 형식 오류로 블록이 통째로 비고, repair 도 그 블록을 한 번도 살리지 못했다.
     const walk = (sc, v) => {
       if (check1(sc, v)) return v;
+      let out = v;
+      if (Array.isArray(v) && sc.items) {
+        const fixed = v.map(x => walk(sc.items, x)), kept = fixed.filter(x => check1(sc.items, x));
+        n += v.length - kept.length; out = kept;
+        if (sc.maxItems != null && out.length > sc.maxItems) { n++; out = out.slice(0, sc.maxItems); }
+      } else if (v && typeof v === "object" && !Array.isArray(v) && sc.properties) out = Object.fromEntries(Object.entries(v).map(([k, x]) => [k, sc.properties[k] ? walk(sc.properties[k], x) : x]));
+      if (out !== v && check1(sc, out)) return out;
       if ([].concat(sc.type).includes("null")) { n++; return null; }
-      if (Array.isArray(v) && sc.items) { const kept = v.filter(x => check1(sc.items, x)); n += v.length - kept.length; const out = kept.length === v.length ? v.map(x => walk(sc.items, x)) : kept; if (sc.maxItems != null && out.length > sc.maxItems) { n++; return out.slice(0, sc.maxItems); } return out; }
-      if (v && typeof v === "object" && !Array.isArray(v) && sc.properties) return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, sc.properties[k] ? walk(sc.properties[k], x) : x]));
-      return v;
+      return out;
     };
     const check1 = (sc, v) => { const e = []; check(sc, v, "", e); return !e.length; };
     lint(schema);
@@ -2622,17 +2629,22 @@ function createServer(env=process.env,deps={}){
           let parsed;try{parsed=parseNote(choice.message.content);}catch{throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_json"});}
           if(stage==="plan")parsed=NoteContract.canonicalPlanIds(parsed); // 제공자가 id pattern 을 강제하지 않는다 — 검사 전에 C1../S1.. 로 다시 매긴다
           // 어긋난 블록만 null 로 — 섹션 전체를 버리지 않는다. 비운 블록의 원래 봉투는 salvaged 로 돌려줘 클라이언트가 repair 로 고치게 한다.
-          let salvaged=null;
-          if(!Contracts.validate(outSchema,parsed).ok){
+          // salvagedErrors: 비운 블록마다 스키마 오류의 위치와 사유(블록 안 경로 + 메시지, 내용 없음) — 클라이언트가 repair 지시에 그대로 싣는다.
+          let salvaged=null,salvagedErrors=null;
+          const pre=Contracts.validate(outSchema,parsed);
+          if(!pre.ok){
             const raw=parsed;parsed=Contracts.salvage(outSchema,parsed).value;
-            if(stage==="section"||stage==="repair")for(const [k,v] of Object.entries(raw?.blocks||{}))if(v&&typeof v==="object"&&!Array.isArray(v)&&parsed?.blocks?.[k]===null)(salvaged??={})[k]=v;
+            if(stage==="section"||stage==="repair")for(const [k,v] of Object.entries(raw?.blocks||{}))if(v&&typeof v==="object"&&!Array.isArray(v)&&parsed?.blocks?.[k]===null){
+              (salvaged??={})[k]=v;
+              (salvagedErrors??={})[k]=pre.errors.filter(e=>e.path.startsWith("/blocks/"+k+"/")).map(e=>(e.path.slice(k.length+8)+" "+e.message).slice(0,64)).slice(0,20);
+            }
           }
           const r=Contracts.validate(outSchema,parsed);
           if(!r.ok)throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_schema."+String(r.errors?.[0]?.path||r.errors?.[0]?.keyword||"x").toLowerCase().replace(/[^a-z0-9_.]/g,"_").slice(0,40)});
           // 계획 호출이 끝난 뒤에만 분류 결과를 기다린다 — 앞서 병렬로 나간 호출이고 이미 끝났거나 5초 안에 끝난다.
           const classified=classifying?await classifying:null;
           if(classified){meta.subject=classified.subject;meta.subjectConf=classified.conf;}
-          return {amount,reported,payload:{...(stage==="plan"?{plan:parsed}:{output:parsed}),...(salvaged?{salvaged}:{}),usage:{...usage,costUsd:reported?amount:reserve/100},promptVersion:Prompts.PROMPT_VERSION,schemaVersion:c.remoteConfig.schemaVersion,noteSpecVersion:NoteContract.NOTE_SPEC_VERSION}};
+          return {amount,reported,payload:{...(stage==="plan"?{plan:parsed}:{output:parsed}),...(salvaged?{salvaged,salvagedErrors}:{}),usage:{...usage,costUsd:reported?amount:reserve/100},promptVersion:Prompts.PROMPT_VERSION,schemaVersion:c.remoteConfig.schemaVersion,noteSpecVersion:NoteContract.NOTE_SPEC_VERSION}};
         }catch(error){if(retry===attempts-1)throw error.charged||error.refund?error:Object.assign(error,{code:error.code||"provider_failed_or_invalid_output",charged:{amount,reported,usage}});} // 형식 실패: 보고된 금액만 청구한다
       }
     });

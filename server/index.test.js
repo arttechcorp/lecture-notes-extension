@@ -3115,6 +3115,7 @@ test("a section block that breaks the schema is nulled and its original envelope
     const out = await res.json();
     assert.equal(out.output.blocks[bad], null);
     assert.deepEqual(out.salvaged, { [bad]: broken.blocks[bad] });
+    assert.deepEqual(out.salvagedErrors, { [bad]: ["/notAField 허용되지 않는 속성입니다"] }, "블록 안 경로와 사유만, 내용 없음");
     for (const k of Object.keys(s1Out.blocks)) if (k !== bad) assert.deepEqual(out.output.blocks[k], s1Out.blocks[k]);
   });
 });
