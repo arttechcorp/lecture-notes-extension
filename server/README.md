@@ -87,7 +87,7 @@ supabase secrets set --env-file <저장소 밖의 env 파일>
 | `ALLOWED_VISION_MODELS` | 비전 모델 목록 |
 | `ALLOWED_STT_MODELS` | `["microsoft/mai-transcribe-2"]` |
 | `ALLOWED_JUDGE_MODELS` | 선택. 판정 모델 |
-| `EXTENSION_ORIGIN` | `chrome-extension://gllijdanodakjamndimlpgmhokaakpod`(저장소 경로에서 계산한 개발용 ID. `chrome://extensions`에서 확인) |
+| `EXTENSION_ORIGIN` | `chrome-extension://gllijdanodakjamndimlpgmhokaakpod,chrome-extension://gibhonakailcjlgjnfgeggpoigdbieef`(쉼표로 구분한 정확한 출처 목록. 압축 해제 ID는 폴더 경로에서 나와 개발자마다 다르다 — 기욱 macOS, 지환 Windows. `chrome://extensions`에서 확인. 목록에 없는 출처의 POST는 403 `origin_not_allowed`) |
 | `USAGE_DIGEST_KEY` | 32자 이상 무작위 문자열(요청 본문 해시용 HMAC 키) |
 
 배포(Docker 불필요):

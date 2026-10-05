@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.8 — 2026-10-05
+
+- 서버 EXTENSION_ORIGIN 이 쉼표로 구분한 정확한 출처 목록을 받는다. CORS 헤더는 요청한 허용 출처를 돌려준다(필드: Windows 경로에서 불러온 개발 확장 ID가 달라 비전·STT POST 가 모두 403 origin_not_allowed — 백그라운드 VIS_ORIGIN_NOT_ALLOWED, 실시간 OCR_FAILED).
+- config.toml 로그인 리디렉트에 두 번째 개발 확장 ID를 더했다.
+
 ## 1.3.7 — 2026-10-05
 
 - 단계가 모르는 오류(UNKNOWN)로 멈추면 진단에 오류 이름과 던진 위치(파일:줄)를 남긴다. 메시지는 싣지 않는다(필드: 검증 단계가 근거 판정 직후 UNKNOWN으로 멈췄는데 원인을 알 수 없었음).

@@ -2189,7 +2189,9 @@ function config(env){
   if(!Object.keys(tokens).length&&!env.SUPABASE_URL)throw new Error("APP_TOKENS_JSON required");
   for(const [account,token]of Object.entries(tokens)){safePart(account);if(typeof token!=="string"||token.length<32||known.has(token))throw new Error("unique_32_character_tokens_required");known.add(token);}
   if(!Array.isArray(allow)||!allow.length||allow.some(m=>!RATES[m]))throw new Error("invalid_model_allowlist");
-  if(!/^chrome-extension:\/\/[a-p]{32}$/.test(env.EXTENSION_ORIGIN||""))throw new Error("exact_extension_origin_required");
+  // 정확한 출처 목록(쉼표 구분)이다. 압축 해제 확장의 ID는 폴더 경로에서 나와 개발자마다 다르고 웹스토어 ID도 따로라 하나씩 넣는다.
+  const origins=String(env.EXTENSION_ORIGIN||"").split(",").map(o=>o.trim());
+  if(origins.some(o=>!/^chrome-extension:\/\/[a-p]{32}$/.test(o)))throw new Error("exact_extension_origin_required");
   const providers=JSON.parse(env.OPENROUTER_PROVIDERS_JSON||"{}");
   for(const m of allow)if(!Array.isArray(providers[m])||!providers[m].length||providers[m].some(p=>typeof p!=="string"||p.length>100))throw new Error("explicit_provider_allowlist_required");
   const visionModels=JSON.parse(env.ALLOWED_VISION_MODELS||"[]");
@@ -2254,7 +2256,7 @@ function config(env){
   if(!plain(providerConcurrency)||Object.values(providerConcurrency).some(v=>!Number.isInteger(v)||v<=0))throw new Error("invalid_provider_concurrency");
   // 요청 수·분당 호출 수는 거친 안전망이다. 진짜 상한은 비용 캡(MAX_COST_CENTS, GLOBAL_COST_CENTS)이다 —
   // v2 유료 작업은 강의 1시간에 150회 안팎을 부르고 비전 8레인만으로도 분당 120회에 닿아서 예전 기본값이 정상 작업을 막았다.
-  return {tokens,allow,providers,key:env.OPENROUTER_API_KEY,mgmtKey:env.OPENROUTER_MANAGEMENT_KEY||null,origin:env.EXTENSION_ORIGIN,root:path.resolve(env.VAULT_DIR||"server-data"),stateFile:env.USAGE_STATE_FILE?path.resolve(env.USAGE_STATE_FILE):null,
+  return {tokens,allow,providers,key:env.OPENROUTER_API_KEY,mgmtKey:env.OPENROUTER_MANAGEMENT_KEY||null,origins,root:path.resolve(env.VAULT_DIR||"server-data"),stateFile:env.USAGE_STATE_FILE?path.resolve(env.USAGE_STATE_FILE):null,
     accountLimits,visionModels,sttModels,judgeModels,featureFlags,remoteConfig,supabase,planFeatures,providerConcurrency,maxCents:positive(env.MAX_COST_CENTS,1500),maxRequests:positive(env.MAX_REQUESTS,10000),globalCents:positive(env.GLOBAL_COST_CENTS,15000),timeout:Math.min(positive(env.OPENROUTER_TIMEOUT_MS,120000),120000),accountConcurrency:positive(env.ACCOUNT_CONCURRENCY,12),providerQueueMs:positive(env.PROVIDER_QUEUE_MS,10000),ratePerMin:positive(env.ACCOUNT_RATE_PER_MIN,300),maxFiles:100,maxArchiveBytes:200*1024*1024};
 }
 function atomic(file,data){fs.mkdirSync(path.dirname(file),{recursive:true});const temp=file+"."+crypto.randomUUID()+".tmp";fs.writeFileSync(temp,JSON.stringify(data),{mode:0o600,flag:"wx"});fs.renameSync(temp,file);}
@@ -2309,7 +2311,7 @@ function createServer(env=process.env,deps={}){
   const fail=(res,code,retryAfterMs,extra)=>{const [status,retryable,message]=ERRORS[code]||[500,false,"요청을 처리하지 못했습니다."];send(res,status,{error:{code,message,retryable,retryAfterMs:Number.isInteger(retryAfterMs)?retryAfterMs:null,...extra}});};
   function send(res,status,data){
     if(res.destroyed||res.writableEnded)return;
-    res.writeHead(status,{"content-type":"application/json","cache-control":"no-store","x-content-type-options":"nosniff","access-control-allow-origin":c.origin,"vary":"Origin","access-control-allow-headers":"authorization,content-type,x-client-version","access-control-allow-methods":"GET,PUT,POST,DELETE,OPTIONS"});
+    res.writeHead(status,{"content-type":"application/json","cache-control":"no-store","x-content-type-options":"nosniff","access-control-allow-origin":res.allowOrigin||c.origins[0],"vary":"Origin","access-control-allow-headers":"authorization,content-type,x-client-version","access-control-allow-methods":"GET,PUT,POST,DELETE,OPTIONS"});
     res.end(status===204?undefined:JSON.stringify(data));
   }
   // 정적 토큰(운영·개발·테스트 계정)이 먼저, 그다음 Supabase JWT. → {id,jwt,limits,client} | {code}. JWT 계정의 limits 는 핸들러가 DB 등급으로 채운다.
@@ -2711,7 +2713,8 @@ function createServer(env=process.env,deps={}){
   // handle 은 런타임과 무관한 요청 처리기다. 로컬은 http 서버가, 배포는 supabase/functions/api 의 Deno 어댑터가 같은 함수를 부른다.
   const handle=async(req,res)=>{
     try{
-      if(req.headers.origin&&req.headers.origin!==c.origin)return fail(res,"origin_not_allowed");
+      if(req.headers.origin&&!c.origins.includes(req.headers.origin))return fail(res,"origin_not_allowed");
+      res.allowOrigin=req.headers.origin;
       if(req.method==="OPTIONS")return send(res,204,{});
       const who=await accountFor(req);if(who.code)return fail(res,who.code,undefined,{reason:who.reason,detail:who.detail});
       const account=who.id;

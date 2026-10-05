@@ -3190,3 +3190,19 @@ test("with a management key the ledger takes OpenRouter's billed amount per gene
     assert.equal(settledOf(sb, 1).p_actual_cost_micros, Math.ceil(.002 * 1e6), "조회 실패면 응답의 보고 비용");
   }, { env: { OPENROUTER_MANAGEMENT_KEY: "mgmt-test-key" } });
 });
+
+test("EXTENSION_ORIGIN accepts a comma list of exact origins — each developer's unpacked ID and the store ID", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-")), origin2 = "chrome-extension://" + "b".repeat(32);
+  assert.throws(() => createServer({ ...config(root), EXTENSION_ORIGIN: origin + ",https://evil.example" }), /exact_extension_origin_required/);
+  const server = createServer({ ...config(root), EXTENSION_ORIGIN: origin + ", " + origin2 }, { fetch: async () => provider() });
+  await new Promise(r => server.listen(0, "127.0.0.1", r));
+  const url = "http://127.0.0.1:" + server.address().port;
+  try {
+    for (const site of [origin, origin2]) {
+      const r = await req(url, "/v1/me", "GET", undefined, token, site);
+      assert.equal(r.status, 200, site);
+      assert.equal(r.headers.get("access-control-allow-origin"), site, "CORS 는 요청한 허용 출처를 돌려준다");
+    }
+    assert.equal((await req(url, "/v1/me", "GET", undefined, token, "chrome-extension://" + "c".repeat(32))).status, 403);
+  } finally { await close(server); removeTemp(root); }
+});
