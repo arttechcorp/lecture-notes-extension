@@ -171,6 +171,18 @@ async function bgJob(job,source,settings,me,ctl){
   }catch(error){authEvent(error,{jobId:job.jobId});done={jobId:job.jobId,status:"failed",code:Pipeline.codeOf(error,"SRC")||"UNKNOWN",saved:null};} // 코드 없는 오류(버그)도 체크포인트는 마지막 정상 상태에 남아 BG_LIST에서 이어 갈 수 있다
   finally{bg=null;progress.stop();}
   chrome.runtime.sendMessage({target:"background",type:"BG_DONE",...done}).catch(()=>{});
+  writeJobDiag(job.jobId); // 기다리지 않는다
+}
+// 작업이 끝날 때마다(성공·실패·멈춤) 그 작업의 진단 기록을 노트 폴더 옆 Downloads/Summrizei/diagnostics/ 에 남긴다 — 문의할 때 따로 내보내지 않고 바로 첨부하게.
+// 이벤트는 처음부터 내용 없는 코드·수치뿐이다(§10). 계정·환경 정보는 넣지 않는다 — 그건 설정의 "진단 내보내기"가 사용자가 누를 때만 모은다.
+async function writeJobDiag(jobId){
+  try{
+    await sink?.flush();
+    const evs=(await (await storeP).readLogs()).filter(e=>e.jobId===jobId);
+    if(!evs.length)return;
+    const bundle=Diagnostics.exportBundle(evs,{version:chrome.runtime.getManifest?.()?.version??null});
+    await chrome.runtime.sendMessage({target:"background",type:"DIAG_EXPORT",jobId,text:JSON.stringify(bundle,null,2)});
+  }catch{events.emit({stage:"library",jobId,level:"warn",code:"DIAG_EXPORT_FAILED"});}
 }
 // 보관함 패키지의 저장 입력으로 노트를 다시 만든다(옵션 변경·인식만 끝난 강의의 노트화). background.js만 부를 수 있다(BG_*와 같다).
 // 원본 프레임은 없으니 크롭을 새로 자르지 않는다: input 의 figureData/formulaCrops 가 가리키는 `<pkg>:c:*` 블롭이 남아 있고,
