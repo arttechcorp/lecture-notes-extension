@@ -2278,8 +2278,17 @@ test("a length cut-off settles as an error carrying the reported charge, not as 
     sb.other = async () => replies.shift();
     await errorOf(await req(url, "/v1/write", "POST", sectionIn({ requestId: "cut-3" }), jwt), 422, "llm_output_truncated");
     assert.equal(settledOf(sb, 2).p_actual_cost_micros, Math.ceil((.001 + .003) * 1e6));
+
     assert.equal(settledOf(sb, 2).p_input_tokens, 1600);
     assert.equal(sb.rpcNamed("settle_usage").every(r => r.args.p_status === "error"), true);
+    // 빈 응답(생성 없음·사용량 없음) 뒤의 성공한 재시도는 그 재시도의 토큰 비용으로 정산된다 — 예약금 전액이 아니다.
+    const empty = { ok: true, json: async () => ({ choices: [{ finish_reason: null, message: { content: "" } }] }) };
+    const ok2 = [empty, noteReply(s1Out, { usage: { prompt_tokens: 1000, completion_tokens: 500 } })];
+    sb.other = async () => ok2.shift();
+    assert.equal((await req(url, "/v1/write", "POST", sectionIn({ requestId: "cut-4" }), jwt)).status, 200);
+    const s4 = settledOf(sb, 3);
+    assert.equal(s4.p_status, "ok");
+    assert.equal(s4.p_actual_cost_micros, Math.ceil((1000 * .1 + 500 * .4) / 1e6 * 1e6));
   });
 });
 

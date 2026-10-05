@@ -8,10 +8,14 @@ const RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1
 // 이미지 입력은 텍스트와 단가가 다르고 출력도 훨씬 짧다. /v1/plan·/v1/write 와 예약 계산을 섞지 않는다.
 // 제공자가 비용(usage.cost)을 보고하지 않으면 토큰 수 × 단가표(USD/100만 토큰)로 계산한다 — 예약액 전체를 청구하지 않게.
 // 토큰 수도 없으면 null(미보고) — 장부가 예약액을 청구한다. 추론 토큰은 completion_tokens 에 들어 있다.
-const costOf=(u,pi,po)=>{
+// 비용 보고·토큰이 없고 생성된 글도 없으면(empty: 빈 응답·본문 오류, 길이 잘림 아님) 생성이 없었다 — 0 으로 정산한다. 필드: 이런 시도 하나가 reported=false 로 남아
+// 같은 요청의 성공한 재시도까지 예약금 전액($0.6)으로 정산되게 했고, 서버 장부가 OpenRouter 실사용의 4~5배가 됐다.
+// ponytail: 토큰 없이 청구하는 제공자가 생기면 /api/v1/generation?id= 로 실제 비용을 대조한다.
+const costOf=(u,pi,po,empty=false)=>{
   if(typeof u.cost==="number"&&Number.isFinite(u.cost)&&u.cost>=0)return u.cost;
   const i=Number(u.prompt_tokens),o=Number(u.completion_tokens);
-  return Number.isFinite(i)&&Number.isFinite(o)&&i>=0&&o>=0&&i+o>0?(i*pi+o*po)/1e6:null;
+  if(empty&&!(i>0)&&!(o>0))return 0;
+  return Number.isFinite(i)&&Number.isFinite(o)&&i>=0&&o>=0?(i*pi+o*po)/1e6:null;
 };
 const VISION_RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"mistralai/ministral-8b-2512":[.15,.15],"qwen/qwen3-vl-8b-instruct":[.12,.45],"openai/gpt-6-luna":[.1,.5]};
 // 구조화 출력은 상자 좌표까지 JSON으로 나가 순수 텍스트보다 길다.
@@ -593,7 +597,7 @@ function createServer(env=process.env,deps={}){
         // 필드: OpenRouter 크레딧이 바닥난 순간 이런 응답 3건이 각각 예약금 전액($0.57)으로 정산됐다.
         if(!choice&&!raw.usage)throw Object.assign(new Error("provider_failed"),{detail:"provider_body_"+String(raw.error?.code??"empty").replace(/[^a-z0-9_]/gi,"_").slice(0,24)},retry===0?{refund:true,code:"provider_failed_or_invalid_output"}:{});
         usage={promptTokens:usage.promptTokens+(Number(u.prompt_tokens)||0),completionTokens:usage.completionTokens+(Number(u.completion_tokens)||0)};
-        { const c=costOf(u,pi,po); if(c===null)reported=false;else amount+=c; }
+        { const c=costOf(u,pi,po,!choice?.message?.content&&choice?.finish_reason!=="length"); if(c===null)reported=false;else amount+=c; }
         // 잘림은 한도를 키워 재시도하지 않는다 — 클라이언트가 섹션을 나눠 새 요청으로 보낸다(§6.5). 재시도 없이 지금까지 나간 비용만 청구한다.
         // 잘린 출력이 같은 말을 되풀이했는지(반복 루프) 내용 없이 남긴다: 뒤쪽 4000자의 40자 조각 중 서로 다른 조각 비율. 0.5 미만이면 .rep
         if(choice?.finish_reason==="length")throw Object.assign(new Error("llm_output_truncated"),{code:"llm_output_truncated",detail:"llm_output_truncated."+(repetitive(choice?.message?.content)?"rep":"long"),charged:{amount,reported,usage}});
