@@ -95,7 +95,7 @@
   const B17 = (b, h) => {
     if (b.sys) {
       const lines = arr(h.note && h.note.notices)
-        .map(x => (x && x.code && !String(x.code).startsWith("NOTE_ADVISORY_")) ? h.notice(x) : "").filter(Boolean);
+        .map(x => (x && x.code && !String(x.code).startsWith("NOTE_ADVISORY_") && !HIDDEN.has(x.code)) ? h.notice(x) : "").filter(Boolean);
       return lines.length ? `<aside class="note-check note-sys"><h4>처리 고지</h4><ul>${lines.map(t => `<li>${t}</li>`).join("")}</ul></aside>` : "";
     }
     const c = b.check || {}, corr = c.kind === "correction";
@@ -335,6 +335,9 @@
     return `<article class="note">${pieces.join("")}</article>`;
   };
 
+  // 화면·PDF 에 띄우지 않는 고지(사용자 결정): 원본 이미지로 보인 수식 수는 알릴 필요가 없다. 노트 데이터에는 남는다.
+  const HIDDEN = new Set(["NOTE_FORMULAS_IMAGE"]);
+
   // §12.3 고지 문구 — 일반 텍스트를 돌려준다(이스케이프는 h.notice 가 한다). ids 는 절대 문구에 쓰지 않는다.
   const TEXT = {
     NOTE_CAPTURE_GAP: c => `인식하지 못한 구간 ${c}곳`,
@@ -345,7 +348,6 @@
     NOTE_JUDGE_SKIPPED: () => "중요도 판정 없이 만들었습니다",
     NOTE_CLAIMS_UNSUPPORTED: c => `강의 근거가 부족해 보류한 내용 ${c}건`,
     NOTE_ITEMS_PRUNED: c => `연결된 내용이 빠져 함께 뺀 항목 ${c}건`,
-    NOTE_FORMULAS_IMAGE: c => `원본 이미지로 표시한 수식 ${c}개`,
     NOTE_FORMULAS_CHECK: c => `확인이 필요한 수식 ${c}개`,
     NOTE_FORMULAS_UNVERIFIED: c => `확인이 필요한 수식 ${c}개`,
     NOTE_FIGURES_CHECK: c => `확인이 필요한 도표 ${c}개`,

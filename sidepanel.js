@@ -270,7 +270,6 @@ const BG_NOTE={ // 완료 고지 코드 → 사용자 문장. n은 건수(없으
   NOTE_UNITS_UNCITED:n=>`노트에 반영되지 않은 강의 구간 ${n}곳`,
   NOTE_GLOBAL_FAILED:()=>'강의 전체 요약을 만들지 못했습니다',
   NOTE_JUDGE_SKIPPED:()=>'중요도 판정 없이 만들었습니다',
-  NOTE_FORMULAS_IMAGE:n=>`원본 이미지로 표시한 수식 ${n}개`,
   NOTE_FORMULAS_CHECK:n=>`확인이 필요한 수식 ${n}개`,
   NOTE_FORMULAS_UNVERIFIED:n=>`확인이 필요한 수식 ${n}개`,
   NOTE_FIGURES_CHECK:n=>`확인이 필요한 도표 ${n}개`,
@@ -286,7 +285,7 @@ function bgNoticeLines(notices){
   for(const n of notices||[]){
     const code=n?.code||'',count=n?.count||1; // ids는 절대 화면에 싣지 않는다
     if(BG_NOTE_PRUNED.has(code)){if(at<0)at=lines.length;pruned+=count;continue;}
-    if(code.startsWith('NOTE_ADVISORY_')||code.startsWith('CONSENT_'))continue; // CONSENT_*는 고지가 아니라 따로 UI가 받는다
+    if(code.startsWith('NOTE_ADVISORY_')||code.startsWith('CONSENT_')||code==='NOTE_FORMULAS_IMAGE')continue; // CONSENT_*는 고지가 아니라 따로 UI가 받는다
     lines.push((BG_NOTE[code]?BG_NOTE[code](count):`기타 고지: ${code}×${count}`)+bgRanges(n?.ranges));
   }
   if(pruned)lines.splice(at,0,`연결된 내용이 빠져 함께 뺀 항목 ${pruned}건`);

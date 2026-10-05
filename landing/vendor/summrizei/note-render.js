@@ -80,8 +80,9 @@
         return check();
       }
       if (e.display === "crop") {
-        const img = crop(id, "원본 이미지로 표시");
-        if (img) return `<span class="note-f note-f-img">${img}<span class="note-f-label">원본 이미지로 표시</span></span>`;
+        // 원본 이미지 수식에는 설명 문구를 붙이지 않는다(사용자 결정) — 이미지 대체 텍스트만 둔다.
+        const img = crop(id, "수식");
+        if (img) return `<span class="note-f note-f-img">${img}</span>`;
       }
       return check();
     };
