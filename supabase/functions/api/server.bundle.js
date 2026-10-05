@@ -1365,13 +1365,16 @@ const __defs = {
     const evUnit = new Map(evidence.map(e => [e.id, e.unitId]));
     const hit = new Set(cited.map(r => evUnit.get(r)).filter(Boolean));
     const ownHit = sec.unitIds.filter(u => hit.has(u)).length;
+    // 커버리지 부족은 경고다 — 통과한 블록까지 섹션째 버리면 노트가 더 비고(필드: 4/6 블록이 살아 있던 섹션이 빠짐),
+    // 섹션 오류가 있으면 블록 repair 도 건너뛰어 커버리지가 회복될 길이 막힌다. 덜 다룬 구간은 조립의 미반영 구간 고지가 알린다.
+    const warnings = [];
     if (sec.unitIds.length && ownHit / sec.unitIds.length < 0.5)
-      pushErr(secErrs, "VAL_COVERAGE_LOW", [`${ownHit}/${sec.unitIds.length}`]);
+      pushErr(warnings, "VAL_COVERAGE_LOW", [`${ownHit}/${sec.unitIds.length}`]);
     const calc = {};
     for (const r of validBlocks) if (r.type === "B10")
       for (const [k, v] of Object.entries(r.calcRun?.values || {})) calc[`${r.id}.${k}`] = v;
     return {
-      sectionId, ok: !secErrs.length && staged.every(r => !r.errors.length), errors: secErrs, gist,
+      sectionId, ok: !secErrs.length && staged.every(r => !r.errors.length), errors: secErrs, warnings, gist,
       blocks: staged.map(r => ({ id: r.id, type: r.type, envelope: r.envelope, errors: r.errors })),
       checks, calc, cited,
     };
@@ -3002,7 +3005,7 @@ const NoteContract=require("../lib/note-contract.js"),Contracts=require("../lib/
 const PROMPT_VERSION="note-v2";
 const STAGES=["plan","section","global","repair"];
 // 토큰 예산(§8.1). 서버는 바이트 / bytesPerToken 으로 어림한다 — 정확한 토크나이저가 아니라 입력 상한을 거르는 가드다.
-const LIMITS={bytesPerToken:4,tokens:{plannerInput:40000,plannerOutput:16000,writerInput:16000,writerOutput:8000,globalInput:24000,globalOutput:4000}};
+const LIMITS={bytesPerToken:4,tokens:{plannerInput:40000,plannerOutput:16000,writerInput:16000,writerOutput:14000,globalInput:24000,globalOutput:4000}};
 const T=LIMITS.tokens;
 
 // 자료 안의 지시를 무시하라는 문장이 프롬프트 인젝션 방어선이다. 수식은 다시 쓰지 않고 등록부 id 로만 가리킨다.

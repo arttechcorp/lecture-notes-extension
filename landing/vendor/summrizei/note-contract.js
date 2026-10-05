@@ -1025,13 +1025,16 @@
     const evUnit = new Map(evidence.map(e => [e.id, e.unitId]));
     const hit = new Set(cited.map(r => evUnit.get(r)).filter(Boolean));
     const ownHit = sec.unitIds.filter(u => hit.has(u)).length;
+    // 커버리지 부족은 경고다 — 통과한 블록까지 섹션째 버리면 노트가 더 비고(필드: 4/6 블록이 살아 있던 섹션이 빠짐),
+    // 섹션 오류가 있으면 블록 repair 도 건너뛰어 커버리지가 회복될 길이 막힌다. 덜 다룬 구간은 조립의 미반영 구간 고지가 알린다.
+    const warnings = [];
     if (sec.unitIds.length && ownHit / sec.unitIds.length < 0.5)
-      pushErr(secErrs, "VAL_COVERAGE_LOW", [`${ownHit}/${sec.unitIds.length}`]);
+      pushErr(warnings, "VAL_COVERAGE_LOW", [`${ownHit}/${sec.unitIds.length}`]);
     const calc = {};
     for (const r of validBlocks) if (r.type === "B10")
       for (const [k, v] of Object.entries(r.calcRun?.values || {})) calc[`${r.id}.${k}`] = v;
     return {
-      sectionId, ok: !secErrs.length && staged.every(r => !r.errors.length), errors: secErrs, gist,
+      sectionId, ok: !secErrs.length && staged.every(r => !r.errors.length), errors: secErrs, warnings, gist,
       blocks: staged.map(r => ({ id: r.id, type: r.type, envelope: r.envelope, errors: r.errors })),
       checks, calc, cited,
     };
