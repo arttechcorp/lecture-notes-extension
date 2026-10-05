@@ -1,5 +1,5 @@
 const test=require("node:test"),assert=require("node:assert/strict"),fs=require("node:fs"),os=require("node:os"),path=require("node:path"),crypto=require("node:crypto");
-const {createServer,config:serverConfig,readState,toTranscript,toSlideDoc,VISION_SCHEMA,judgeProbs,JUDGE_MODELS}=require("./index"),Vault=require("../lib/vault"),Contracts=require("../lib/contracts.js");
+const {repetitive,createServer,config:serverConfig,readState,toTranscript,toSlideDoc,VISION_SCHEMA,judgeProbs,JUDGE_MODELS}=require("./index"),Vault=require("../lib/vault"),Contracts=require("../lib/contracts.js");
 const token="test-token-A-".padEnd(40,"a"),tokenB="test-token-B-".padEnd(40,"b"),origin="chrome-extension://"+"a".repeat(32),model="google/gemini-2.5-flash-lite";
 function config(root){return {APP_TOKENS_JSON:JSON.stringify({A:token,B:tokenB}),EXTENSION_ORIGIN:origin,OPENROUTER_API_KEY:"mock-operator-key",OPENROUTER_PROVIDERS_JSON:JSON.stringify({[model]:["test-provider"]}),VAULT_DIR:root};}
 function provider(){return noteReply(s1Out);}
@@ -2261,7 +2261,7 @@ test("a length cut-off settles as an error carrying the reported charge, not as 
     const { p_latency_ms, ...cut } = settledOf(sb, 0);
     assert.deepEqual(cut, {
       p_user: UID, p_request_id: "cut-1", p_actual_cost_micros: Math.ceil(.003 * 1e6), p_status: "error", p_stage: "write.section", p_provider: "openrouter", p_model: model,
-      p_input_tokens: 800, p_output_tokens: 90, p_audio_seconds: null, p_images: null, p_prompt_version: null, p_schema_version: null, p_error_code: "llm_output_truncated", p_client_version: null, p_host: null,
+      p_input_tokens: 800, p_output_tokens: 90, p_audio_seconds: null, p_images: null, p_prompt_version: null, p_schema_version: null, p_error_code: "llm_output_truncated.long", p_client_version: null, p_host: null,
       p_job_id: null, p_lecture_seconds: null, p_slides: null, p_subject: null, p_subject_conf: null,
     });
     await errorOf(await req(url, "/v1/write", "POST", sectionIn({ requestId: "cut-1" }), jwt), 409, "request_already_reserved_or_processed");
@@ -3142,4 +3142,10 @@ test("write: optional sourceLang en adds the English rules and claim src to the 
     assert.ok(JSON.stringify(sent[0].response_format).includes('"src"'));
     assert.ok(!sent[0].messages[1].content.includes("sourceLang"), "사용자 본문은 그대로");
   });
+});
+
+test("repetitive: a truncated output that loops on the same text is told apart from one that is just long", () => {
+  assert.equal(repetitive("abcdefghij".repeat(400)), true);
+  assert.equal(repetitive(Array.from({ length: 300 }, (_, i) => `문장 ${i} 은 서로 다른 내용을 담는다.`).join(" ")), false);
+  assert.equal(repetitive("짧다"), false);
 });
