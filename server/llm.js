@@ -14,6 +14,7 @@ const MODELS={
   "anthropic/claude-haiku-4.5":{tags:["amazon-bedrock/global"],reasoning:{enabled:false},maxTokens:32768,cache:true},
   "anthropic/claude-sonnet-4.6":{tags:["amazon-bedrock/global"],reasoning:{enabled:false},maxTokens:32768,cache:true},
   "openai/gpt-6-luna":{tags:["azure"],reasoning:{effort:"high"},maxTokens:16384,temperature:false},
+  "openai/gpt-6.1-sol":{tags:["azure"],reasoning:{effort:"medium"},reasoningBudget:8000,maxTokens:32768,temperature:false},
   "xiaomi/mimo-v2.6-pro":{tags:["deepinfra/fp8"],reasoning:{effort:"low"},reasoningBudget:4000,maxTokens:32768},
   "xiaomi/mimo-v2.6-flash":{tags:["inference-net/fp8","deepinfra/fp8"],reasoning:{enabled:false},maxTokens:32768},
 };

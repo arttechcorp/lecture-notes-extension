@@ -15,11 +15,11 @@ Node.js 22 이상, 추가 의존성/빌드 없이 `node server/index.js`. 기본
 OPENROUTER_API_KEY=<운영자 키, 확장에 넣지 않음>
 EXTENSION_ORIGIN=chrome-extension://<실제 32자 확장 ID>
 APP_TOKENS_JSON={"pilot-user":"<계정마다 고유한 32자 이상 난수 앱 토큰>"}
-ALLOWED_MODELS=["xiaomi/mimo-v2.6-pro","xiaomi/mimo-v2.6-flash","google/gemini-2.5-flash-lite"]
+ALLOWED_MODELS=["openai/gpt-6.1-sol","xiaomi/mimo-v2.6-pro","xiaomi/mimo-v2.6-flash","google/gemini-2.5-flash-lite"]
 ALLOWED_VISION_MODELS=["openai/gpt-6-luna"]
 ALLOWED_STT_MODELS=["microsoft/mai-transcribe-2"]
 ALLOWED_JUDGE_MODELS=["typesafe/jev-1.13"]
-OPENROUTER_PROVIDERS_JSON={"xiaomi/mimo-v2.6-pro":["deepinfra/fp8"],"xiaomi/mimo-v2.6-flash":["inference-net/fp8","deepinfra/fp8"],"google/gemini-2.5-flash-lite":["google-vertex"],"openai/gpt-6-luna":["azure"],"typesafe/jev-1.13":["typesafe"]}
+OPENROUTER_PROVIDERS_JSON={"openai/gpt-6.1-sol":["azure"],"xiaomi/mimo-v2.6-pro":["deepinfra/fp8"],"xiaomi/mimo-v2.6-flash":["inference-net/fp8","deepinfra/fp8"],"google/gemini-2.5-flash-lite":["google-vertex"],"openai/gpt-6-luna":["azure"],"typesafe/jev-1.13":["typesafe"]}
 VAULT_DIR=<서비스 전용 영속 볼륨의 절대 경로>
 USAGE_STATE_FILE=<같은 영속 볼륨>/usage.json
 MAX_REQUESTS=10000
