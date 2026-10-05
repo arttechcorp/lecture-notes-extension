@@ -3149,3 +3149,14 @@ test("repetitive: a truncated output that loops on the same text is told apart f
   assert.equal(repetitive(Array.from({ length: 300 }, (_, i) => `문장 ${i} 은 서로 다른 내용을 담는다.`).join(" ")), false);
   assert.equal(repetitive("짧다"), false);
 });
+
+test("a 200 whose body is an error with no choices and no usage is refunded on the first attempt, not settled at the full reservation", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    let n = 0;
+    sb.other = async () => { n++; return { ok: true, json: async () => ({ error: { code: 402, message: "Insufficient credits" } }) }; };
+    await errorOf(await req(url, "/v1/write", "POST", input, ec1()), 502, "provider_failed_or_invalid_output");
+    assert.equal(n, 1, "본문 오류는 형식 재시도를 하지 않는다");
+    assert.equal(settledOf(sb, 0).p_status, "refunded");
+    assert.equal(settledOf(sb, 0).p_error_code, "provider_body_402");
+  });
+});

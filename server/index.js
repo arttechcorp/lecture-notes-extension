@@ -589,6 +589,9 @@ function createServer(env=process.env,deps={}){
         // 5xx·전송 실패는 제공자 쪽에서 돈이 나갔는지 알 수 없어 예약을 그대로 둔다(보수적).
         if(!response.ok)throw Object.assign(new Error("provider_failed"),{detail:"provider_http_"+response.status},retry===0&&response.status>=400&&response.status<500?{refund:true,code:"provider_failed_or_invalid_output"}:{});
         const raw=await boundedResponse(response,1024*1024),u=raw.usage||{},choice=raw.choices?.[0];
+        // 200 이어도 본문이 오류이고 생성이 없으면(사용량 없음·선택지 없음) 돈이 나가지 않았다 — 첫 시도면 환불한다.
+        // 필드: OpenRouter 크레딧이 바닥난 순간 이런 응답 3건이 각각 예약금 전액($0.57)으로 정산됐다.
+        if(!choice&&!raw.usage)throw Object.assign(new Error("provider_failed"),{detail:"provider_body_"+String(raw.error?.code??"empty").replace(/[^a-z0-9_]/gi,"_").slice(0,24)},retry===0?{refund:true,code:"provider_failed_or_invalid_output"}:{});
         usage={promptTokens:usage.promptTokens+(Number(u.prompt_tokens)||0),completionTokens:usage.completionTokens+(Number(u.completion_tokens)||0)};
         { const c=costOf(u,pi,po); if(c===null)reported=false;else amount+=c; }
         // 잘림은 한도를 키워 재시도하지 않는다 — 클라이언트가 섹션을 나눠 새 요청으로 보낸다(§6.5). 재시도 없이 지금까지 나간 비용만 청구한다.
