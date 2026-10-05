@@ -3116,6 +3116,12 @@ test("a section block that breaks the schema is nulled and its original envelope
     assert.equal(out.output.blocks[bad], null);
     assert.deepEqual(out.salvaged, { [bad]: broken.blocks[bad] });
     assert.deepEqual(out.salvagedErrors, { [bad]: ["/notAField 허용되지 않는 속성입니다"] }, "블록 안 경로와 사유만, 내용 없음");
+  });
+  const pat = JSON.parse(JSON.stringify(s1Out)), pb = Object.keys(pat.blocks).find(k => pat.blocks[k]?.content?.conceptId);
+  pat.blocks[pb].content.conceptId = "개념3-c"; // 필수·null 불가 칸이라 블록째 비고, 받은 값의 모양만 남는다
+  await withNoteServer(async () => noteReply(pat), async url => {
+    const out = await (await req(url, "/v1/write", "POST", sectionIn({ requestId: "salvage-2" }), tokenB)).json();
+    assert.ok(out.salvagedErrors?.[pb]?.some(x => x.endsWith(" got=가9-A")), JSON.stringify(out.salvagedErrors));
     for (const k of Object.keys(s1Out.blocks)) if (k !== bad) assert.deepEqual(out.output.blocks[k], s1Out.blocks[k]);
   });
 });

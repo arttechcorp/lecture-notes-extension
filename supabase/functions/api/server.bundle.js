@@ -2653,7 +2653,11 @@ function createServer(env=process.env,deps={}){
             const raw=parsed;parsed=Contracts.salvage(outSchema,parsed).value;
             if(stage==="section"||stage==="repair")for(const [k,v] of Object.entries(raw?.blocks||{}))if(v&&typeof v==="object"&&!Array.isArray(v)&&parsed?.blocks?.[k]===null){
               (salvaged??={})[k]=v;
-              (salvagedErrors??={})[k]=pre.errors.filter(e=>e.path.startsWith("/blocks/"+k+"/")).map(e=>(e.path.slice(k.length+8)+" "+e.message).slice(0,64)).slice(0,20);
+              // 패턴 위반은 받은 값의 모양(영문 A·숫자 9·한글 가, 나머지 기호 그대로)을 붙인다 — 내용은 싣지 않고 형식만 보여 준다.
+              (salvagedErrors??={})[k]=pre.errors.filter(e=>e.path.startsWith("/blocks/"+k+"/")).map(e=>{
+                const got=e.message==="패턴과 다릅니다"?e.path.split("/").slice(1).reduce((o,p)=>o?.[p],raw):undefined;
+                return (e.path.slice(k.length+8)+" "+e.message+(typeof got==="string"?" got="+shapeOf(got):"")).slice(0,64);
+              }).slice(0,20);
             }
           }
           const r=Contracts.validate(outSchema,parsed);
@@ -2725,6 +2729,7 @@ function createServer(env=process.env,deps={}){
   server.on("close",()=>{for(const controller of active)controller.abort();});
   return server;
 }
+const shapeOf=v=>v.slice(0,24).replace(/[A-Za-z]/g,"A").replace(/[0-9]/g,"9").replace(/[가-힣]/g,"가").replace(/A+/g,"A").replace(/9+/g,"9").replace(/가+/g,"가");
 // 모델이 빠뜨린 필드를 채우지 않는다 — 없는 값은 없는 대로 두고 계약 검사가 걸러낸다.
 const clamp01=x=>Number.isFinite(x)?Math.min(1,Math.max(0,x)):x;
 const box=b=>b!==null&&typeof b==="object"&&!Array.isArray(b)?{x:clamp01(b.x),y:clamp01(b.y),w:clamp01(b.w),h:clamp01(b.h)}:b;
@@ -3063,7 +3068,7 @@ module.exports={MODELS,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperatur
 // 프롬프트는 변하지 않는 시스템 본문이 앞이고 변하는 입력(user)은 호출부가 뒤에 붙인다: 접두 캐시가 맞으려면 이 순서를 지킨다.
 const NoteContract=require("../lib/note-contract.js"),Contracts=require("../lib/contracts.js"),LLM=require("./llm.js");
 // 프롬프트 문구나 아래 규칙을 바꾸면 올린다. 응답에 실려 단계 캐시 키에 들어간다.
-const PROMPT_VERSION="note-v2";
+const PROMPT_VERSION="note-v3";
 const STAGES=["plan","section","global","repair"];
 // 토큰 예산(§8.1). 서버는 바이트 / bytesPerToken 으로 어림한다 — 정확한 토크나이저가 아니라 입력 상한을 거르는 가드다.
 const LIMITS={bytesPerToken:4,tokens:{plannerInput:40000,plannerOutput:16000,writerInput:16000,writerOutput:14000,globalInput:24000,globalOutput:4000}};
@@ -3118,6 +3123,7 @@ const STAGE={
   section:[
     "단계: 섹션 작성. 입력은 이 섹션의 계획(section, 블록마다 blockId), 노트의 개념 목록(concepts), 이 섹션에서 인용할 수 있는 근거 항목(evidence: id, 종류, 시각, 텍스트), 수식 등록부(registry, 읽기 전용), 도표(figures)다.",
     "blocks에는 계획의 blockId마다 그 블록 타입의 봉투를 채운다. evidence에 없는 id는 인용하지 않는다. gist가 스키마에 있으면 단원 요지를 40~100자 한 주장으로 쓴다.",
+    "참조 id는 형식을 그대로 쓴다: targetIds·reviewIds는 블록 id(예: \"S2_B3\"), 섹션 id(\"S2\"), 개념 id(\"C3\"), 사례 단서(\"S2_B3/P1\")만이다. 이름·제목·번호만 쓰지 않는다. 지도 노드 key는 n1, n2처럼 쓴다.",
     "섹션 유닛의 절반 이상이 어떤 주장의 근거로 인용되어야 한다. 잡담, 출석, 인사는 다루지 않는다.",
   ],
   repair:[

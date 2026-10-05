@@ -607,7 +607,11 @@ function createServer(env=process.env,deps={}){
             const raw=parsed;parsed=Contracts.salvage(outSchema,parsed).value;
             if(stage==="section"||stage==="repair")for(const [k,v] of Object.entries(raw?.blocks||{}))if(v&&typeof v==="object"&&!Array.isArray(v)&&parsed?.blocks?.[k]===null){
               (salvaged??={})[k]=v;
-              (salvagedErrors??={})[k]=pre.errors.filter(e=>e.path.startsWith("/blocks/"+k+"/")).map(e=>(e.path.slice(k.length+8)+" "+e.message).slice(0,64)).slice(0,20);
+              // 패턴 위반은 받은 값의 모양(영문 A·숫자 9·한글 가, 나머지 기호 그대로)을 붙인다 — 내용은 싣지 않고 형식만 보여 준다.
+              (salvagedErrors??={})[k]=pre.errors.filter(e=>e.path.startsWith("/blocks/"+k+"/")).map(e=>{
+                const got=e.message==="패턴과 다릅니다"?e.path.split("/").slice(1).reduce((o,p)=>o?.[p],raw):undefined;
+                return (e.path.slice(k.length+8)+" "+e.message+(typeof got==="string"?" got="+shapeOf(got):"")).slice(0,64);
+              }).slice(0,20);
             }
           }
           const r=Contracts.validate(outSchema,parsed);
@@ -679,6 +683,7 @@ function createServer(env=process.env,deps={}){
   server.on("close",()=>{for(const controller of active)controller.abort();});
   return server;
 }
+const shapeOf=v=>v.slice(0,24).replace(/[A-Za-z]/g,"A").replace(/[0-9]/g,"9").replace(/[가-힣]/g,"가").replace(/A+/g,"A").replace(/9+/g,"9").replace(/가+/g,"가");
 // 모델이 빠뜨린 필드를 채우지 않는다 — 없는 값은 없는 대로 두고 계약 검사가 걸러낸다.
 const clamp01=x=>Number.isFinite(x)?Math.min(1,Math.max(0,x)):x;
 const box=b=>b!==null&&typeof b==="object"&&!Array.isArray(b)?{x:clamp01(b.x),y:clamp01(b.y),w:clamp01(b.w),h:clamp01(b.h)}:b;
