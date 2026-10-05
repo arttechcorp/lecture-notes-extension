@@ -3169,3 +3169,24 @@ test("a 200 whose body is an error with no choices and no usage is refunded on t
     assert.equal(settledOf(sb, 0).p_error_code, "provider_body_402");
   });
 });
+
+test("with a management key the ledger takes OpenRouter's billed amount per generation; without a lookup result it keeps the reported cost", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    const looked = [];
+    const withId = (id, o) => { const r = noteReply(s1Out, o); return { ok: true, json: async () => ({ id, ...(await r.json()) }) }; };
+    sb.other = async (u, init) => {
+      if (String(u).includes("/api/v1/generation")) {
+        looked.push([String(u), init?.headers?.authorization]);
+        return String(u).endsWith("gen-1") ? { ok: true, json: async () => ({ data: { total_cost: .0123 } }) } : { ok: false, status: 404, json: async () => ({}) };
+      }
+      return String(sb.next) === "2" ? withId("gen-2", { cost: .002 }) : withId("gen-1", { cost: .002 });
+    };
+    sb.next = 1;
+    assert.equal((await req(url, "/v1/write", "POST", sectionIn({ requestId: "billed-1" }), ec1())).status, 200);
+    assert.equal(settledOf(sb, 0).p_actual_cost_micros, Math.ceil(.0123 * 1e6), "실 청구액");
+    assert.deepEqual(looked[0], ["https://openrouter.ai/api/v1/generation?id=gen-1", "Bearer mgmt-test-key"], "관리 키로 조회");
+    sb.next = 2;
+    assert.equal((await req(url, "/v1/write", "POST", sectionIn({ requestId: "billed-2" }), ec1())).status, 200);
+    assert.equal(settledOf(sb, 1).p_actual_cost_micros, Math.ceil(.002 * 1e6), "조회 실패면 응답의 보고 비용");
+  }, { env: { OPENROUTER_MANAGEMENT_KEY: "mgmt-test-key" } });
+});

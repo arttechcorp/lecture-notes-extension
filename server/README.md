@@ -20,6 +20,7 @@ ALLOWED_VISION_MODELS=["openai/gpt-6-luna"]
 ALLOWED_STT_MODELS=["microsoft/mai-transcribe-2"]
 ALLOWED_JUDGE_MODELS=["typesafe/jev-1.13"]
 OPENROUTER_PROVIDERS_JSON={"openai/gpt-6.1-sol":["azure"],"xiaomi/mimo-v2.6-pro":["deepinfra/fp8"],"xiaomi/mimo-v2.6-flash":["io-net/fp8","venice/fp8","deepinfra/fp8"],"google/gemini-2.5-flash-lite":["google-vertex"],"openai/gpt-6-luna":["azure"],"typesafe/jev-1.13":["typesafe"]}
+OPENROUTER_MANAGEMENT_KEY=<OpenRouter 관리 키 — 정산 때 /api/v1/generation 으로 생성별 실 청구액을 조회해 장부에 적는다. 없으면 응답 보고 비용·토큰 계산>
 VAULT_DIR=<서비스 전용 영속 볼륨의 절대 경로>
 USAGE_STATE_FILE=<같은 영속 볼륨>/usage.json
 MAX_REQUESTS=10000

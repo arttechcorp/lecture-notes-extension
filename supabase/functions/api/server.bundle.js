@@ -2245,7 +2245,7 @@ function config(env){
   if(!plain(providerConcurrency)||Object.values(providerConcurrency).some(v=>!Number.isInteger(v)||v<=0))throw new Error("invalid_provider_concurrency");
   // 요청 수·분당 호출 수는 거친 안전망이다. 진짜 상한은 비용 캡(MAX_COST_CENTS, GLOBAL_COST_CENTS)이다 —
   // v2 유료 작업은 강의 1시간에 150회 안팎을 부르고 비전 8레인만으로도 분당 120회에 닿아서 예전 기본값이 정상 작업을 막았다.
-  return {tokens,allow,providers,key:env.OPENROUTER_API_KEY,origin:env.EXTENSION_ORIGIN,root:path.resolve(env.VAULT_DIR||"server-data"),stateFile:env.USAGE_STATE_FILE?path.resolve(env.USAGE_STATE_FILE):null,
+  return {tokens,allow,providers,key:env.OPENROUTER_API_KEY,mgmtKey:env.OPENROUTER_MANAGEMENT_KEY||null,origin:env.EXTENSION_ORIGIN,root:path.resolve(env.VAULT_DIR||"server-data"),stateFile:env.USAGE_STATE_FILE?path.resolve(env.USAGE_STATE_FILE):null,
     accountLimits,visionModels,sttModels,judgeModels,featureFlags,remoteConfig,supabase,planFeatures,providerConcurrency,maxCents:positive(env.MAX_COST_CENTS,1500),maxRequests:positive(env.MAX_REQUESTS,10000),globalCents:positive(env.GLOBAL_COST_CENTS,15000),timeout:Math.min(positive(env.OPENROUTER_TIMEOUT_MS,120000),120000),accountConcurrency:positive(env.ACCOUNT_CONCURRENCY,12),providerQueueMs:positive(env.PROVIDER_QUEUE_MS,10000),ratePerMin:positive(env.ACCOUNT_RATE_PER_MIN,300),maxFiles:100,maxArchiveBytes:200*1024*1024};
 }
 function atomic(file,data){fs.mkdirSync(path.dirname(file),{recursive:true});const temp=file+"."+crypto.randomUUID()+".tmp";fs.writeFileSync(temp,JSON.stringify(data),{mode:0o600,flag:"wx"});fs.renameSync(temp,file);}
@@ -2414,6 +2414,22 @@ function createServer(env=process.env,deps={}){
   const bucket=account=>{let b=buckets.get(account);if(!b){if(buckets.size>=10000)for(const [k,v]of buckets)if(Date.now()-v.ts>6e4)buckets.delete(k);buckets.set(account,b={tokens:c.ratePerMin,ts:Date.now()});}const now=Date.now();b.tokens=Math.min(c.ratePerMin,b.tokens+(now-b.ts)*c.ratePerMin/6e4);b.ts=now;return b;};
   // /v1/plan·/v1/write·/v1/vision·/v1/stt·/v1/judge 가 같은 돈을 쓴다. 예약·멱등·락·정산을 한 군데 두지 않으면
   // 두 라우트의 한도 계산이 조용히 어긋난다 — 어긋난 쪽이 무료로 돌아가는 실패 모드다.
+  // OpenRouter 생성 통계는 응답 직후 잠깐 늦게 잡힌다 — 0·0.6·1.5초에 다시 묻고, 그래도 없으면 null(호출자가 기존 계산을 쓴다).
+  async function billedCost(ids){
+    const one=async id=>{
+      for(const wait of [0,600,1500]){
+        if(wait)await new Promise(r=>setTimeout(r,wait));
+        try{
+          const ctl=new AbortController(),t=setTimeout(()=>ctl.abort(),3000);
+          const r=await fetcher("https://openrouter.ai/api/v1/generation?id="+encodeURIComponent(id),{redirect:"error",signal:ctl.signal,headers:{authorization:"Bearer "+c.mgmtKey}}).finally(()=>clearTimeout(t));
+          if(r.ok){const v=(await r.json())?.data?.total_cost;if(typeof v==="number"&&Number.isFinite(v)&&v>=0)return v;}
+        }catch{}
+      }
+      return null;
+    };
+    const vs=await Promise.all(ids.slice(0,8).map(one));
+    return ids.length<=8&&vs.every(v=>v!==null)?vs.reduce((a,b)=>a+b,0):null;
+  }
   async function withReservation({account,requestId,digest,reserve,minutes=0,model,res,meta={}},run){
     const id=account.id,store=account.jwt?sb:file;
     if((inflight.get(id)||0)>=c.accountConcurrency)return fail(res,"account_concurrency_exceeded",1000);
@@ -2428,13 +2444,13 @@ function createServer(env=process.env,deps={}){
       if(held.fail)return fail(res,FAIL_CODE[held.fail]);
       timer=setTimeout(()=>controller.abort(),c.timeout);
       const t0=Date.now();
-      let payload,amount=null,error=null,status="ok";
+      let payload,amount=null,error=null,status="ok";const gens=[];
       try{
         // 예약을 기다리는 사이 끊긴 요청은 제공자에 아무것도 보내지 않았으므로 환불이다.
         if(controller.signal.aborted)throw Object.assign(new Error("aborted"),{refund:true,code:"request_cancelled_or_timed_out"});
         const release=await acquire(model,controller.signal,false,store);
         try{
-          const r=await run(controller.signal,store);
+          const r=await run(controller.signal,store,gens);
           // 비용을 보고하지 않은 요청은 amount 가 null 이다 — 장부는 예약액을 그대로 청구한다. 공짜였다고 가정하지 않는다.
           payload=r.payload;amount=r.reported?r.amount:null;
         }finally{release();}
@@ -2445,6 +2461,9 @@ function createServer(env=process.env,deps={}){
       }
       const code=!error?null:status==="refunded"?error.code||"provider_failed_or_invalid_output":controller.signal.aborted?"request_cancelled_or_timed_out":error.charged?error.code:"provider_failed_or_invalid_output";
       const u=payload?.usage||error?.charged?.usage||{};
+      // 실 결제 금액: 이 요청이 만든 생성(gen id)마다 OpenRouter 가 실제로 청구한 금액(관리 키로 /generation 조회)을 장부에 적는다.
+      // 하나라도 못 받으면 응답의 보고 비용·토큰 계산으로 둔다. 환불(생성 없음)은 조회하지 않는다.
+      if(c.mgmtKey&&gens.length&&status!=="refunded"){const b=await billedCost(gens);if(b!==null)amount=b;}
       let stored=true;
       try{await held.settle({status,amount,meta:{...meta,inputTokens:u.promptTokens,outputTokens:u.completionTokens,audioSeconds:u.audioSec??meta.audioSeconds,promptVersion:payload?.promptVersion,schemaVersion:payload?.schemaVersion,errorCode:(code&&error?.detail)||code,latencyMs:Date.now()-t0,clientVersion:account.client}});}catch{stored=false;}
       // 정산이 안 닫혀도 이미 만든 결과는 돌려준다 — 예약이 reserved 로 남아 비용이 보수적으로 잡힌다. 환불만은 예약이 안 풀렸으므로 같은 requestId 재시도를 약속할 수 없다.
@@ -2471,7 +2490,7 @@ function createServer(env=process.env,deps={}){
     const reasoning=reasoningFor(input.model),live=reasoning.enabled!==false,maxTokens=live?maxTokensFor(input.model):VISION_MAX_TOKENS;
     // 이미지 토큰 수는 사전에 알 수 없다. 최악값에 형식 실패 재시도분까지 잡고 정산에서 되돌린다.
     const reserve=Math.ceil(attempts*(8000*pi+maxTokens*po)/1e6*100*1.2);
-    return await withReservation({account,requestId:input.requestId,digest,reserve,model:input.model,res,meta:{stage:"vision."+input.mode,provider:"openrouter",model:input.model,images:1,jobId:input.jobId}},async signal=>{
+    return await withReservation({account,requestId:input.requestId,digest,reserve,model:input.model,res,meta:{stage:"vision."+input.mode,provider:"openrouter",model:input.model,images:1,jobId:input.jobId}},async (signal,store,gens)=>{
       let usage={promptTokens:0,completionTokens:0},amount=0,reported=true;
       for(let retry=0;retry<attempts;retry++){
         const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
@@ -2481,7 +2500,7 @@ function createServer(env=process.env,deps={}){
           provider:{only:c.providers[input.model],order:c.providers[input.model],require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}
         })});
         if(!response.ok)throw new Error("provider_failed");
-        const raw=await boundedResponse(response,1024*1024),u=raw.usage||{};
+        const raw=await boundedResponse(response,1024*1024),u=raw.usage||{};if(typeof raw.id==="string")gens.push(raw.id);
         usage={promptTokens:usage.promptTokens+(Number(u.prompt_tokens)||0),completionTokens:usage.completionTokens+(Number(u.completion_tokens)||0)};
         { const c=costOf(u,pi,po); if(c===null)reported=false;else amount+=c; }
         // 형식 실패(잘림·파손·계약 불일치)만 같은 제공자로 한 번 더 간다 — 돈은 이미 나갔다.
@@ -2615,7 +2634,7 @@ function createServer(env=process.env,deps={}){
     const meta={stage:stage==="plan"?"plan":"write."+stage,provider:"openrouter",model:input.model,jobId:input.jobId,host:input.host,...(stage==="plan"?{lectureSeconds:span,slides:new Set(us.map(u=>u&&u.slideId).filter(Boolean)).size}:{})};
     // 분야 분류는 슬라이드 첫 줄을 제목으로 모아 Jev 에 한 번 묻는다 — plan 에서만, 제목이 없으면 건너뛴다.
     const titles=stage==="plan"?[...new Set(us.map(u=>typeof u.slideText==="string"?u.slideText.split("\n")[0].trim():"").filter(Boolean))].slice(0,20):[];
-    return await withReservation({account,requestId:input.requestId,digest,reserve,minutes,model:input.model,res,meta},async signal=>{
+    return await withReservation({account,requestId:input.requestId,digest,reserve,minutes,model:input.model,res,meta},async (signal,store,gens)=>{
       // 분류는 계획 호출과 병렬로 시작해 계획이 끝난 뒤에만 기다린다 — 지연(자체 5초)·실패는 meta 를 비워 두고
       // 응답·상태·청구액은 그대로다. Jev 비용은 사용자 청구에 더하지 않는다.
       const classifying=titles.length&&c.judgeModels.includes(JEV_MODEL)?(async()=>{
@@ -2638,7 +2657,7 @@ function createServer(env=process.env,deps={}){
         // 4xx 는 라우팅 단계의 거절(파라미터·제공자 없음)이라 생성 비용이 없다 — 첫 시도면 예약을 환불한다.
         // 5xx·전송 실패는 제공자 쪽에서 돈이 나갔는지 알 수 없어 예약을 그대로 둔다(보수적).
         if(!response.ok)throw Object.assign(new Error("provider_failed"),{detail:"provider_http_"+response.status},retry===0&&response.status>=400&&response.status<500?{refund:true,code:"provider_failed_or_invalid_output"}:{});
-        const raw=await boundedResponse(response,1024*1024),u=raw.usage||{},choice=raw.choices?.[0];
+        const raw=await boundedResponse(response,1024*1024),u=raw.usage||{},choice=raw.choices?.[0];if(typeof raw.id==="string")gens.push(raw.id);
         // 200 이어도 본문이 오류이고 생성이 없으면(사용량 없음·선택지 없음) 돈이 나가지 않았다 — 첫 시도면 환불한다.
         // 필드: OpenRouter 크레딧이 바닥난 순간 이런 응답 3건이 각각 예약금 전액($0.57)으로 정산됐다.
         if(!choice&&!raw.usage)throw Object.assign(new Error("provider_failed"),{detail:"provider_body_"+String(raw.error?.code??"empty").replace(/[^a-z0-9_]/gi,"_").slice(0,24)},retry===0?{refund:true,code:"provider_failed_or_invalid_output"}:{});
