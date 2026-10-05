@@ -535,10 +535,13 @@ function createServer(env=process.env,deps={}){
     if(!c.allow.includes(input.model))return fail(res,stage==="plan"?"invalid_model":"invalid_model_or_stage");
     if(!account.limits.models.includes(input.model))return fail(res,"model_not_in_account_plan");
     safePart(input.requestId);
-    const envelope=stage==="plan"?["model","requestId","noteSpecVersion"]:["model","requestId","noteSpecVersion","stage"],fields=[...envelope,...Object.keys(Prompts.REQUEST[stage].properties)],optional=stage==="plan"?["jobId","host"]:["jobId"];
+    const envelope=stage==="plan"?["model","requestId","noteSpecVersion"]:["model","requestId","noteSpecVersion","stage"],fields=[...envelope,...Object.keys(Prompts.REQUEST[stage].properties)],optional=stage==="plan"?["jobId","host"]:["jobId","sourceLang"];
     if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)&&!optional.includes(k)))return fail(res,"unexpected_field");
     // 다른 양식 버전의 입력은 모양부터 다를 수 있다. 본문 검사보다 먼저 버전으로 거절해야 클라이언트가 원인을 안다.
     if(input.noteSpecVersion!==NoteContract.NOTE_SPEC_VERSION)return fail(res,"note_spec_mismatch");
+    // 강의 원어(선택): "en" 이면 작성 지시에 영어 강의 규칙이 붙고 섹션·repair 출력의 주장마다 src 가 더해진다. 없으면 기존 요청과 같다.
+    const sourceLang=input.sourceLang;
+    if(sourceLang!==undefined&&!["ko","en"].includes(sourceLang))return fail(res,"request_rejected");
     // 모델 입력은 스키마 순서의 본문만이다 — 클라이언트의 키 순서가 달라도 같은 프롬프트가 나가야 재현된다.
     const rest=Object.fromEntries(Object.keys(Prompts.REQUEST[stage].properties).map(k=>[k,input[k]])),checked=Contracts.validate(Prompts.REQUEST[stage],rest);
     if(!checked.ok)return fail(res,checked.errors.some(e=>e.message==="허용되지 않는 속성입니다")?"unexpected_field":"request_rejected");
@@ -546,14 +549,14 @@ function createServer(env=process.env,deps={}){
     const opts=rest.options;
     if((opts.syntheticExamples||opts.externalAugmentation)&&(!(account.limits.features||[]).includes("augment")||c.featureFlags.augment===false))return fail(res,"feature_not_in_account_plan");
     // 출력 스키마는 요청(계획 블록·옵션)마다 만든다. 계획에 없는 blockId 같은 모순은 note-contract 가 던진다.
-    let outSchema;try{outSchema=Prompts.outputSchema(stage,rest);}catch{return fail(res,"request_rejected");}
-    const system=Prompts.systemFor(stage,opts),user=JSON.stringify(rest);
+    let outSchema;try{outSchema=Prompts.outputSchema(stage,rest,sourceLang);}catch{return fail(res,"request_rejected");}
+    const system=Prompts.systemFor(stage,opts,sourceLang),user=JSON.stringify(rest);
     if(Prompts.estimateTokens(user)>Prompts.inputTokenLimit(stage))return fail(res,"request_too_large");
     // Free 월 분 한도: 로컬 인식은 STT 를 거치지 않으므로 계획 요청에서 강의 길이(유닛 시각 범위)를 분으로 센다.
     // 클라우드 STT 를 쓴 작업은 STT 가 이미 셌다. ponytail: recognition 은 클라이언트 신고다 — STT 기능이 없는 계정은 신고와 무관하게 센다.
     const us=stage==="plan"?rest.ir.units:[],span=us.length?Math.max(...us.map(u=>u.t1))-Math.min(...us.map(u=>u.t0)):0;
     const minutes=stage==="plan"&&(rest.recognition==="local"||!(account.limits.features||[]).includes("stt"))?Math.max(1,Math.ceil(span/60)):0;
-    const digest=digestOf(account,JSON.stringify({route:stage==="plan"?"plan":"write",stage,model:input.model,noteSpecVersion:input.noteSpecVersion,rest}));
+    const digest=digestOf(account,JSON.stringify({route:stage==="plan"?"plan":"write",stage,model:input.model,noteSpecVersion:input.noteSpecVersion,rest,...(sourceLang?{sourceLang}:{})}));
     const [pi,po]=RATES[input.model],params=Prompts.modelParams(input.model,stage),attempts=2;
     // 형식 실패 재시도분까지 예약하고 정산에서 되돌린다. 시스템 본문과 스키마도 입력 토큰이다.
     const reserve=Math.ceil((Prompts.estimateTokens(system+JSON.stringify(outSchema)+user)*pi+params.max_tokens*po)/1e6*100*1.2*attempts);

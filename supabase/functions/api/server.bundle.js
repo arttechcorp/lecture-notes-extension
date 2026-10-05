@@ -538,6 +538,20 @@ const __defs = {
     return out;
   }
 
+  // 영어 강의(sourceLang "en")의 섹션·repair 출력: 모든 주장 객체에 src(같은 주장을 강의의 영어 표현으로 쓴 문장, lecture 가 아니면 null)를 더한다.
+  // 근거 지지 판정이 영어 근거와 영어 주장을 비교하게 하려는 칸이다 — 노트 검증·조립 전에 호출자가 뗀다(노트 형식은 그대로).
+  function withSource(schema) {
+    const out = JSON.parse(JSON.stringify(schema));
+    (function walk(v) {
+      if (Array.isArray(v)) return v.forEach(walk);
+      if (!v || typeof v !== "object") return;
+      const p = v.properties;
+      if (p && Object.keys(p).length === 3 && p.text && p.evidenceIds && p.basis) { p.src = { type: ["string", "null"], maxLength: 600 }; v.required = [...v.required, "src"]; return; }
+      Object.values(v).forEach(walk);
+    })(out);
+    return out;
+  }
+
   // 공통 봉투는 코드가 검증한다(§3.1). content 스키마가 없는 타입(B01·B04·B15·B16·B17)은 Writer 슬롯이 없다.
   function envelopeSchema(type, policy = POLICY) {
     const c = content[type];
@@ -1012,7 +1026,8 @@ const __defs = {
   const FREF_RE = /\{\{\s*(F\d+)\s*\}\}/g;
   const POINT_RE = /^(S[0-9]{1,3}_B[0-9]{1,2})\/P[1-6]$/;
   const SEC_BLOCK_RE = /^S[0-9]{1,3}_B[0-9]{1,2}$/;
-  const EMPHASIS_WORDS = { stress: /중요|핵심|꼭|반드시|기억/, exam: /시험|출제|중간고사|기말고사|퀴즈/ };
+  // 영어 강의의 근거는 영어다 — 같은 뜻의 영어 강조어도 받는다(test 는 "test set" 과 겹쳐 뺀다).
+  const EMPHASIS_WORDS = { stress: /중요|핵심|꼭|반드시|기억|\b(important|crucial|essential|remember|key point)/i, exam: /시험|출제|중간고사|기말고사|퀴즈|\b(exams?|midterm|final exam|quiz)/i };
   // 원어·인용·기한의 원문 대조는 NFC + 공백 접기 + 대소문자 무시로 한다(§9).
   const normSub = s => String(s ?? "").normalize("NFC").replace(/\s+/g, " ").toLowerCase();
   const isClaim = v => !!v && typeof v === "object" && !Array.isArray(v)
@@ -1680,7 +1695,7 @@ const __defs = {
   const api = freeze({
     NOTE_SPEC_VERSION, NOTE_SCHEMA_VERSION, POLICY, TYPES, SECTION_TYPES, GLOBAL_TYPES, WRITER_TYPES, IDS,
     schemas, envelopeSchema, sectionOutputSchemaFor, repairOutputSchemaFor, globalOutputSchemaFor,
-    normalizePlan, repairPlan, canonicalPlanIds, checkCalc, displayOf, citedRefs, validateSection, validateGlobal, assembleNote, restrictBasis, policyOf, AUG,
+    normalizePlan, repairPlan, canonicalPlanIds, checkCalc, displayOf, citedRefs, validateSection, validateGlobal, assembleNote, restrictBasis, policyOf, AUG, withSource,
   });
   globalThis.NoteContract = api;
   if (typeof module !== "undefined") module.exports = api;
@@ -2541,10 +2556,13 @@ function createServer(env=process.env,deps={}){
     if(!c.allow.includes(input.model))return fail(res,stage==="plan"?"invalid_model":"invalid_model_or_stage");
     if(!account.limits.models.includes(input.model))return fail(res,"model_not_in_account_plan");
     safePart(input.requestId);
-    const envelope=stage==="plan"?["model","requestId","noteSpecVersion"]:["model","requestId","noteSpecVersion","stage"],fields=[...envelope,...Object.keys(Prompts.REQUEST[stage].properties)],optional=stage==="plan"?["jobId","host"]:["jobId"];
+    const envelope=stage==="plan"?["model","requestId","noteSpecVersion"]:["model","requestId","noteSpecVersion","stage"],fields=[...envelope,...Object.keys(Prompts.REQUEST[stage].properties)],optional=stage==="plan"?["jobId","host"]:["jobId","sourceLang"];
     if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)&&!optional.includes(k)))return fail(res,"unexpected_field");
     // 다른 양식 버전의 입력은 모양부터 다를 수 있다. 본문 검사보다 먼저 버전으로 거절해야 클라이언트가 원인을 안다.
     if(input.noteSpecVersion!==NoteContract.NOTE_SPEC_VERSION)return fail(res,"note_spec_mismatch");
+    // 강의 원어(선택): "en" 이면 작성 지시에 영어 강의 규칙이 붙고 섹션·repair 출력의 주장마다 src 가 더해진다. 없으면 기존 요청과 같다.
+    const sourceLang=input.sourceLang;
+    if(sourceLang!==undefined&&!["ko","en"].includes(sourceLang))return fail(res,"request_rejected");
     // 모델 입력은 스키마 순서의 본문만이다 — 클라이언트의 키 순서가 달라도 같은 프롬프트가 나가야 재현된다.
     const rest=Object.fromEntries(Object.keys(Prompts.REQUEST[stage].properties).map(k=>[k,input[k]])),checked=Contracts.validate(Prompts.REQUEST[stage],rest);
     if(!checked.ok)return fail(res,checked.errors.some(e=>e.message==="허용되지 않는 속성입니다")?"unexpected_field":"request_rejected");
@@ -2552,14 +2570,14 @@ function createServer(env=process.env,deps={}){
     const opts=rest.options;
     if((opts.syntheticExamples||opts.externalAugmentation)&&(!(account.limits.features||[]).includes("augment")||c.featureFlags.augment===false))return fail(res,"feature_not_in_account_plan");
     // 출력 스키마는 요청(계획 블록·옵션)마다 만든다. 계획에 없는 blockId 같은 모순은 note-contract 가 던진다.
-    let outSchema;try{outSchema=Prompts.outputSchema(stage,rest);}catch{return fail(res,"request_rejected");}
-    const system=Prompts.systemFor(stage,opts),user=JSON.stringify(rest);
+    let outSchema;try{outSchema=Prompts.outputSchema(stage,rest,sourceLang);}catch{return fail(res,"request_rejected");}
+    const system=Prompts.systemFor(stage,opts,sourceLang),user=JSON.stringify(rest);
     if(Prompts.estimateTokens(user)>Prompts.inputTokenLimit(stage))return fail(res,"request_too_large");
     // Free 월 분 한도: 로컬 인식은 STT 를 거치지 않으므로 계획 요청에서 강의 길이(유닛 시각 범위)를 분으로 센다.
     // 클라우드 STT 를 쓴 작업은 STT 가 이미 셌다. ponytail: recognition 은 클라이언트 신고다 — STT 기능이 없는 계정은 신고와 무관하게 센다.
     const us=stage==="plan"?rest.ir.units:[],span=us.length?Math.max(...us.map(u=>u.t1))-Math.min(...us.map(u=>u.t0)):0;
     const minutes=stage==="plan"&&(rest.recognition==="local"||!(account.limits.features||[]).includes("stt"))?Math.max(1,Math.ceil(span/60)):0;
-    const digest=digestOf(account,JSON.stringify({route:stage==="plan"?"plan":"write",stage,model:input.model,noteSpecVersion:input.noteSpecVersion,rest}));
+    const digest=digestOf(account,JSON.stringify({route:stage==="plan"?"plan":"write",stage,model:input.model,noteSpecVersion:input.noteSpecVersion,rest,...(sourceLang?{sourceLang}:{})}));
     const [pi,po]=RATES[input.model],params=Prompts.modelParams(input.model,stage),attempts=2;
     // 형식 실패 재시도분까지 예약하고 정산에서 되돌린다. 시스템 본문과 스키마도 입력 토큰이다.
     const reserve=Math.ceil((Prompts.estimateTokens(system+JSON.stringify(outSchema)+user)*pi+params.max_tokens*po)/1e6*100*1.2*attempts);
@@ -3050,6 +3068,11 @@ const AUG_RULES={
   externalAugmentation:"[강의 밖 보강 허용] 강의에 없는 일반 배경 지식을 basis \"external\"로 보탤 수 있다. B05 explanation·mechanism·examples, B12 note에서만 쓰고, 확실한 교과서 수준 사실만 쓴다. 출처가 필요한 최신 수치·통계는 쓰지 않는다. 정의·결론·답안·공지·계산에는 쓰지 않는다.",
 };
 
+// 영어 강의(sourceLang "en"): 작성 단계에만 붙는다. src 는 근거 지지 판정이 영어 근거와 비교하는 칸이다(섹션·repair 출력에만 있다).
+const EN_RULES=[
+  "[영어 강의] 근거 자료는 영어다. 노트는 한국어로 쓰되, 강의의 주요 전공 용어는 블록에서 처음 쓸 때 \"영단어(한국어 번역)\" 형식으로 쓴다(예: overfitting(과적합)). 같은 블록에서 다시 쓸 때는 영단어만 쓴다. B05 term도 이 형식이고 original은 null로 둔다. 영어 근거의 강조어(important·crucial·remember, exam·midterm·quiz)도 emphasis의 근거가 된다.",
+];
+const EN_SRC="[원문 대조] 주장마다 src를 채운다. src는 그 주장을 강의 자료의 영어 표현으로 쓴 영어 문장이고 text와 같은 내용만 담는다(더하거나 빼지 않는다). basis가 lecture가 아니면 src는 null이다.";
 const STAGE={
   plan:[
     "단계: 계획. 입력은 유닛 목록(units: 슬라이드 글과 발화, 시각, 중요도), 수식 요약(formulas: id, 상태, 나오는 유닛), 도표 요약(figures)이다. 본문은 쓰지 않고 구조만 정한다.",
@@ -3077,10 +3100,11 @@ const STAGE={
   ],
 };
 // 시스템 본문 = 공용 + 노트 규칙 + 단계 규칙 (+ 켠 생성 옵션). 같은 단계·옵션이면 모든 호출이 같은 문자열이다.
-const systemFor=(stage,options)=>{
+const systemFor=(stage,options,sourceLang)=>{
   if(!Object.hasOwn(STAGE,stage))throw new Error("invalid_stage");
   const aug=stage==="plan"||stage==="global"?[]:Object.keys(AUG_RULES).filter(k=>options?.[k]===true).map(k=>AUG_RULES[k]);
-  return [COMMON,NOTE_RULES,...STAGE[stage],...aug].join("\n");
+  const en=sourceLang==="en"&&stage!=="plan"?[...EN_RULES,...(stage==="global"?[]:[EN_SRC])]:[];
+  return [COMMON,NOTE_RULES,...STAGE[stage],...aug,...en].join("\n");
 };
 
 // 요청 본문(model·requestId·noteSpecVersion·stage 를 뺀 나머지)의 계약.
@@ -3116,10 +3140,12 @@ const REQUEST={
   }),
 };
 // 요청별 출력 스키마. 계획에 없는 blockId 같은 잘못된 요청은 note-contract 가 던진다 — 라우트가 request_rejected 로 바꾼다.
-function outputSchema(stage,body){
+// 영어 강의의 섹션·repair 는 주장마다 src 칸이 더해진다(NoteContract.withSource).
+function outputSchema(stage,body,sourceLang){
+  const src=sch=>sourceLang==="en"?NoteContract.withSource(sch):sch;
   if(stage==="plan")return S.plannerOutput;
-  if(stage==="section")return NoteContract.sectionOutputSchemaFor(body.section,{gist:body.withGist,policy:body.options});
-  if(stage==="repair")return NoteContract.repairOutputSchemaFor(body.section,[...new Set(body.repair.map(r=>r.blockId))],body.options);
+  if(stage==="section")return src(NoteContract.sectionOutputSchemaFor(body.section,{gist:body.withGist,policy:body.options}));
+  if(stage==="repair")return src(NoteContract.repairOutputSchemaFor(body.section,[...new Set(body.repair.map(r=>r.blockId))],body.options));
   if(stage==="global")return NoteContract.globalOutputSchemaFor(body.plan.global);
   throw new Error("invalid_stage");
 }

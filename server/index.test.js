@@ -3118,3 +3118,21 @@ test("a section block that breaks the schema is nulled and its original envelope
     for (const k of Object.keys(s1Out.blocks)) if (k !== bad) assert.deepEqual(out.output.blocks[k], s1Out.blocks[k]);
   });
 });
+
+test("write: optional sourceLang en adds the English rules and claim src to the request; other values are rejected before any call", async () => {
+  const addSrc = o => { (function walk(v) { if (Array.isArray(v)) return v.forEach(walk); if (!v || typeof v !== "object") return;
+    if (typeof v.text === "string" && Array.isArray(v.evidenceIds) && typeof v.basis === "string") { v.src = v.basis === "lecture" ? "EN " + v.text : null; return; }
+    Object.values(v).forEach(walk); })(o); return o; };
+  const sent = [];
+  await withNoteServer(async (u, init) => { sent.push(JSON.parse(init.body)); return noteReply(addSrc(JSON.parse(JSON.stringify(s1Out)))); }, async url => {
+    await errorOf(await req(url, "/v1/write", "POST", sectionIn({ requestId: "lang-bad", sourceLang: "fr" })), 400, "request_rejected");
+    assert.equal(sent.length, 0);
+    const res = await req(url, "/v1/write", "POST", sectionIn({ requestId: "lang-en", sourceLang: "en" }));
+    assert.equal(res.status, 200);
+    const out = (await res.json()).output;
+    assert.match(out.gist.src, /^EN /);
+    assert.ok(sent[0].messages[0].content.includes ? sent[0].messages[0].content.includes("[영어 강의]") : JSON.stringify(sent[0].messages[0]).includes("[영어 강의]"));
+    assert.ok(JSON.stringify(sent[0].response_format).includes('"src"'));
+    assert.ok(!sent[0].messages[1].content.includes("sourceLang"), "사용자 본문은 그대로");
+  });
+});

@@ -133,3 +133,17 @@ test("modelParams never sends temperature to a model that rejects it (GPT-6.1 So
   assert.deepEqual({ ...sol.reasoning }, { effort: "medium" });
   assert.equal(Prompts.modelParams("xiaomi/mimo-v2.6-flash", "plan").temperature, 0);
 });
+
+test("English lecture: writer stages get the English rules, section/repair schemas add a nullable src to every claim", () => {
+  const ko = Prompts.systemFor("section", OFF), en = Prompts.systemFor("section", OFF, "en");
+  assert.ok(!ko.includes("[영어 강의]") && en.includes("[영어 강의]") && en.includes("[원문 대조]"));
+  assert.ok(en.startsWith(ko), "영어 규칙은 끝에 붙는다(접두 캐시)");
+  assert.ok(Prompts.systemFor("global", OFF, "en").includes("[영어 강의]") && !Prompts.systemFor("global", OFF, "en").includes("[원문 대조]"));
+  assert.equal(Prompts.systemFor("plan", OFF, "en"), Prompts.systemFor("plan", OFF));
+  const body = { section: s1, withGist: true, options: OFF };
+  const plain = JSON.stringify(Prompts.outputSchema("section", body)), withSrc = Prompts.outputSchema("section", body, "en");
+  assert.ok(!plain.includes('"src"'));
+  assert.ok(Contracts.isStrictCompatible(withSrc));
+  assert.deepEqual(withSrc.properties.gist.properties.src, { type: ["string", "null"], maxLength: 600 });
+  assert.equal(JSON.stringify(withSrc).split('"src":').length - 1, plain.split('"basis":').length - 1, "주장마다 하나");
+});

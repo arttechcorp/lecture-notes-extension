@@ -39,6 +39,11 @@ const AUG_RULES={
   externalAugmentation:"[강의 밖 보강 허용] 강의에 없는 일반 배경 지식을 basis \"external\"로 보탤 수 있다. B05 explanation·mechanism·examples, B12 note에서만 쓰고, 확실한 교과서 수준 사실만 쓴다. 출처가 필요한 최신 수치·통계는 쓰지 않는다. 정의·결론·답안·공지·계산에는 쓰지 않는다.",
 };
 
+// 영어 강의(sourceLang "en"): 작성 단계에만 붙는다. src 는 근거 지지 판정이 영어 근거와 비교하는 칸이다(섹션·repair 출력에만 있다).
+const EN_RULES=[
+  "[영어 강의] 근거 자료는 영어다. 노트는 한국어로 쓰되, 강의의 주요 전공 용어는 블록에서 처음 쓸 때 \"영단어(한국어 번역)\" 형식으로 쓴다(예: overfitting(과적합)). 같은 블록에서 다시 쓸 때는 영단어만 쓴다. B05 term도 이 형식이고 original은 null로 둔다. 영어 근거의 강조어(important·crucial·remember, exam·midterm·quiz)도 emphasis의 근거가 된다.",
+];
+const EN_SRC="[원문 대조] 주장마다 src를 채운다. src는 그 주장을 강의 자료의 영어 표현으로 쓴 영어 문장이고 text와 같은 내용만 담는다(더하거나 빼지 않는다). basis가 lecture가 아니면 src는 null이다.";
 const STAGE={
   plan:[
     "단계: 계획. 입력은 유닛 목록(units: 슬라이드 글과 발화, 시각, 중요도), 수식 요약(formulas: id, 상태, 나오는 유닛), 도표 요약(figures)이다. 본문은 쓰지 않고 구조만 정한다.",
@@ -66,10 +71,11 @@ const STAGE={
   ],
 };
 // 시스템 본문 = 공용 + 노트 규칙 + 단계 규칙 (+ 켠 생성 옵션). 같은 단계·옵션이면 모든 호출이 같은 문자열이다.
-const systemFor=(stage,options)=>{
+const systemFor=(stage,options,sourceLang)=>{
   if(!Object.hasOwn(STAGE,stage))throw new Error("invalid_stage");
   const aug=stage==="plan"||stage==="global"?[]:Object.keys(AUG_RULES).filter(k=>options?.[k]===true).map(k=>AUG_RULES[k]);
-  return [COMMON,NOTE_RULES,...STAGE[stage],...aug].join("\n");
+  const en=sourceLang==="en"&&stage!=="plan"?[...EN_RULES,...(stage==="global"?[]:[EN_SRC])]:[];
+  return [COMMON,NOTE_RULES,...STAGE[stage],...aug,...en].join("\n");
 };
 
 // 요청 본문(model·requestId·noteSpecVersion·stage 를 뺀 나머지)의 계약.
@@ -105,10 +111,12 @@ const REQUEST={
   }),
 };
 // 요청별 출력 스키마. 계획에 없는 blockId 같은 잘못된 요청은 note-contract 가 던진다 — 라우트가 request_rejected 로 바꾼다.
-function outputSchema(stage,body){
+// 영어 강의의 섹션·repair 는 주장마다 src 칸이 더해진다(NoteContract.withSource).
+function outputSchema(stage,body,sourceLang){
+  const src=sch=>sourceLang==="en"?NoteContract.withSource(sch):sch;
   if(stage==="plan")return S.plannerOutput;
-  if(stage==="section")return NoteContract.sectionOutputSchemaFor(body.section,{gist:body.withGist,policy:body.options});
-  if(stage==="repair")return NoteContract.repairOutputSchemaFor(body.section,[...new Set(body.repair.map(r=>r.blockId))],body.options);
+  if(stage==="section")return src(NoteContract.sectionOutputSchemaFor(body.section,{gist:body.withGist,policy:body.options}));
+  if(stage==="repair")return src(NoteContract.repairOutputSchemaFor(body.section,[...new Set(body.repair.map(r=>r.blockId))],body.options));
   if(stage==="global")return NoteContract.globalOutputSchemaFor(body.plan.global);
   throw new Error("invalid_stage");
 }
