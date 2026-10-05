@@ -20,7 +20,9 @@ async function bgRun(message) {
   if (!/^https?:/.test(tab?.url || "") || !/^https?:\/\//i.test(playlistUrl || "")) throw new Error("일반 웹 강의 탭에서 시작하세요.");
   // Referer의 출처는 패널이 보낸 문자열이 아니라 사용자가 보고 있는 탭이다. 브라우저 기본 정책(strict-origin-when-cross-origin)이
   // 교차 출처 미디어 요청에 보내는 값과 같게 출처만 쓴다 — 경로(강의 id 등)는 싣지 않는다.
-  const source = { playlistUrl, pageUrl: new URL(tab.url).origin + "/" };
+  // 과목은 보관함 안 하위 폴더 이름이 된다(lib/library-folder.js COURSE_RE와 같은 모양) — 맞지 않으면 과목 없이 둔다.
+  const course = typeof message.source?.course === "string" && /^(?![. ])[^/\\:*?"<>|\x00-\x1f\x7f]{1,40}(?<![. ])$/.test(message.source.course) ? message.source.course : null;
+  const source = { playlistUrl, pageUrl: new URL(tab.url).origin + "/", course };
   chrome.power.requestKeepAwake("system");
   let reply;
   try { await ensureOffscreen(); reply = await chrome.runtime.sendMessage({ target: "session", type: "BG_RUN", jobId: message.jobId, source, settings: await bgSettings() }); }

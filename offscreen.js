@@ -107,7 +107,7 @@ async function exportNote(store,pkg,meta,note){
     const lk=await NoteFile.loadLibraryKey(store.adapter).catch(()=>null);
     if(!lk){events.emit({stage:"library",level:"warn",code:"LIBRARY_NO_KEY"});return "no-key";}
     const text=await NoteFile.encryptFile({meta,note,crops:await NoteLibrary.cropUrls(store,pkg)},lk.key);
-    await LibraryFolder.write(store.adapter,NoteFile.fileName(meta),text);
+    await LibraryFolder.write(store.adapter,NoteFile.fileName(meta),text,NoteFile.courseFolder(meta));
     return "file";
   }catch(e){
     if(e?.code==="no-folder"||e?.code==="no-permission"){events.emit({stage:"library",level:"warn",code:"LIBRARY_NO_FOLDER"});return "no-folder";}
@@ -123,7 +123,7 @@ async function saveLibrary(pkg,input,res,{source,host}){
   if(!note&&(await NoteLibrary.load(store,pkg).catch(()=>null))?.note){events.emit({stage:"library",level:"warn",code:"LIBRARY_NOTE_KEPT"});return false;}
   for(const [id,key] of Object.entries(res.cropMap||{})){const b=await store.getBytes("blobs",`${pkg}:c:${key.replace(/[^A-Za-z0-9_.:-]/g,"_")}`).catch(()=>null);if(b)crops[id]=b;}
   const questions=note?note.sections.flatMap(s=>s.blocks).filter(b=>b.type==="B14").reduce((n,b)=>n+b.content.items.length,0):0;
-  const meta=await NoteLibrary.saveResult(store,{packageId:pkg,input,note,crops,recognition:res.recognition??null,meta:{packageId:pkg,title:input.meta?.title??null,host,source,tier:input.tier,
+  const meta=await NoteLibrary.saveResult(store,{packageId:pkg,input,note,crops,recognition:res.recognition??null,meta:{packageId:pkg,title:input.meta?.title??null,course:input.meta?.course??null,host,source,tier:input.tier,
     status:res.status==="recognition-only"?"recognition-only":note?.status||"partial",durationSec:note?Math.max(0,note.meta.processed.t1-note.meta.processed.t0):null,
     noteSpecVersion:note?.noteSpecVersion??null,options:{...NoteContract.policyOf(input.options),exam:false},counts:note?{sections:note.sections.length,questions}:null}});
   return note?await exportNote(store,pkg,meta,note):null;
@@ -137,7 +137,7 @@ function liveInput(cur,{tier,models,consent,options}){
     slides:docs.map((d,i)=>({...d,t1:Math.max(d.t0,docs[i+1]?.t0??d.t1??d.t0)})),
     transcript:{schemaVersion:1,engine:"whisper",model:String(cur.options.whisperModel||"local").slice(0,64),lang,
       segments:asr.map((e,i)=>({id:"a"+(i+1),t0:e.t0,t1:Math.max(e.t0,e.t1??e.t0),text:String(e.text).slice(0,4000),words:[],noSpeechProb:null,avgLogprob:null,compressionRatio:null,status:"kept"}))},
-    gaps:cur.gaps||[],tier,models,consent,recognition:"local",options,meta:{title:typeof cur.options.pageTitle==="string"&&cur.options.pageTitle.trim()?cur.options.pageTitle.trim().slice(0,120):null,lang},
+    gaps:cur.gaps||[],tier,models,consent,recognition:"local",options,meta:{title:typeof cur.options.pageTitle==="string"&&cur.options.pageTitle.trim()?cur.options.pageTitle.trim().slice(0,120):null,course:typeof cur.options.course==="string"&&cur.options.course.trim()?cur.options.course.trim().slice(0,40):null,lang},
     host:hostOf(cur.options.pageUrl),
   };
 }
