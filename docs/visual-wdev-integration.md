@@ -124,6 +124,10 @@
 
 ### 6.1 v2 점검 결과 — 2단계 문제가 v2에도 있는가
 
+> 점검 기준은 `w/dev` `67e6f61`(v1.2.5)이다. 이후 `308d240`(v1.3.6)까지 9커밋이 더 들어왔지만, 관련 파일은 손대지 않았다: `formulas.js`, `verify.js`, `boilerplate.js`, `figures.js`, `note-file.js`, `visual-gate.js`. 바뀐 `stages.js`·`note-contract.js`도 아래 항목과 무관한 변경이다. 단계 캐시 버전은 여전히 `stages-2`다. 그래서 아래 결과는 `308d240`에도 그대로 해당한다.
+> `main`에도 같은 `formulas.js`·`boilerplate.js`가 있어 #2와 #6은 `main`에도 있다.
+> 우리 브랜치(`b/visual-suppression`)는 v1 기반이라 이 파일들이 없다. 우리가 만든 문제가 아니다.
+
 핵심 세 가지(빈 숫자 집합 `verified`, 정제 순서, 캐시 키 버전)는 코드에서 직접 확인했다. 나머지는 Sonnet 프로브 결과다.
 
 | # | 항목 | 판정 | 심각도 | 근거 (`w/dev` 줄 번호) | 고칠 방향 (미구현) |
