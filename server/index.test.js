@@ -1,5 +1,5 @@
 const test=require("node:test"),assert=require("node:assert/strict"),fs=require("node:fs"),os=require("node:os"),path=require("node:path"),crypto=require("node:crypto");
-const {createServer,config:serverConfig,readState,toTranscript,toSlideDoc,VISION_SCHEMA,judgeProbs,JUDGE_MODELS}=require("./index"),Vault=require("../lib/vault"),Contracts=require("../lib/contracts.js");
+const {repetitive,createServer,config:serverConfig,readState,toTranscript,toSlideDoc,VISION_SCHEMA,judgeProbs,JUDGE_MODELS}=require("./index"),Vault=require("../lib/vault"),Contracts=require("../lib/contracts.js");
 const token="test-token-A-".padEnd(40,"a"),tokenB="test-token-B-".padEnd(40,"b"),origin="chrome-extension://"+"a".repeat(32),model="google/gemini-2.5-flash-lite";
 function config(root){return {APP_TOKENS_JSON:JSON.stringify({A:token,B:tokenB}),EXTENSION_ORIGIN:origin,OPENROUTER_API_KEY:"mock-operator-key",OPENROUTER_PROVIDERS_JSON:JSON.stringify({[model]:["test-provider"]}),VAULT_DIR:root};}
 function provider(){return noteReply(s1Out);}
@@ -172,7 +172,7 @@ test("/v1/me exposes merged remote config and global flags hide and block featur
     assert.deepEqual(me.features, [], "전역 스위치가 꺼진 기능은 계정 권한이 있어도 숨긴다");
     assert.equal(me.config.throughputMbps, 30);
     assert.equal(me.config.concurrency.vision, 2, "지정한 키만 기본값 위에 올라간다");
-    assert.equal(me.config.concurrency.stt, 4);
+    assert.equal(me.config.concurrency.stt, 2);
     assert.equal(me.config.minClientVersion, "0.0.0");
     const blocked = await req(url, "/v1/vision", "POST", visionBody({ requestId: "vision-flag", image: jpeg(64) }));
     assert.equal(blocked.status, 403, "전역 스위치가 꺼지면 계정 권한이 있어도 라우트가 막힌다");
@@ -1216,7 +1216,7 @@ const repairIn = o => ({ model, requestId: "write-r", noteSpecVersion, stage: "r
   repair: [{ blockId: "S1_B3", previous: noteWriter.sections.S1.first.blocks.S1_B3, errors: [{ code: "VAL_EVIDENCE_MISSING", detail: ["/content/note"] }] }], ...o });
 // 출력 스키마가 요청 계획의 blockId 를 요구하므로 제공자는 fixture 의 유효 출력을 그대로 돌려준다.
 const s1Out = noteWriter.sections.S1.first, globalOut = noteWriter.global, repairOut = { blocks: { S1_B3: noteWriter.sections.S1.first.blocks.S1_B3 } };
-const noteReply = (content, o = {}) => ({ ok: true, json: async () => ({ choices: [{ finish_reason: o.finish || "stop", message: { content: typeof content === "string" ? content : JSON.stringify(content) } }], usage: { prompt_tokens: 800, completion_tokens: 90, cost: Object.hasOwn(o, "cost") ? o.cost : .002 } }) });
+const noteReply = (content, o = {}) => ({ ok: true, json: async () => ({ choices: [{ finish_reason: o.finish || "stop", message: { content: typeof content === "string" ? content : JSON.stringify(content) } }], usage: o.usage ?? { prompt_tokens: 800, completion_tokens: 90, cost: Object.hasOwn(o, "cost") ? o.cost : .002 } }) });
 const near = (a, b, label) => assert.ok(Math.abs(a - b) < 1e-9, label + ": " + a + " != " + b);
 const withNoteServer = async (fetcher, run, extra = {}) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
@@ -1227,7 +1227,9 @@ const withNoteServer = async (fetcher, run, extra = {}) => {
 const errorOf = async (res, status, code) => {
   assert.equal(res.status, status, code);
   const body = await res.json();
-  assert.ok(Contracts.validate(Contracts.SCHEMAS.errorEnvelope, body).ok, "오류 봉투 계약: " + code);
+  // 401 인증 거절은 계약 스키마가 모르는 진단 필드(reason, detail)를 싣는다 — 봉투 검증은 나머지로 하고 반환은 전체다.
+  const { reason, detail, ...core } = body.error || {};
+  assert.ok(Contracts.validate(Contracts.SCHEMAS.errorEnvelope, { ...body, error: core }).ok, "오류 봉투 계약: " + code);
   assert.equal(body.error.code, code);
   return body.error;
 };
@@ -1369,8 +1371,8 @@ test("a length cut-off is not retried, answers llm_output_truncated and charges 
     await errorOf(await req(url, "/v1/write", "POST", sectionIn({ requestId: "cut-after-retry" })), 422, "llm_output_truncated");
     near(ledger().spentCents - before, settle(.001 + .003), "두 호출의 보고 비용");
 
-    // 비용을 보고하지 않은 잘림은 모르는 비용이라 예약을 그대로 둔다.
-    replies.push(noteReply('{"blocks":[', { finish: "length", cost: null }));
+    // 비용도 토큰 수도 보고하지 않은 잘림은 모르는 비용이라 예약을 그대로 둔다(토큰 수가 있으면 단가표로 계산한다).
+    replies.push(noteReply('{"blocks":[', { finish: "length", usage: {} }));
     const spent = ledger().spentCents;
     await errorOf(await req(url, "/v1/write", "POST", sectionIn({ requestId: "cut-unreported" })), 422, "llm_output_truncated");
     const job = ledger().jobs["cut-unreported"];
@@ -1639,6 +1641,74 @@ test("/v1/plan reserves the lecture span as monthly minutes unless cloud recogni
   }, { setup: sb => { sb.plan = "essential"; } });
 });
 
+// ── plan 의 강의 분야 분류(Jev subject) ──
+const Jev = require("./jev.js");
+const subjectEnv = {
+  OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], [judgeModel]: ["test-provider"], [jevModel]: ["typesafe"] }),
+  ALLOWED_JUDGE_MODELS: JSON.stringify([judgeModel, jevModel]),
+};
+// 정방향 .8·역방향 .6 → 평균 .7. 제공자가 비용을 보고해도 사용자 청구에는 더하지 않는다.
+const subjectReply = { ok: true, json: async () => ({ answers: {
+  f: { type: "choice", probabilities: { electrical_electronic: .8, other: .2 }, confidence: .8 },
+  r: { type: "choice", probabilities: { electrical_electronic: .6, other: .4 }, confidence: .6 },
+}, usage: { cost: .00008 } }) };
+const wantTitles = [...new Set(noteIR.units.map(u => u.slideText.split("\n")[0].trim()).filter(Boolean))].slice(0, 20);
+
+test("/v1/plan classifies the lecture subject with Jev and settles it into the ledger", async () => {
+  assert.ok(wantTitles.length > 0, "fixture 유닛에 제목이 있어야 이 테스트가 의미 있다");
+  await withSupabase(async ({ url, sb }) => {
+    const decisions = [];
+    sb.other = async (u, o) => {
+      if (u === Jev.ENDPOINT) { decisions.push({ init: o, body: JSON.parse(o.body) }); return subjectReply; }
+      return noteReply(notePlanner);
+    };
+    const res = await req(url, "/v1/plan", "POST", planIn({ requestId: "subj-ok" }), ec1());
+    assert.equal(res.status, 200);
+    assert.equal(decisions.length, 1, "계획 요청 한 번에 분류 호출이 한 번 나간다");
+    const d = decisions[0];
+    assert.equal(d.init.method, "POST");
+    assert.equal(d.init.redirect, "error");
+    assert.equal(d.init.headers.authorization, "Bearer mock-operator-key");
+    assert.equal(d.body.model, jevModel);
+    assert.deepEqual(d.body.state.titles, wantTitles, "슬라이드 첫 줄을 distinct 로 모아 보낸다");
+    assert.deepEqual(Object.keys(d.body.questions).sort(), ["f", "r"]);
+    assert.deepEqual(d.body.provider, { only: ["typesafe"], allow_fallbacks: false, zdr: true, data_collection: "deny" });
+    const s = settledOf(sb);
+    assert.equal(s.p_subject, "electrical_electronic");
+    assert.equal(s.p_subject_conf, .7);
+    assert.equal(s.p_actual_cost_micros, 2000, "Jev 비용은 계획 청구액에 섞이지 않는다");
+  }, { env: subjectEnv });
+});
+
+test("/v1/plan keeps 200 and a null subject when the Jev classification fails", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    let decisions = 0;
+    sb.other = async u => {
+      if (u === Jev.ENDPOINT) { decisions++; return { ok: false, status: 529, json: async () => ({}) }; }
+      return noteReply(notePlanner);
+    };
+    const res = await req(url, "/v1/plan", "POST", planIn({ requestId: "subj-fail" }), ec1());
+    assert.equal(res.status, 200, "분류 실패가 계획 응답을 바꾸지 않는다");
+    assert.equal(decisions, 1);
+    const s = settledOf(sb);
+    assert.equal(s.p_status, "ok");
+    assert.equal(s.p_subject, null);
+    assert.equal(s.p_subject_conf, null);
+    assert.equal(s.p_actual_cost_micros, 2000);
+  }, { env: subjectEnv });
+});
+
+test("/v1/plan skips the decisions call when Jev is not in the judge allowlist", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    let decisions = 0;
+    sb.other = async u => { if (u === Jev.ENDPOINT) decisions++; return noteReply(notePlanner); };
+    const res = await req(url, "/v1/plan", "POST", planIn({ requestId: "subj-off" }), ec1());
+    assert.equal(res.status, 200);
+    assert.equal(decisions, 0, "허용 목록에 없으면 decisions 를 부르지 않는다");
+    assert.equal(settledOf(sb).p_subject, null);
+  }); // 기본 sbEnv 의 judgeModels 는 [judgeModel] — Jev 가 없다
+});
+
 // ── Supabase 인증·장부 (docs/architecture-v2.md §11, supabase/schema-v2.sql) ──
 // 키는 테스트 안에서 만든다. Supabase는 가짜 fetch 하나가 JWKS 엔드포인트와 PostgREST RPC·테이블을 흉내 낸다(OpenRouter 호출은 sb.other 로 넘긴다).
 const SB = "https://proj.supabase.co", SERVICE_KEY = "service-role-key-".padEnd(40, "s"), DIGEST_KEY = "usage-digest-key-".padEnd(40, "d"), JWT_SECRET = "jwt-secret-".padEnd(40, "j");
@@ -1859,19 +1929,24 @@ test("JWT verification accepts valid ES256 and RS256 tokens, caches the JWKS and
   });
 });
 
-test("with SUPABASE_JWT_SECRET only HS256 is accepted and the JWKS is never fetched", async () => {
+test("with SUPABASE_JWT_SECRET, HS256 uses the secret and ES256/RS256 still use the JWKS", async () => {
   await withSupabase(async ({ url, sb }) => {
     const now = Math.floor(Date.now() / 1000), hs = o => mint({ alg: "HS256", kid: null, ...o });
     const res = await req(url, "/v1/me", "GET", undefined, hs());
     assert.equal(res.status, 200);
     assert.equal((await res.json()).accountId, UID);
     await errorOf(await req(url, "/v1/me", "GET", undefined, hs({ claims: { exp: now - 60 } })), 401, "token_expired");
+    assert.equal(sb.jwksCalls, 0, "HS256 은 JWKS 를 건드리지 않는다");
+    // ES256/RS256 도 받되 오직 JWKS 키로만 검증한다 — 시크릿은 비대칭 알고리즘에 닿지 않는다.
+    assert.equal((await req(url, "/v1/me", "GET", undefined, ec1())).status, 200);
+    assert.equal((await req(url, "/v1/me", "GET", undefined, mint({ alg: "RS256", pair: RSA1, kid: "rsa-1" }))).status, 200);
+    assert.ok(sb.jwksCalls > 0);
+    const seg = ec1().split("."); seg[2] = b64u(crypto.createHmac("sha256", JWT_SECRET).update(seg[0] + "." + seg[1]).digest());
     for (const t of [hs({ secret: "another-secret".padEnd(40, "x") }), hs({ claims: { aud: "anon" } }), hs({ claims: { iss: "https://evil.supabase.co/auth/v1" } }), hs({ claims: { role: "anon" } }),
-      ec1(), mint({ alg: "RS256", pair: RSA1, kid: "rsa-1" }), mint({ alg: "none" })])
+      seg.join("."), mint({ alg: "none" })])
       await errorOf(await req(url, "/v1/me", "GET", undefined, t), 401, "unauthorized");
     const [h, p, s] = hs().split(".");
     await errorOf(await req(url, "/v1/me", "GET", undefined, h + "." + b64u({ sub: UID2, aud: "authenticated", role: "authenticated", iss: SB + "/auth/v1", exp: now + 99 }) + "." + s), 401, "unauthorized");
-    assert.equal(sb.jwksCalls, 0, "시크릿이 있으면 JWKS 를 쓰지 않는다");
   }, { env: { SUPABASE_JWT_SECRET: JWT_SECRET } });
 });
 
@@ -1922,6 +1997,28 @@ test("an unreachable JWKS answers a retryable 503 instead of logging users out, 
   await withSupabase(async ({ url }) => {
     await errorOf(await req(url, "/v1/me", "GET", undefined, ec1()), 503, "auth_unavailable");
   }, { setup: sb => { sb.jwks = { keys: [{ kty: "oct", kid: "ec-1", k: "c2VjcmV0", use: "sig", alg: "HS256" }, { kty: "RSA", kid: "weak" }] }; } });
+});
+
+test("a 401 body carries the rejection reason and SUPABASE_JWKS seeds keys without a fetch", async () => {
+  await withSupabase(async ({ url }) => {
+    const e = await errorOf(await req(url, "/v1/me", "GET", undefined, ec1({ claims: { iss: "https://evil.supabase.co/auth/v1" } })), 401, "unauthorized");
+    assert.equal(e.reason, "iss");
+    assert.deepEqual(e.detail, { expectedHost: "proj.supabase.co", gotHost: "evil.supabase.co" });
+    const aud = await errorOf(await req(url, "/v1/me", "GET", undefined, ec1({ claims: { aud: "anon" } })), 401, "unauthorized");
+    assert.equal(aud.reason, "aud");
+    assert.equal(aud.detail, "anon");
+    const format = await errorOf(await req(url, "/v1/me", "GET", undefined, "bad"), 401, "unauthorized");
+    assert.equal(format.reason, "format");
+    assert.ok(!JSON.stringify(e).includes(UID), "거절 본문에 sub 가 없다");
+  });
+  // 호스팅 환경변수 JWKS 로 시드하면 첫 요청부터 fetch 없이 검증하고 모르는 kid 만 fetch 로 떨어진다.
+  await withSupabase(async ({ url, sb }) => {
+    assert.equal((await req(url, "/v1/me", "GET", undefined, ec1())).status, 200);
+    assert.equal(sb.jwksCalls, 0, "시드된 키는 JWKS 를 부르지 않는다");
+    const e = await errorOf(await req(url, "/v1/me", "GET", undefined, ec1({ kid: "ec-9" })), 401, "unauthorized");
+    assert.equal(e.reason, "kid");
+    assert.equal(sb.jwksCalls, 1, "모르는 kid 는 fetch 로 떨어진다");
+  }, { env: { SUPABASE_JWKS: JSON.stringify({ keys: [jwkOf(EC1, "ec-1")] }) } });
 });
 
 test("static tokens keep the file ledger while JWT accounts use Postgres", async () => {
@@ -2019,6 +2116,7 @@ test("a successful write reserves then settles through PostgREST with content-fr
     assert.deepEqual(settled, {
       p_user: UID, p_request_id: "request-one", p_actual_cost_micros: Math.ceil(.002 * 1e6), p_status: "ok", p_stage: "write.section", p_provider: "openrouter", p_model: model,
       p_input_tokens: 800, p_output_tokens: 90, p_audio_seconds: null, p_images: null, p_prompt_version: Prompts.PROMPT_VERSION, p_schema_version: 1, p_error_code: null, p_client_version: "1.2.3", p_host: null,
+      p_job_id: null, p_lecture_seconds: null, p_slides: null, p_subject: null, p_subject_conf: null,
     });
     assert.ok(Number.isInteger(p_latency_ms) && p_latency_ms >= 0 && p_latency_ms < 5000);
     assert.equal(sb.rpcs.at(-1).rpc, "settle_usage");
@@ -2039,6 +2137,15 @@ test("a write holds a global provider slot between reserve and settle", async ()
     assert.equal(rel.length, 1);
     assert.equal(rel[0].args.p_id.length, 36);
   }, { env: { PROVIDER_CONCURRENCY_JSON: JSON.stringify({ [model]: 2 }), OPENROUTER_TIMEOUT_MS: "40000" } });
+});
+
+test("a 4xx provider rejection (no endpoint for the parameters) refunds the reservation — nothing was generated", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    sb.other = async () => ({ ok: false, status: 404, json: async () => ({}) });
+    await errorOf(await req(url, "/v1/write", "POST", input, ec1()), 502, "provider_failed_or_invalid_output");
+    assert.equal(settledOf(sb, 0).p_status, "refunded");
+    assert.equal(settledOf(sb, 0).p_error_code, "provider_http_404");
+  });
 });
 
 test("a failed provider call still releases the global slot", async () => {
@@ -2112,7 +2219,7 @@ test("a client abort during the global wait refunds and frees the local slot", a
   }, { env: { PROVIDER_CONCURRENCY_JSON: JSON.stringify({ [model]: 1 }), PROVIDER_QUEUE_MS: "5000" } });
 });
 
-test("unreported costs settle as null and reported charges settle in micros", async () => {
+test("unreported costs are priced from tokens (null only without tokens) and reported charges settle in micros", async () => {
   let cost = null;
   await withSupabase(async ({ url, sb }) => {
     const jwt = ec1();
@@ -2120,7 +2227,7 @@ test("unreported costs settle as null and reported charges settle in micros", as
     sb.other = async () => reply();
     const body = i => sectionIn({ requestId: "cost-" + i });
     assert.equal((await req(url, "/v1/write", "POST", body(1), jwt)).status, 200);
-    assert.equal(settledOf(sb, 0).p_actual_cost_micros, null, "비용을 보고하지 않으면 null — DB가 예약액을 그대로 청구한다");
+    assert.equal(settledOf(sb, 0).p_actual_cost_micros, Math.ceil(800 * .1 + 90 * .4), "비용을 보고하지 않으면 토큰 수 × 단가표(flash-lite 0.1/0.4 USD per 1M)로 계산한다");
     assert.equal(settledOf(sb, 0).p_status, "ok");
     cost = .0023;
     assert.equal((await req(url, "/v1/write", "POST", body(2), jwt)).status, 200);
@@ -2139,7 +2246,7 @@ test("unreported costs settle as null and reported charges settle in micros", as
     const failed = settledOf(sb, 3);
     assert.equal(failed.p_status, "error");
     assert.equal(failed.p_actual_cost_micros, null);
-    assert.equal(failed.p_error_code, "provider_failed_or_invalid_output");
+    assert.equal(failed.p_error_code, "provider_http_500", "사용 기록에는 세부 사유가 남는다");
     assert.equal(failed.p_input_tokens, null);
     await errorOf(await req(url, "/v1/write", "POST", body(4), jwt), 409, "request_already_reserved_or_processed");
   }, { setup: sb => { sb.plan = "free"; } });
@@ -2154,11 +2261,12 @@ test("a length cut-off settles as an error carrying the reported charge, not as 
     const { p_latency_ms, ...cut } = settledOf(sb, 0);
     assert.deepEqual(cut, {
       p_user: UID, p_request_id: "cut-1", p_actual_cost_micros: Math.ceil(.003 * 1e6), p_status: "error", p_stage: "write.section", p_provider: "openrouter", p_model: model,
-      p_input_tokens: 800, p_output_tokens: 90, p_audio_seconds: null, p_images: null, p_prompt_version: null, p_schema_version: null, p_error_code: "llm_output_truncated", p_client_version: null, p_host: null,
+      p_input_tokens: 800, p_output_tokens: 90, p_audio_seconds: null, p_images: null, p_prompt_version: null, p_schema_version: null, p_error_code: "llm_output_truncated.long", p_client_version: null, p_host: null,
+      p_job_id: null, p_lecture_seconds: null, p_slides: null, p_subject: null, p_subject_conf: null,
     });
     await errorOf(await req(url, "/v1/write", "POST", sectionIn({ requestId: "cut-1" }), jwt), 409, "request_already_reserved_or_processed");
 
-    sb.other = async () => noteReply('{"blocks":[', { finish: "length", cost: null });
+    sb.other = async () => noteReply('{"blocks":[', { finish: "length", usage: {} });
     await errorOf(await req(url, "/v1/plan", "POST", planIn({ requestId: "cut-2" }), jwt), 422, "llm_output_truncated");
     const unreported = settledOf(sb, 1);
     assert.equal(unreported.p_status, "error");
@@ -2170,8 +2278,17 @@ test("a length cut-off settles as an error carrying the reported charge, not as 
     sb.other = async () => replies.shift();
     await errorOf(await req(url, "/v1/write", "POST", sectionIn({ requestId: "cut-3" }), jwt), 422, "llm_output_truncated");
     assert.equal(settledOf(sb, 2).p_actual_cost_micros, Math.ceil((.001 + .003) * 1e6));
+
     assert.equal(settledOf(sb, 2).p_input_tokens, 1600);
     assert.equal(sb.rpcNamed("settle_usage").every(r => r.args.p_status === "error"), true);
+    // 빈 응답(생성 없음·사용량 없음) 뒤의 성공한 재시도는 그 재시도의 토큰 비용으로 정산된다 — 예약금 전액이 아니다.
+    const empty = { ok: true, json: async () => ({ choices: [{ finish_reason: null, message: { content: "" } }] }) };
+    const ok2 = [empty, noteReply(s1Out, { usage: { prompt_tokens: 1000, completion_tokens: 500 } })];
+    sb.other = async () => ok2.shift();
+    assert.equal((await req(url, "/v1/write", "POST", sectionIn({ requestId: "cut-4" }), jwt)).status, 200);
+    const s4 = settledOf(sb, 3);
+    assert.equal(s4.p_status, "ok");
+    assert.equal(s4.p_actual_cost_micros, Math.ceil((1000 * .1 + 500 * .4) / 1e6 * 1e6));
   });
 });
 
@@ -2187,6 +2304,7 @@ test("refund paths settle as refunded with no cost and no usage, and the same re
       p_user: UID, p_request_id: "stt-r1", p_actual_cost_micros: null, p_status: "refunded", p_stage: "stt", p_provider: "openrouter", p_model: "microsoft/mai-transcribe-2",
       p_input_tokens: null, p_output_tokens: null, p_audio_seconds: null, p_images: null, p_prompt_version: null, p_schema_version: null,
       p_error_code: "provider_failed_or_invalid_output", p_latency_ms: settledOf(sb, 0).p_latency_ms, p_client_version: null, p_host: null,
+      p_job_id: null, p_lecture_seconds: null, p_slides: null, p_subject: null, p_subject_conf: null,
     });
     mode = "busy";
     e = await errorOf(await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-r2" }), jwt), 429, "provider_busy");
@@ -2300,10 +2418,12 @@ test("no lecture content or bare hash reaches Supabase from any route and digest
     const wire = JSON.stringify([sb.rpcs, sb.upserts, sb.gets, sb.calls.map(c => c.url)]);
     for (const secret of ["원가는 생산량에 어떻게 반응하는가", "고정비", "공헌이익", "손익분기", "미분은 순간 변화율이다", "앞뒤 문맥 단서", "강의 전사", "BwcH", "생산량과 관계없이 일정 기간 동안 발생하는 비용", DIGEST_KEY, JWT_SECRET, ec1().slice(0, 40)])
       assert.ok(!wire.includes(secret), "Supabase 로 나간 본문에 있으면 안 된다: " + secret);
-    // 메타데이터 칸은 usage_events 의 CHECK 와 같은 모양이거나 null 이다. 호스트와 job id 는 보내지 않는다.
+    // 메타데이터 칸은 usage_events 의 CHECK 와 같은 모양이거나 null 이다. job id·호스트를 안 보낸 요청은 null 로 기록된다.
     for (const { args } of sb.rpcNamed("settle_usage")) {
       assert.equal(args.p_host, null);
-      assert.equal(Object.hasOwn(args, "p_job_id"), false);
+      assert.equal(args.p_job_id, null);
+      assert.equal(args.p_subject, null);
+      assert.equal(args.p_subject_conf, null);
       for (const [k, v] of Object.entries(args)) if (typeof v === "string" && !["p_user", "p_request_id"].includes(k)) assert.match(v, /^[A-Za-z0-9][A-Za-z0-9_./:@-]*$/, k);
     }
   }, { setup: sb => { sb.plan = "essential"; }, env: { ACCOUNT_RATE_PER_MIN: "1000" } });
@@ -2316,6 +2436,41 @@ test("client-chosen metadata that would violate the ledger CHECKs is dropped ins
     }
     assert.deepEqual(sb.rpcNamed("settle_usage").map(r => r.args.p_client_version), [null, null, null, "1.2.3"]);
   });
+});
+
+test("jobId and host ride the ledger metadata for job grouping without touching idempotency", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    const jwt = ec1();
+    sb.other = async (u, o) => {
+      if (u.includes("audio/transcriptions")) return { ok: true, json: async () => maiRaw() };
+      const b = JSON.parse(o.body);
+      if (b.logprobs) return judgeReply();
+      if (b.response_format?.json_schema?.name === "slide_doc") return slideProvider();
+      return noteReply(notePlanner);
+    };
+    // 계획 요청은 작업 id·호스트·강의 길이(유닛 시각 구간)·슬라이드 수(서로 다른 slideId)를 함께 정산한다.
+    const span = Math.max(...noteIR.units.map(u => u.t1)) - Math.min(...noteIR.units.map(u => u.t0));
+    assert.equal((await req(url, "/v1/plan", "POST", planIn({ requestId: "job-p", jobId: "note-01", host: "learnus.yonsei.ac.kr" }), jwt)).status, 200);
+    const plan = settledOf(sb, 0);
+    assert.equal(plan.p_job_id, "note-01");
+    assert.equal(plan.p_host, "learnus.yonsei.ac.kr");
+    assert.equal(plan.p_lecture_seconds, span);
+    assert.equal(plan.p_slides, new Set(noteIR.units.map(u => u.slideId).filter(Boolean)).size);
+    // 인식·판정 요청도 같은 작업 id를 단다 — 한 노트의 요청을 job_id로 묶을 수 있다.
+    for (const [i, [route, body]] of [["/v1/vision", visionBody({ requestId: "job-v", jobId: "note-01" })], ["/v1/stt", sttBody({ requestId: "job-s", jobId: "note-01" })], ["/v1/judge", judgeBody({ requestId: "job-j", jobId: "note-01" })]].entries()) {
+      assert.equal((await req(url, route, "POST", body, jwt)).status, 200, route);
+      assert.equal(settledOf(sb, i + 1).p_job_id, "note-01", route);
+    }
+    // 모양이 어긋난 jobId/host는 400이 아니라 null로 기록된다 — 요청은 성공한다.
+    assert.equal((await req(url, "/v1/plan", "POST", planIn({ requestId: "job-bad", jobId: "강의 제목", host: "learnus.yonsei.ac.kr/x" }), jwt)).status, 200);
+    assert.equal(settledOf(sb, 4).p_job_id, null);
+    assert.equal(settledOf(sb, 4).p_host, null);
+    // jobId가 없어도 되고, jobId/host는 멱등 digest에 들어가지 않는다 — 둘만 다른 같은 본문은 같은 해시로 예약된다.
+    assert.equal((await req(url, "/v1/plan", "POST", planIn({ requestId: "dig-a" }), jwt)).status, 200);
+    assert.equal((await req(url, "/v1/plan", "POST", planIn({ requestId: "dig-b", jobId: "note-02", host: "lms.ewha.ac.kr" }), jwt)).status, 200);
+    const digestOf = id => sb.rpcNamed("reserve_usage").find(r => r.args.p_request_id === id).args.p_digest;
+    assert.equal(digestOf("dig-a"), digestOf("dig-b"));
+  }, { setup: sb => { sb.plan = "essential"; }, env: { ACCOUNT_RATE_PER_MIN: "1000" } });
 });
 
 test("the DB plan decides features and models, closed by default, and is cached for 30 seconds", async () => {
@@ -2393,7 +2548,7 @@ test("/v1/me for a JWT user returns plan, features, DB limits, remote config and
     assert.deepEqual(me, {
       accountId: UID, plan: "free", models: [model], features: [],
       routeModels: { vision: ["google/gemini-2.5-flash-lite"], stt: ["microsoft/mai-transcribe-2"], judge: ["openai/gpt-4.1-nano"] },
-      config: { concurrency: { download: 4, decode: 1, stt: 4, vision: 8, judge: 2, write: 8 }, throughputMbps: 50, minClientVersion: "0.0.0", promptVersion: "v1", schemaVersion: 1 },
+      config: { concurrency: { download: 4, decode: 1, stt: 2, vision: 3, judge: 2, write: 8 }, throughputMbps: 50, minClientVersion: "0.0.0", promptVersion: "v1", schemaVersion: 1 },
       noteSpecVersion: NoteContract.NOTE_SPEC_VERSION, promptVersion: Prompts.PROMPT_VERSION,
       quota: { month, requests: 3, maxRequests: 300, minutes: 7, maxMinutes: 600, spentCents: 12.3456, maxCents: 30 },
     });
@@ -2957,4 +3112,97 @@ test("neither the service-role key nor any token appears in an account-deletion 
     for (const secret of [SERVICE_KEY, DIGEST_KEY, JWT_SECRET, jwt, token, UID, SB, "supabase", "storage/v1", "rest/v1", "auth/v1", "admin/users", "vault_objects", "delete_account_data"])
       assert.ok(!seen.join("\n").includes(secret), "응답에 있으면 안 된다: " + secret);
   });
+});
+
+test("a section block that breaks the schema is nulled and its original envelope comes back as salvaged; valid blocks pass through", async () => {
+  const broken = JSON.parse(JSON.stringify(s1Out));
+  const bad = Object.keys(broken.blocks).find(k => broken.blocks[k]);
+  broken.blocks[bad] = { ...broken.blocks[bad], notAField: "x" };
+  await withNoteServer(async () => noteReply(broken), async url => {
+    const res = await req(url, "/v1/write", "POST", sectionIn({ requestId: "salvage-1" }), tokenB);
+    assert.equal(res.status, 200);
+    const out = await res.json();
+    assert.equal(out.output.blocks[bad], null);
+    assert.deepEqual(out.salvaged, { [bad]: broken.blocks[bad] });
+    assert.deepEqual(out.salvagedErrors, { [bad]: ["/notAField 허용되지 않는 속성입니다"] }, "블록 안 경로와 사유만, 내용 없음");
+  });
+  const pat = JSON.parse(JSON.stringify(s1Out)), pb = Object.keys(pat.blocks).find(k => pat.blocks[k]?.content?.conceptId);
+  pat.blocks[pb].content.conceptId = "개념3-c"; // 필수·null 불가 칸이라 블록째 비고, 받은 값의 모양만 남는다
+  await withNoteServer(async () => noteReply(pat), async url => {
+    const out = await (await req(url, "/v1/write", "POST", sectionIn({ requestId: "salvage-2" }), tokenB)).json();
+    assert.ok(out.salvagedErrors?.[pb]?.some(x => x.endsWith(" got=가9-A")), JSON.stringify(out.salvagedErrors));
+    for (const k of Object.keys(s1Out.blocks)) if (k !== bad) assert.deepEqual(out.output.blocks[k], s1Out.blocks[k]);
+  });
+});
+
+test("write: optional sourceLang en adds the English rules and claim src to the request; other values are rejected before any call", async () => {
+  const addSrc = o => { (function walk(v) { if (Array.isArray(v)) return v.forEach(walk); if (!v || typeof v !== "object") return;
+    if (typeof v.text === "string" && Array.isArray(v.evidenceIds) && typeof v.basis === "string") { v.src = v.basis === "lecture" ? "EN " + v.text : null; return; }
+    Object.values(v).forEach(walk); })(o); return o; };
+  const sent = [];
+  await withNoteServer(async (u, init) => { sent.push(JSON.parse(init.body)); return noteReply(addSrc(JSON.parse(JSON.stringify(s1Out)))); }, async url => {
+    await errorOf(await req(url, "/v1/write", "POST", sectionIn({ requestId: "lang-bad", sourceLang: "fr" })), 400, "request_rejected");
+    assert.equal(sent.length, 0);
+    const res = await req(url, "/v1/write", "POST", sectionIn({ requestId: "lang-en", sourceLang: "en" }));
+    assert.equal(res.status, 200);
+    const out = (await res.json()).output;
+    assert.match(out.gist.src, /^EN /);
+    assert.ok(sent[0].messages[0].content.includes ? sent[0].messages[0].content.includes("[영어 강의]") : JSON.stringify(sent[0].messages[0]).includes("[영어 강의]"));
+    assert.ok(JSON.stringify(sent[0].response_format).includes('"src"'));
+    assert.ok(!sent[0].messages[1].content.includes("sourceLang"), "사용자 본문은 그대로");
+  });
+});
+
+test("repetitive: a truncated output that loops on the same text is told apart from one that is just long", () => {
+  assert.equal(repetitive("abcdefghij".repeat(400)), true);
+  assert.equal(repetitive(Array.from({ length: 300 }, (_, i) => `문장 ${i} 은 서로 다른 내용을 담는다.`).join(" ")), false);
+  assert.equal(repetitive("짧다"), false);
+});
+
+test("a 200 whose body is an error with no choices and no usage is refunded on the first attempt, not settled at the full reservation", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    let n = 0;
+    sb.other = async () => { n++; return { ok: true, json: async () => ({ error: { code: 402, message: "Insufficient credits" } }) }; };
+    await errorOf(await req(url, "/v1/write", "POST", input, ec1()), 502, "provider_failed_or_invalid_output");
+    assert.equal(n, 1, "본문 오류는 형식 재시도를 하지 않는다");
+    assert.equal(settledOf(sb, 0).p_status, "refunded");
+    assert.equal(settledOf(sb, 0).p_error_code, "provider_body_402");
+  });
+});
+
+test("with a management key the ledger takes OpenRouter's billed amount per generation; without a lookup result it keeps the reported cost", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    const looked = [];
+    const withId = (id, o) => { const r = noteReply(s1Out, o); return { ok: true, json: async () => ({ id, ...(await r.json()) }) }; };
+    sb.other = async (u, init) => {
+      if (String(u).includes("/api/v1/generation")) {
+        looked.push([String(u), init?.headers?.authorization]);
+        return String(u).endsWith("gen-1") ? { ok: true, json: async () => ({ data: { total_cost: .0123 } }) } : { ok: false, status: 404, json: async () => ({}) };
+      }
+      return String(sb.next) === "2" ? withId("gen-2", { cost: .002 }) : withId("gen-1", { cost: .002 });
+    };
+    sb.next = 1;
+    assert.equal((await req(url, "/v1/write", "POST", sectionIn({ requestId: "billed-1" }), ec1())).status, 200);
+    assert.equal(settledOf(sb, 0).p_actual_cost_micros, Math.ceil(.0123 * 1e6), "실 청구액");
+    assert.deepEqual(looked[0], ["https://openrouter.ai/api/v1/generation?id=gen-1", "Bearer mgmt-test-key"], "관리 키로 조회");
+    sb.next = 2;
+    assert.equal((await req(url, "/v1/write", "POST", sectionIn({ requestId: "billed-2" }), ec1())).status, 200);
+    assert.equal(settledOf(sb, 1).p_actual_cost_micros, Math.ceil(.002 * 1e6), "조회 실패면 응답의 보고 비용");
+  }, { env: { OPENROUTER_MANAGEMENT_KEY: "mgmt-test-key" } });
+});
+
+test("EXTENSION_ORIGIN accepts a comma list of exact origins — each developer's unpacked ID and the store ID", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-")), origin2 = "chrome-extension://" + "b".repeat(32);
+  assert.throws(() => createServer({ ...config(root), EXTENSION_ORIGIN: origin + ",https://evil.example" }), /exact_extension_origin_required/);
+  const server = createServer({ ...config(root), EXTENSION_ORIGIN: origin + ", " + origin2 }, { fetch: async () => provider() });
+  await new Promise(r => server.listen(0, "127.0.0.1", r));
+  const url = "http://127.0.0.1:" + server.address().port;
+  try {
+    for (const site of [origin, origin2]) {
+      const r = await req(url, "/v1/me", "GET", undefined, token, site);
+      assert.equal(r.status, 200, site);
+      assert.equal(r.headers.get("access-control-allow-origin"), site, "CORS 는 요청한 허용 출처를 돌려준다");
+    }
+    assert.equal((await req(url, "/v1/me", "GET", undefined, token, "chrome-extension://" + "c".repeat(32))).status, 403);
+  } finally { await close(server); removeTemp(root); }
 });

@@ -175,7 +175,30 @@ const __defs = {
 
   const freeze = o => { for (const v of Object.values(o)) if (v && typeof v === "object") freeze(v); return Object.freeze(o); };
   const SCHEMAS = freeze({ bbox, slideDoc, transcript, unit, evidenceItem, judgeResult, errorEnvelope });
-  const api = { CONTRACT_VERSION, SCHEMAS, validate, assertValid, isStrictCompatible };
+  // 제공자는 strict json_schema 의 pattern·길이·개수 같은 제약을 강제하지 않는다. 스키마에 어긋난 출력 전체를 버리지 않고
+  // 어긋난 가장 바깥 null 허용 칸은 null 로, 배열은 어긋난 항목만 빼서 살린다 — 블록 하나가 섹션 하나를 죽이지 않게(빈 블록은 호출자가 repair 한다).
+  // 고친 개수를 돌려준다. 결과가 여전히 어긋나면(필수 칸 등) 호출자가 검사에서 거절한다.
+  function salvage(schema, value) {
+    let n = 0;
+    // 안쪽부터 고친다: 어긋난 가장 깊은 null 허용 칸만 null, 배열은 고쳐도 안 맞는 항목만 뺀다. 고친 결과도 안 맞을 때만 이 칸 전체를 null 로 —
+    // 필드: 블록 안 한 칸(설명·인용 번호 하나)의 형식 오류로 블록이 통째로 비고, repair 도 그 블록을 한 번도 살리지 못했다.
+    const walk = (sc, v) => {
+      if (check1(sc, v)) return v;
+      let out = v;
+      if (Array.isArray(v) && sc.items) {
+        const fixed = v.map(x => walk(sc.items, x)), kept = fixed.filter(x => check1(sc.items, x));
+        n += v.length - kept.length; out = kept;
+        if (sc.maxItems != null && out.length > sc.maxItems) { n++; out = out.slice(0, sc.maxItems); }
+      } else if (v && typeof v === "object" && !Array.isArray(v) && sc.properties) out = Object.fromEntries(Object.entries(v).map(([k, x]) => [k, sc.properties[k] ? walk(sc.properties[k], x) : x]));
+      if (out !== v && check1(sc, out)) return out;
+      if ([].concat(sc.type).includes("null")) { n++; return null; }
+      return out;
+    };
+    const check1 = (sc, v) => { const e = []; check(sc, v, "", e); return !e.length; };
+    lint(schema);
+    return { value: walk(schema, value), fixed: n };
+  }
+  const api = { CONTRACT_VERSION, SCHEMAS, validate, assertValid, isStrictCompatible, salvage };
   globalThis.Contracts = api;
   if (typeof module !== "undefined") module.exports = api;
 })();
@@ -522,6 +545,20 @@ const __defs = {
     return out;
   }
 
+  // 영어 강의(sourceLang "en")의 섹션·repair 출력: 모든 주장 객체에 src(같은 주장을 강의의 영어 표현으로 쓴 문장, lecture 가 아니면 null)를 더한다.
+  // 근거 지지 판정이 영어 근거와 영어 주장을 비교하게 하려는 칸이다 — 노트 검증·조립 전에 호출자가 뗀다(노트 형식은 그대로).
+  function withSource(schema) {
+    const out = JSON.parse(JSON.stringify(schema));
+    (function walk(v) {
+      if (Array.isArray(v)) return v.forEach(walk);
+      if (!v || typeof v !== "object") return;
+      const p = v.properties;
+      if (p && Object.keys(p).length === 3 && p.text && p.evidenceIds && p.basis) { p.src = { type: ["string", "null"], maxLength: 600 }; v.required = [...v.required, "src"]; return; }
+      Object.values(v).forEach(walk);
+    })(out);
+    return out;
+  }
+
   // 공통 봉투는 코드가 검증한다(§3.1). content 스키마가 없는 타입(B01·B04·B15·B16·B17)은 Writer 슬롯이 없다.
   function envelopeSchema(type, policy = POLICY) {
     const c = content[type];
@@ -644,8 +681,17 @@ const __defs = {
     blocks: obj(Object.fromEntries(planGlobal.map(g => [g.blockId, orNull(envelopeSchema(g.type))]))),
   });
 
+  // 유닛의 슬라이드·발화에 나온 숫자 집합 — 단원 제목·질문과 개념 이름은 B04 머리와 개념 색인으로
+  // 그대로 노출되는데 Writer 검사를 거치지 않으므로 그 섹션(개념은 홈 섹션) 유닛의 숫자만 쓸 수 있다(§8.2).
+  // 정규화의 검사와 보정의 제거가 같은 판정을 쓰게 하려고 한 곳에 둔다.
+  const unitNumberIndex = units => new Map(units.map(u => [u.unitId,
+    new Set(Verify.numbersOf(`${u.slideText ?? ""}\n${u.speech ?? ""}`, true).flatMap(n => n.values))]));
+  const numBad = (unitNums, text, unitIds) =>
+    Verify.numbersOf(text).filter(n => !n.values.some(v => unitIds.some(id => unitNums.get(id)?.has(v))));
+  const numbersOk = (unitNums, text, unitIds) => !numBad(unitNums, text, unitIds).length;
+
   // §8.2: Planner 출력을 검사하고 코드가 blockId·버전·정책을 붙여 Plan 을 만든다.
-  // 실패는 VAL_PLAN_INVALID 하나다 — 모델 계획은 temp 0 이라 같은 계획 재요청이 소용없어 보정하지 않고 거절한다.
+  // 실패는 VAL_PLAN_INVALID 하나다 — 모델 계획은 temp 0 이라 같은 계획 재요청이 소용없어 보정하지 않고 거절한다(보정은 repairPlan).
   // detail 에는 코드·id 만 싣는다(내용 없는 오류, §10).
   function normalizePlan(output, { units = [], formulaUnits = {}, figures = [], policy = POLICY } = {}) {
     const v = Contracts.validate(plannerOutput, output);
@@ -714,13 +760,11 @@ const __defs = {
 
     // 단원 제목·질문과 개념 이름은 B04 머리와 개념 색인으로 그대로 노출되는데 Writer 검사를 거치지 않는다 —
     // 거기 쓴 숫자는 그 섹션(개념은 홈 섹션) 유닛의 슬라이드·발화에 있어야 한다(§8.2).
-    const unitNums = new Map(units.map(u => [u.unitId,
-      new Set(Verify.numbersOf(`${u.slideText ?? ""}\n${u.speech ?? ""}`, true).flatMap(n => n.values))]));
-    const numbersOk = (text, unitIds) => Verify.numbersOf(text).every(n => n.values.some(v => unitIds.some(id => unitNums.get(id)?.has(v))));
-    for (const s of secs) if (!numbersOk(`${s.title}\n${s.question ?? ""}`, s.unitIds)) flag("number:" + s.sectionId);
+    const unitNums = unitNumberIndex(units);
+    for (const s of secs) if (!numbersOk(unitNums, `${s.title}\n${s.question ?? ""}`, s.unitIds)) flag("number:" + s.sectionId);
     for (const c of output.concepts) {
       const home = secs.find(s => s.sectionId === c.homeSectionId);
-      if (home && !numbersOk(c.name, home.unitIds)) flag("number:" + c.conceptId);
+      if (home && !numbersOk(unitNums, c.name, home.unitIds)) flag("number:" + c.conceptId);
     }
     const gSeen = new Set();
     for (const g of output.global) { if (gSeen.has(g.type)) flag("global:" + g.type); gSeen.add(g.type); }
@@ -735,6 +779,222 @@ const __defs = {
     // 정규화 결과가 Plan 스키마를 깨면 모델이 아니라 코드의 버그다.
     if (!Contracts.validate(schemas.plan, plan).ok) throw new Error("normalizePlan 결과가 Plan 스키마를 통과하지 못했습니다.");
     return { ok: true, plan };
+  }
+
+  // 제공자는 json_schema 의 pattern 을 강제하지 않아 모델이 개념·섹션 id 를 제멋대로 쓴다(필드 관찰: concepts[0].conceptId 로 4연속 거절).
+  // 스키마 검사 전에 개념을 C1.., 섹션을 S1.. 로 차례대로 다시 매기고 참조를 같은 표로 옮긴다. 표에 없는 참조는 그대로 둬 repairPlan 이 뗀다.
+  // 작성 출력의 지도 블록(B03) 노드 키도 같은 사정이다(필드: key·from·to 패턴 위반으로 블록이 통째로 비었다).
+  // 노드를 n1.. 로 차례대로 다시 매기고 간선의 from·to 를 같은 표로 옮긴다. 표에 없는 간선 끝은 그대로 둬 검증이 거른다. 입력은 바꾸지 않는다.
+  // 섹션 출력이면(sectionId) 같은 섹션 블록을 섹션 접두 없이 쓴 참조("B3", "b3")를 "S2_B3" 로 고친다(필드: targetIds 형식 위반 8건, 모양 A9).
+  const fixRefs = (node, sectionId) => {
+    if (Array.isArray(node)) return node.map(x => fixRefs(x, sectionId));
+    if (!node || typeof node !== "object") return node;
+    return Object.fromEntries(Object.entries(node).map(([k, v]) => [k, (k === "targetIds" || k === "reviewIds") && Array.isArray(v)
+      ? v.map(x => { const m = typeof x === "string" && /^B([0-9]{1,2})$/i.exec(x.trim()); return m ? `${sectionId}_B${+m[1]}` : x; })
+      : fixRefs(v, sectionId)]));
+  };
+  function canonicalMapKeys(output, sectionId = null) {
+    if (!output || typeof output !== "object" || !output.blocks || typeof output.blocks !== "object") return output;
+    if (sectionId && /^S[0-9]{1,3}$/.test(sectionId)) output = { ...output, blocks: fixRefs(output.blocks, sectionId) };
+    const key = v => typeof v === "string" || typeof v === "number" ? String(v) : null;
+    const blocks = Object.fromEntries(Object.entries(output.blocks).map(([id, env]) => {
+      const c = env?.content;
+      if (!c || !Array.isArray(c.nodes)) return [id, env];
+      const m = new Map();
+      const nodes = c.nodes.map((n, i) => { const k = key(n?.key), nk = "n" + (i + 1); if (k !== null && !m.has(k)) m.set(k, nk); return n && typeof n === "object" ? { ...n, key: nk } : n; });
+      const edges = Array.isArray(c.edges) ? c.edges.map(e => e && typeof e === "object" ? { ...e, from: m.get(key(e.from)) ?? e.from, to: m.get(key(e.to)) ?? e.to } : e) : c.edges;
+      return [id, { ...env, content: { ...c, nodes, edges } }];
+    }));
+    return { ...output, blocks };
+  }
+
+  function canonicalPlanIds(plan) {
+    if (!plan || typeof plan !== "object") return plan;
+    const cMap = new Map(), sMap = new Map(), key = v => typeof v === "string" || typeof v === "number" ? String(v) : null;
+    const concepts = Array.isArray(plan.concepts) ? plan.concepts.map((c, i) => {
+      const k = key(c?.conceptId), id = "C" + (i + 1);
+      if (k !== null && !cMap.has(k)) cMap.set(k, id);
+      return c && typeof c === "object" ? { ...c, conceptId: id } : c;
+    }) : plan.concepts;
+    const sections = Array.isArray(plan.sections) ? plan.sections.map((s, i) => {
+      const k = key(s?.sectionId), id = "S" + (i + 1);
+      if (k !== null && !sMap.has(k)) sMap.set(k, id);
+      return s && typeof s === "object" ? { ...s, sectionId: id } : s;
+    }) : plan.sections;
+    // id 배열은 모양이 틀린 항목을 떼고 상한까지만 둔다(수식·도표 id 를 지어내거나 넘치게 다는 일, 필드 관찰: sections[5].blocks[1].formulaIds 4연속 거절).
+    // 존재하지 않는 id 는 모양만 맞으면 남겨 repairPlan 이 섹션 소유 규칙으로 뗀다.
+    const cut = (o, k, n) => typeof o[k] === "string" && o[k].length > n ? { [k]: o[k].slice(0, n) } : {}; // 글자 수 상한은 상자 크기라 자른다
+    const keep = (a, re, max) => Array.isArray(a) ? a.filter(x => typeof x === "string" && re.test(x)).slice(0, max) : a;
+    const ids = a => Array.isArray(a) ? keep(a.map(x => cMap.get(key(x)) ?? x), /^C[0-9]{1,3}$/, 6) : a;
+    const blocks = a => Array.isArray(a) ? a.map(b => b && typeof b === "object" ? { ...b, ...cut(b, "purpose", 200), conceptIds: ids(b.conceptIds),
+      ...(Array.isArray(b.formulaIds) ? { formulaIds: keep(b.formulaIds, /^F[0-9]{1,6}$/, 6) } : {}),
+      ...(Array.isArray(b.figureIds) ? { figureIds: keep(b.figureIds, /^G[0-9]{1,4}$/, 3) } : {}) } : b) : a;
+    return {
+      ...plan,
+      concepts: Array.isArray(concepts) ? concepts.slice(0, 40).map(c => c && typeof c === "object" ? { ...c, ...cut(c, "name", 60), homeSectionId: sMap.get(key(c.homeSectionId)) ?? c.homeSectionId } : c) : concepts,
+      sections: Array.isArray(sections) ? sections.map(s => s && typeof s === "object" ? { ...s, ...cut(s, "title", 80), ...cut(s, "question", 160), blocks: blocks(Array.isArray(s.blocks) ? s.blocks.slice(0, 12) : s.blocks), ...(Array.isArray(s.crossUnitIds) ? { crossUnitIds: keep(s.crossUnitIds, /^U[0-9]{1,4}$/, 10) } : {}) } : s) : sections,
+      global: blocks(plan.global),
+    };
+  }
+
+  // §8.2: 스키마는 맞지만 의미 규칙을 깬 계획을 모델을 다시 부르지 않고 코드가 고친다.
+  // 입력(plannerOutput 통과본)은 바꾸지 않고 고친 복사본을 돌려준다. fixes 는 id·코드만 싣는다(내용 없음, §10).
+  // 고칠 수 없는 계획도 남는다(곁설명 하나뿐인 섹션, 유닛 60개 초과 섹션 등) — 호출자가 normalizePlan 으로 최종 판정한다.
+  function repairPlan(output, { units = [], formulaUnits = {}, figures = [] } = {}) {
+    const out = JSON.parse(JSON.stringify(output)), fixes = [];
+    const fix = m => { if (fixes.length < 40) fixes.push(m); };
+    const known = new Set(units.map(u => u.unitId)), secs = out.sections;
+
+    // a. 유닛: 모르는 id·나중 중복을 떼고 IR 순서로 연속하게 다시 배정한다. 강의 전개는 바꾸지 않는다 —
+    // 유닛의 섹션은 "잡은 섹션"과 "앞 유닛의 섹션" 중 뒤쪽(단조)이고, 아무도 못 잡은 유닛은 앞 유닛의 섹션(첫 유닛이면 첫 섹션)으로 간다.
+    const claim = new Map(), seen = new Set(), ir = new Map(units.map((u, i) => [u.unitId, i]));
+    secs.forEach((s, i) => {
+      s.unitIds = s.unitIds.filter(id => {
+        if (!known.has(id)) { fix("drop-unit:" + id); return false; }
+        if (seen.has(id)) { fix("dup-unit:" + id); return false; }
+        seen.add(id); claim.set(id, i); return true;
+      });
+      if (s.unitIds.some((id, j) => j && ir.get(id) < ir.get(s.unitIds[j - 1]))) fix("order:" + s.sectionId);
+    });
+    const owned = secs.map(() => []);
+    let prev = -1;
+    for (const u of units) {
+      const i = Math.max(claim.get(u.unitId) ?? Math.max(prev, 0), prev);
+      owned[i].push(u.unitId); prev = i;
+      if (!claim.has(u.unitId)) fix("missing:" + u.unitId);
+    }
+    secs.forEach((s, i) => { s.unitIds = owned[i]; });
+    // 유닛을 잃은 섹션은 버리고 블록은 앞의 남은 섹션(맨 앞이면 다음 섹션)이 흡수한다(12 상한).
+    const absorb = new Map(); // 버려진 섹션의 옛 id → 블록을 흡수한 섹션 객체
+    let lastKept = -1;
+    secs.forEach((s, i) => {
+      if (s.unitIds.length) { lastKept = i; return; }
+      fix("drop-sec:" + s.sectionId);
+      const to = lastKept >= 0 ? lastKept : secs.findIndex((x, j) => j > i && x.unitIds.length);
+      if (to < 0) return;
+      absorb.set(s.sectionId, secs[to]);
+      for (const b of s.blocks) secs[to].blocks.length < 12 ? secs[to].blocks.push(b) : fix("drop-block:" + s.sectionId);
+    });
+    out.sections = secs.filter(s => s.unitIds.length);
+
+    // b. 섹션 번호를 S1..Sn 으로 다시 매기고 개념 홈을 새 번호로 옮긴다 — 흡수된 섹션의 개념은 흡수한 쪽을 홈으로 삼는다.
+    const homeOf = new Map();
+    let renum = false;
+    out.sections.forEach((s, i) => {
+      const id = "S" + (i + 1);
+      homeOf.set(s.sectionId, id);
+      renum = renum || s.sectionId !== id;
+      s.sectionId = id;
+    });
+    for (const [oldId, to] of absorb) homeOf.set(oldId, to.sectionId);
+    if (renum) fix("renumber");
+    for (const c of out.concepts) c.homeSectionId = homeOf.get(c.homeSectionId) ?? c.homeSectionId;
+
+    // c. 교차 유닛: 모르거나 자기 섹션의 유닛은 뺀다.
+    for (const s of out.sections) {
+      const own = new Set(s.unitIds);
+      s.crossUnitIds = s.crossUnitIds.filter(id =>
+        known.has(id) && !own.has(id) ? true : (fix(`cross-drop:${s.sectionId}:${id}`), false));
+    }
+
+    // d. 개념: 나중 중복과 홈이 없는 개념을 정리하고 선언 밖 참조를 지운다.
+    const declared = new Set(), secIds = new Set(out.sections.map(s => s.sectionId));
+    out.concepts = out.concepts.filter(c => {
+      if (declared.has(c.conceptId)) return fix("concept-drop:" + c.conceptId), false;
+      declared.add(c.conceptId);
+      if (secIds.has(c.homeSectionId)) return true;
+      const home = out.sections.find(s => s.blocks.some(b => b.conceptIds.includes(c.conceptId)));
+      if (!home) return declared.delete(c.conceptId), fix("concept-drop:" + c.conceptId), false;
+      c.homeSectionId = home.sectionId; fix("concept-home:" + c.conceptId); return true;
+    });
+    const dropUndeclared = ids => ids.filter(id => declared.has(id) || (fix("concept-drop:" + id), false));
+    for (const s of out.sections) for (const b of s.blocks) b.conceptIds = dropUndeclared(b.conceptIds);
+    for (const g of out.global) g.conceptIds = dropUndeclared(g.conceptIds);
+
+    // e. 정의: B05 는 개념 정확히 하나 — 뒤 개념을 떼고, 비면 섹션에 다른 블록이 있을 때만 버린다.
+    const cleanB05 = s => {
+      const kept = [];
+      s.blocks.forEach((b, i) => {
+        if (b.type === "B05" && b.conceptIds.length > 1) { fix(`def-trim:${s.sectionId}_B${i + 1}`); b.conceptIds = b.conceptIds.slice(0, 1); }
+        if (b.type === "B05" && !b.conceptIds.length && kept.length + s.blocks.length - i - 1 > 0) fix(`def-drop:${s.sectionId}_B${i + 1}`);
+        else kept.push(b);
+      });
+      s.blocks = kept;
+    };
+    for (const s of out.sections) cleanB05(s);
+    // defined 개념은 홈 섹션에 정의가 정확히 하나 — 넘치는 정의는 버리고(마지막 블록이라 못 버리면 개념 규칙이
+    // 없는 중립 타입 B08 로 내리고), 홈에 없으면 홈을 첫 정의의 섹션으로 옮긴다. 정의가 아예 없으면 mentioned 로 내린다.
+    for (const c of out.concepts) {
+      const defs = out.sections.flatMap(s => s.blocks.map((b, i) => ({ s, b, pos: `${s.sectionId}_B${i + 1}` })))
+        .filter(d => d.b.type === "B05" && d.b.conceptIds[0] === c.conceptId);
+      if (c.depth === "mentioned") {
+        if (!defs.length) continue;
+        c.depth = "defined"; fix("promote:" + c.conceptId);
+      }
+      if (!defs.length) { c.depth = "mentioned"; fix("demote:" + c.conceptId); continue; } // 정의 블록 없는 defined 는 언급으로 내린다
+      const keep = defs.find(d => d.s.sectionId === c.homeSectionId) ?? defs[0];
+      if (keep.s.sectionId !== c.homeSectionId) { c.homeSectionId = keep.s.sectionId; fix("def-home:" + c.conceptId); }
+      for (const d of defs) {
+        if (d === keep) continue;
+        if (d.s.blocks.length > 1) { d.s.blocks = d.s.blocks.filter(x => x !== d.b); fix("def-drop:" + d.pos); }
+        else { d.b.type = "B08"; fix("def-neutral:" + d.pos); }
+      }
+    }
+
+    // f. 수식·도표는 그 섹션(교차 포함) 유닛에서 나온 것만 남긴다.
+    const figUnit = new Map(figures.map(f => [f.id, f.unitId]));
+    for (const s of out.sections) {
+      const own = new Set([...s.unitIds, ...s.crossUnitIds]);
+      for (const b of s.blocks) {
+        b.formulaIds = b.formulaIds.filter(f => (formulaUnits[f] || []).some(u => own.has(u)) || (fix(`ref-drop:${s.sectionId}:${f}`), false));
+        b.figureIds = b.figureIds.filter(g => own.has(figUnit.get(g)) || (fix(`ref-drop:${s.sectionId}:${g}`), false));
+      }
+    }
+
+    // g. 첫 블록이 곁설명(B12)이면 첫 비-B12 를 앞으로 댄다 — 전부 B12 면 버릴 수 있을 때까지만 버린다.
+    for (const s of out.sections) {
+      if (s.blocks[0]?.type !== "B12") continue;
+      fix("side:" + s.sectionId);
+      const i = s.blocks.findIndex(b => b.type !== "B12");
+      if (i > 0) s.blocks.unshift(s.blocks.splice(i, 1)[0]);
+      else while (s.blocks.length > 1) s.blocks.shift();
+    }
+
+    // h. 제목·질문·개념 이름의 근거 없는 숫자: 질문은 비우고 제목·이름은 숫자 토큰을 지운다(numBad — 정규화와 같은 판정).
+    const unitNums = unitNumberIndex(units);
+    const strip = (text, unitIds) => {
+      let t = String(text).normalize("NFKC");
+      for (const n of numBad(unitNums, text, unitIds)) t = t.split(n.raw).join(" ");
+      return t.replace(/\s+/g, " ").trim();
+    };
+    for (const s of out.sections) {
+      if (numbersOk(unitNums, `${s.title}\n${s.question ?? ""}`, s.unitIds)) continue;
+      fix("number:" + s.sectionId);
+      if (s.question != null && !numbersOk(unitNums, s.question, s.unitIds)) s.question = null;
+      if (!numbersOk(unitNums, s.title, s.unitIds)) s.title = strip(s.title, s.unitIds) || "단원";
+    }
+    const dead = new Set();
+    for (const c of out.concepts) {
+      const home = out.sections.find(s => s.sectionId === c.homeSectionId);
+      if (!home || numbersOk(unitNums, c.name, home.unitIds)) continue;
+      fix("number:" + c.conceptId);
+      const name = strip(c.name, home.unitIds);
+      if (name) c.name = name;
+      else { dead.add(c.conceptId); fix("concept-drop:" + c.conceptId); }
+    }
+    if (dead.size) { // 빈 이름이 된 개념은 참조까지 지우고, 따라서 빈 B05 도 정리한다
+      out.concepts = out.concepts.filter(c => !dead.has(c.conceptId));
+      for (const s of out.sections) {
+        for (const b of s.blocks) b.conceptIds = b.conceptIds.filter(id => !dead.has(id));
+        cleanB05(s);
+      }
+      for (const g of out.global) g.conceptIds = g.conceptIds.filter(id => !dead.has(id));
+    }
+
+    // i. 전역 블록은 타입당 하나 — 나중 중복은 버린다.
+    const gSeen = new Set();
+    out.global = out.global.filter(g => gSeen.has(g.type) ? (fix("global-dup:" + g.type), false) : (gSeen.add(g.type), true));
+    return { output: out, fixes };
   }
 
   // §7 계산 검산: 모델이 준 식을 eval 하지 않고 허용된 연산 4종을 숫자에 직접 적용한다.
@@ -798,7 +1058,8 @@ const __defs = {
   const FREF_RE = /\{\{\s*(F\d+)\s*\}\}/g;
   const POINT_RE = /^(S[0-9]{1,3}_B[0-9]{1,2})\/P[1-6]$/;
   const SEC_BLOCK_RE = /^S[0-9]{1,3}_B[0-9]{1,2}$/;
-  const EMPHASIS_WORDS = { stress: /중요|핵심|꼭|반드시|기억/, exam: /시험|출제|중간고사|기말고사|퀴즈/ };
+  // 영어 강의의 근거는 영어다 — 같은 뜻의 영어 강조어도 받는다(test 는 "test set" 과 겹쳐 뺀다).
+  const EMPHASIS_WORDS = { stress: /중요|핵심|꼭|반드시|기억|\b(important|crucial|essential|remember|key point)/i, exam: /시험|출제|중간고사|기말고사|퀴즈|\b(exams?|midterm|final exam|quiz)/i };
   // 원어·인용·기한의 원문 대조는 NFC + 공백 접기 + 대소문자 무시로 한다(§9).
   const normSub = s => String(s ?? "").normalize("NFC").replace(/\s+/g, " ").toLowerCase();
   const isClaim = v => !!v && typeof v === "object" && !Array.isArray(v)
@@ -1151,13 +1412,16 @@ const __defs = {
     const evUnit = new Map(evidence.map(e => [e.id, e.unitId]));
     const hit = new Set(cited.map(r => evUnit.get(r)).filter(Boolean));
     const ownHit = sec.unitIds.filter(u => hit.has(u)).length;
+    // 커버리지 부족은 경고다 — 통과한 블록까지 섹션째 버리면 노트가 더 비고(필드: 4/6 블록이 살아 있던 섹션이 빠짐),
+    // 섹션 오류가 있으면 블록 repair 도 건너뛰어 커버리지가 회복될 길이 막힌다. 덜 다룬 구간은 조립의 미반영 구간 고지가 알린다.
+    const warnings = [];
     if (sec.unitIds.length && ownHit / sec.unitIds.length < 0.5)
-      pushErr(secErrs, "VAL_COVERAGE_LOW", [`${ownHit}/${sec.unitIds.length}`]);
+      pushErr(warnings, "VAL_COVERAGE_LOW", [`${ownHit}/${sec.unitIds.length}`]);
     const calc = {};
     for (const r of validBlocks) if (r.type === "B10")
       for (const [k, v] of Object.entries(r.calcRun?.values || {})) calc[`${r.id}.${k}`] = v;
     return {
-      sectionId, ok: !secErrs.length && staged.every(r => !r.errors.length), errors: secErrs, gist,
+      sectionId, ok: !secErrs.length && staged.every(r => !r.errors.length), errors: secErrs, warnings, gist,
       blocks: staged.map(r => ({ id: r.id, type: r.type, envelope: r.envelope, errors: r.errors })),
       checks, calc, cited,
     };
@@ -1354,10 +1618,20 @@ const __defs = {
       id: e.id, latex: e.latex ?? null, text: e.text ?? null, status: e.status,
       slideId: String(e.slideId ?? ""), t0: e.t0, display: displayOf("formula", e, cropSet.has(e.id)),
     }));
-    const figs = figures.map(f => ({
-      id: f.id, evidenceId: f.evidenceId, kind: f.kind, title: f.title ?? null, cells: f.cells ?? null,
-      chartData: f.chartData ?? null, t0: f.t0, display: displayOf("figure", f, cropSet.has(f.id)),
-    }));
+    // 비전 출력 스키마는 "" 와 빈 목록을 허용하지만 노트 스키마는 최소 1글자·1개다 — 빈 칸은 null, 그래도 안 맞는 그래프 값은 버린다(크롭·확인 표시로).
+    const blank = v => typeof v === "string" && v.trim() ? v : null;
+    const chartOf = d => {
+      if (!d) return null;
+      const c = { ...d, unit: blank(d.unit), xLabel: blank(d.xLabel), yLabel: blank(d.yLabel) };
+      return Contracts.validate(schemas.note.properties.figures.items.properties.chartData, c).ok ? c : null;
+    };
+    const figs = figures.map(f => {
+      const chartData = chartOf(f.chartData);
+      return {
+        id: f.id, evidenceId: f.evidenceId, kind: f.kind, title: blank(f.title), cells: f.cells ?? null,
+        chartData, t0: f.t0, display: displayOf("figure", f.display === "chart" && !chartData ? {} : f, cropSet.has(f.id)),
+      };
+    });
     const concepts = (plan.concepts || []).map(c => ({
       conceptId: c.conceptId, name: c.name, depth: c.depth,
       // 홈 B05 가 빠지면 링크만 끊는다 — 개념 참조 자체는 유지한다(§12.2).
@@ -1377,8 +1651,10 @@ const __defs = {
     const evUnit = new Map(evidence.map(e => [e.id, e.unitId]));
     const citedUnits = new Set([...finalCited].map(r => evUnit.get(r)).filter(Boolean));
     const uncited = [], uncitedRanges = [];
+    // 판정이 "강의 내용 없음"(인사·출석·잡담, 중요도 1.5 미만)으로 본 유닛은 세지 않는다 — 작성 지침이 일부러 다루지 않는 구간이다. 판정 없는(Free) 유닛은 센다.
+    const chatter = uid => (unitById.get(uid)?.judge?.importance ?? 5) < 1.5;
     for (const st of secLive.values()) for (const uid of st.plan.unitIds)
-      if (!citedUnits.has(uid)) {
+      if (!citedUnits.has(uid) && !chatter(uid)) {
         uncited.push(uid);
         if (unitById.has(uid)) uncitedRanges.push({ t0: unitById.get(uid).t0, t1: unitById.get(uid).t1 });
       }
@@ -1463,7 +1739,7 @@ const __defs = {
   const api = freeze({
     NOTE_SPEC_VERSION, NOTE_SCHEMA_VERSION, POLICY, TYPES, SECTION_TYPES, GLOBAL_TYPES, WRITER_TYPES, IDS,
     schemas, envelopeSchema, sectionOutputSchemaFor, repairOutputSchemaFor, globalOutputSchemaFor,
-    normalizePlan, checkCalc, displayOf, citedRefs, validateSection, validateGlobal, assembleNote, restrictBasis, policyOf, AUG,
+    normalizePlan, repairPlan, canonicalPlanIds, canonicalMapKeys, checkCalc, displayOf, citedRefs, validateSection, validateGlobal, assembleNote, restrictBasis, policyOf, AUG, withSource,
   });
   globalThis.NoteContract = api;
   if (typeof module !== "undefined") module.exports = api;
@@ -1672,14 +1948,14 @@ const __defs = {
     });
     const raw = items.length ? await judge(items) : [];
     const scores = new Map((Array.isArray(raw) ? raw : raw?.results ?? []).map(r => [r?.itemId, r?.score]));
-    const failing = [], judged = new Set();
+    const failing = [], judged = new Set(), byIndex = blocks.map(() => null);
     for (const { itemId } of items) {
       const score = scores.get(itemId);
       if (typeof score !== "number" || Number.isNaN(score)) continue;
-      judged.add(+itemId);
+      judged.add(+itemId); byIndex[+itemId] = score;
       if (score < threshold) failing.push({ index: +itemId, errors: [err("VAL_SUPPORT_LOW", [score])] });
     }
-    return { ok: !failing.length, blocks: failing, unjudged: blocks.map((_, i) => i).filter(i => !judged.has(i)) };
+    return { ok: !failing.length, blocks: failing, unjudged: blocks.map((_, i) => i).filter(i => !judged.has(i)), scores: byIndex };
   }
 
   const api = { verifySection, checkSupport, verbatimIds, textOf, numbersOf };
@@ -1690,15 +1966,20 @@ const __defs = {
 },
 "server/auth.js": function (module, exports, require, __filename, __dirname) {
 // Supabase Auth 액세스 토큰(JWT) 검증 — Node crypto 만 쓴다. 서명 알고리즘은 설정이 정한다:
-// SUPABASE_JWT_SECRET 이 있으면 HS256 만, 없으면 JWKS 의 ES256/RS256 만 받는다. 토큰 헤더의 alg 는 이 목록에 있는지 확인할 뿐 키를 고르는 데 쓰지 않는다
-// (alg:none 과 HS/RS 혼동 공격은 여기서 막힌다).
+// SUPABASE_JWT_SECRET 이 있으면 HS256(시크릿)과 ES256/RS256(JWKS 키)을, 없으면 JWKS 의 ES256/RS256 만 받는다.
+// 토큰 헤더의 alg 는 이 목록에 있는지와 어느 쪽 키를 쓸지만 가른다 — HS256 은 JWKS 를, ES/RS 는 시크릿을 절대 건드리지 않는다
+// (alg:none 과 HS/RS 혼동 공격은 여기서 막힌다). 거절은 모두 reason 을 달고, 서명이 맞은 토큰의 거절에는 안전한 detail 도 단다.
 const crypto=require("node:crypto");
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,SEGMENT=/^[A-Za-z0-9_-]+$/;
 const plain=x=>x!==null&&typeof x==="object"&&!Array.isArray(x);
-const no=code=>Object.assign(new Error(code),{code});
+const no=(code,reason,detail)=>Object.assign(new Error(code),{code,reason,detail});
+// 거절 detail 에 넣는 안전한 값: 받은 문자열은 32자까지, URL 은 호스트명만. sub·이메일·토큰은 절대 싣지 않는다.
+const short=v=>typeof v==="string"?v.slice(0,32):v===undefined?undefined:String(v).slice(0,32);
+const host=u=>{try{return new URL(u).hostname;}catch{return null;}};
 // getJson(url) 은 한도 있는 GET 이다. now 는 테스트가 시계를 돌릴 수 있게 주입한다.
-function createAuth({url,secret,getJson,now=Date.now,ttlMs=600000,cooldownMs=10000,leewaySec=5}){
-  const iss=url+"/auth/v1",jwksUrl=iss+"/.well-known/jwks.json",algs=secret?["HS256"]:["ES256","RS256"];
+// jwks(문자열 또는 객체)는 호스팅 환경변수 SUPABASE_JWKS 같은 JWKS 덤프다 — 있으면 부팅 때 키를 심는다.
+function createAuth({url,secret,getJson,now=Date.now,ttlMs=600000,cooldownMs=10000,leewaySec=5,jwks}){
+  const iss=url+"/auth/v1",jwksUrl=iss+"/.well-known/jwks.json",algs=secret?["HS256","ES256","RS256"]:["ES256","RS256"];
   let keys=new Map(),at=0,last=0,pending=null;
   // JWK → 검증 키. kty/crv 에서 알고리즘을 정하므로 ES256 토큰이 RSA 키로 검증되는 일이 없다.
   function importKey(jwk){
@@ -1706,8 +1987,19 @@ function createAuth({url,secret,getJson,now=Date.now,ttlMs=600000,cooldownMs=100
     const alg=jwk.kty==="EC"&&jwk.crv==="P-256"?"ES256":jwk.kty==="RSA"?"RS256":null;
     if(!alg||(jwk.alg!==undefined&&jwk.alg!==alg))return null;
     const key=crypto.createPublicKey({key:jwk,format:"jwk"});
-    return alg==="RS256"&&key.asymmetricKeyDetails.modulusLength<2048?null:{alg,key};
+    if(alg==="RS256"&&key.asymmetricKeyDetails.modulusLength<2048)return null;
+    // 서명 검증은 WebCrypto 로 한다 — Supabase Edge(Deno)의 node:crypto 호환층은 dsaEncoding:"ieee-p1363" 을 따르지 않아 정상 ES256 토큰을 signature 로 거절했다.
+    // 키 재료만 넘긴다(key_ops·ext·alg·use 는 런타임마다 해석이 달라 뺀다).
+    const material=alg==="ES256"?{kty:"EC",crv:"P-256",x:jwk.x,y:jwk.y}:{kty:"RSA",n:jwk.n,e:jwk.e};
+    const params=alg==="ES256"?{name:"ECDSA",namedCurve:"P-256"}:{name:"RSASSA-PKCS1-v1_5",hash:"SHA-256"};
+    return {alg,key,web:crypto.webcrypto.subtle.importKey("jwk",material,params,false,["verify"]).catch(()=>null)};
   }
+  // 환경변수 JWKS 를 importKey 규칙 그대로 심는다 — 첫 요청부터 fetch 없이 검증한다. 깨진 값은 무시하고 fetch 로 떨어진다.
+  try{
+    const seeded=typeof jwks==="string"?JSON.parse(jwks):jwks;
+    for(const jwk of Array.isArray(seeded?.keys)?seeded.keys.slice(0,32):[])try{const k=importKey(jwk);if(k)keys.set(jwk.kid,k);}catch{}
+    if(keys.size)at=now();
+  }catch{}
   // 동시에 온 새로고침은 한 번으로 합친다. 실패하면 기존(만료됐을 수 있는) 키는 그대로 둔다.
   function refresh(){
     last=now();
@@ -1729,31 +2021,41 @@ function createAuth({url,secret,getJson,now=Date.now,ttlMs=600000,cooldownMs=100
     return keys.get(kid)||null;
   }
   async function check(token){
-    const seg=token.split(".");
-    if(token.length>4096||seg.length!==3||!seg.every(s=>SEGMENT.test(s)))throw no("unauthorized");
-    const h=JSON.parse(Buffer.from(seg[0],"base64url")),p=JSON.parse(Buffer.from(seg[1],"base64url")),sig=Buffer.from(seg[2],"base64url"),data=Buffer.from(seg[0]+"."+seg[1]);
-    if(!plain(h)||!plain(p)||!algs.includes(h.alg)||h.crit!==undefined)throw no("unauthorized");
+    const seg=typeof token==="string"?token.split("."):[];
+    if(typeof token!=="string"||token.length>4096||seg.length!==3||!seg.every(s=>SEGMENT.test(s)))throw no("unauthorized","format");
+    let h,p;
+    try{h=JSON.parse(Buffer.from(seg[0],"base64url"));p=JSON.parse(Buffer.from(seg[1],"base64url"));}catch{throw no("unauthorized","format");}
+    const sig=Buffer.from(seg[2],"base64url"),data=Buffer.from(seg[0]+"."+seg[1]);
+    if(!plain(h)||!plain(p))throw no("unauthorized","format");
+    if(!algs.includes(h.alg)||h.crit!==undefined)throw no("unauthorized","alg");
     if(h.alg==="HS256"){
       const mac=crypto.createHmac("sha256",secret).update(data).digest();
-      if(sig.length!==mac.length||!crypto.timingSafeEqual(sig,mac))throw no("unauthorized");
+      if(sig.length!==mac.length||!crypto.timingSafeEqual(sig,mac))throw no("unauthorized","signature");
     }else{
-      if(typeof h.kid!=="string"||h.kid.length>128)throw no("unauthorized");
+      if(typeof h.kid!=="string"||h.kid.length>128)throw no("unauthorized","kid");
       const k=await keyFor(h.kid);
-      if(!k||k.alg!==h.alg||!(h.alg==="ES256"?crypto.verify("sha256",data,{key:k.key,dsaEncoding:"ieee-p1363"},sig):crypto.verify("sha256",data,k.key,sig)))throw no("unauthorized");
+      if(!k)throw no("unauthorized","kid");
+      if(k.alg!==h.alg)throw no("unauthorized","alg");
+      let ok=false;try{ok=await crypto.webcrypto.subtle.verify(h.alg==="ES256"?{name:"ECDSA",hash:"SHA-256"}:{name:"RSASSA-PKCS1-v1_5"},await k.web,sig,data);}catch{}
+      if(!ok)throw no("unauthorized","signature");
     }
-    // 서명이 맞은 토큰만 만료를 알려 준다 — 위조 토큰에는 어떤 단서도 주지 않는다.
+    // 서명이 맞은 토큰만 거절 이유를 알려 준다 — 위조 토큰에는 어떤 단서도 주지 않는다.
     const s=Math.floor(now()/1000);
-    if(typeof p.exp!=="number"||!Number.isFinite(p.exp))throw no("unauthorized");
-    if(s>=p.exp+leewaySec)throw no("token_expired");
-    if(p.nbf!==undefined&&!(typeof p.nbf==="number"&&p.nbf<=s+leewaySec))throw no("unauthorized");
+    if(typeof p.exp!=="number"||!Number.isFinite(p.exp))throw no("unauthorized","format");
+    if(s>=p.exp+leewaySec)throw no("token_expired","expired");
+    if(p.nbf!==undefined&&!(typeof p.nbf==="number"&&p.nbf<=s+leewaySec))throw no("unauthorized","nbf");
     // anon·service_role 키도 서명이 맞는 JWT 다 — role 과 sub 가 사용자 토큰만 통과시킨다. 익명 로그인은 무료 한도를 무한히 만들 수 있어 거절한다.
-    if(!(p.aud==="authenticated"||Array.isArray(p.aud)&&p.aud.includes("authenticated"))||p.iss!==iss||p.role!=="authenticated"||p.is_anonymous===true||typeof p.sub!=="string"||!UUID.test(p.sub))throw no("unauthorized");
+    if(!(p.aud==="authenticated"||Array.isArray(p.aud)&&p.aud.includes("authenticated")))throw no("unauthorized","aud",short(p.aud));
+    if(p.iss!==iss)throw no("unauthorized","iss",{expectedHost:host(iss),gotHost:host(p.iss)});
+    if(p.role!=="authenticated")throw no("unauthorized","role",short(p.role));
+    if(p.is_anonymous===true)throw no("unauthorized","anonymous");
+    if(typeof p.sub!=="string"||!UUID.test(p.sub))throw no("unauthorized","sub");
     return p.sub.toLowerCase();
   }
-  // → {sub} | {code}. 알 수 없는 예외(손상된 JSON 등)는 모두 unauthorized 다.
+  // → {sub} | {code,reason,detail?}. 알 수 없는 예외(손상된 JSON 등)는 모두 unauthorized 다.
   async function verify(token){
     try{return {sub:await check(token)};}
-    catch(e){return {code:e&&(e.code==="token_expired"||e.code==="auth_unavailable")?e.code:"unauthorized"};}
+    catch(e){return {code:e&&(e.code==="token_expired"||e.code==="auth_unavailable")?e.code:"unauthorized",reason:e?.reason,detail:e?.detail};}
   }
   return {verify};
 }
@@ -1767,8 +2069,19 @@ const fs=require("node:fs"),path=require("node:path"),http=require("node:http"),
 const Vault=require("../lib/vault.js");
 const Contracts=require("../lib/contracts.js"),NoteContract=require("../lib/note-contract.js"),Prompts=require("./prompts.js");
 const {createAuth}=require("./auth.js"),{fileUsage,supabaseUsage,FAIL_CODE}=require("./usage.js"),{supabaseVault}=require("./vault-store.js");
-const RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"google/gemini-2.5-pro":[1.25,10],"anthropic/claude-haiku-4.5":[1,5],"anthropic/claude-sonnet-4.6":[3,15],"anthropic/claude-sonnet-5":[2,10],"xiaomi/mimo-v2.6-pro":[.435,.87],"xiaomi/mimo-v2.6-flash":[.14,.28]};
+const RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"google/gemini-2.5-pro":[1.25,10],"anthropic/claude-haiku-4.5":[1,5],"anthropic/claude-sonnet-4.6":[3,15],"anthropic/claude-sonnet-5":[2,10],"openai/gpt-6.1-sol":[2,10],"xiaomi/mimo-v2.6-pro":[.435,.87],"xiaomi/mimo-v2.6-flash":[.14,.28]};
 // 이미지 입력은 텍스트와 단가가 다르고 출력도 훨씬 짧다. /v1/plan·/v1/write 와 예약 계산을 섞지 않는다.
+// 제공자가 비용(usage.cost)을 보고하지 않으면 토큰 수 × 단가표(USD/100만 토큰)로 계산한다 — 예약액 전체를 청구하지 않게.
+// 토큰 수도 없으면 null(미보고) — 장부가 예약액을 청구한다. 추론 토큰은 completion_tokens 에 들어 있다.
+// 비용 보고·토큰이 없고 생성된 글도 없으면(empty: 빈 응답·본문 오류, 길이 잘림 아님) 생성이 없었다 — 0 으로 정산한다. 필드: 이런 시도 하나가 reported=false 로 남아
+// 같은 요청의 성공한 재시도까지 예약금 전액($0.6)으로 정산되게 했고, 서버 장부가 OpenRouter 실사용의 4~5배가 됐다.
+// ponytail: 토큰 없이 청구하는 제공자가 생기면 /api/v1/generation?id= 로 실제 비용을 대조한다.
+const costOf=(u,pi,po,empty=false)=>{
+  if(typeof u.cost==="number"&&Number.isFinite(u.cost)&&u.cost>=0)return u.cost;
+  const i=Number(u.prompt_tokens),o=Number(u.completion_tokens);
+  if(empty&&!(i>0)&&!(o>0))return 0;
+  return Number.isFinite(i)&&Number.isFinite(o)&&i>=0&&o>=0?(i*pi+o*po)/1e6:null;
+};
 const VISION_RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"mistralai/ministral-8b-2512":[.15,.15],"qwen/qwen3-vl-8b-instruct":[.12,.45],"openai/gpt-6-luna":[.1,.5]};
 // 구조화 출력은 상자 좌표까지 JSON으로 나가 순수 텍스트보다 길다.
 const VISION_MAX_TOKENS=8192;
@@ -1782,6 +2095,8 @@ const JUDGE_MODELS={"openai/gpt-4.1-nano":{via:"logprob",rates:[.1,.4]},"typesaf
 // 과제별 고정 라벨 — 모델에게 나가는 선택지 알파벳(A, B, C …)과 Jev 선택지 순서가 이 표를 따른다.
 // 표는 요청·응답 변환과 함께 server/jev.js 에 둔다 — logprob 과 jev 가 같은 라벨 순서를 써야 한다.
 const Jev=require("./jev.js"),JUDGE_TASKS=Jev.JUDGE_TASKS;
+// plan 의 강의 분야 분류에 쓰는 Jev 모델 — c.judgeModels 허용 목록에 있을 때만 분류를 켠다.
+const JEV_MODEL="typesafe/jev-1.13";
 // 판정 프롬프트는 공용 전제 + 과제 블록이다. 자료 안의 지시를 무시하라는 문장이 프롬프트 인젝션 방어선이다.
 const JUDGE_PROMPTS=Object.fromEntries(Object.entries({
   utterance:"과제: 강의 중 한 문장(text)이 어느 종류인지 고른다. A: 강의내용 — 수업 주제의 개념, 정의, 수식, 절차를 직접 설명한다. B: 예시·비유 — 이해를 돕는 사례나 비유다. C: 공지·행정 — 출석, 과제, 시험 일정, 화면·장비 안내다. D: 잡담 — 주제와 무관한 말, 추임새, 농담이다. context가 있으면 앞뒤 문맥이다.",
@@ -1884,7 +2199,9 @@ function config(env){
   if(!Object.keys(tokens).length&&!env.SUPABASE_URL)throw new Error("APP_TOKENS_JSON required");
   for(const [account,token]of Object.entries(tokens)){safePart(account);if(typeof token!=="string"||token.length<32||known.has(token))throw new Error("unique_32_character_tokens_required");known.add(token);}
   if(!Array.isArray(allow)||!allow.length||allow.some(m=>!RATES[m]))throw new Error("invalid_model_allowlist");
-  if(!/^chrome-extension:\/\/[a-p]{32}$/.test(env.EXTENSION_ORIGIN||""))throw new Error("exact_extension_origin_required");
+  // 정확한 출처 목록(쉼표 구분)이다. 압축 해제 확장의 ID는 폴더 경로에서 나와 개발자마다 다르고 웹스토어 ID도 따로라 하나씩 넣는다.
+  const origins=String(env.EXTENSION_ORIGIN||"").split(",").map(o=>o.trim());
+  if(origins.some(o=>!/^chrome-extension:\/\/[a-p]{32}$/.test(o)))throw new Error("exact_extension_origin_required");
   const providers=JSON.parse(env.OPENROUTER_PROVIDERS_JSON||"{}");
   for(const m of allow)if(!Array.isArray(providers[m])||!providers[m].length||providers[m].some(p=>typeof p!=="string"||p.length>100))throw new Error("explicit_provider_allowlist_required");
   const visionModels=JSON.parse(env.ALLOWED_VISION_MODELS||"[]");
@@ -1935,7 +2252,7 @@ function config(env){
     if(!Array.isArray(next.models)||!next.models.length||next.models.some(m=>!allow.includes(m)))throw new Error("invalid_plan_models");
     planFeatures[name]=next;
   }
-  const remoteConfig={concurrency:{download:4,decode:1,stt:4,vision:8,judge:2,write:8},throughputMbps:50,minClientVersion:"0.0.0",promptVersion:"v1",schemaVersion:1};
+  const remoteConfig={concurrency:{download:4,decode:1,stt:2,vision:3,judge:2,write:8},throughputMbps:50,minClientVersion:"0.0.0",promptVersion:"v1",schemaVersion:1};
   const remoteIn=JSON.parse(env.REMOTE_CONFIG_JSON||"{}");
   if(!plain(remoteIn)||Object.keys(remoteIn).some(k=>!Object.hasOwn(remoteConfig,k)))throw new Error("invalid_remote_config");
   if(remoteIn.concurrency!==undefined){
@@ -1949,7 +2266,7 @@ function config(env){
   if(!plain(providerConcurrency)||Object.values(providerConcurrency).some(v=>!Number.isInteger(v)||v<=0))throw new Error("invalid_provider_concurrency");
   // 요청 수·분당 호출 수는 거친 안전망이다. 진짜 상한은 비용 캡(MAX_COST_CENTS, GLOBAL_COST_CENTS)이다 —
   // v2 유료 작업은 강의 1시간에 150회 안팎을 부르고 비전 8레인만으로도 분당 120회에 닿아서 예전 기본값이 정상 작업을 막았다.
-  return {tokens,allow,providers,key:env.OPENROUTER_API_KEY,origin:env.EXTENSION_ORIGIN,root:path.resolve(env.VAULT_DIR||"server-data"),stateFile:env.USAGE_STATE_FILE?path.resolve(env.USAGE_STATE_FILE):null,
+  return {tokens,allow,providers,key:env.OPENROUTER_API_KEY,mgmtKey:env.OPENROUTER_MANAGEMENT_KEY||null,origins,root:path.resolve(env.VAULT_DIR||"server-data"),stateFile:env.USAGE_STATE_FILE?path.resolve(env.USAGE_STATE_FILE):null,
     accountLimits,visionModels,sttModels,judgeModels,featureFlags,remoteConfig,supabase,planFeatures,providerConcurrency,maxCents:positive(env.MAX_COST_CENTS,1500),maxRequests:positive(env.MAX_REQUESTS,10000),globalCents:positive(env.GLOBAL_COST_CENTS,15000),timeout:Math.min(positive(env.OPENROUTER_TIMEOUT_MS,120000),120000),accountConcurrency:positive(env.ACCOUNT_CONCURRENCY,12),providerQueueMs:positive(env.PROVIDER_QUEUE_MS,10000),ratePerMin:positive(env.ACCOUNT_RATE_PER_MIN,300),maxFiles:100,maxArchiveBytes:200*1024*1024};
 }
 function atomic(file,data){fs.mkdirSync(path.dirname(file),{recursive:true});const temp=file+"."+crypto.randomUUID()+".tmp";fs.writeFileSync(temp,JSON.stringify(data),{mode:0o600,flag:"wx"});fs.renameSync(temp,file);}
@@ -1991,7 +2308,7 @@ function createServer(env=process.env,deps={}){
   const file=fileUsage({state,record,save,month,globalCents:c.globalCents});
   const sb=c.supabase&&supabaseUsage({url:c.supabase.url,key:c.supabase.key,http:sbHttp});
   const vstore=c.supabase&&supabaseVault({url:c.supabase.url,key:c.supabase.key,bucket:c.supabase.bucket,http:sbHttp});
-  const auth=c.supabase&&createAuth({url:c.supabase.url,secret:c.supabase.secret,getJson:url=>sbHttp(url),now:clock});
+  const auth=c.supabase&&createAuth({url:c.supabase.url,secret:c.supabase.secret,getJson:url=>sbHttp(url),now:clock,jwks:env.SUPABASE_JWKS});
   // JWT 계정은 장부 digest 를 HMAC 으로 DB에 보낸다 — 강의 본문의 맨 SHA-256 은 사전 공격이 가능하다. 파일 장부(운영자 디스크)는 기존 그대로다.
   const digestOf=(account,s)=>account.jwt?crypto.createHmac("sha256",c.supabase.digestKey).update(s).digest("hex"):crypto.createHash("sha256").update(s).digest("hex");
   // DB 등급 → 기능·모델. 같은 사용자의 연속 호출은 30초 캐시를 쓰고 /v1/me 만 새로 읽는다(한도 자체는 매 예약마다 DB가 판정하므로 캐시가 한도를 늦추지 않는다).
@@ -2001,10 +2318,10 @@ function createServer(env=process.env,deps={}){
     else{plan=await sb.plan(id);plans.delete(id);plans.set(id,{plan,at:clock()});if(plans.size>5000)plans.delete(plans.keys().next().value);}
     return {plan,...(c.planFeatures[plan]||c.planFeatures.free)};
   }
-  const fail=(res,code,retryAfterMs)=>{const [status,retryable,message]=ERRORS[code]||[500,false,"요청을 처리하지 못했습니다."];send(res,status,{error:{code,message,retryable,retryAfterMs:Number.isInteger(retryAfterMs)?retryAfterMs:null}});};
+  const fail=(res,code,retryAfterMs,extra)=>{const [status,retryable,message]=ERRORS[code]||[500,false,"요청을 처리하지 못했습니다."];send(res,status,{error:{code,message,retryable,retryAfterMs:Number.isInteger(retryAfterMs)?retryAfterMs:null,...extra}});};
   function send(res,status,data){
     if(res.destroyed||res.writableEnded)return;
-    res.writeHead(status,{"content-type":"application/json","cache-control":"no-store","x-content-type-options":"nosniff","access-control-allow-origin":c.origin,"vary":"Origin","access-control-allow-headers":"authorization,content-type,x-client-version","access-control-allow-methods":"GET,PUT,POST,DELETE,OPTIONS"});
+    res.writeHead(status,{"content-type":"application/json","cache-control":"no-store","x-content-type-options":"nosniff","access-control-allow-origin":res.allowOrigin||c.origins[0],"vary":"Origin","access-control-allow-headers":"authorization,content-type,x-client-version","access-control-allow-methods":"GET,PUT,POST,DELETE,OPTIONS"});
     res.end(status===204?undefined:JSON.stringify(data));
   }
   // 정적 토큰(운영·개발·테스트 계정)이 먼저, 그다음 Supabase JWT. → {id,jwt,limits,client} | {code}. JWT 계정의 limits 는 핸들러가 DB 등급으로 채운다.
@@ -2013,7 +2330,10 @@ function createServer(env=process.env,deps={}){
     const id=Object.entries(c.tokens).find(([,v])=>tokenEqual(token,v))?.[0];
     if(id!==undefined)return {id,jwt:false,limits:limitFor(id),client};
     const r=auth?await auth.verify(token):null;
-    return r&&r.sub?{id:r.sub,jwt:true,client}:{code:r?.code||"unauthorized"};
+    if(r&&r.sub)return {id:r.sub,jwt:true,client};
+    // 거절 이유는 한 줄로만 — 토큰·sub·이메일은 절대 싣지 않는다(detail 은 auth.js 가 안전한 값만 만든다).
+    if(r&&r.reason)console.warn("auth_reject "+r.reason+(r.detail===undefined?"":" "+JSON.stringify(r.detail)));
+    return {code:r?.code||"unauthorized",reason:r?.reason,detail:r?.detail};
   }
   async function body(req,max){
     const declared=Number(req.headers["content-length"]);if(declared>max)throw new Error("request_too_large");
@@ -2115,6 +2435,22 @@ function createServer(env=process.env,deps={}){
   const bucket=account=>{let b=buckets.get(account);if(!b){if(buckets.size>=10000)for(const [k,v]of buckets)if(Date.now()-v.ts>6e4)buckets.delete(k);buckets.set(account,b={tokens:c.ratePerMin,ts:Date.now()});}const now=Date.now();b.tokens=Math.min(c.ratePerMin,b.tokens+(now-b.ts)*c.ratePerMin/6e4);b.ts=now;return b;};
   // /v1/plan·/v1/write·/v1/vision·/v1/stt·/v1/judge 가 같은 돈을 쓴다. 예약·멱등·락·정산을 한 군데 두지 않으면
   // 두 라우트의 한도 계산이 조용히 어긋난다 — 어긋난 쪽이 무료로 돌아가는 실패 모드다.
+  // OpenRouter 생성 통계는 응답 직후 잠깐 늦게 잡힌다 — 0·0.6·1.5초에 다시 묻고, 그래도 없으면 null(호출자가 기존 계산을 쓴다).
+  async function billedCost(ids){
+    const one=async id=>{
+      for(const wait of [0,600,1500]){
+        if(wait)await new Promise(r=>setTimeout(r,wait));
+        try{
+          const ctl=new AbortController(),t=setTimeout(()=>ctl.abort(),3000);
+          const r=await fetcher("https://openrouter.ai/api/v1/generation?id="+encodeURIComponent(id),{redirect:"error",signal:ctl.signal,headers:{authorization:"Bearer "+c.mgmtKey}}).finally(()=>clearTimeout(t));
+          if(r.ok){const v=(await r.json())?.data?.total_cost;if(typeof v==="number"&&Number.isFinite(v)&&v>=0)return v;}
+        }catch{}
+      }
+      return null;
+    };
+    const vs=await Promise.all(ids.slice(0,8).map(one));
+    return ids.length<=8&&vs.every(v=>v!==null)?vs.reduce((a,b)=>a+b,0):null;
+  }
   async function withReservation({account,requestId,digest,reserve,minutes=0,model,res,meta={}},run){
     const id=account.id,store=account.jwt?sb:file;
     if((inflight.get(id)||0)>=c.accountConcurrency)return fail(res,"account_concurrency_exceeded",1000);
@@ -2129,13 +2465,13 @@ function createServer(env=process.env,deps={}){
       if(held.fail)return fail(res,FAIL_CODE[held.fail]);
       timer=setTimeout(()=>controller.abort(),c.timeout);
       const t0=Date.now();
-      let payload,amount=null,error=null,status="ok";
+      let payload,amount=null,error=null,status="ok";const gens=[];
       try{
         // 예약을 기다리는 사이 끊긴 요청은 제공자에 아무것도 보내지 않았으므로 환불이다.
         if(controller.signal.aborted)throw Object.assign(new Error("aborted"),{refund:true,code:"request_cancelled_or_timed_out"});
         const release=await acquire(model,controller.signal,false,store);
         try{
-          const r=await run(controller.signal,store);
+          const r=await run(controller.signal,store,gens);
           // 비용을 보고하지 않은 요청은 amount 가 null 이다 — 장부는 예약액을 그대로 청구한다. 공짜였다고 가정하지 않는다.
           payload=r.payload;amount=r.reported?r.amount:null;
         }finally{release();}
@@ -2146,8 +2482,11 @@ function createServer(env=process.env,deps={}){
       }
       const code=!error?null:status==="refunded"?error.code||"provider_failed_or_invalid_output":controller.signal.aborted?"request_cancelled_or_timed_out":error.charged?error.code:"provider_failed_or_invalid_output";
       const u=payload?.usage||error?.charged?.usage||{};
+      // 실 결제 금액: 이 요청이 만든 생성(gen id)마다 OpenRouter 가 실제로 청구한 금액(관리 키로 /generation 조회)을 장부에 적는다.
+      // 하나라도 못 받으면 응답의 보고 비용·토큰 계산으로 둔다. 환불(생성 없음)은 조회하지 않는다.
+      if(c.mgmtKey&&gens.length&&status!=="refunded"){const b=await billedCost(gens);if(b!==null)amount=b;}
       let stored=true;
-      try{await held.settle({status,amount,meta:{...meta,inputTokens:u.promptTokens,outputTokens:u.completionTokens,audioSeconds:u.audioSec??meta.audioSeconds,promptVersion:payload?.promptVersion,schemaVersion:payload?.schemaVersion,errorCode:code,latencyMs:Date.now()-t0,clientVersion:account.client}});}catch{stored=false;}
+      try{await held.settle({status,amount,meta:{...meta,inputTokens:u.promptTokens,outputTokens:u.completionTokens,audioSeconds:u.audioSec??meta.audioSeconds,promptVersion:payload?.promptVersion,schemaVersion:payload?.schemaVersion,errorCode:(code&&error?.detail)||code,latencyMs:Date.now()-t0,clientVersion:account.client}});}catch{stored=false;}
       // 정산이 안 닫혀도 이미 만든 결과는 돌려준다 — 예약이 reserved 로 남아 비용이 보수적으로 잡힌다. 환불만은 예약이 안 풀렸으므로 같은 requestId 재시도를 약속할 수 없다.
       if(!error)return send(res,200,payload);
       if(status==="refunded")return stored?fail(res,code,error.retryAfterMs):fail(res,"usage_store_failed");
@@ -2158,8 +2497,8 @@ function createServer(env=process.env,deps={}){
     if(!(account.limits.features||[]).includes("vision")||c.featureFlags.vision===false)return fail(res,"feature_not_in_account_plan");
     if(!c.visionModels.includes(input.model))return fail(res,"invalid_model");
     safePart(input.requestId);
-    const fields=["model","requestId","slideId","t0","t1","image","mode"];
-    if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)))return fail(res,"unexpected_field");
+    const fields=["model","requestId","slideId","t0","t1","image","mode"],optional=["jobId"];
+    if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)&&!optional.includes(k)))return fail(res,"unexpected_field");
     if(typeof input.slideId!=="string"||!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(input.slideId)||!Number.isFinite(input.t0)||!Number.isFinite(input.t1)||input.t0<0||input.t1<input.t0||!["full","reread"].includes(input.mode))return fail(res,"invalid_vision_params");
     const match=/^data:image\/jpeg;base64,([A-Za-z0-9+/]+={0,2})$/.exec(String(input.image||""));
     if(!match)return fail(res,"invalid_image");
@@ -2172,7 +2511,7 @@ function createServer(env=process.env,deps={}){
     const reasoning=reasoningFor(input.model),live=reasoning.enabled!==false,maxTokens=live?maxTokensFor(input.model):VISION_MAX_TOKENS;
     // 이미지 토큰 수는 사전에 알 수 없다. 최악값에 형식 실패 재시도분까지 잡고 정산에서 되돌린다.
     const reserve=Math.ceil(attempts*(8000*pi+maxTokens*po)/1e6*100*1.2);
-    return await withReservation({account,requestId:input.requestId,digest,reserve,model:input.model,res,meta:{stage:"vision."+input.mode,provider:"openrouter",model:input.model,images:1}},async signal=>{
+    return await withReservation({account,requestId:input.requestId,digest,reserve,model:input.model,res,meta:{stage:"vision."+input.mode,provider:"openrouter",model:input.model,images:1,jobId:input.jobId}},async (signal,store,gens)=>{
       let usage={promptTokens:0,completionTokens:0},amount=0,reported=true;
       for(let retry=0;retry<attempts;retry++){
         const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
@@ -2182,9 +2521,9 @@ function createServer(env=process.env,deps={}){
           provider:{only:c.providers[input.model],order:c.providers[input.model],require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}
         })});
         if(!response.ok)throw new Error("provider_failed");
-        const raw=await boundedResponse(response,1024*1024),u=raw.usage||{};
+        const raw=await boundedResponse(response,1024*1024),u=raw.usage||{};if(typeof raw.id==="string")gens.push(raw.id);
         usage={promptTokens:usage.promptTokens+(Number(u.prompt_tokens)||0),completionTokens:usage.completionTokens+(Number(u.completion_tokens)||0)};
-        if(typeof u.cost==="number"&&Number.isFinite(u.cost)&&u.cost>=0)amount+=u.cost;else reported=false;
+        { const c=costOf(u,pi,po); if(c===null)reported=false;else amount+=c; }
         // 형식 실패(잘림·파손·계약 불일치)만 같은 제공자로 한 번 더 간다 — 돈은 이미 나갔다.
         try{
           if(raw.choices?.[0]?.finish_reason!=="stop")throw new Error("provider_output_incomplete");
@@ -2198,8 +2537,8 @@ function createServer(env=process.env,deps={}){
     if(!(account.limits.features||[]).includes("stt")||c.featureFlags.stt===false)return fail(res,"feature_not_in_account_plan");
     if(!c.sttModels.includes(input.model))return fail(res,"invalid_model");
     safePart(input.requestId);
-    const fields=["model","requestId","t0","durationSec","lang","prompt","audio"];
-    if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)))return fail(res,"unexpected_field");
+    const fields=["model","requestId","t0","durationSec","lang","prompt","audio"],optional=["jobId"];
+    if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)&&!optional.includes(k)))return fail(res,"unexpected_field");
     if(!Number.isFinite(input.t0)||input.t0<0||input.t0>360000||!Number.isFinite(input.durationSec)||input.durationSec<=0||input.durationSec>STT_MAX_SEC||!["ko","en","auto"].includes(input.lang)||typeof input.prompt!=="string"||input.prompt.length>1000)return fail(res,"invalid_stt_params");
     const match=/^data:audio\/(mp4|wav);base64,([A-Za-z0-9+/]+={0,2})$/.exec(String(input.audio||""));
     if(!match)return fail(res,"invalid_audio");
@@ -2213,7 +2552,7 @@ function createServer(env=process.env,deps={}){
     const phrases=[...new Set(input.prompt.split(",").map(p=>p.trim()).filter(Boolean))].slice(0,100).map(p=>p.slice(0,50));
     const reserve=Math.ceil(STT_RATES[input.model]*Math.max(STT_MIN_BILLED_SEC,input.durationSec)/3600*100*1.2);
     // 월 인식 분량 한도(plans.monthly_minutes_cap)는 선언 길이를 올림한 분으로 센다 — 비용은 따로 제공자가 잰 길이로 정산한다.
-    return await withReservation({account,requestId:input.requestId,digest,reserve,minutes:Math.ceil(input.durationSec/60),model:input.model,res,meta:{stage:"stt",provider:"openrouter",model:input.model,audioSeconds:input.durationSec}},async signal=>{
+    return await withReservation({account,requestId:input.requestId,digest,reserve,minutes:Math.ceil(input.durationSec/60),model:input.model,res,meta:{stage:"stt",provider:"openrouter",model:input.model,audioSeconds:input.durationSec,jobId:input.jobId}},async signal=>{
       // lang auto 는 language 힌트를 보내지 않는다 — 제공자가 언어를 감지하게 둔다.
       const response=await fetcher("https://openrouter.ai/api/v1/audio/transcriptions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
         model:input.model,input_audio:{data:b64,format:match[1]==="mp4"?"m4a":"wav"},...(input.lang==="auto"?{}:{language:input.lang}),response_format:"verbose_json",timestamp_granularities:["segment","word"],
@@ -2238,8 +2577,8 @@ function createServer(env=process.env,deps={}){
     if(!Object.hasOwn(JUDGE_TASKS,input.task))return fail(res,"invalid_task");
     if(!c.judgeModels.includes(input.model))return fail(res,"invalid_model");
     safePart(input.requestId);
-    const fields=["task","model","requestId","items"];
-    if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)))return fail(res,"unexpected_field");
+    const fields=["task","model","requestId","items"],optional=["jobId"];
+    if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)&&!optional.includes(k)))return fail(res,"unexpected_field");
     const items=input.items;
     if(!Array.isArray(items)||!items.length||items.length>200||items.some(e=>!e||typeof e!=="object"||typeof e.itemId!=="string"||!e.itemId||e.itemId.length>64||typeof e.text!=="string"||!e.text||e.text.length>8000||(e.context!==undefined&&(typeof e.context!=="string"||e.context.length>8000))||Object.keys(e).some(k=>!["itemId","text","context"].includes(k)))||new Set(items.map(e=>e.itemId)).size!==items.length)return fail(res,"invalid_items");
     const text=JSON.stringify(items);
@@ -2254,7 +2593,7 @@ function createServer(env=process.env,deps={}){
     const inputBytes=via.chunk?units.reduce((s,r)=>s+Buffer.byteLength(JSON.stringify(r.body)),0):Buffer.byteLength(text)+items.length*(Buffer.byteLength(JUDGE_PROMPTS[input.task])+200);
     const reserve=Math.ceil((inputBytes*pi+(via.chunk?0:items.length*po))/1e6*100*1.2);
     // 요청 단위 슬롯은 잡지 않는다(model 없음) — 잡으면 단위 슬롯 대기와 서로를 기다리는 교착이 생긴다.
-    return await withReservation({account,requestId:input.requestId,digest,reserve,res,meta:{stage:"judge."+input.task,provider:"openrouter",model:input.model}},async (signal,store)=>{
+    return await withReservation({account,requestId:input.requestId,digest,reserve,res,meta:{stage:"judge."+input.task,provider:"openrouter",model:input.model,jobId:input.jobId}},async (signal,store)=>{
       const ctl=new AbortController(),stop=()=>ctl.abort();
       signal.addEventListener("abort",stop,{once:true});if(signal.aborted)stop();
       const ctx={c,fetcher,signal:ctl.signal,model:input.model,task:input.task},call=JUDGE_VIA[via.via];
@@ -2286,10 +2625,13 @@ function createServer(env=process.env,deps={}){
     if(!c.allow.includes(input.model))return fail(res,stage==="plan"?"invalid_model":"invalid_model_or_stage");
     if(!account.limits.models.includes(input.model))return fail(res,"model_not_in_account_plan");
     safePart(input.requestId);
-    const envelope=stage==="plan"?["model","requestId","noteSpecVersion"]:["model","requestId","noteSpecVersion","stage"],fields=[...envelope,...Object.keys(Prompts.REQUEST[stage].properties)];
-    if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)))return fail(res,"unexpected_field");
+    const envelope=stage==="plan"?["model","requestId","noteSpecVersion"]:["model","requestId","noteSpecVersion","stage"],fields=[...envelope,...Object.keys(Prompts.REQUEST[stage].properties)],optional=stage==="plan"?["jobId","host"]:["jobId","sourceLang"];
+    if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)&&!optional.includes(k)))return fail(res,"unexpected_field");
     // 다른 양식 버전의 입력은 모양부터 다를 수 있다. 본문 검사보다 먼저 버전으로 거절해야 클라이언트가 원인을 안다.
     if(input.noteSpecVersion!==NoteContract.NOTE_SPEC_VERSION)return fail(res,"note_spec_mismatch");
+    // 강의 원어(선택): "en" 이면 작성 지시에 영어 강의 규칙이 붙고 섹션·repair 출력의 주장마다 src 가 더해진다. 없으면 기존 요청과 같다.
+    const sourceLang=input.sourceLang;
+    if(sourceLang!==undefined&&!["ko","en"].includes(sourceLang))return fail(res,"request_rejected");
     // 모델 입력은 스키마 순서의 본문만이다 — 클라이언트의 키 순서가 달라도 같은 프롬프트가 나가야 재현된다.
     const rest=Object.fromEntries(Object.keys(Prompts.REQUEST[stage].properties).map(k=>[k,input[k]])),checked=Contracts.validate(Prompts.REQUEST[stage],rest);
     if(!checked.ok)return fail(res,checked.errors.some(e=>e.message==="허용되지 않는 속성입니다")?"unexpected_field":"request_rejected");
@@ -2297,19 +2639,33 @@ function createServer(env=process.env,deps={}){
     const opts=rest.options;
     if((opts.syntheticExamples||opts.externalAugmentation)&&(!(account.limits.features||[]).includes("augment")||c.featureFlags.augment===false))return fail(res,"feature_not_in_account_plan");
     // 출력 스키마는 요청(계획 블록·옵션)마다 만든다. 계획에 없는 blockId 같은 모순은 note-contract 가 던진다.
-    let outSchema;try{outSchema=Prompts.outputSchema(stage,rest);}catch{return fail(res,"request_rejected");}
-    const system=Prompts.systemFor(stage,opts),user=JSON.stringify(rest);
+    let outSchema;try{outSchema=Prompts.outputSchema(stage,rest,sourceLang);}catch{return fail(res,"request_rejected");}
+    const system=Prompts.systemFor(stage,opts,sourceLang),user=JSON.stringify(rest);
     if(Prompts.estimateTokens(user)>Prompts.inputTokenLimit(stage))return fail(res,"request_too_large");
     // Free 월 분 한도: 로컬 인식은 STT 를 거치지 않으므로 계획 요청에서 강의 길이(유닛 시각 범위)를 분으로 센다.
     // 클라우드 STT 를 쓴 작업은 STT 가 이미 셌다. ponytail: recognition 은 클라이언트 신고다 — STT 기능이 없는 계정은 신고와 무관하게 센다.
     const us=stage==="plan"?rest.ir.units:[],span=us.length?Math.max(...us.map(u=>u.t1))-Math.min(...us.map(u=>u.t0)):0;
     const minutes=stage==="plan"&&(rest.recognition==="local"||!(account.limits.features||[]).includes("stt"))?Math.max(1,Math.ceil(span/60)):0;
-    const digest=digestOf(account,JSON.stringify({route:stage==="plan"?"plan":"write",stage,model:input.model,noteSpecVersion:input.noteSpecVersion,rest}));
+    const digest=digestOf(account,JSON.stringify({route:stage==="plan"?"plan":"write",stage,model:input.model,noteSpecVersion:input.noteSpecVersion,rest,...(sourceLang?{sourceLang}:{})}));
     const [pi,po]=RATES[input.model],params=Prompts.modelParams(input.model,stage),attempts=2;
     // 형식 실패 재시도분까지 예약하고 정산에서 되돌린다. 시스템 본문과 스키마도 입력 토큰이다.
     const reserve=Math.ceil((Prompts.estimateTokens(system+JSON.stringify(outSchema)+user)*pi+params.max_tokens*po)/1e6*100*1.2*attempts);
     const providerOut=providerSchema(outSchema,[]);
-    return await withReservation({account,requestId:input.requestId,digest,reserve,minutes,model:input.model,res,meta:{stage:stage==="plan"?"plan":"write."+stage,provider:"openrouter",model:input.model}},async signal=>{
+    // 정산에 실을 메타 — plan 의 분야 분류 결과(subject·subjectConf)는 run 안에서 더한다.
+    const meta={stage:stage==="plan"?"plan":"write."+stage,provider:"openrouter",model:input.model,jobId:input.jobId,host:input.host,...(stage==="plan"?{lectureSeconds:span,slides:new Set(us.map(u=>u&&u.slideId).filter(Boolean)).size}:{})};
+    // 분야 분류는 슬라이드 첫 줄을 제목으로 모아 Jev 에 한 번 묻는다 — plan 에서만, 제목이 없으면 건너뛴다.
+    const titles=stage==="plan"?[...new Set(us.map(u=>typeof u.slideText==="string"?u.slideText.split("\n")[0].trim():"").filter(Boolean))].slice(0,20):[];
+    return await withReservation({account,requestId:input.requestId,digest,reserve,minutes,model:input.model,res,meta},async (signal,store,gens)=>{
+      // 분류는 계획 호출과 병렬로 시작해 계획이 끝난 뒤에만 기다린다 — 지연(자체 5초)·실패는 meta 를 비워 두고
+      // 응답·상태·청구액은 그대로다. Jev 비용은 사용자 청구에 더하지 않는다.
+      const classifying=titles.length&&c.judgeModels.includes(JEV_MODEL)?(async()=>{
+        const ctl=new AbortController(),off=()=>ctl.abort(),t=setTimeout(()=>ctl.abort(),5000);
+        signal.addEventListener("abort",off,{once:true});
+        try{
+          const response=await fetcher(Jev.ENDPOINT,{method:"POST",redirect:"error",signal:ctl.signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify(Jev.buildSubjectRequest(titles,{model:JEV_MODEL,providers:c.providers[JEV_MODEL]}).body)});
+          return response.ok?Jev.parseSubjectAnswer(await boundedResponse(response,256*1024)):null;
+        }catch{return null;}finally{clearTimeout(t);signal.removeEventListener("abort",off);}
+      })():null;
       let usage={promptTokens:0,completionTokens:0},amount=0,reported=true;
       for(let retry=0;retry<attempts;retry++){
         const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
@@ -2318,19 +2674,47 @@ function createServer(env=process.env,deps={}){
           response_format:{type:"json_schema",json_schema:{name:"lecture_note_"+stage,strict:true,schema:providerOut}},
           provider:{only:c.providers[input.model],order:c.providers[input.model],require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}
         })});
-        if(!response.ok)throw new Error("provider_failed");
-        const raw=await boundedResponse(response,1024*1024),u=raw.usage||{},choice=raw.choices?.[0];
+        // detail 은 사용 기록(usage_events.error_code)에만 남는 세부 사유다 — 클라이언트에는 기존 코드만 간다.
+        // 4xx 는 라우팅 단계의 거절(파라미터·제공자 없음)이라 생성 비용이 없다 — 첫 시도면 예약을 환불한다.
+        // 5xx·전송 실패는 제공자 쪽에서 돈이 나갔는지 알 수 없어 예약을 그대로 둔다(보수적).
+        if(!response.ok)throw Object.assign(new Error("provider_failed"),{detail:"provider_http_"+response.status},retry===0&&response.status>=400&&response.status<500?{refund:true,code:"provider_failed_or_invalid_output"}:{});
+        const raw=await boundedResponse(response,1024*1024),u=raw.usage||{},choice=raw.choices?.[0];if(typeof raw.id==="string")gens.push(raw.id);
+        // 200 이어도 본문이 오류이고 생성이 없으면(사용량 없음·선택지 없음) 돈이 나가지 않았다 — 첫 시도면 환불한다.
+        // 필드: OpenRouter 크레딧이 바닥난 순간 이런 응답 3건이 각각 예약금 전액($0.57)으로 정산됐다.
+        if(!choice&&!raw.usage)throw Object.assign(new Error("provider_failed"),{detail:"provider_body_"+String(raw.error?.code??"empty").replace(/[^a-z0-9_]/gi,"_").slice(0,24)},retry===0?{refund:true,code:"provider_failed_or_invalid_output"}:{});
         usage={promptTokens:usage.promptTokens+(Number(u.prompt_tokens)||0),completionTokens:usage.completionTokens+(Number(u.completion_tokens)||0)};
-        if(typeof u.cost==="number"&&Number.isFinite(u.cost)&&u.cost>=0)amount+=u.cost;else reported=false;
+        { const c=costOf(u,pi,po,!choice?.message?.content&&choice?.finish_reason!=="length"); if(c===null)reported=false;else amount+=c; }
         // 잘림은 한도를 키워 재시도하지 않는다 — 클라이언트가 섹션을 나눠 새 요청으로 보낸다(§6.5). 재시도 없이 지금까지 나간 비용만 청구한다.
-        if(choice?.finish_reason==="length")throw Object.assign(new Error("llm_output_truncated"),{code:"llm_output_truncated",charged:{amount,reported,usage}});
+        // 잘린 출력이 같은 말을 되풀이했는지(반복 루프) 내용 없이 남긴다: 뒤쪽 4000자의 40자 조각 중 서로 다른 조각 비율. 0.5 미만이면 .rep
+        if(choice?.finish_reason==="length")throw Object.assign(new Error("llm_output_truncated"),{code:"llm_output_truncated",detail:"llm_output_truncated."+(repetitive(choice?.message?.content)?"rep":"long"),charged:{amount,reported,usage}});
         // 형식 실패(파손·계약 불일치·repair 개수 불일치)만 같은 모델·제공자로 한 번 더 간다 — 돈은 이미 나갔다.
         try{
-          if(choice?.finish_reason!=="stop")throw new Error("provider_output_incomplete");
-          const parsed=parseNote(choice.message.content),r=Contracts.validate(outSchema,parsed);
-          if(!r.ok)throw new Error("invalid_note_output");
-          return {amount,reported,payload:{...(stage==="plan"?{plan:parsed}:{output:parsed}),usage:{...usage,costUsd:reported?amount:reserve/100},promptVersion:Prompts.PROMPT_VERSION,schemaVersion:c.remoteConfig.schemaVersion,noteSpecVersion:NoteContract.NOTE_SPEC_VERSION}};
-        }catch(error){if(retry===attempts-1)throw error;}
+          if(choice?.finish_reason!=="stop")throw Object.assign(new Error("provider_output_incomplete"),{detail:"incomplete."+String(choice?.finish_reason||"none").toLowerCase().replace(/[^a-z0-9_]/g,"").slice(0,30)});
+          let parsed;try{parsed=parseNote(choice.message.content);}catch{throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_json"});}
+          if(stage==="plan")parsed=NoteContract.canonicalPlanIds(parsed); // 제공자가 id pattern 을 강제하지 않는다 — 검사 전에 C1../S1.. 로 다시 매긴다
+          else parsed=NoteContract.canonicalMapKeys(parsed,rest.section?.sectionId??null); // 지도 노드 키는 n1.. 로, 섹션 안 "B3" 참조는 "S2_B3" 로
+          // 어긋난 블록만 null 로 — 섹션 전체를 버리지 않는다. 비운 블록의 원래 봉투는 salvaged 로 돌려줘 클라이언트가 repair 로 고치게 한다.
+          // salvagedErrors: 비운 블록마다 스키마 오류의 위치와 사유(블록 안 경로 + 메시지, 내용 없음) — 클라이언트가 repair 지시에 그대로 싣는다.
+          let salvaged=null,salvagedErrors=null;
+          const pre=Contracts.validate(outSchema,parsed);
+          if(!pre.ok){
+            const raw=parsed;parsed=Contracts.salvage(outSchema,parsed).value;
+            if(stage==="section"||stage==="repair")for(const [k,v] of Object.entries(raw?.blocks||{}))if(v&&typeof v==="object"&&!Array.isArray(v)&&parsed?.blocks?.[k]===null){
+              (salvaged??={})[k]=v;
+              // 패턴 위반은 받은 값의 모양(영문 A·숫자 9·한글 가, 나머지 기호 그대로)을 붙인다 — 내용은 싣지 않고 형식만 보여 준다.
+              (salvagedErrors??={})[k]=pre.errors.filter(e=>e.path.startsWith("/blocks/"+k+"/")).map(e=>{
+                const got=e.message==="패턴과 다릅니다"?e.path.split("/").slice(1).reduce((o,p)=>o?.[p],raw):undefined;
+                return (e.path.slice(k.length+8)+" "+e.message+(typeof got==="string"?" got="+shapeOf(got):"")).slice(0,64);
+              }).slice(0,20);
+            }
+          }
+          const r=Contracts.validate(outSchema,parsed);
+          if(!r.ok)throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_schema."+String(r.errors?.[0]?.path||r.errors?.[0]?.keyword||"x").toLowerCase().replace(/[^a-z0-9_.]/g,"_").slice(0,40)});
+          // 계획 호출이 끝난 뒤에만 분류 결과를 기다린다 — 앞서 병렬로 나간 호출이고 이미 끝났거나 5초 안에 끝난다.
+          const classified=classifying?await classifying:null;
+          if(classified){meta.subject=classified.subject;meta.subjectConf=classified.conf;}
+          return {amount,reported,payload:{...(stage==="plan"?{plan:parsed}:{output:parsed}),...(salvaged?{salvaged,salvagedErrors}:{}),usage:{...usage,costUsd:reported?amount:reserve/100},promptVersion:Prompts.PROMPT_VERSION,schemaVersion:c.remoteConfig.schemaVersion,noteSpecVersion:NoteContract.NOTE_SPEC_VERSION}};
+        }catch(error){if(retry===attempts-1)throw error.charged||error.refund?error:Object.assign(error,{code:error.code||"provider_failed_or_invalid_output",charged:{amount,reported,usage}});} // 형식 실패: 보고된 금액만 청구한다
       }
     });
   }
@@ -2339,9 +2723,10 @@ function createServer(env=process.env,deps={}){
   // handle 은 런타임과 무관한 요청 처리기다. 로컬은 http 서버가, 배포는 supabase/functions/api 의 Deno 어댑터가 같은 함수를 부른다.
   const handle=async(req,res)=>{
     try{
-      if(req.headers.origin&&req.headers.origin!==c.origin)return fail(res,"origin_not_allowed");
+      if(req.headers.origin&&!c.origins.includes(req.headers.origin))return fail(res,"origin_not_allowed");
+      res.allowOrigin=req.headers.origin;
       if(req.method==="OPTIONS")return send(res,204,{});
-      const who=await accountFor(req);if(who.code)return fail(res,who.code);
+      const who=await accountFor(req);if(who.code)return fail(res,who.code,undefined,{reason:who.reason,detail:who.detail});
       const account=who.id;
       if(below(version(req.headers["x-client-version"]),version(c.remoteConfig.minClientVersion)))return fail(res,"client_upgrade_required");
       if(req.method==="POST"){const b=bucket(account);if(b.tokens<1)return fail(res,"rate_limited",Math.ceil((1-b.tokens)*6e4/c.ratePerMin));b.tokens--;}
@@ -2393,6 +2778,9 @@ function createServer(env=process.env,deps={}){
   server.on("close",()=>{for(const controller of active)controller.abort();});
   return server;
 }
+const repetitive=t=>{if(typeof t!=="string"||t.length<2000)return false;const tail=t.slice(-4000),parts=[];for(let i=0;i+40<=tail.length;i+=40)parts.push(tail.slice(i,i+40));return new Set(parts).size/parts.length<0.5;};
+// id 처럼 생긴 짧은 값(영문 1~3자 + 숫자, 기호 _ - / .)은 글자를 그대로 둔다 — 강의 내용이 아니라 어느 형식을 썼는지가 보여야 고칠 수 있다.
+const shapeOf=v=>/^[A-Za-z]{1,3}[0-9]{0,4}([_\-/.][A-Za-z]{0,3}[0-9]{0,4}){0,2}$/.test(v)?v.slice(0,24):v.slice(0,24).replace(/[A-Za-z]/g,"A").replace(/[0-9]/g,"9").replace(/[가-힣]/g,"가").replace(/A+/g,"A").replace(/9+/g,"9").replace(/가+/g,"가");
 // 모델이 빠뜨린 필드를 채우지 않는다 — 없는 값은 없는 대로 두고 계약 검사가 걸러낸다.
 const clamp01=x=>Number.isFinite(x)?Math.min(1,Math.max(0,x)):x;
 const box=b=>b!==null&&typeof b==="object"&&!Array.isArray(b)?{x:clamp01(b.x),y:clamp01(b.y),w:clamp01(b.w),h:clamp01(b.h)}:b;
@@ -2461,7 +2849,7 @@ async function boundedResponse(response,max){
   finally{await reader.cancel().catch(()=>{});}
 }
 if(require.main===module)createServer().listen(Number(process.env.PORT||8788),"127.0.0.1",()=>console.log("Summrizei pilot service ready on loopback."));
-module.exports={createServer,config,tokenEqual,RATES,STT_RATES,readState,toTranscript,toSlideDoc,VISION_SCHEMA,judgeProbs,JUDGE_MODELS};
+module.exports={repetitive,createServer,config,tokenEqual,RATES,STT_RATES,readState,toTranscript,toSlideDoc,VISION_SCHEMA,judgeProbs,JUDGE_MODELS};
 
 
 },
@@ -2585,7 +2973,104 @@ function parseAnswers(task, json, chunkLength) {
   }
   return out;
 }
-module.exports = { ENDPOINT, JUDGE_TASKS, QUESTIONS, buildRequests, parseAnswers };
+// 강의 분야 분류 — 교육부 학과 분류의 중분류다. plan 요청마다 슬라이드 제목 첫 줄을 모아 한 번 묻고
+// 결과는 원장(subject) 메타로만 나간다. 라벨 순서는 f(정방향)·r(역방향) 두 질문과 parse 가 같이 쓴다.
+const SUBJECTS = Object.freeze({
+  language_literature: "언어·문학",
+  humanities: "인문과학(철학·역사·종교)",
+  business_economics: "경영·경제",
+  law: "법률",
+  social_science: "사회과학",
+  education: "교육",
+  architecture: "건축",
+  civil_urban: "토목·도시",
+  transport: "교통·운송",
+  mechanical: "기계·금속",
+  electrical_electronic: "전기·전자",
+  precision_energy: "정밀·에너지",
+  materials: "소재·재료",
+  computer_communication: "컴퓨터·통신",
+  industrial: "산업공학",
+  chemical_engineering: "화공",
+  agriculture_fisheries: "농림·수산",
+  bio_chem_env: "생물·화학·환경",
+  human_ecology: "생활과학",
+  math_physics: "수학·물리·천문·지리",
+  medicine: "의료",
+  nursing: "간호",
+  pharmacy: "약학",
+  health_therapy: "치료·보건",
+  design: "디자인",
+  applied_arts: "응용예술",
+  sports_dance: "무용·체육",
+  fine_arts: "미술·조형",
+  theater_film: "연극·영화",
+  music: "음악",
+  other: "기타",
+});
+// 선택지 기준은 영어 설명에 한국어 라벨을 싣는다(다른 과제의 {what} 과 같은 모양). other 는 어느 분야에도 안 맞을 때만 고른다.
+const SUBJECT_WHAT = Object.freeze({
+  language_literature: "언어·문학: language and literature — Korean or foreign languages, literature, linguistics",
+  humanities: "인문과학(철학·역사·종교): humanities — philosophy, history, religion",
+  business_economics: "경영·경제: business administration and economics — management, accounting, finance, marketing, trade",
+  law: "법률: law and legal studies",
+  social_science: "사회과학: social sciences — political science, public administration, sociology, psychology, media/communication, social welfare",
+  education: "교육: education — pedagogy and teacher training",
+  architecture: "건축: architecture and architectural engineering",
+  civil_urban: "토목·도시: civil engineering and urban planning",
+  transport: "교통·운송: transportation and logistics",
+  mechanical: "기계·금속: mechanical engineering — automotive, shipbuilding, metal machinery",
+  electrical_electronic: "전기·전자: electrical and electronic engineering, semiconductors",
+  precision_energy: "정밀·에너지: precision instruments and energy/nuclear engineering",
+  materials: "소재·재료: materials science and engineering",
+  computer_communication: "컴퓨터·통신: computer science, software, information/communication engineering, AI",
+  industrial: "산업공학: industrial engineering and industrial management",
+  chemical_engineering: "화공: chemical, polymer and textile engineering",
+  agriculture_fisheries: "농림·수산: agriculture, forestry, fisheries and marine science",
+  bio_chem_env: "생물·화학·환경: biology, chemistry, environmental science and engineering",
+  human_ecology: "생활과학: human ecology — food and nutrition, clothing, housing, family/child studies",
+  math_physics: "수학·물리·천문·지리: mathematics, statistics, physics, astronomy, earth science and geography",
+  medicine: "의료: medicine, dentistry, Korean medicine, veterinary medicine",
+  nursing: "간호: nursing",
+  pharmacy: "약학: pharmacy and pharmaceutical sciences",
+  health_therapy: "치료·보건: health sciences and therapy — physical/occupational therapy, public health, clinical laboratory",
+  design: "디자인: design — industrial, visual, fashion and communication design",
+  applied_arts: "응용예술: applied arts — crafts, ceramics, textile art",
+  sports_dance: "무용·체육: dance and physical education/sports",
+  fine_arts: "미술·조형: fine arts — painting, sculpture, plastic arts",
+  theater_film: "연극·영화: theater, film and broadcasting",
+  music: "음악: music — composition, performance, practical music",
+  other: "기타: use only if none fits",
+});
+// 분류는 항목 청크가 아니라 제목 목록 하나를 묻는 단일 요청이다 — 질문은 f(정방향)·r(역방향) 둘뿐이다.
+function buildSubjectRequest(titles, opts = {}) {
+  const list = (Array.isArray(titles) ? titles : []).map(t => typeof t === "string" ? t.trim().slice(0, 80) : "").filter(Boolean).slice(0, 20);
+  const instructions = "The state `titles` holds Korean university lecture slide titles. Which academic field is this lecture course in?";
+  const question = reversed => {
+    const entries = Object.keys(SUBJECTS).map(k => [k, { what: SUBJECT_WHAT[k] }]);
+    if (reversed) entries.reverse();
+    return { type: "choice", instructions, criteria: Object.fromEntries(entries) };
+  };
+  return { body: { model: opts.model, state: { titles: list }, questions: { f: question(false), r: question(true) }, provider: { only: opts.providers, allow_fallbacks: false, zdr: true, data_collection: "deny" } } };
+}
+// 두 분포(정방향·역방향)를 선택지별로 평균 내 argmax 를 고른다. 어긋난 응답은 제공자 실패와 같이 던진다.
+function parseSubjectAnswer(json) {
+  const answers = json && typeof json === "object" ? json.answers : null;
+  const dist = k => {
+    const a = answers && typeof answers === "object" ? answers[k] : null;
+    if (!a || a.type !== "choice" || !a.probabilities || typeof a.probabilities !== "object") throw new Error("subject_answer_invalid");
+    return a.probabilities;
+  };
+  const f = dist("f"), r = dist("r");
+  let subject = null, best = 0;
+  for (const code of Object.keys(SUBJECTS)) {
+    const p = ((Number.isFinite(f[code]) ? f[code] : 0) + (Number.isFinite(r[code]) ? r[code] : 0)) / 2;
+    if (p > best) { best = p; subject = code; }
+  }
+  if (subject === null) throw new Error("subject_answer_invalid");
+  return { subject, conf: Math.round(best * 1e4) / 1e4 };
+}
+module.exports = { ENDPOINT, JUDGE_TASKS, QUESTIONS, SUBJECTS, buildRequests, buildSubjectRequest, parseAnswers, parseSubjectAnswer };
 
 },
 "server/llm.js": function (module, exports, require, __filename, __dirname) {
@@ -2605,8 +3090,9 @@ const MODELS={
   "anthropic/claude-haiku-4.5":{tags:["amazon-bedrock/global"],reasoning:{enabled:false},maxTokens:32768,cache:true},
   "anthropic/claude-sonnet-4.6":{tags:["amazon-bedrock/global"],reasoning:{enabled:false},maxTokens:32768,cache:true},
   "openai/gpt-6-luna":{tags:["azure"],reasoning:{effort:"high"},maxTokens:16384,temperature:false},
-  "xiaomi/mimo-v2.6-pro":{tags:["deepinfra/fp8"],reasoning:{effort:"low"},reasoningBudget:8000,maxTokens:32768},
-  "xiaomi/mimo-v2.6-flash":{tags:["inference-net/fp8","deepinfra/fp8"],reasoning:{enabled:false},maxTokens:32768},
+  "openai/gpt-6.1-sol":{tags:["azure"],reasoning:{effort:"medium"},reasoningBudget:8000,maxTokens:32768,temperature:false},
+  "xiaomi/mimo-v2.6-pro":{tags:["deepinfra/fp8"],reasoning:{effort:"low"},reasoningBudget:4000,maxTokens:32768},
+  "xiaomi/mimo-v2.6-flash":{tags:["io-net/fp8","venice/fp8","deepinfra/fp8"],reasoning:{enabled:false},maxTokens:32768},
 };
 const reasoningFor=model=>MODELS[model]?.reasoning||{enabled:false};
 const reasoningBudgetFor=model=>MODELS[model]?.reasoningBudget||0;
@@ -2633,10 +3119,10 @@ module.exports={MODELS,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperatur
 // 프롬프트는 변하지 않는 시스템 본문이 앞이고 변하는 입력(user)은 호출부가 뒤에 붙인다: 접두 캐시가 맞으려면 이 순서를 지킨다.
 const NoteContract=require("../lib/note-contract.js"),Contracts=require("../lib/contracts.js"),LLM=require("./llm.js");
 // 프롬프트 문구나 아래 규칙을 바꾸면 올린다. 응답에 실려 단계 캐시 키에 들어간다.
-const PROMPT_VERSION="note-v2";
+const PROMPT_VERSION="note-v3";
 const STAGES=["plan","section","global","repair"];
 // 토큰 예산(§8.1). 서버는 바이트 / bytesPerToken 으로 어림한다 — 정확한 토크나이저가 아니라 입력 상한을 거르는 가드다.
-const LIMITS={bytesPerToken:4,tokens:{plannerInput:40000,plannerOutput:8000,writerInput:16000,writerOutput:8000,globalInput:24000,globalOutput:4000}};
+const LIMITS={bytesPerToken:4,tokens:{plannerInput:40000,plannerOutput:16000,writerInput:16000,writerOutput:14000,globalInput:24000,globalOutput:4000}};
 const T=LIMITS.tokens;
 
 // 자료 안의 지시를 무시하라는 문장이 프롬프트 인젝션 방어선이다. 수식은 다시 쓰지 않고 등록부 id 로만 가리킨다.
@@ -2669,13 +3155,18 @@ const AUG_RULES={
   externalAugmentation:"[강의 밖 보강 허용] 강의에 없는 일반 배경 지식을 basis \"external\"로 보탤 수 있다. B05 explanation·mechanism·examples, B12 note에서만 쓰고, 확실한 교과서 수준 사실만 쓴다. 출처가 필요한 최신 수치·통계는 쓰지 않는다. 정의·결론·답안·공지·계산에는 쓰지 않는다.",
 };
 
+// 영어 강의(sourceLang "en"): 작성 단계에만 붙는다. src 는 근거 지지 판정이 영어 근거와 비교하는 칸이다(섹션·repair 출력에만 있다).
+const EN_RULES=[
+  "[영어 강의] 근거 자료는 영어다. 노트는 한국어로 쓰되, 강의의 주요 전공 용어는 블록에서 처음 쓸 때 \"영단어(한국어 번역)\" 형식으로 쓴다(예: overfitting(과적합)). 같은 블록에서 다시 쓸 때는 영단어만 쓴다. B05 term도 이 형식이고 original은 null로 둔다. 영어 근거의 강조어(important·crucial·remember, exam·midterm·quiz)도 emphasis의 근거가 된다.",
+];
+const EN_SRC="[원문 대조] 주장마다 src를 채운다. src는 그 주장을 강의 자료의 영어 표현으로 쓴 영어 문장이고 text와 같은 내용만 담는다(더하거나 빼지 않는다). basis가 lecture가 아니면 src는 null이다.";
 const STAGE={
   plan:[
     "단계: 계획. 입력은 유닛 목록(units: 슬라이드 글과 발화, 시각, 중요도), 수식 요약(formulas: id, 상태, 나오는 유닛), 도표 요약(figures)이다. 본문은 쓰지 않고 구조만 정한다.",
     "섹션 경계는 청크나 분량이 아니라 내용의 흐름으로 정한다. 섹션 id는 S1부터 순서대로, 각 섹션은 IR 순서로 연속한 유닛을 갖고, 모든 유닛은 정확히 한 섹션에 속한다. 강의 전개 순서를 바꾸지 않는다.",
     `섹션은 최대 40개, 섹션 하나의 유닛은 60개 이하, 블록은 12개 이하다. 한 섹션의 작성 입력(그 유닛의 근거 전부)이 약 ${T.writerInput}토큰 안에 들도록 유닛을 묶는다.`,
     "섹션마다 title(15~40자), question(그 단원이 답하는 질문, 없으면 null), stage(understand·relate·apply·check), 블록 구성(type, purpose 한 문장, 다루는 conceptIds·formulaIds·figureIds)을 정한다. 다른 섹션의 정정이나 정의가 꼭 필요하면 그 유닛을 crossUnitIds(10개 이하)로 잇는다.",
-    "개념(concepts): 강의가 정의하는 개념은 depth defined이고, 홈 섹션에 그 개념 하나만 다루는 B05가 정확히 하나 있다. 이름만 언급되면 mentioned이고 B05를 만들지 않는다.",
+    "개념(concepts): conceptId는 C1, C2처럼 C 뒤에 차례 번호다. 강의가 정의하는 개념은 depth defined이고, 홈 섹션에 그 개념 하나만 다루는 B05가 정확히 하나 있다. 이름만 언급되면 mentioned이고 B05를 만들지 않는다.",
     "B12는 섹션의 첫 블록이 될 수 없다. 섹션마다 B14 자기 점검을 두는 편이 좋고 노트 전체 문항은 4~8개가 적당하다. 수업 공지가 있으면 그 섹션에 B18을 둔다.",
     "global에는 B02(한눈에), 필요하면 B03(강의 지도), B13(연결 정리)을 각각 최대 1개 둔다.",
     "제목, 질문, 개념 이름에 숫자를 쓰면 그 숫자는 해당 유닛 자료에 있어야 한다.",
@@ -2683,6 +3174,7 @@ const STAGE={
   section:[
     "단계: 섹션 작성. 입력은 이 섹션의 계획(section, 블록마다 blockId), 노트의 개념 목록(concepts), 이 섹션에서 인용할 수 있는 근거 항목(evidence: id, 종류, 시각, 텍스트), 수식 등록부(registry, 읽기 전용), 도표(figures)다.",
     "blocks에는 계획의 blockId마다 그 블록 타입의 봉투를 채운다. evidence에 없는 id는 인용하지 않는다. gist가 스키마에 있으면 단원 요지를 40~100자 한 주장으로 쓴다.",
+    "참조 id는 형식을 그대로 쓴다: targetIds·reviewIds는 블록 id(예: \"S2_B3\"), 섹션 id(\"S2\"), 개념 id(\"C3\"), 사례 단서(\"S2_B3/P1\")만이다. 이름·제목·번호만 쓰지 않는다. 지도 노드 key는 n1, n2처럼 쓴다.",
     "섹션 유닛의 절반 이상이 어떤 주장의 근거로 인용되어야 한다. 잡담, 출석, 인사는 다루지 않는다.",
   ],
   repair:[
@@ -2696,10 +3188,11 @@ const STAGE={
   ],
 };
 // 시스템 본문 = 공용 + 노트 규칙 + 단계 규칙 (+ 켠 생성 옵션). 같은 단계·옵션이면 모든 호출이 같은 문자열이다.
-const systemFor=(stage,options)=>{
+const systemFor=(stage,options,sourceLang)=>{
   if(!Object.hasOwn(STAGE,stage))throw new Error("invalid_stage");
   const aug=stage==="plan"||stage==="global"?[]:Object.keys(AUG_RULES).filter(k=>options?.[k]===true).map(k=>AUG_RULES[k]);
-  return [COMMON,NOTE_RULES,...STAGE[stage],...aug].join("\n");
+  const en=sourceLang==="en"&&stage!=="plan"?[...EN_RULES,...(stage==="global"?[]:[EN_SRC])]:[];
+  return [COMMON,NOTE_RULES,...STAGE[stage],...aug,...en].join("\n");
 };
 
 // 요청 본문(model·requestId·noteSpecVersion·stage 를 뺀 나머지)의 계약.
@@ -2735,10 +3228,12 @@ const REQUEST={
   }),
 };
 // 요청별 출력 스키마. 계획에 없는 blockId 같은 잘못된 요청은 note-contract 가 던진다 — 라우트가 request_rejected 로 바꾼다.
-function outputSchema(stage,body){
+// 영어 강의의 섹션·repair 는 주장마다 src 칸이 더해진다(NoteContract.withSource).
+function outputSchema(stage,body,sourceLang){
+  const src=sch=>sourceLang==="en"?NoteContract.withSource(sch):sch;
   if(stage==="plan")return S.plannerOutput;
-  if(stage==="section")return NoteContract.sectionOutputSchemaFor(body.section,{gist:body.withGist,policy:body.options});
-  if(stage==="repair")return NoteContract.repairOutputSchemaFor(body.section,[...new Set(body.repair.map(r=>r.blockId))],body.options);
+  if(stage==="section")return src(NoteContract.sectionOutputSchemaFor(body.section,{gist:body.withGist,policy:body.options}));
+  if(stage==="repair")return src(NoteContract.repairOutputSchemaFor(body.section,[...new Set(body.repair.map(r=>r.blockId))],body.options));
   if(stage==="global")return NoteContract.globalOutputSchemaFor(body.plan.global);
   throw new Error("invalid_stage");
 }
@@ -2749,7 +3244,7 @@ const inputTokenLimit=stage=>stage==="plan"?T.plannerInput:stage==="global"?T.gl
 const NO_SEED=/^anthropic\//,SEED=7;
 const modelParams=(model,stage)=>({
   max_tokens:Math.min(LLM.maxTokensFor(model),(stage==="plan"?T.plannerOutput:stage==="global"?T.globalOutput:T.writerOutput)+LLM.reasoningBudgetFor(model)),
-  reasoning:LLM.reasoningFor(model),temperature:0,...(NO_SEED.test(model)?{}:{seed:SEED}),
+  reasoning:LLM.reasoningFor(model),...(LLM.noTemperature(model)?{}:{temperature:0}),...(NO_SEED.test(model)?{}:{seed:SEED}), // temperature 를 거절하는 모델(GPT 추론형)에 보내면 require_parameters 로 404 가 난다
 });
 module.exports={PROMPT_VERSION,STAGES,LIMITS,systemFor,REQUEST,outputSchema,estimateTokens,inputTokenLimit,modelParams};
 
@@ -2784,15 +3279,17 @@ function fileUsage({state,record,save,month,globalCents}){
 // 정산 RPC 전체가 거절되어 예약이 열린 채 남는 일이 없게, 어긋난 값은 null 로 바꾼다. 자유 텍스트는 어떤 칸으로도 나가지 않는다.
 const text=(re,v)=>typeof v==="string"&&re.test(v)?v:null;
 const count=v=>Number.isInteger(v)&&v>=0&&v<=2147483647?v:null;
-const SHAPE={stage:/^[a-z][a-z0-9_.-]{0,31}$/,provider:/^[a-z][a-z0-9_.-]{0,31}$/,model:/^[A-Za-z0-9][A-Za-z0-9_./:@-]{0,95}$/,version:/^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$/,error:/^[a-z][a-z0-9_.-]{0,63}$/,client:/^[0-9A-Za-z][0-9A-Za-z._+-]{0,31}$/};
+const SHAPE={stage:/^[a-z][a-z0-9_.-]{0,31}$/,provider:/^[a-z][a-z0-9_.-]{0,31}$/,model:/^[A-Za-z0-9][A-Za-z0-9_./:@-]{0,95}$/,version:/^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$/,error:/^[a-z][a-z0-9_.-]{0,63}$/,client:/^[0-9A-Za-z][0-9A-Za-z._+-]{0,31}$/,job:/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/,host:/^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/,subject:/^[a-z][a-z0-9_]{0,31}$/};
 function eventFields(status,m){
-  const used=status!=="refunded",seconds=Number.isFinite(m.audioSeconds)&&m.audioSeconds>=0&&m.audioSeconds<1e7?Math.round(m.audioSeconds*100)/100:null;
+  const used=status!=="refunded",seconds=Number.isFinite(m.audioSeconds)&&m.audioSeconds>=0&&m.audioSeconds<1e7?Math.round(m.audioSeconds*100)/100:null,
+    lecture=Number.isFinite(m.lectureSeconds)&&m.lectureSeconds>=0&&m.lectureSeconds<1e7?Math.round(m.lectureSeconds*100)/100:null;
   return {p_stage:text(SHAPE.stage,m.stage)||"unknown",p_provider:text(SHAPE.provider,m.provider),p_model:text(SHAPE.model,m.model),
     p_input_tokens:used?count(m.inputTokens):null,p_output_tokens:used?count(m.outputTokens):null,p_audio_seconds:used?seconds:null,p_images:used?count(m.images):null,
     p_prompt_version:text(SHAPE.version,m.promptVersion),p_schema_version:count(m.schemaVersion),p_error_code:text(SHAPE.error,m.errorCode),
-    p_latency_ms:count(Math.round(m.latencyMs)),p_client_version:text(SHAPE.client,m.clientVersion),
-    // 신뢰할 수 있는 호스트 출처가 아직 없다 — 지금은 보내지 않는다.
-    p_host:null};
+    p_latency_ms:count(Math.round(m.latencyMs)),p_client_version:text(SHAPE.client,m.clientVersion),p_host:text(SHAPE.host,m.host),
+    // subject 는 plan 단계의 Jev 분야 분류 결과다 — 못 정하면(실패·건너뜀) 둘 다 null 이다.
+    p_job_id:text(SHAPE.job,m.jobId),p_lecture_seconds:lecture,p_slides:count(m.slides),
+    p_subject:text(SHAPE.subject,m.subject),p_subject_conf:Number.isFinite(m.subjectConf)&&m.subjectConf>=0&&m.subjectConf<=1?Math.round(m.subjectConf*1e4)/1e4:null};
 }
 // http(url,init,parse=true): 한도 있는 fetch → 파싱한 JSON. HTTP 오류와 시간 초과는 throw 한다.
 function supabaseUsage({url,key,http}){

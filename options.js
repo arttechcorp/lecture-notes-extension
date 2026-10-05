@@ -54,8 +54,8 @@ function wireConsents(settings){
 async function serviceToken(s){return (await Auth.token())||s.appSessionToken;}
 // 로그인·로그아웃·동의 철회 뒤에 플랜 표시와 인식 카드를 다시 그린다(wireAccount가 채운다).
 let refreshAccount=async()=>{};
-// 모두 삭제가 기기 키까지 지우면 보관함 PIN 카드도 다시 그린다(wireLibraryKey가 채운다).
-let refreshLibraryKey=async()=>{};
+// 모두 삭제가 기기 키·폴더 핸들까지 지우면 보관함 폴더 카드도 다시 그린다(wireLibraryFolder가 채운다).
+let refreshLibraryFolder=async()=>{};
 // 플랜은 서버(my_account)만 안다. 무료가 아닌 모든 플랜(essential·professional·edu 변형 등)은 화면·음성을 서버에서 인식하므로
 // 온디바이스 설정(OCR·Whisper·배속 보정)을 숨기고 서버 인식 상태와 노트 옵션만 보여 준다.
 // 계정을 못 읽으면 '확인 못 함'만 표시하고 온디바이스 설정은 그대로 둔다 - 플랜을 모르는 채 서버 인식으로 바꾸지 않는다.
@@ -116,12 +116,32 @@ async function deleteAccount(){
   catch(error){throw new Error('계정은 삭제했지만 이 기기의 데이터는 지우지 못했습니다. "이 기기의 강의 데이터 모두 삭제"를 다시 실행하세요. ('+error.message+')');}
   finally{await Auth.signOut();await showAuth();await refreshAccount();}
 }
-// 진단 파일: 허용 필드뿐인 로그를 평문 JSON으로 Blob 링크로 내려받는다(chrome.downloads 권한 없음). 강의 내용은 애초에 로그에 없다.
+// 진단 파일: 허용 필드뿐인 로그 + 환경 정보(허용 키는 lib/diagnostics.js 의 ENV_KEYS)를 평문 JSON으로 Blob 링크로 내려받는다(chrome.downloads 권한 없음).
+// 강의 내용·토큰·키 는 애초에 싣지 않고, 각 섹션 수집은 최선 노력 — 하나가 실패해도 내보내기는 간다.
+const jwtExpSec=t=>{try{const b=String(t).split('.')[1].replace(/-/g,'+').replace(/_/g,'/'),p=JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(b.padEnd(Math.ceil(b.length/4)*4,'=')),c=>c.charCodeAt(0))));return Number.isFinite(p?.exp)?Math.round(p.exp-Date.now()/1000):null;}catch{return null;}}; // 페이로드만 읽는다 — 토큰 자체는 어디에도 싣지 않는다
+const clean=o=>Object.fromEntries(Object.entries(o).filter(([,v])=>v!==undefined));
 async function exportDiagnostics(){
   const {events}=await local('LOGS_READ');
   if(!events.length)return '내보낼 진단 로그가 없습니다.';
+  const env={};
+  try{const app={version:chrome.runtime.getManifest?.()?.version??null,extensionId:chrome.runtime.id??null};try{const self=await chrome.management?.getSelf?.();if(self?.installType)app.installType=self.installType;}catch{}env.app=app;}catch{}
+  try{let webgpu=null;try{webgpu=Boolean(await navigator.gpu?.requestAdapter?.());}catch{}env.browser=clean({userAgent:navigator.userAgent,platform:navigator.userAgentData?.platform??navigator.platform,language:navigator.language,languages:navigator.languages,timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone,utcOffsetMin:-new Date().getTimezoneOffset(),hardwareConcurrency:navigator.hardwareConcurrency,deviceMemory:navigator.deviceMemory,webgpu,online:navigator.onLine});}catch{}
+  try{const est=await navigator.storage.estimate();env.storage={usageBytes:est?.usage??null,quotaBytes:est?.quota??null,persisted:await navigator.storage.persisted()};}catch{}
+  try{const p=await chrome.permissions.getAll();env.permissions={permissions:p?.permissions??[],origins:p?.origins??[]};}catch{}
+  try{const s=await loadSettings(),out={};
+    for(const k of['ocrEngine','whisperModel','whisperLang','sttModel','visionModel','backgroundMode','remoteSummaryConsent','visionConsent','visionConsentVersion'])if(['string','number','boolean'].includes(typeof s[k]))out[k]=s[k];
+    if(typeof s.backgroundConsent?.version==='string')out.backgroundConsentVersion=s.backgroundConsent.version;
+    try{out.serviceHost=new URL(s.serviceUrl).hostname;}catch{}
+    try{const a=await PackageStore.indexedDbAdapter();out.libraryKeySet=Boolean(await NoteFile.loadLibraryKey(a).catch(()=>null));out.libraryFolder=(await LibraryFolder.status(a)).state;}catch{}
+    env.settings=out;}catch{}
+  try{const user=await Auth.user(),token=user?await Auth.token().catch(()=>null):null;env.auth={signedIn:Boolean(user),userId:typeof user?.userId==='string'?user.userId:null,tokenExpiresInSec:jwtExpSec(token)};}catch{}
+  try{const s=await loadSettings(),t0=Date.now();
+    try{const me=await ServiceClient.me({baseUrl:s.serviceUrl,token:await serviceToken(s),timeoutMs:15000});
+      env.server={ok:true,ms:Date.now()-t0,plan:me?.plan??null,minutesUsed:me?.quota?.minutes??null,minutesLimit:me?.quota?.maxMinutes??null,currentPeriodEnd:me?.current_period_end??null,cancelAtPeriodEnd:me?.cancel_at_period_end??null};
+    }catch(e){env.server={ok:false,ms:Date.now()-t0,code:typeof e?.code==='string'?e.code:null,httpStatus:typeof e?.status==='number'?e.status:null};}}catch{}
+  try{env.logs={count:events.length,firstTs:events[0]?.ts??null,lastTs:events.at(-1)?.ts??null};}catch{}
   const version=chrome.runtime.getManifest?.()?.version??null;
-  const bundle=await Diagnostics.exportBundle(events,{version}),a=document.createElement('a');
+  const bundle=await Diagnostics.exportBundle(events,{version,env:Object.keys(env).length?env:null}),a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([JSON.stringify(bundle,null,2)],{type:'application/json'}));
   a.download='summrizei-diagnostic-'+new Date(bundle.createdAt).toISOString().slice(0,10)+'.json';
   a.click();
@@ -134,33 +154,33 @@ function wireData(){
     const button=$(id);button.disabled=true;
     try{notice(await work());}catch(error){notice(error.message);}finally{button.disabled=false;}
   });
-  run('wipeBtn','이 기기에 보관된 노트·전사·슬라이드 텍스트·작업 기록과 진단 로그를 모두 삭제합니다. 되돌릴 수 없습니다.\n\n설정·동의·로그인은 지우지 않습니다. 계속할까요?',async()=>{await local('WIPE_LOCAL');await refreshLibraryKey().catch(()=>{});return '이 기기의 강의 데이터를 모두 삭제했습니다.';});
+  run('wipeBtn','이 기기에 보관된 노트·전사·슬라이드 텍스트·작업 기록과 진단 로그를 모두 삭제합니다. 되돌릴 수 없습니다.\n\n설정·동의·로그인은 지우지 않습니다. 계속할까요?',async()=>{await local('WIPE_LOCAL');await refreshLibraryFolder().catch(()=>{});return '이 기기의 강의 데이터를 모두 삭제했습니다.';});
   run('diagClearBtn',null,async()=>{await local('LOGS_CLEAR');return '진단 로그를 삭제했습니다.';});
   run('diagExportBtn',null,exportDiagnostics);
   run('accountDeleteBtn','계정과 서버에 저장된 데이터(보관함 포함)를 영구 삭제합니다. 되돌릴 수 없습니다.\n\n삭제가 끝나면 이 기기의 강의 데이터도 모두 지우고 로그아웃합니다. 계속할까요?',async()=>{await deleteAccount();return '계정과 서버 데이터를 삭제했습니다. 이 기기의 강의 데이터도 지우고 로그아웃했습니다.';});
 }
-// 보관함 PIN: NoteFile(lib/note-file.js)이 PIN에서 내보낸 키를 이 기기의 암호화 저장소에 둔다.
-// 바꾸면 이 기기에 남아 있는 노트 파일을 background가 새 키로 다시 저장한다(LIB_EXPORT_ALL).
-async function wireLibraryKey(){
-  const state=$('keyState'),form=$('keyForm'),p1=$('keyPass1'),btn=$('keySaveBtn');
-  if(!form||!state)return;
-  const unavailable=()=>{state.textContent='이 기능을 쓸 수 없습니다.';for(const el of[p1,btn])if(el)el.disabled=true;};
-  if(typeof NoteFile==='undefined'||typeof PackageStore==='undefined')return unavailable();
-  const refresh=async()=>{const rec=await NoteFile.loadLibraryKey(await PackageStore.indexedDbAdapter());state.textContent=rec?'설정됨'+(ymd(rec.at)?' · '+ymd(rec.at):''):'설정 안 됨';if(btn)btn.textContent=rec?'PIN 바꾸기':'PIN 정하기';};
+// 보관함 폴더: 완성된 노트를 확인 없이 쓰는 폴더. 핸들은 이 기기 저장소에 있고(LibraryFolder), 바꾸면 이 기기에 남은 노트를 새 폴더에도 다시 쓴다(LIB_EXPORT_ALL).
+// 노트 암호화 키는 로그인 계정에서 오므로 여기서 다루지 않는다(패널이 로그인하며 받아 둔다).
+async function wireLibraryFolder(){
+  const state=$('folderState'),btn=$('folderBtn');
+  if(!btn||!state)return;
+  const unavailable=()=>{state.textContent='이 기능을 쓸 수 없습니다.';btn.disabled=true;};
+  if(typeof LibraryFolder==='undefined'||typeof PackageStore==='undefined'||typeof globalThis.showDirectoryPicker!=='function')return unavailable();
+  const refresh=async()=>{
+    const st=await LibraryFolder.status(await PackageStore.indexedDbAdapter());
+    state.textContent=st.state==='ok'?`${st.name}`:st.state==='needs-permission'?`${st.name} · 권한 필요`:'지정 안 됨';
+    btn.textContent=st.state==='needs-permission'?'권한 다시 허용':st.state==='ok'?'폴더 바꾸기':'폴더 고르기';
+  };
   try{await refresh();}catch{return unavailable();}
-  refreshLibraryKey=refresh;
-  form.addEventListener('submit',async e=>{
-    e.preventDefault();
-    const a=p1.value;p1.value=''; // 입력은 어떤 결말이든 비운다
-    if(!NoteFile.isPin(a))return notice('숫자 4자리를 입력하세요.');
-    if(!confirm('새 PIN으로 이 기기에 남아 있는 노트 파일을 모두 다시 저장합니다. 예전 PIN이나 암호로 저장된 다른 파일은 그 암호로 열어야 합니다.'))return;
+  refreshLibraryFolder=refresh;
+  btn.addEventListener('click',async()=>{
     btn.disabled=true;
     try{
-      await NoteFile.saveLibraryKey(await PackageStore.indexedDbAdapter(),a);
-      const r=await local('LIB_EXPORT_ALL');
-      notice(`노트 파일 ${r.count??0}개를 새 PIN으로 다시 저장했습니다.`+(r.failed?` 실패 ${r.failed}개.`:''));
+      const adapter=await PackageStore.indexedDbAdapter(),lapsed=(await LibraryFolder.status(adapter)).state==='needs-permission';
+      const st=lapsed?await LibraryFolder.regrant(adapter):await LibraryFolder.pick(adapter);
+      if(st.state==='ok'){const r=await local('LIB_EXPORT_ALL').catch(()=>null);notice(r?`노트 파일 ${r.count??0}개를 보관함 폴더에 저장했습니다.`+(r.failed?` 실패 ${r.failed}개.`:''):'보관함 폴더를 지정했습니다.');}
       await refresh();
-    }catch(error){notice(error.message);}finally{btn.disabled=false;}
+    }catch(error){if(error?.name!=='AbortError')notice(error.message);}finally{btn.disabled=false;}
   });
 }
 function notice(message){$('saved').hidden=false;$('saved').textContent=message;}
@@ -175,7 +195,7 @@ function values(){return Object.fromEntries(fields.map(id=>[id,$(id).value]));}
   wireData();
   wireDevCard();
   wireNoteOptions(s);
-  await wireLibraryKey();
+  await wireLibraryFolder();
   await wireAccount(s);
   await showAuth();
 }catch(error){notice(error.message);}})();

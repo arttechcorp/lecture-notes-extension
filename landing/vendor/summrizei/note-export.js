@@ -1,6 +1,6 @@
 // Note → Markdown 어댑터 (docs/note-contract.md §15 문서 순서, Phase 7-4). v1 sidepanel 의 noteText 를 대체한다.
 // 순수 함수다: DOM·시각·난수 없음, note 를 바꾸지 않는다. evidenceIds·targetIds 같은 id 는 절대 출력하지 않는다.
-// 수식은 registry.display 로만: latex → $…$(본문)·$$…$$(formulaIds), crop → [수식: 원본 이미지], check → [수식 확인 필요].
+// 수식은 registry.display 로만: latex → $…$(본문)·$$…$$(formulaIds), crop → [수식 이미지], check → [수식 확인 필요].
 // 고지는 내용이 없다 — 코드·건수·시각 구간만으로 만든다(§12.3). NOTE_ADVISORY_ 는 조판 힌트라 숨긴다(§15).
 (() => {
   const TOPIC = { exam: "시험", assignment: "과제", deadline: "기한", materials: "자료", request: "요청", other: "기타" };
@@ -29,8 +29,8 @@
     NOTE_UNITS_UNCITED: c => `노트에 반영되지 않은 강의 구간 ${c}곳`,
     NOTE_GLOBAL_FAILED: () => "강의 전체 요약을 만들지 못했습니다",
     NOTE_JUDGE_SKIPPED: () => "중요도 판정 없이 만들었습니다",
+    NOTE_CLAIMS_UNSUPPORTED: c => `강의 근거가 부족해 보류한 내용 ${c}건`,
     NOTE_ITEMS_PRUNED: c => `연결된 내용이 빠져 함께 뺀 항목 ${c}건`,
-    NOTE_FORMULAS_IMAGE: c => `원본 이미지로 표시한 수식 ${c}개`,
     NOTE_FORMULAS_CHECK: c => `확인이 필요한 수식 ${c}개`,
     NOTE_FORMULAS_UNVERIFIED: c => `확인이 필요한 수식 ${c}개`,
     NOTE_FIGURES_CHECK: c => `확인이 필요한 도표 ${c}개`,
@@ -51,14 +51,14 @@
       const e = registry.get(id);
       if (!e) return "[수식]";
       if (e.display === "latex") return str(e.latex).trim() ? `$${e.latex}$` : "[수식 확인 필요]";
-      return e.display === "crop" ? "[수식: 원본 이미지]" : e.display === "check" ? "[수식 확인 필요]" : "[수식]";
+      return e.display === "crop" ? "[수식 이미지]" : e.display === "check" ? "[수식 확인 필요]" : "[수식]";
     };
     // B10 formulaIds 목록 전용 — 같은 규칙이지만 latex 는 디스플레이 수식($$)이다.
     const formulaLine = id => {
       const e = registry.get(id);
       if (!e) return "[수식]";
       if (e.display === "latex") return str(e.latex).trim() ? `$$${e.latex}$$` : "[수식 확인 필요]";
-      return e.display === "crop" ? "[수식: 원본 이미지]" : e.display === "check" ? "[수식 확인 필요]" : "[수식]";
+      return e.display === "crop" ? "[수식 이미지]" : e.display === "check" ? "[수식 확인 필요]" : "[수식]";
     };
     // 본문 텍스트: 참조를 치환하고 나머지를 이스케이프한다. 줄 머리 구조 문자(#, >, -)는 \ 로 무력화한다.
     const rich = text =>
@@ -161,7 +161,7 @@
     };
     const noticeMd = n => {
       const code = str(n?.code);
-      if (!code || code.startsWith("NOTE_ADVISORY_")) return "";
+      if (!code || code.startsWith("NOTE_ADVISORY_") || code === "NOTE_FORMULAS_IMAGE") return ""; // 원본 이미지 수식 수는 띄우지 않는다
       const c = Number.isInteger(n?.count) ? n.count : 1;
       const fn = NOTICES[code];
       let text = fn ? fn(c) : `기타 고지: ${code}×${c}`;

@@ -162,6 +162,12 @@ create table if not exists usage_events (
 );
 create index if not exists usage_events_created_idx on usage_events (created_at);
 create index if not exists usage_events_user_idx on usage_events (user_id) where user_id is not null;
+-- 작업 단위 묶기·강의 분야 통계(2026-10-04). 이미 만든 DB를 위해 alter로 둔다.
+-- subject 는 자동 분류 코드다 — 강의 제목·내용 같은 자유 텍스트는 문자 집합 CHECK가 막는다.
+alter table usage_events add column if not exists lecture_seconds numeric(10, 2) check (lecture_seconds >= 0);
+alter table usage_events add column if not exists slides int check (slides >= 0);
+alter table usage_events add column if not exists subject text check (subject ~ '^[a-z][a-z0-9_]{0,31}$');
+alter table usage_events add column if not exists subject_conf numeric(5, 4) check (subject_conf between 0 and 1);
 
 -- 추가 전용 강제. service_role은 RLS를 우회하므로 권한만으로는 UPDATE/DELETE를 막지 못해 트리거로 막는다.
 -- 허용하는 변경은 하나뿐이다: user_id → null(계정 삭제 비식별화, FK의 on delete set null 포함).
@@ -184,6 +190,67 @@ drop trigger if exists usage_events_guard on usage_events;
 create trigger usage_events_guard before update or delete on usage_events
   for each row execute function usage_events_guard();
 
+-- 시험 기간 달력(한국 학기 기준). KST 날짜를 넣으면 midterm/final/vacation/semester 를 돌려준다.
+create or replace function exam_period(d date)
+returns text
+language sql
+immutable
+set search_path = public
+as $$
+  select case
+    when (extract(month from d) = 4 and extract(day from d) between 20 and 26)
+      or (extract(month from d) = 10 and extract(day from d) between 19 and 25) then 'midterm'
+    when (extract(month from d) = 6 and extract(day from d) between 8 and 21)
+      or (extract(month from d) = 12 and extract(day from d) between 7 and 20) then 'final'
+    when (extract(month from d) = 6 and extract(day from d) >= 22)
+      or extract(month from d) in (7, 8)
+      or (extract(month from d) = 12 and extract(day from d) >= 21)
+      or extract(month from d) <= 2 then 'vacation'
+    else 'semester'
+  end;
+$$;
+comment on function exam_period(date) is 'ponytail fixed national calendar; replace with per-school calendars when school is known.';
+
+-- 어드민 분석 뷰. 작업 하나를 한 줄로 묶는다 — 라이브 요약 작업(live-<세션>-<n>)은 캡처 세션 id 로 접어
+-- 인식 이벤트와 같은 작업으로 본다. security_invoker 라 호출자 권한·RLS 를 그대로 탄다.
+create or replace view job_facts
+with (security_invoker = true) as
+select
+  regexp_replace(e.job_id, '^live-(.+)-[0-9]+$', '\1') as job_key,
+  e.user_id,
+  p.plan,
+  min(e.created_at) as started_at,
+  max(e.created_at) as ended_at,
+  (min(e.created_at) at time zone 'Asia/Seoul') as started_kst,
+  extract(isodow from (min(e.created_at) at time zone 'Asia/Seoul'))::int as weekday,
+  extract(hour from (min(e.created_at) at time zone 'Asia/Seoul'))::int as hour,
+  exam_period((min(e.created_at) at time zone 'Asia/Seoul')::date) as exam_period,
+  round(max(e.lecture_seconds) / 60, 1) as lecture_min,
+  round(sum(e.audio_seconds) filter (where e.stage = 'stt') / 60, 1) as stt_min,
+  max(e.slides) as slides,
+  sum(e.images) filter (where e.stage like 'vision.%') as cloud_vision_slides,
+  coalesce(max(e.subject) filter (where e.subject_conf >= 0.6), 'unknown') as subject,
+  bool_or(e.job_id like 'regen-%') as is_regen,
+  count(*) as requests,
+  count(*) filter (where e.status = 'error') as errors,
+  round(sum(e.cost_micros) / 1e6 * 1400) as cost_krw,
+  max(e.host) as host,
+  max(e.client_version) as client_version
+from usage_events e
+  left join profiles p on p.user_id = e.user_id
+where e.job_id is not null
+group by 1, e.user_id, p.plan;
+
+-- 사용자별 월 잔액 + 활동 월 평균 분(분은 활동이 있는 달만의 평균이다 — monthly_usage 에는 쓴 달만 행이 있다).
+create or replace view user_monthly
+with (security_invoker = true) as
+select m.user_id, m.month, m.minutes, m.requests,
+       avg(m.minutes) over (partition by m.user_id) as avg_minutes_per_active_month
+from monthly_usage m;
+
+revoke all on job_facts, user_monthly from anon, authenticated;
+grant select on job_facts, user_monthly to service_role;
+
 -- 제공자 동시 호출의 전역 상한. 서버 메모리의 세마포어는 워커마다 따로라 Postgres에 하나를 둔다(server/index.js acquire).
 -- 사용자 데이터는 없고 슬롯은 expires_at이 지나면 만료다 — 계정 삭제·정기 정리 경로에는 넣지 않는다.
 create table if not exists provider_slots (
@@ -204,6 +271,14 @@ create table if not exists vault_objects (
   updated_at timestamptz not null default now(),
   storage_path text not null unique check (storage_path ~ '^[A-Za-z0-9][A-Za-z0-9/_-]{0,255}$'),  -- 앱이 "<user_id>/<object_id>"로 만든다. 제목을 넣지 않는다
   primary key (user_id, object_id)
+);
+
+-- 노트 파일(.summrizei) 암호화 키: 계정마다 하나. 로그인한 사용자만 library_key()로 받는다 — 별도 비밀번호 없이 "로그인하면 열린다".
+-- 노트 파일은 서버에 올라오지 않는다(이 기기 폴더에만 있다). 서버는 키만 갖고, 키는 강의 내용과 무관한 난수다. 계정 삭제 때 cascade 로 함께 지워진다.
+create table if not exists library_keys (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  key text not null check (key ~ '^[0-9a-f]{64}$'),
+  created_at timestamptz not null default now()
 );
 
 create table if not exists feedback (
@@ -228,6 +303,7 @@ alter table monthly_usage enable row level security;
 alter table usage_reservations enable row level security;
 alter table usage_events enable row level security;
 alter table vault_objects enable row level security;
+alter table library_keys enable row level security;
 alter table feedback enable row level security;
 alter table provider_slots enable row level security;
 -- 정책 없음 = 전면 차단. 이후에도 여기에 정책을 추가하지 않는다.
@@ -235,7 +311,7 @@ alter table provider_slots enable row level security;
 -- 서버(service_role)는 RLS를 우회하지만 테이블 권한은 따로 필요하다. 플랫폼의 기본 권한에 기대지 않고 명시한다
 -- (보관함 목록·프로필 upsert·피드백 기록·/v1/me의 한도 조회가 직접 접근이다). anon/authenticated에는 주지 않는다.
 grant select, insert, update, delete on plans, global_caps, global_usage, profiles, entitlements, monthly_usage,
-  usage_reservations, usage_events, vault_objects, feedback, provider_slots to service_role;
+  usage_reservations, usage_events, vault_objects, library_keys, feedback, provider_slots to service_role;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 5. 함수
@@ -356,6 +432,7 @@ $$;
 --                               실제 비용이 예약보다 크면 한도를 살짝 넘길 수 있다(이미 쓴 돈이라 되돌릴 수 없다).
 --   p_status = 'refunded'     : 공급자에 아무것도 보내지 않았다. 예약을 풀고(요청 수·분 포함) 예약 행을 지운다.
 -- 같은 요청의 두 번째 정산은 원장에 아무것도 쓰지 않고 already_settled를 돌려준다.
+drop function if exists settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text);
 create or replace function settle_usage(
   p_user uuid,
   p_request_id text,
@@ -374,7 +451,11 @@ create or replace function settle_usage(
   p_latency_ms int default null,
   p_client_version text default null,
   p_host text default null,        -- 호스트명만(경로 금지). 형식은 usage_events CHECK가 강제한다
-  p_job_id text default null
+  p_job_id text default null,
+  p_lecture_seconds numeric default null,
+  p_slides int default null,
+  p_subject text default null,
+  p_subject_conf numeric default null
 )
 returns text
 language plpgsql
@@ -437,11 +518,13 @@ begin
 
   insert into usage_events (
     user_id, job_id, request_id, stage, provider, model, input_tokens, output_tokens, audio_seconds, images,
-    cost_micros, cost_reported, prompt_version, schema_version, status, error_code, latency_ms, client_version, host
+    cost_micros, cost_reported, prompt_version, schema_version, status, error_code, latency_ms, client_version, host,
+    lecture_seconds, slides, subject, subject_conf
   ) values (
     p_user, p_job_id, p_request_id, p_stage, p_provider, p_model, p_input_tokens, p_output_tokens, p_audio_seconds, p_images,
     v_charged, v_refund or p_actual_cost_micros is not null, p_prompt_version, p_schema_version, p_status, p_error_code,
-    p_latency_ms, p_client_version, p_host
+    p_latency_ms, p_client_version, p_host,
+    p_lecture_seconds, p_slides, p_subject, p_subject_conf
   );
 
   return case when v_refund then 'refunded' else 'settled' end;
@@ -668,6 +751,29 @@ begin
 end $$;
 drop function if exists delete_my_account();
 
+-- 내 노트 암호화 키(64자리 hex). 없으면 만든다. 호출자 본인 것만 돌려준다(auth.uid()).
+-- gen_random_bytes 는 extensions 스키마라 search_path 에서 안 보여 코어의 gen_random_uuid() 두 개(CSPRNG)를 이어 256비트를 만든다.
+create or replace function library_key()
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  uid uuid := auth.uid();
+  k text;
+begin
+  if uid is null then
+    raise exception 'not_authenticated' using errcode = '28000';
+  end if;
+  insert into library_keys (user_id, key)
+    values (uid, replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', ''))
+    on conflict (user_id) do nothing;
+  select key into k from library_keys where user_id = uid;
+  return k;
+end;
+$$;
+
 -- 내 등급·이번 달 사용량. 서버의 한도와 같은 표(effective_plan, plans, monthly_usage)를 읽는다.
 -- 반환 모양은 옛 schema.sql 판과 같다(lib/account.js, landing/account.js). status는 결제 상태를 따로 두지 않아 언제나 'active'다.
 create or replace function my_account()
@@ -745,7 +851,7 @@ $$;
 -- 서버 전용 함수는 셋 중 service_role만 남기고, 어드민 함수는 schema.sql과 같이 authenticated(+is_admin 게이트)만 연다.
 revoke all on function effective_plan(uuid, timestamptz) from public, anon, authenticated;
 revoke all on function reserve_usage(uuid, text, text, bigint, date, int) from public, anon, authenticated;
-revoke all on function settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text) from public, anon, authenticated;
+revoke all on function settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text, numeric, int, text, numeric) from public, anon, authenticated;
 revoke all on function delete_account_data(uuid) from public, anon, authenticated;
 revoke all on function acquire_provider_slot(text, int, int) from public, anon, authenticated;
 revoke all on function release_provider_slot(uuid) from public, anon, authenticated;
@@ -753,12 +859,14 @@ revoke all on function admin_usage(int) from public, anon;
 revoke all on function admin_grant_plan(uuid, text, timestamptz, timestamptz) from public, anon;
 grant execute on function effective_plan(uuid, timestamptz) to service_role;
 grant execute on function reserve_usage(uuid, text, text, bigint, date, int) to service_role;
-grant execute on function settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text) to service_role;
+grant execute on function settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text, numeric, int, text, numeric) to service_role;
 grant execute on function delete_account_data(uuid) to service_role;
 grant execute on function acquire_provider_slot(text, int, int) to service_role;
 grant execute on function release_provider_slot(uuid) to service_role;
 grant execute on function admin_usage(int) to authenticated;
 grant execute on function admin_grant_plan(uuid, text, timestamptz, timestamptz) to authenticated;
+revoke all on function library_key() from public, anon;
+grant execute on function library_key() to authenticated;
 revoke all on function my_account() from public, anon;
 revoke all on function plan_catalog() from public;
 revoke all on function admin_stats() from public, anon;
@@ -866,7 +974,7 @@ begin
   foreach f in array array[
     'effective_plan(uuid, timestamptz)'::regprocedure,
     'reserve_usage(uuid, text, text, bigint, date, int)'::regprocedure,
-    'settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text)'::regprocedure,
+    'settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text, numeric, int, text, numeric)'::regprocedure,
     'delete_account_data(uuid)'::regprocedure,
     'apply_billing_event(text, text, uuid, text, boolean, text, timestamptz, timestamptz, text, integer, text, integer, timestamptz)'::regprocedure,
     'acquire_provider_slot(text, int, int)'::regprocedure,

@@ -257,7 +257,7 @@
 
 <!-- ── 온보딩 (첫 실행·재동의: 필요한 단계만 보인다) ─────────────── -->
 <div id="onboard" hidden>
-  <div class="intro"><p class="eyebrow">WELCOME TO YOUR NOTES</p><h2>노트를 만들 준비를 해볼까요?</h2><p class="detail">로그인, 동의, 보관함 PIN만 준비하면 바로 시작할 수 있습니다.</p></div>
+  <div class="intro"><p class="eyebrow">WELCOME TO YOUR NOTES</p><h2>노트를 만들 준비를 해볼까요?</h2><p class="detail">로그인, 동의, 보관함 폴더만 준비하면 바로 시작할 수 있습니다.</p></div>
 
   <section class="step" data-step="account">
     <span class="n">1</span>
@@ -285,13 +285,14 @@
     </span>
   </section>
 
-  <section class="step" data-step="passphrase">
+  <section class="step" data-step="folder">
     <span class="n">3</span>
     <span class="c">
-      <b>보관함 PIN</b>
-      <span class="why">완성된 노트는 이 컴퓨터의 다운로드/Summrizei 폴더에 이 PIN으로 암호화해 저장합니다. 노트는 Summrizei 웹사이트에서 이 PIN을 넣어야만 열 수 있습니다. PIN을 잊으면 저장한 노트를 열 수 없습니다.</span>
-      <input id="obPass" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="off" placeholder="보관함 PIN (숫자 4자리)" />
-      <span class="why" id="obPassErr" role="alert" hidden></span>
+      <b>보관함 폴더</b>
+      <span class="why">완성된 노트는 여기서 고른 폴더에 암호화해 자동으로 저장합니다. 저장할 때마다 묻지 않습니다. 비밀번호도 따로 없습니다 — Summrizei 웹사이트에서 같은 계정으로 로그인하면 열립니다. 문서 안에 새 폴더를 만들어 고르면 편합니다.</span>
+      <button id="obFolderBtn" type="button">폴더 고르기</button>
+      <span class="why" id="obFolderName" hidden></span>
+      <span class="why" id="obFolderErr" role="alert" hidden></span>
     </span>
   </section>
 
@@ -501,6 +502,7 @@
   <script src="lib/account.js"></script>
   <script src="lib/package-store.js"></script>
   <script src="lib/note-file.js"></script>
+  <script src="lib/library-folder.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

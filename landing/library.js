@@ -1,6 +1,6 @@
 // 내 노트 페이지: .summrizei 파일을 브라우저 안에서 복호화해 목록과 노트를 보여준다.
-// 복호화 결과·파생 키는 메모리에만 두고 잠그기로 전부 버린다. 어떤 저장소(localStorage,
-// sessionStorage, IndexedDB, 쿠키)에도 쓰지 않는다. 저장 문자열은 전부 textContent/DOM
+// 열쇠는 로그인한 계정의 노트 키(서비스 library_key())다 — 별도 비밀번호는 없다. 복호화 결과·키는 메모리에만 두고
+// 잠그기·로그아웃으로 전부 버린다. 이 페이지는 어떤 저장소에도 노트나 키를 쓰지 않는다(로그인 세션은 supabase-js 가 따로 둔다). 저장 문자열은 전부 textContent/DOM
 // 으로만 넣고, 렌더러가 돌려주는 이스케이프된 HTML 만 innerHTML 로 둔다.
 (function () {
   "use strict";
@@ -11,7 +11,7 @@
 
   const drop = $("drop"), folderBtn = $("folderBtn"), filesBtn = $("filesBtn");
   const folderInput = $("folderInput"), filesInput = $("filesInput");
-  const fileStatus = $("fileStatus"), keyForm = $("keyForm"), passInput = $("passInput");
+  const fileStatus = $("fileStatus"), authText = $("authText"), loginBtn = $("loginBtn"), logoutBtn = $("logoutBtn");
   const openBtn = $("openBtn"), keyStatus = $("keyStatus"), failList = $("failList");
   const stepFile = $("stepFile"), stepKey = $("stepKey"), openBar = $("openBar");
   const openCount = $("openCount"), addBtn = $("addBtn");
@@ -26,7 +26,9 @@
   document.head.appendChild(specStyle);
 
   const files = [];              // {name, text} — 암호문 원문(잠그면 함께 버림)
-  const keys = new Map();        // salt → CryptoKey
+  let client = null;             // supabase-js 클라이언트(로그인·키 조회용)
+  let session = null;            // 지금 로그인 세션(없으면 null)
+  let key = null;                // 이 계정의 노트 키(CryptoKey, 메모리만)
   const entries = new Map();     // packageId → {meta, note, crops}
   let skipped = 0;
   let current = null;            // 지금 열린 {meta, note, crops}
@@ -53,7 +55,7 @@
     fileStatus.textContent = files.length
       ? `파일 ${files.length}개${skipped ? ` · 건너뜀 ${skipped}개` : ""}`
       : "";
-    openBtn.disabled = files.length === 0 || busy;
+    openBtn.disabled = files.length === 0 || busy || !session;
   }
 
   async function addFiles(list) {
@@ -194,43 +196,55 @@
     if (back && back.isConnected) back.focus();
   }
 
-  // 복호화: 같은 솔트를 쓰는 파일끼리 묶어 키는 솔트마다 한 번만 만든다
-  // (파일마다 60만 회 PBKDF2를 돌리면 너무 느리다).
-  keyForm.addEventListener("submit", async e => {
-    e.preventDefault();
-    if (!files.length || busy) return;
+  // 로그인 상태 표시. 로그아웃되면 열린 노트·키를 모두 잠근다.
+  function paintAuth(next) {
+    const was = session;
+    session = next || null;
+    if (was && !session) lock();
+    const email = session?.user?.email;
+    authText.textContent = session
+      ? `${email || "로그인됨"} 계정으로 로그인했습니다.`
+      : "노트를 만든 계정으로 로그인하면 노트가 열립니다. 별도 비밀번호는 없습니다.";
+    loginBtn.hidden = !!session;
+    logoutBtn.hidden = !session;
+    paintFiles();
+  }
+  async function initAuth() {
+    const cfg = window.SUMMRIZEI_SUPABASE;
+    if (!cfg || !window.supabase) { authText.textContent = "로그인 기능을 불러오지 못했습니다. 새로고침해 주세요."; return; }
+    client = window.supabase.createClient(cfg.url, cfg.anonKey);
+    loginBtn.disabled = false;
+    client.auth.onAuthStateChange((_event, s) => paintAuth(s));
+    const { data } = await client.auth.getSession();
+    paintAuth(data.session);
+  }
+  loginBtn.addEventListener("click", async () => {
+    if (!client) return;
+    const { error } = await client.auth.signInWithOAuth({ provider: "google", options: { redirectTo: location.origin + location.pathname } });
+    if (error) authText.textContent = "로그인을 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+  });
+  logoutBtn.addEventListener("click", () => { client?.auth.signOut(); });
+
+  // 복호화: 이 계정의 키를 한 번 받아 모든 파일을 같은 키로 연다. 다른 계정으로 만든 파일은 실패 목록에 이유와 함께 남는다.
+  openBtn.addEventListener("click", async () => {
+    if (!files.length || busy || !session) return;
     busy = true;
     openBtn.disabled = true;
-    const pass = passInput.value;
-    passInput.value = ""; // 암호는 폼에 남기지 않는다
     keyStatus.textContent = "여는 중…";
     failList.textContent = "";
-
-    const groups = new Map(); // salt → files
-    for (const f of files) {
-      try {
-        const env = NoteFile.parseFile(f.text);
-        const g = groups.get(env.salt);
-        if (g) g.push(f); else groups.set(env.salt, [f]);
-      } catch (err) { fail(f.name, err); }
-    }
-    for (const [salt, group] of groups) {
-      let key = keys.get(salt);
+    try {
       if (!key) {
-        try { key = await NoteFile.deriveKey(pass, salt); keys.set(salt, key); }
-        catch (err) { for (const f of group) fail(f.name, err); continue; }
+        const { data, error } = await client.rpc("library_key");
+        if (error) throw new Error("계정 키를 받지 못했습니다. 인터넷 연결과 로그인을 확인하세요.");
+        key = await NoteFile.keyFromHex(data);
       }
-      let opened = 0;
-      for (const f of group) {
+      for (const f of files) {
         try {
           const data = await NoteFile.decryptWithKey(f.text, key);
           entries.set(data.meta.packageId, data);
-          opened++;
         } catch (err) { fail(f.name, err); }
       }
-      if (!opened) keys.delete(salt); // 틀린 암호로 만든 키를 남기면 맞는 암호를 넣어도 계속 실패한다
-    }
-
+    } catch (err) { fail("계정", err); }
     busy = false;
     keyStatus.textContent = "";
     adding = failList.children.length > 0; // 실패 줄이 남았으면 단계를 열어 둬서 오류가 보이게 한다
@@ -266,15 +280,15 @@
   addBtn.addEventListener("click", () => {
     adding = true;
     paintChrome();
-    passInput.focus();
+    openBtn.focus();
   });
 
-  // 잠그기: 복호화 결과·키·불러온 파일을 전부 버리고 DOM을 비워 1단계로 돌아간다.
-  lockBtn.addEventListener("click", () => {
+  // 잠그기: 복호화 결과·키·불러온 파일을 전부 버리고 DOM을 비워 처음 단계로 돌아간다.
+  function lock() {
     closeNote();
     files.length = 0;
     skipped = 0;
-    keys.clear();
+    key = null;
     entries.clear();
     cards.textContent = "";
     failList.textContent = "";
@@ -283,5 +297,7 @@
     adding = false;
     paintChrome();
     paintFiles();
-  });
+  }
+  lockBtn.addEventListener("click", lock);
+  initAuth();
 })();

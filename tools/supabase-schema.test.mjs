@@ -253,8 +253,9 @@ const NEW_TABLES = {
   entitlements: "id user_id plan starts_at ends_at source external_id created_at edu cancel_at_period_end",
   monthly_usage: "user_id month requests minutes cost_micros",
   usage_reservations: "user_id request_id digest month day reserved_cost_micros reserved_minutes status charged_cost_micros created_at settled_at",
-  usage_events: "id user_id job_id request_id stage provider model input_tokens output_tokens audio_seconds images cost_micros cost_reported prompt_version schema_version status error_code latency_ms client_version host created_at",
+  usage_events: "id user_id job_id request_id stage provider model input_tokens output_tokens audio_seconds images cost_micros cost_reported prompt_version schema_version status error_code latency_ms client_version host created_at lecture_seconds slides subject subject_conf",
   vault_objects: "user_id object_id size updated_at storage_path",
+  library_keys: "user_id key created_at",
   feedback: "user_id job_id rating tags created_at",
   billing_events: "id type user_id received_at merchant_uid amount_krw coupon_code coupon_discount_krw external_id occurred_at",
   provider_slots: "id provider expires_at",
@@ -262,7 +263,7 @@ const NEW_TABLES = {
 const SERVICE_FUNCTIONS = [
   "effective_plan(uuid, timestamptz)",
   "reserve_usage(uuid, text, text, bigint, date, int)",
-  "settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text)",
+  "settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text, numeric, int, text, numeric)",
   "delete_account_data(uuid)",
   "acquire_provider_slot(text, int, int)",
   "release_provider_slot(uuid)",
@@ -341,6 +342,20 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
     assert.ok(paid.current_period_end);
     assert.equal(paid.minutes_used, 42);
     assert.equal(paid.minutes_limit, Number(q("select monthly_minutes_cap from plans where plan = 'essential'")));
+  });
+
+  test("library_key: 로그인만, 계정마다 하나의 256비트 키를 만들어 같은 값을 돌려주고 남의 키는 못 읽는다", () => {
+    fails("select library_key()", { as: "anon" }, /42501|permission denied/);
+    fails("select library_key()", { as: "authenticated", claims: {} }, /28000.*not_authenticated/s);
+    const a = newUser("free"), b = newUser("free");
+    const key = u => q("select library_key()", { as: "authenticated", claims: { sub: u } });
+    const ka = key(a);
+    assert.match(ka, /^[0-9a-f]{64}$/);
+    assert.equal(key(a), ka, "두 번째 호출도 같은 키");
+    assert.notEqual(key(b), ka, "계정마다 다른 키");
+    assert.equal(q(`select count(*) from library_keys`), "2");
+    assert.equal(q("select count(*) from library_keys", { as: "authenticated", claims: { sub: a } }), "0", "RLS: 직접 읽기는 자기 행도 보이지 않는다");
+    fails(`insert into library_keys (user_id, key) values (${lit(a)}, 'short')`, SVC, /23505|23514/);
   });
 
   test("delete_account_data: 해지 예약 없는 결제 구독이 있으면 아무것도 지우지 않고 거절한다", () => {
@@ -536,6 +551,7 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
     q(`insert into entitlements (user_id, plan) values (${lit(w)}, 'essential');
        insert into vault_objects (user_id, object_id, size, storage_path) values (${lit(w)}, 'o1', 10, '${w}/o1');
        insert into feedback (user_id, job_id, rating) values (${lit(w)}, 'j1', 4)`);
+    q("select library_key()", { as: "authenticated", claims: { sub: w } });
     for (const table of names) {
       assert.ok(Number(q(`select count(*) from ${table}`)) > 0, `${table}에 행이 없어 검증이 무의미`);
       for (const role of ["anon", "authenticated"]) {
@@ -717,6 +733,7 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
       user_id: user, job_id: "job-1", request_id: "s-1", stage: "vision", provider: "openrouter", model: "google/gemini-2.5-flash-lite",
       input_tokens: 1200, output_tokens: 300, audio_seconds: 12.5, images: 2, cost_micros: 120_000, cost_reported: true,
       prompt_version: "v1", schema_version: 1, status: "ok", error_code: null, latency_ms: 850, client_version: "0.4.1", host: "learnus.yonsei.ac.kr",
+      lecture_seconds: null, slides: null, subject: null, subject_conf: null,
     });
     assert.equal(q(`select status || ',' || charged_cost_micros from usage_reservations where user_id = ${lit(user)} and request_id = 's-1'`), "settled,120000");
 
@@ -725,6 +742,25 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
     assert.equal(settle(user, "s-2", 150_000, "ok"), "settled");
     assert.equal(balance(user).cost_micros, 270_000);
     assert.equal(sumLedger(user), 270_000, "원장 합계와 잔액이 어긋났다");
+  });
+
+  test("정산: 작업 id·호스트·강의 길이·슬라이드 수·분야가 원장에 남고, 나쁜 host·subject는 CHECK가 거절한다", () => {
+    const user = newUser("t_big");
+    assert.equal(reserve(user, "job-a", 5000), "reserved");
+    assert.equal(settle(user, "job-a", 4000, "ok", { stage: "plan", job_id: "note-abc123", host: "learnus.yonsei.ac.kr", lecture_seconds: 3720.5, slides: 42, subject: "econ_101", subject_conf: 0.87 }), "settled");
+    const [row] = ledger(user);
+    assert.equal(row.job_id, "note-abc123");
+    assert.equal(row.host, "learnus.yonsei.ac.kr");
+    assert.equal(Number(row.lecture_seconds), 3720.5);
+    assert.equal(row.slides, 42);
+    assert.equal(row.subject, "econ_101");
+    assert.equal(Number(row.subject_conf), 0.87);
+    // 자유 텍스트·범위 밖 값은 CHECK가 막는다 — 실패한 정산은 통째로 되돌아간다.
+    for (const [i, [key, value]] of [["host", "learnus.yonsei.ac.kr/x?id=1"], ["host", "LearnUs.yonsei.ac.kr"], ["subject", "미시경제학 입문"], ["subject_conf", "1.5"]].entries()) {
+      const id = `job-b${i}`;
+      assert.equal(reserve(user, id, 5000), "reserved");
+      fails(`select settle_usage(p_user => ${lit(user)}, p_request_id => ${lit(id)}, p_actual_cost_micros => 4000, p_status => 'ok', p_stage => 'plan', p_${key} => ${lit(value)})`, SVC, /23514|check constraint/);
+    }
   });
 
   test("정산: 미보고 비용은 예약을 그대로 유지한다 (공짜로 가정하지 않음), 오류도 마찬가지", () => {
@@ -924,5 +960,70 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
     }
     assert.equal(q(`select count(*) from usage_events where model = ${lit(model)} and user_id is null`), "4");
     assert.deepEqual(agg(), before);
+  });
+
+  test("분석 뷰: exam_period 달력, job_facts 작업 묶기, user_monthly — anon/authenticated 는 못 읽는다", () => {
+    // 고정 국가 달력 — 각 구간의 경계 날짜만 확인한다.
+    for (const [d, want] of [
+      ["2026-04-20", "midterm"], ["2026-04-26", "midterm"], ["2026-10-19", "midterm"], ["2026-10-25", "midterm"],
+      ["2026-06-08", "final"], ["2026-06-21", "final"], ["2026-12-07", "final"], ["2026-12-20", "final"],
+      ["2026-06-22", "vacation"], ["2026-08-31", "vacation"], ["2026-12-21", "vacation"], ["2026-01-15", "vacation"], ["2028-02-29", "vacation"],
+      ["2026-03-01", "semester"], ["2026-04-19", "semester"], ["2026-04-27", "semester"], ["2026-06-07", "semester"],
+      ["2026-09-01", "semester"], ["2026-10-26", "semester"], ["2026-12-06", "semester"],
+    ]) {
+      assert.equal(q(`select exam_period(${lit(d)})`), want, d);
+    }
+
+    const user = newUser("essential");
+    // 캡처 세션(cap9)의 인식 이벤트와 라이브 요약 작업(live-cap9-1, live-cap9-2)은 같은 job_key 로 묶인다.
+    const seedJob = (id, status, meta) => {
+      assert.equal(reserve(user, id, 5000), "reserved");
+      assert.equal(settle(user, id, status === "error" ? 3000 : 4000, status, meta), status === "refunded" ? "refunded" : "settled");
+    };
+    seedJob("jf-1", "ok", { stage: "stt", job_id: "cap9", audio_seconds: 120 });
+    seedJob("jf-2", "ok", { stage: "plan", job_id: "live-cap9-1", lecture_seconds: 3600, slides: 40, subject: "law", subject_conf: 0.8, host: "learnus.yonsei.ac.kr" });
+    seedJob("jf-3", "ok", { stage: "plan", job_id: "live-cap9-2", subject: "music", subject_conf: 0.3 });
+    seedJob("jf-4", "error", { stage: "vision.full", job_id: "cap9", error_code: "provider_failed" });
+    seedJob("jf-5", "ok", { stage: "plan" }); // job_id 없음 → 뷰에서 제외
+    seedJob("jf-6", "ok", { stage: "plan", job_id: "regen-9" });
+    seedJob("jf-7", "ok", { stage: "plan", job_id: "lowconf", subject: "music", subject_conf: 0.3 });
+
+    const [job] = qj(`select json_agg(j) from (select * from job_facts where job_key = 'cap9') j`, SVC);
+    assert.equal(job.plan, "essential");
+    assert.equal(job.requests, 4, "세션 id 와 live-<id>-<n> 이 같은 키로 묶인다");
+    assert.equal(job.errors, 1);
+    assert.equal(Number(job.stt_min), 2);
+    assert.equal(Number(job.lecture_min), 60);
+    assert.equal(job.slides, 40);
+    assert.equal(job.subject, "law", "subject_conf >= 0.6 인 분야만 본다(0.3 은 제외)");
+    assert.equal(job.is_regen, false);
+    assert.equal(Number(job.cost_krw), Math.round(15000 / 1e6 * 1400));
+    assert.equal(job.host, "learnus.yonsei.ac.kr");
+    assert.ok(Number.isInteger(job.weekday) && job.weekday >= 1 && job.weekday <= 7);
+    assert.ok(Number.isInteger(job.hour) && job.hour >= 0 && job.hour <= 23);
+    assert.ok(["midterm", "final", "vacation", "semester"].includes(job.exam_period));
+    assert.ok(job.started_at && job.ended_at && job.started_kst);
+    const [regen] = qj(`select json_agg(j) from (select * from job_facts where job_key = 'regen-9') j`, SVC);
+    assert.equal(regen.is_regen, true);
+    const [low] = qj(`select json_agg(j) from (select * from job_facts where job_key = 'lowconf') j`, SVC);
+    assert.equal(low.subject, "unknown", "0.6 미만만 있으면 unknown 이다");
+    // job_id 없는 행은 뷰에 나타나지 않는다 — cap9 묶음에도 jf-5 는 없다.
+    assert.equal(q(`select count(*) from usage_events where user_id = ${lit(user)} and job_id is null`), "1");
+
+    // user_monthly: 월 잔액 행 + 활동 월 평균 분.
+    assert.equal(reserve(user, "jf-8", 100, { minutes: 30 }), "reserved");
+    const [m] = qj(`select json_agg(m) from (select * from user_monthly where user_id = ${lit(user)}) m`, SVC);
+    assert.equal(m.month, MONTH);
+    assert.equal(m.minutes, 30);
+    assert.equal(m.requests, 8);
+    assert.equal(Number(m.avg_minutes_per_active_month), 30, "한 달뿐이면 평균은 그 달 값이다");
+
+    // anon/authenticated 는 두 뷰를 모두 못 읽고 service_role 만 읽는다.
+    for (const role of ["anon", "authenticated"]) {
+      fails("select * from job_facts", { as: role }, /42501|permission denied/);
+      fails("select * from user_monthly", { as: role }, /42501|permission denied/);
+    }
+    assert.ok(Number(q("select count(*) from job_facts", SVC)) > 0);
+    assert.ok(Number(q("select count(*) from user_monthly", SVC)) > 0);
   });
 });

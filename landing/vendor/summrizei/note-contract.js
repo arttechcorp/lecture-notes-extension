@@ -198,6 +198,20 @@
     return out;
   }
 
+  // 영어 강의(sourceLang "en")의 섹션·repair 출력: 모든 주장 객체에 src(같은 주장을 강의의 영어 표현으로 쓴 문장, lecture 가 아니면 null)를 더한다.
+  // 근거 지지 판정이 영어 근거와 영어 주장을 비교하게 하려는 칸이다 — 노트 검증·조립 전에 호출자가 뗀다(노트 형식은 그대로).
+  function withSource(schema) {
+    const out = JSON.parse(JSON.stringify(schema));
+    (function walk(v) {
+      if (Array.isArray(v)) return v.forEach(walk);
+      if (!v || typeof v !== "object") return;
+      const p = v.properties;
+      if (p && Object.keys(p).length === 3 && p.text && p.evidenceIds && p.basis) { p.src = { type: ["string", "null"], maxLength: 600 }; v.required = [...v.required, "src"]; return; }
+      Object.values(v).forEach(walk);
+    })(out);
+    return out;
+  }
+
   // 공통 봉투는 코드가 검증한다(§3.1). content 스키마가 없는 타입(B01·B04·B15·B16·B17)은 Writer 슬롯이 없다.
   function envelopeSchema(type, policy = POLICY) {
     const c = content[type];
@@ -320,8 +334,17 @@
     blocks: obj(Object.fromEntries(planGlobal.map(g => [g.blockId, orNull(envelopeSchema(g.type))]))),
   });
 
+  // 유닛의 슬라이드·발화에 나온 숫자 집합 — 단원 제목·질문과 개념 이름은 B04 머리와 개념 색인으로
+  // 그대로 노출되는데 Writer 검사를 거치지 않으므로 그 섹션(개념은 홈 섹션) 유닛의 숫자만 쓸 수 있다(§8.2).
+  // 정규화의 검사와 보정의 제거가 같은 판정을 쓰게 하려고 한 곳에 둔다.
+  const unitNumberIndex = units => new Map(units.map(u => [u.unitId,
+    new Set(Verify.numbersOf(`${u.slideText ?? ""}\n${u.speech ?? ""}`, true).flatMap(n => n.values))]));
+  const numBad = (unitNums, text, unitIds) =>
+    Verify.numbersOf(text).filter(n => !n.values.some(v => unitIds.some(id => unitNums.get(id)?.has(v))));
+  const numbersOk = (unitNums, text, unitIds) => !numBad(unitNums, text, unitIds).length;
+
   // §8.2: Planner 출력을 검사하고 코드가 blockId·버전·정책을 붙여 Plan 을 만든다.
-  // 실패는 VAL_PLAN_INVALID 하나다 — 모델 계획은 temp 0 이라 같은 계획 재요청이 소용없어 보정하지 않고 거절한다.
+  // 실패는 VAL_PLAN_INVALID 하나다 — 모델 계획은 temp 0 이라 같은 계획 재요청이 소용없어 보정하지 않고 거절한다(보정은 repairPlan).
   // detail 에는 코드·id 만 싣는다(내용 없는 오류, §10).
   function normalizePlan(output, { units = [], formulaUnits = {}, figures = [], policy = POLICY } = {}) {
     const v = Contracts.validate(plannerOutput, output);
@@ -390,13 +413,11 @@
 
     // 단원 제목·질문과 개념 이름은 B04 머리와 개념 색인으로 그대로 노출되는데 Writer 검사를 거치지 않는다 —
     // 거기 쓴 숫자는 그 섹션(개념은 홈 섹션) 유닛의 슬라이드·발화에 있어야 한다(§8.2).
-    const unitNums = new Map(units.map(u => [u.unitId,
-      new Set(Verify.numbersOf(`${u.slideText ?? ""}\n${u.speech ?? ""}`, true).flatMap(n => n.values))]));
-    const numbersOk = (text, unitIds) => Verify.numbersOf(text).every(n => n.values.some(v => unitIds.some(id => unitNums.get(id)?.has(v))));
-    for (const s of secs) if (!numbersOk(`${s.title}\n${s.question ?? ""}`, s.unitIds)) flag("number:" + s.sectionId);
+    const unitNums = unitNumberIndex(units);
+    for (const s of secs) if (!numbersOk(unitNums, `${s.title}\n${s.question ?? ""}`, s.unitIds)) flag("number:" + s.sectionId);
     for (const c of output.concepts) {
       const home = secs.find(s => s.sectionId === c.homeSectionId);
-      if (home && !numbersOk(c.name, home.unitIds)) flag("number:" + c.conceptId);
+      if (home && !numbersOk(unitNums, c.name, home.unitIds)) flag("number:" + c.conceptId);
     }
     const gSeen = new Set();
     for (const g of output.global) { if (gSeen.has(g.type)) flag("global:" + g.type); gSeen.add(g.type); }
@@ -411,6 +432,222 @@
     // 정규화 결과가 Plan 스키마를 깨면 모델이 아니라 코드의 버그다.
     if (!Contracts.validate(schemas.plan, plan).ok) throw new Error("normalizePlan 결과가 Plan 스키마를 통과하지 못했습니다.");
     return { ok: true, plan };
+  }
+
+  // 제공자는 json_schema 의 pattern 을 강제하지 않아 모델이 개념·섹션 id 를 제멋대로 쓴다(필드 관찰: concepts[0].conceptId 로 4연속 거절).
+  // 스키마 검사 전에 개념을 C1.., 섹션을 S1.. 로 차례대로 다시 매기고 참조를 같은 표로 옮긴다. 표에 없는 참조는 그대로 둬 repairPlan 이 뗀다.
+  // 작성 출력의 지도 블록(B03) 노드 키도 같은 사정이다(필드: key·from·to 패턴 위반으로 블록이 통째로 비었다).
+  // 노드를 n1.. 로 차례대로 다시 매기고 간선의 from·to 를 같은 표로 옮긴다. 표에 없는 간선 끝은 그대로 둬 검증이 거른다. 입력은 바꾸지 않는다.
+  // 섹션 출력이면(sectionId) 같은 섹션 블록을 섹션 접두 없이 쓴 참조("B3", "b3")를 "S2_B3" 로 고친다(필드: targetIds 형식 위반 8건, 모양 A9).
+  const fixRefs = (node, sectionId) => {
+    if (Array.isArray(node)) return node.map(x => fixRefs(x, sectionId));
+    if (!node || typeof node !== "object") return node;
+    return Object.fromEntries(Object.entries(node).map(([k, v]) => [k, (k === "targetIds" || k === "reviewIds") && Array.isArray(v)
+      ? v.map(x => { const m = typeof x === "string" && /^B([0-9]{1,2})$/i.exec(x.trim()); return m ? `${sectionId}_B${+m[1]}` : x; })
+      : fixRefs(v, sectionId)]));
+  };
+  function canonicalMapKeys(output, sectionId = null) {
+    if (!output || typeof output !== "object" || !output.blocks || typeof output.blocks !== "object") return output;
+    if (sectionId && /^S[0-9]{1,3}$/.test(sectionId)) output = { ...output, blocks: fixRefs(output.blocks, sectionId) };
+    const key = v => typeof v === "string" || typeof v === "number" ? String(v) : null;
+    const blocks = Object.fromEntries(Object.entries(output.blocks).map(([id, env]) => {
+      const c = env?.content;
+      if (!c || !Array.isArray(c.nodes)) return [id, env];
+      const m = new Map();
+      const nodes = c.nodes.map((n, i) => { const k = key(n?.key), nk = "n" + (i + 1); if (k !== null && !m.has(k)) m.set(k, nk); return n && typeof n === "object" ? { ...n, key: nk } : n; });
+      const edges = Array.isArray(c.edges) ? c.edges.map(e => e && typeof e === "object" ? { ...e, from: m.get(key(e.from)) ?? e.from, to: m.get(key(e.to)) ?? e.to } : e) : c.edges;
+      return [id, { ...env, content: { ...c, nodes, edges } }];
+    }));
+    return { ...output, blocks };
+  }
+
+  function canonicalPlanIds(plan) {
+    if (!plan || typeof plan !== "object") return plan;
+    const cMap = new Map(), sMap = new Map(), key = v => typeof v === "string" || typeof v === "number" ? String(v) : null;
+    const concepts = Array.isArray(plan.concepts) ? plan.concepts.map((c, i) => {
+      const k = key(c?.conceptId), id = "C" + (i + 1);
+      if (k !== null && !cMap.has(k)) cMap.set(k, id);
+      return c && typeof c === "object" ? { ...c, conceptId: id } : c;
+    }) : plan.concepts;
+    const sections = Array.isArray(plan.sections) ? plan.sections.map((s, i) => {
+      const k = key(s?.sectionId), id = "S" + (i + 1);
+      if (k !== null && !sMap.has(k)) sMap.set(k, id);
+      return s && typeof s === "object" ? { ...s, sectionId: id } : s;
+    }) : plan.sections;
+    // id 배열은 모양이 틀린 항목을 떼고 상한까지만 둔다(수식·도표 id 를 지어내거나 넘치게 다는 일, 필드 관찰: sections[5].blocks[1].formulaIds 4연속 거절).
+    // 존재하지 않는 id 는 모양만 맞으면 남겨 repairPlan 이 섹션 소유 규칙으로 뗀다.
+    const cut = (o, k, n) => typeof o[k] === "string" && o[k].length > n ? { [k]: o[k].slice(0, n) } : {}; // 글자 수 상한은 상자 크기라 자른다
+    const keep = (a, re, max) => Array.isArray(a) ? a.filter(x => typeof x === "string" && re.test(x)).slice(0, max) : a;
+    const ids = a => Array.isArray(a) ? keep(a.map(x => cMap.get(key(x)) ?? x), /^C[0-9]{1,3}$/, 6) : a;
+    const blocks = a => Array.isArray(a) ? a.map(b => b && typeof b === "object" ? { ...b, ...cut(b, "purpose", 200), conceptIds: ids(b.conceptIds),
+      ...(Array.isArray(b.formulaIds) ? { formulaIds: keep(b.formulaIds, /^F[0-9]{1,6}$/, 6) } : {}),
+      ...(Array.isArray(b.figureIds) ? { figureIds: keep(b.figureIds, /^G[0-9]{1,4}$/, 3) } : {}) } : b) : a;
+    return {
+      ...plan,
+      concepts: Array.isArray(concepts) ? concepts.slice(0, 40).map(c => c && typeof c === "object" ? { ...c, ...cut(c, "name", 60), homeSectionId: sMap.get(key(c.homeSectionId)) ?? c.homeSectionId } : c) : concepts,
+      sections: Array.isArray(sections) ? sections.map(s => s && typeof s === "object" ? { ...s, ...cut(s, "title", 80), ...cut(s, "question", 160), blocks: blocks(Array.isArray(s.blocks) ? s.blocks.slice(0, 12) : s.blocks), ...(Array.isArray(s.crossUnitIds) ? { crossUnitIds: keep(s.crossUnitIds, /^U[0-9]{1,4}$/, 10) } : {}) } : s) : sections,
+      global: blocks(plan.global),
+    };
+  }
+
+  // §8.2: 스키마는 맞지만 의미 규칙을 깬 계획을 모델을 다시 부르지 않고 코드가 고친다.
+  // 입력(plannerOutput 통과본)은 바꾸지 않고 고친 복사본을 돌려준다. fixes 는 id·코드만 싣는다(내용 없음, §10).
+  // 고칠 수 없는 계획도 남는다(곁설명 하나뿐인 섹션, 유닛 60개 초과 섹션 등) — 호출자가 normalizePlan 으로 최종 판정한다.
+  function repairPlan(output, { units = [], formulaUnits = {}, figures = [] } = {}) {
+    const out = JSON.parse(JSON.stringify(output)), fixes = [];
+    const fix = m => { if (fixes.length < 40) fixes.push(m); };
+    const known = new Set(units.map(u => u.unitId)), secs = out.sections;
+
+    // a. 유닛: 모르는 id·나중 중복을 떼고 IR 순서로 연속하게 다시 배정한다. 강의 전개는 바꾸지 않는다 —
+    // 유닛의 섹션은 "잡은 섹션"과 "앞 유닛의 섹션" 중 뒤쪽(단조)이고, 아무도 못 잡은 유닛은 앞 유닛의 섹션(첫 유닛이면 첫 섹션)으로 간다.
+    const claim = new Map(), seen = new Set(), ir = new Map(units.map((u, i) => [u.unitId, i]));
+    secs.forEach((s, i) => {
+      s.unitIds = s.unitIds.filter(id => {
+        if (!known.has(id)) { fix("drop-unit:" + id); return false; }
+        if (seen.has(id)) { fix("dup-unit:" + id); return false; }
+        seen.add(id); claim.set(id, i); return true;
+      });
+      if (s.unitIds.some((id, j) => j && ir.get(id) < ir.get(s.unitIds[j - 1]))) fix("order:" + s.sectionId);
+    });
+    const owned = secs.map(() => []);
+    let prev = -1;
+    for (const u of units) {
+      const i = Math.max(claim.get(u.unitId) ?? Math.max(prev, 0), prev);
+      owned[i].push(u.unitId); prev = i;
+      if (!claim.has(u.unitId)) fix("missing:" + u.unitId);
+    }
+    secs.forEach((s, i) => { s.unitIds = owned[i]; });
+    // 유닛을 잃은 섹션은 버리고 블록은 앞의 남은 섹션(맨 앞이면 다음 섹션)이 흡수한다(12 상한).
+    const absorb = new Map(); // 버려진 섹션의 옛 id → 블록을 흡수한 섹션 객체
+    let lastKept = -1;
+    secs.forEach((s, i) => {
+      if (s.unitIds.length) { lastKept = i; return; }
+      fix("drop-sec:" + s.sectionId);
+      const to = lastKept >= 0 ? lastKept : secs.findIndex((x, j) => j > i && x.unitIds.length);
+      if (to < 0) return;
+      absorb.set(s.sectionId, secs[to]);
+      for (const b of s.blocks) secs[to].blocks.length < 12 ? secs[to].blocks.push(b) : fix("drop-block:" + s.sectionId);
+    });
+    out.sections = secs.filter(s => s.unitIds.length);
+
+    // b. 섹션 번호를 S1..Sn 으로 다시 매기고 개념 홈을 새 번호로 옮긴다 — 흡수된 섹션의 개념은 흡수한 쪽을 홈으로 삼는다.
+    const homeOf = new Map();
+    let renum = false;
+    out.sections.forEach((s, i) => {
+      const id = "S" + (i + 1);
+      homeOf.set(s.sectionId, id);
+      renum = renum || s.sectionId !== id;
+      s.sectionId = id;
+    });
+    for (const [oldId, to] of absorb) homeOf.set(oldId, to.sectionId);
+    if (renum) fix("renumber");
+    for (const c of out.concepts) c.homeSectionId = homeOf.get(c.homeSectionId) ?? c.homeSectionId;
+
+    // c. 교차 유닛: 모르거나 자기 섹션의 유닛은 뺀다.
+    for (const s of out.sections) {
+      const own = new Set(s.unitIds);
+      s.crossUnitIds = s.crossUnitIds.filter(id =>
+        known.has(id) && !own.has(id) ? true : (fix(`cross-drop:${s.sectionId}:${id}`), false));
+    }
+
+    // d. 개념: 나중 중복과 홈이 없는 개념을 정리하고 선언 밖 참조를 지운다.
+    const declared = new Set(), secIds = new Set(out.sections.map(s => s.sectionId));
+    out.concepts = out.concepts.filter(c => {
+      if (declared.has(c.conceptId)) return fix("concept-drop:" + c.conceptId), false;
+      declared.add(c.conceptId);
+      if (secIds.has(c.homeSectionId)) return true;
+      const home = out.sections.find(s => s.blocks.some(b => b.conceptIds.includes(c.conceptId)));
+      if (!home) return declared.delete(c.conceptId), fix("concept-drop:" + c.conceptId), false;
+      c.homeSectionId = home.sectionId; fix("concept-home:" + c.conceptId); return true;
+    });
+    const dropUndeclared = ids => ids.filter(id => declared.has(id) || (fix("concept-drop:" + id), false));
+    for (const s of out.sections) for (const b of s.blocks) b.conceptIds = dropUndeclared(b.conceptIds);
+    for (const g of out.global) g.conceptIds = dropUndeclared(g.conceptIds);
+
+    // e. 정의: B05 는 개념 정확히 하나 — 뒤 개념을 떼고, 비면 섹션에 다른 블록이 있을 때만 버린다.
+    const cleanB05 = s => {
+      const kept = [];
+      s.blocks.forEach((b, i) => {
+        if (b.type === "B05" && b.conceptIds.length > 1) { fix(`def-trim:${s.sectionId}_B${i + 1}`); b.conceptIds = b.conceptIds.slice(0, 1); }
+        if (b.type === "B05" && !b.conceptIds.length && kept.length + s.blocks.length - i - 1 > 0) fix(`def-drop:${s.sectionId}_B${i + 1}`);
+        else kept.push(b);
+      });
+      s.blocks = kept;
+    };
+    for (const s of out.sections) cleanB05(s);
+    // defined 개념은 홈 섹션에 정의가 정확히 하나 — 넘치는 정의는 버리고(마지막 블록이라 못 버리면 개념 규칙이
+    // 없는 중립 타입 B08 로 내리고), 홈에 없으면 홈을 첫 정의의 섹션으로 옮긴다. 정의가 아예 없으면 mentioned 로 내린다.
+    for (const c of out.concepts) {
+      const defs = out.sections.flatMap(s => s.blocks.map((b, i) => ({ s, b, pos: `${s.sectionId}_B${i + 1}` })))
+        .filter(d => d.b.type === "B05" && d.b.conceptIds[0] === c.conceptId);
+      if (c.depth === "mentioned") {
+        if (!defs.length) continue;
+        c.depth = "defined"; fix("promote:" + c.conceptId);
+      }
+      if (!defs.length) { c.depth = "mentioned"; fix("demote:" + c.conceptId); continue; } // 정의 블록 없는 defined 는 언급으로 내린다
+      const keep = defs.find(d => d.s.sectionId === c.homeSectionId) ?? defs[0];
+      if (keep.s.sectionId !== c.homeSectionId) { c.homeSectionId = keep.s.sectionId; fix("def-home:" + c.conceptId); }
+      for (const d of defs) {
+        if (d === keep) continue;
+        if (d.s.blocks.length > 1) { d.s.blocks = d.s.blocks.filter(x => x !== d.b); fix("def-drop:" + d.pos); }
+        else { d.b.type = "B08"; fix("def-neutral:" + d.pos); }
+      }
+    }
+
+    // f. 수식·도표는 그 섹션(교차 포함) 유닛에서 나온 것만 남긴다.
+    const figUnit = new Map(figures.map(f => [f.id, f.unitId]));
+    for (const s of out.sections) {
+      const own = new Set([...s.unitIds, ...s.crossUnitIds]);
+      for (const b of s.blocks) {
+        b.formulaIds = b.formulaIds.filter(f => (formulaUnits[f] || []).some(u => own.has(u)) || (fix(`ref-drop:${s.sectionId}:${f}`), false));
+        b.figureIds = b.figureIds.filter(g => own.has(figUnit.get(g)) || (fix(`ref-drop:${s.sectionId}:${g}`), false));
+      }
+    }
+
+    // g. 첫 블록이 곁설명(B12)이면 첫 비-B12 를 앞으로 댄다 — 전부 B12 면 버릴 수 있을 때까지만 버린다.
+    for (const s of out.sections) {
+      if (s.blocks[0]?.type !== "B12") continue;
+      fix("side:" + s.sectionId);
+      const i = s.blocks.findIndex(b => b.type !== "B12");
+      if (i > 0) s.blocks.unshift(s.blocks.splice(i, 1)[0]);
+      else while (s.blocks.length > 1) s.blocks.shift();
+    }
+
+    // h. 제목·질문·개념 이름의 근거 없는 숫자: 질문은 비우고 제목·이름은 숫자 토큰을 지운다(numBad — 정규화와 같은 판정).
+    const unitNums = unitNumberIndex(units);
+    const strip = (text, unitIds) => {
+      let t = String(text).normalize("NFKC");
+      for (const n of numBad(unitNums, text, unitIds)) t = t.split(n.raw).join(" ");
+      return t.replace(/\s+/g, " ").trim();
+    };
+    for (const s of out.sections) {
+      if (numbersOk(unitNums, `${s.title}\n${s.question ?? ""}`, s.unitIds)) continue;
+      fix("number:" + s.sectionId);
+      if (s.question != null && !numbersOk(unitNums, s.question, s.unitIds)) s.question = null;
+      if (!numbersOk(unitNums, s.title, s.unitIds)) s.title = strip(s.title, s.unitIds) || "단원";
+    }
+    const dead = new Set();
+    for (const c of out.concepts) {
+      const home = out.sections.find(s => s.sectionId === c.homeSectionId);
+      if (!home || numbersOk(unitNums, c.name, home.unitIds)) continue;
+      fix("number:" + c.conceptId);
+      const name = strip(c.name, home.unitIds);
+      if (name) c.name = name;
+      else { dead.add(c.conceptId); fix("concept-drop:" + c.conceptId); }
+    }
+    if (dead.size) { // 빈 이름이 된 개념은 참조까지 지우고, 따라서 빈 B05 도 정리한다
+      out.concepts = out.concepts.filter(c => !dead.has(c.conceptId));
+      for (const s of out.sections) {
+        for (const b of s.blocks) b.conceptIds = b.conceptIds.filter(id => !dead.has(id));
+        cleanB05(s);
+      }
+      for (const g of out.global) g.conceptIds = g.conceptIds.filter(id => !dead.has(id));
+    }
+
+    // i. 전역 블록은 타입당 하나 — 나중 중복은 버린다.
+    const gSeen = new Set();
+    out.global = out.global.filter(g => gSeen.has(g.type) ? (fix("global-dup:" + g.type), false) : (gSeen.add(g.type), true));
+    return { output: out, fixes };
   }
 
   // §7 계산 검산: 모델이 준 식을 eval 하지 않고 허용된 연산 4종을 숫자에 직접 적용한다.
@@ -474,7 +711,8 @@
   const FREF_RE = /\{\{\s*(F\d+)\s*\}\}/g;
   const POINT_RE = /^(S[0-9]{1,3}_B[0-9]{1,2})\/P[1-6]$/;
   const SEC_BLOCK_RE = /^S[0-9]{1,3}_B[0-9]{1,2}$/;
-  const EMPHASIS_WORDS = { stress: /중요|핵심|꼭|반드시|기억/, exam: /시험|출제|중간고사|기말고사|퀴즈/ };
+  // 영어 강의의 근거는 영어다 — 같은 뜻의 영어 강조어도 받는다(test 는 "test set" 과 겹쳐 뺀다).
+  const EMPHASIS_WORDS = { stress: /중요|핵심|꼭|반드시|기억|\b(important|crucial|essential|remember|key point)/i, exam: /시험|출제|중간고사|기말고사|퀴즈|\b(exams?|midterm|final exam|quiz)/i };
   // 원어·인용·기한의 원문 대조는 NFC + 공백 접기 + 대소문자 무시로 한다(§9).
   const normSub = s => String(s ?? "").normalize("NFC").replace(/\s+/g, " ").toLowerCase();
   const isClaim = v => !!v && typeof v === "object" && !Array.isArray(v)
@@ -827,13 +1065,16 @@
     const evUnit = new Map(evidence.map(e => [e.id, e.unitId]));
     const hit = new Set(cited.map(r => evUnit.get(r)).filter(Boolean));
     const ownHit = sec.unitIds.filter(u => hit.has(u)).length;
+    // 커버리지 부족은 경고다 — 통과한 블록까지 섹션째 버리면 노트가 더 비고(필드: 4/6 블록이 살아 있던 섹션이 빠짐),
+    // 섹션 오류가 있으면 블록 repair 도 건너뛰어 커버리지가 회복될 길이 막힌다. 덜 다룬 구간은 조립의 미반영 구간 고지가 알린다.
+    const warnings = [];
     if (sec.unitIds.length && ownHit / sec.unitIds.length < 0.5)
-      pushErr(secErrs, "VAL_COVERAGE_LOW", [`${ownHit}/${sec.unitIds.length}`]);
+      pushErr(warnings, "VAL_COVERAGE_LOW", [`${ownHit}/${sec.unitIds.length}`]);
     const calc = {};
     for (const r of validBlocks) if (r.type === "B10")
       for (const [k, v] of Object.entries(r.calcRun?.values || {})) calc[`${r.id}.${k}`] = v;
     return {
-      sectionId, ok: !secErrs.length && staged.every(r => !r.errors.length), errors: secErrs, gist,
+      sectionId, ok: !secErrs.length && staged.every(r => !r.errors.length), errors: secErrs, warnings, gist,
       blocks: staged.map(r => ({ id: r.id, type: r.type, envelope: r.envelope, errors: r.errors })),
       checks, calc, cited,
     };
@@ -1030,10 +1271,20 @@
       id: e.id, latex: e.latex ?? null, text: e.text ?? null, status: e.status,
       slideId: String(e.slideId ?? ""), t0: e.t0, display: displayOf("formula", e, cropSet.has(e.id)),
     }));
-    const figs = figures.map(f => ({
-      id: f.id, evidenceId: f.evidenceId, kind: f.kind, title: f.title ?? null, cells: f.cells ?? null,
-      chartData: f.chartData ?? null, t0: f.t0, display: displayOf("figure", f, cropSet.has(f.id)),
-    }));
+    // 비전 출력 스키마는 "" 와 빈 목록을 허용하지만 노트 스키마는 최소 1글자·1개다 — 빈 칸은 null, 그래도 안 맞는 그래프 값은 버린다(크롭·확인 표시로).
+    const blank = v => typeof v === "string" && v.trim() ? v : null;
+    const chartOf = d => {
+      if (!d) return null;
+      const c = { ...d, unit: blank(d.unit), xLabel: blank(d.xLabel), yLabel: blank(d.yLabel) };
+      return Contracts.validate(schemas.note.properties.figures.items.properties.chartData, c).ok ? c : null;
+    };
+    const figs = figures.map(f => {
+      const chartData = chartOf(f.chartData);
+      return {
+        id: f.id, evidenceId: f.evidenceId, kind: f.kind, title: blank(f.title), cells: f.cells ?? null,
+        chartData, t0: f.t0, display: displayOf("figure", f.display === "chart" && !chartData ? {} : f, cropSet.has(f.id)),
+      };
+    });
     const concepts = (plan.concepts || []).map(c => ({
       conceptId: c.conceptId, name: c.name, depth: c.depth,
       // 홈 B05 가 빠지면 링크만 끊는다 — 개념 참조 자체는 유지한다(§12.2).
@@ -1053,8 +1304,10 @@
     const evUnit = new Map(evidence.map(e => [e.id, e.unitId]));
     const citedUnits = new Set([...finalCited].map(r => evUnit.get(r)).filter(Boolean));
     const uncited = [], uncitedRanges = [];
+    // 판정이 "강의 내용 없음"(인사·출석·잡담, 중요도 1.5 미만)으로 본 유닛은 세지 않는다 — 작성 지침이 일부러 다루지 않는 구간이다. 판정 없는(Free) 유닛은 센다.
+    const chatter = uid => (unitById.get(uid)?.judge?.importance ?? 5) < 1.5;
     for (const st of secLive.values()) for (const uid of st.plan.unitIds)
-      if (!citedUnits.has(uid)) {
+      if (!citedUnits.has(uid) && !chatter(uid)) {
         uncited.push(uid);
         if (unitById.has(uid)) uncitedRanges.push({ t0: unitById.get(uid).t0, t1: unitById.get(uid).t1 });
       }
@@ -1139,7 +1392,7 @@
   const api = freeze({
     NOTE_SPEC_VERSION, NOTE_SCHEMA_VERSION, POLICY, TYPES, SECTION_TYPES, GLOBAL_TYPES, WRITER_TYPES, IDS,
     schemas, envelopeSchema, sectionOutputSchemaFor, repairOutputSchemaFor, globalOutputSchemaFor,
-    normalizePlan, checkCalc, displayOf, citedRefs, validateSection, validateGlobal, assembleNote, restrictBasis, policyOf, AUG,
+    normalizePlan, repairPlan, canonicalPlanIds, canonicalMapKeys, checkCalc, displayOf, citedRefs, validateSection, validateGlobal, assembleNote, restrictBasis, policyOf, AUG, withSource,
   });
   globalThis.NoteContract = api;
   if (typeof module !== "undefined") module.exports = api;

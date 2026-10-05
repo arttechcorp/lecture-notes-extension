@@ -1,0 +1,309 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "노트 생성 파이프라인: LLM·컨텍스트·서버 범위",
+    "output": "docs/note-pipeline.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "recognition",
+        "label": "① 인식",
+        "focus": [
+          "frames",
+          "audio",
+          "vision",
+          "stt"
+        ],
+        "note": "Luna는 마스킹한 JPEG 한 장을 SlideDoc으로, MAI는 5분 이하 청크와 용어 힌트를 Transcript로 옮긴다. Free는 기기 안 PP-OCR·Whisper."
+      },
+      {
+        "id": "refine-judge",
+        "label": "② 정제·판정",
+        "focus": [
+          "refine",
+          "judge"
+        ],
+        "note": "정제는 LLM 없이 워터마크 제거·KaTeX 검증·정렬로 IR을 만든다. Jev는 유닛 텍스트를 받아 중요도 1~5만 답한다(유료)."
+      },
+      {
+        "id": "plan",
+        "label": "③ 계획",
+        "focus": [
+          "refine",
+          "judge",
+          "plan"
+        ],
+        "note": "GPT-6.1 Sol에 유닛·중요도·수식 id·도표 요약을 주면 섹션 경계와 블록 구성만 돌려준다. 100초를 넘기면 MiMo Flash로 재계획."
+      },
+      {
+        "id": "write",
+        "label": "④ 작성",
+        "focus": [
+          "refine",
+          "plan",
+          "write"
+        ],
+        "note": "MiMo Flash는 섹션마다 계획 조각·근거 텍스트·수식 레지스트리를 받아 주장+근거 ID 봉투를 쓴다. 최대 8병렬, 잘리면 블록을 나눠 재요청."
+      },
+      {
+        "id": "verify",
+        "label": "⑤ 검증·조립",
+        "focus": [
+          "write",
+          "validate",
+          "judge",
+          "render"
+        ],
+        "note": "규칙 검증이 실패 블록을 repair로 재요청하고 Jev가 근거 지지를 확인한다. 통과분만 조립해 PDF와 암호화 보관함으로 보낸다."
+      }
+    ],
+    "viewBox": [
+      1080,
+      540
+    ]
+  },
+  "stages": [
+    {
+      "label": "입력 (확장)"
+    },
+    {
+      "label": "인식 (서버→LLM)"
+    },
+    {
+      "label": "정제 (확장)"
+    },
+    {
+      "label": "판정·계획·작성 (서버→LLM)"
+    },
+    {
+      "label": "검증·조립 (확장)"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "frames",
+      "type": "frontend",
+      "label": "화면 키프레임",
+      "sublabel": "마스킹한 JPEG",
+      "stage": 0,
+      "row": 0,
+      "tag": "메모리"
+    },
+    {
+      "id": "audio",
+      "type": "frontend",
+      "label": "오디오 청크",
+      "sublabel": "무음 경계 5분 이하",
+      "stage": 0,
+      "row": 2,
+      "tag": "메모리"
+    },
+    {
+      "id": "vision",
+      "type": "backend",
+      "label": "/v1/vision",
+      "sublabel": "GPT-6 Luna",
+      "stage": 1,
+      "row": 0,
+      "tag": "슬라이드별"
+    },
+    {
+      "id": "stt",
+      "type": "backend",
+      "label": "/v1/stt",
+      "sublabel": "MAI-Transcribe 2",
+      "stage": 1,
+      "row": 2,
+      "tag": "청크별"
+    },
+    {
+      "id": "refine",
+      "type": "frontend",
+      "label": "정제 · IR",
+      "sublabel": "LLM 없음",
+      "stage": 2,
+      "row": 1,
+      "tag": "KaTeX"
+    },
+    {
+      "id": "judge",
+      "type": "backend",
+      "label": "/v1/judge",
+      "sublabel": "Jev 1.13",
+      "stage": 3,
+      "row": 0,
+      "tag": "유료만"
+    },
+    {
+      "id": "plan",
+      "type": "backend",
+      "label": "/v1/plan",
+      "sublabel": "GPT-6.1 Sol",
+      "stage": 3,
+      "row": 1,
+      "tag": "1회"
+    },
+    {
+      "id": "write",
+      "type": "backend",
+      "label": "/v1/write",
+      "sublabel": "MiMo v2.6 Flash",
+      "stage": 3,
+      "row": 2,
+      "tag": "섹션 병렬"
+    },
+    {
+      "id": "validate",
+      "type": "frontend",
+      "label": "검증 · 조립",
+      "sublabel": "규칙 검증 + repair",
+      "stage": 4,
+      "row": 1,
+      "tag": "assembleNote"
+    },
+    {
+      "id": "render",
+      "type": "frontend",
+      "label": "렌더 · 보관",
+      "sublabel": "HTML → PDF",
+      "stage": 4,
+      "row": 2,
+      "tag": "AES-GCM"
+    }
+  ],
+  "flows": [
+    {
+      "id": "f-frames",
+      "from": "frames",
+      "to": "vision",
+      "label": "프레임 JPEG",
+      "variant": "emphasis"
+    },
+    {
+      "id": "f-audio",
+      "from": "audio",
+      "to": "stt",
+      "label": "청크 + 용어 힌트",
+      "variant": "emphasis"
+    },
+    {
+      "id": "f-slidedoc",
+      "from": "vision",
+      "to": "refine",
+      "label": "SlideDoc",
+      "variant": "emphasis"
+    },
+    {
+      "id": "f-transcript",
+      "from": "stt",
+      "to": "refine",
+      "label": "Transcript",
+      "variant": "emphasis"
+    },
+    {
+      "id": "f-judge",
+      "from": "refine",
+      "to": "judge",
+      "label": "유닛 텍스트",
+      "fromSide": "top",
+      "toSide": "left",
+      "via": [
+        [
+          530,
+          157
+        ]
+      ]
+    },
+    {
+      "id": "f-plan",
+      "from": "refine",
+      "to": "plan",
+      "label": "IR·수식·도표",
+      "variant": "emphasis"
+    },
+    {
+      "id": "f-importance",
+      "from": "judge",
+      "to": "plan",
+      "label": "중요도 1~5",
+      "labelAt": [
+        745,
+        200
+      ]
+    },
+    {
+      "id": "f-evidence",
+      "from": "refine",
+      "to": "write",
+      "label": "근거·수식 레지스트리",
+      "fromSide": "bottom",
+      "toSide": "left",
+      "via": [
+        [
+          530,
+          385
+        ]
+      ]
+    },
+    {
+      "id": "f-sections",
+      "from": "plan",
+      "to": "write",
+      "label": "Plan 섹션",
+      "variant": "emphasis",
+      "labelAt": [
+        745,
+        314
+      ]
+    },
+    {
+      "id": "f-blocks",
+      "from": "write",
+      "to": "validate",
+      "label": "블록 봉투 JSON",
+      "variant": "emphasis"
+    },
+    {
+      "id": "f-note",
+      "from": "validate",
+      "to": "render",
+      "label": "Note JSON",
+      "variant": "emphasis",
+      "labelAt": [
+        960,
+        314
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "서버가 하는 일",
+      "items": [
+        "계정·등급·월 한도 예약, requestId 중복 차단",
+        "시스템 프롬프트와 요청별 JSON 스키마 구성, ZDR 공급자 고정 호출",
+        "응답 스키마 검증, 형식 오류 블록은 null 처리 후 1회 재시도",
+        "출력이 잘리면 재시도하지 않고 확장이 나눠 다시 요청"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "확장이 하는 일",
+      "items": [
+        "정제·IR·수식 검증, 계획 보정, 숫자·근거 ID·원문 재현 검증",
+        "repair 재요청과 근거 지지 호출 조율, 전역 블록 작성 요청",
+        "조립·렌더·암호화 보관, 단계 결과 캐시"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Free와의 차이",
+      "items": [
+        "인식은 PP-OCRv5·Whisper로 기기 안에서 처리, 도표·판정 없음",
+        "계획과 작성 모두 MiMo Flash, 월 한도 적용",
+        "서버에는 강의 내용을 저장하지 않음"
+      ]
+    }
+  ]
+}

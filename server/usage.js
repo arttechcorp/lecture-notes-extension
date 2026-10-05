@@ -27,15 +27,17 @@ function fileUsage({state,record,save,month,globalCents}){
 // 정산 RPC 전체가 거절되어 예약이 열린 채 남는 일이 없게, 어긋난 값은 null 로 바꾼다. 자유 텍스트는 어떤 칸으로도 나가지 않는다.
 const text=(re,v)=>typeof v==="string"&&re.test(v)?v:null;
 const count=v=>Number.isInteger(v)&&v>=0&&v<=2147483647?v:null;
-const SHAPE={stage:/^[a-z][a-z0-9_.-]{0,31}$/,provider:/^[a-z][a-z0-9_.-]{0,31}$/,model:/^[A-Za-z0-9][A-Za-z0-9_./:@-]{0,95}$/,version:/^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$/,error:/^[a-z][a-z0-9_.-]{0,63}$/,client:/^[0-9A-Za-z][0-9A-Za-z._+-]{0,31}$/};
+const SHAPE={stage:/^[a-z][a-z0-9_.-]{0,31}$/,provider:/^[a-z][a-z0-9_.-]{0,31}$/,model:/^[A-Za-z0-9][A-Za-z0-9_./:@-]{0,95}$/,version:/^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$/,error:/^[a-z][a-z0-9_.-]{0,63}$/,client:/^[0-9A-Za-z][0-9A-Za-z._+-]{0,31}$/,job:/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/,host:/^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/,subject:/^[a-z][a-z0-9_]{0,31}$/};
 function eventFields(status,m){
-  const used=status!=="refunded",seconds=Number.isFinite(m.audioSeconds)&&m.audioSeconds>=0&&m.audioSeconds<1e7?Math.round(m.audioSeconds*100)/100:null;
+  const used=status!=="refunded",seconds=Number.isFinite(m.audioSeconds)&&m.audioSeconds>=0&&m.audioSeconds<1e7?Math.round(m.audioSeconds*100)/100:null,
+    lecture=Number.isFinite(m.lectureSeconds)&&m.lectureSeconds>=0&&m.lectureSeconds<1e7?Math.round(m.lectureSeconds*100)/100:null;
   return {p_stage:text(SHAPE.stage,m.stage)||"unknown",p_provider:text(SHAPE.provider,m.provider),p_model:text(SHAPE.model,m.model),
     p_input_tokens:used?count(m.inputTokens):null,p_output_tokens:used?count(m.outputTokens):null,p_audio_seconds:used?seconds:null,p_images:used?count(m.images):null,
     p_prompt_version:text(SHAPE.version,m.promptVersion),p_schema_version:count(m.schemaVersion),p_error_code:text(SHAPE.error,m.errorCode),
-    p_latency_ms:count(Math.round(m.latencyMs)),p_client_version:text(SHAPE.client,m.clientVersion),
-    // 신뢰할 수 있는 호스트 출처가 아직 없다 — 지금은 보내지 않는다.
-    p_host:null};
+    p_latency_ms:count(Math.round(m.latencyMs)),p_client_version:text(SHAPE.client,m.clientVersion),p_host:text(SHAPE.host,m.host),
+    // subject 는 plan 단계의 Jev 분야 분류 결과다 — 못 정하면(실패·건너뜀) 둘 다 null 이다.
+    p_job_id:text(SHAPE.job,m.jobId),p_lecture_seconds:lecture,p_slides:count(m.slides),
+    p_subject:text(SHAPE.subject,m.subject),p_subject_conf:Number.isFinite(m.subjectConf)&&m.subjectConf>=0&&m.subjectConf<=1?Math.round(m.subjectConf*1e4)/1e4:null};
 }
 // http(url,init,parse=true): 한도 있는 fetch → 파싱한 JSON. HTTP 오류와 시간 초과는 throw 한다.
 function supabaseUsage({url,key,http}){

@@ -46,8 +46,8 @@ Summrizei는 강의 영상을 시청하는 동안 화면의 슬라이드와 강�
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 1. Chrome 웹 스토어에서 [Chrome에 추가]를 클릭합니다.
 2. 브라우저 우측 상단의 Summrizei 아이콘을 클릭하여 사이드패널을 엽니다.
-3. [캡처 시작]을 누르고 평소처럼 강의를 들은 뒤, 강의가 끝나면 [캡처 종료]를 누르면 노트가 만들어져 Downloads/Summrizei 폴더에 암호화 파일로 저장됩니다.
-4. 저장된 노트를 다시 보려면 웹사이트 summrizei.vercel.app/library에서 폴더를 선택하고 보관함 암호를 입력하면 됩니다.
+3. [캡처 시작]을 누르고 평소처럼 강의를 들은 뒤, 강의가 끝나면 [캡처 종료]를 누르면 노트가 만들어져 처음에 고른 보관함 폴더에 암호화 파일로 자동 저장됩니다.
+4. 저장된 노트를 다시 보려면 웹사이트 summrizei.vercel.app/library에서 같은 계정으로 로그인하고 폴더를 선택하면 됩니다.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔒 철저한 개인정보 보호 원칙 (AGENTS.md 준수)
@@ -100,7 +100,7 @@ Summrizei는 강의 영상을 시청하는 동안 화면의 슬라이드와 강�
 | `declarativeNetRequestWithHostAccess` | permissions | Referer를 요구하는 미디어 CDN에 한해, 사용자가 보고 있던 페이지의 Referer를 재현하는 임시 세션 규칙을 걸고 작업 종료 시 제거합니다. 다른 출처로 위장하거나 광고·트래커 차단·임의 헤더 조작에는 사용하지 않습니다. *(Sets a temporary session rule reproducing the viewed page's Referer for the media CDN only, removed after the job. Not used to spoof other origins or modify arbitrary headers.)* |
 | `identity` | permissions | Supabase 계정의 구글 로그인(`chrome.identity.launchWebAuthFlow`)에 사용합니다. 로그인 결과(인증 토큰·계정 식별자·이메일) 외에 Chrome 프로필의 신원 정보를 읽지 않습니다. *(Used for Google sign-in via launchWebAuthFlow. Does not read Chrome profile identity beyond the sign-in result (auth token, account identifier, e-mail).)* |
 | `power` | permissions | 사용자가 시작한 백그라운드 작업이 진행되는 동안만 `chrome.power.requestKeepAwake("system")`으로 유휴 절전을 막습니다. 상시 절전 방지나 화면 켜짐 유지에는 사용하지 않습니다. *(Prevents system idle sleep only while a user-started background job runs. Not used for display keep-awake or persistent wake locks.)* |
-| `downloads` | permissions | 완성된 강의 노트를 사용자의 Downloads/Summrizei 폴더에 암호화 파일(`<제목>-<id>.summrizei`)로 저장합니다. 파일은 AES-256-GCM으로 암호화되며 사용자의 보관함 암호로 보호됩니다. 다른 파일 다운로드에는 사용하지 않습니다. *(Saves finished lecture notes as encrypted files to the user's Downloads/Summrizei folder, protected by their library passphrase. No other downloads are initiated.)* |
+| `downloads` | permissions | 사용자가 설정 화면에서 요청한 진단 기록(내용 없는 이벤트 JSON)을 Downloads/Summrizei/diagnostics 폴더에 저장합니다. 강의 노트는 이 권한이 아니라 사용자가 처음에 고른 보관함 폴더에 브라우저의 폴더 접근 기능(File System Access)으로 직접 저장합니다. *(Saves the diagnostics file the user asks for in Settings. Lecture notes are written directly to the library folder the user picked, via the File System Access API, not through downloads.)* |
 | `unlimitedStorage` | permissions | 강의당 약 4MB(추정)로 암호화된 강의 패키지가 브라우저 스토리지 축출로 삭제되지 않게 합니다. 원본 영상·음성은 저장하지 않습니다. *(Keeps encrypted lecture packages (est. ~4MB per lecture) from browser storage eviction. No raw media is stored.)* |
 | `<all_urls>` | host_permissions | 사용자는 YouTube, Coursera, 대학 온라인 LMS, 웨비나 등 다양한 웹사이트에서 강의를 수강합니다. Manifest V3 사이드패널 UI의 버튼 클릭은 브라우저 보안 규격상 `activeTab` 권한을 임시 승계받지 못하므로, 사용자가 선택한 임의의 강의 페이지에 캡처 스크립트를 주입하기 위해 광범위한 호스트 권한이 기술적으로 불가피합니다. 캡처는 사용자가 [캡처 시작]을 누른 탭에서만 동작합니다. *(Users attend lectures on various educational platforms (YouTube, Coursera, university LMS, webinars). Under Manifest V3, side panel interactions do not inherit activeTab privileges; hence host permissions are technically required to inject capture scripts into user-selected educational sites. Capture is strictly confined to user-initiated sessions.)* |
 | `https://huggingface.co/*`<br>`https://*.hf.co/*`<br>`https://cdn-lfs.huggingface.co/*` | host_permissions | 외부 서버로 음성을 유출하지 않고 기기 내부에서 100% 로컬로 음성을 인식하기 위해, 오픈소스 Whisper ONNX 모델 가중치 바이너리를 브라우저 캐시로 다운로드하는 데 사용됩니다. *(Required to download open-source Whisper ONNX speech recognition model weights to the browser cache for 100% local, privacy-safe on-device audio transcription.)* |

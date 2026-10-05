@@ -4,8 +4,19 @@ const fs=require("node:fs"),path=require("node:path"),http=require("node:http"),
 const Vault=require("../lib/vault.js");
 const Contracts=require("../lib/contracts.js"),NoteContract=require("../lib/note-contract.js"),Prompts=require("./prompts.js");
 const {createAuth}=require("./auth.js"),{fileUsage,supabaseUsage,FAIL_CODE}=require("./usage.js"),{supabaseVault}=require("./vault-store.js");
-const RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"google/gemini-2.5-pro":[1.25,10],"anthropic/claude-haiku-4.5":[1,5],"anthropic/claude-sonnet-4.6":[3,15],"anthropic/claude-sonnet-5":[2,10],"xiaomi/mimo-v2.6-pro":[.435,.87],"xiaomi/mimo-v2.6-flash":[.14,.28]};
+const RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"google/gemini-2.5-pro":[1.25,10],"anthropic/claude-haiku-4.5":[1,5],"anthropic/claude-sonnet-4.6":[3,15],"anthropic/claude-sonnet-5":[2,10],"openai/gpt-6.1-sol":[2,10],"xiaomi/mimo-v2.6-pro":[.435,.87],"xiaomi/mimo-v2.6-flash":[.14,.28]};
 // 이미지 입력은 텍스트와 단가가 다르고 출력도 훨씬 짧다. /v1/plan·/v1/write 와 예약 계산을 섞지 않는다.
+// 제공자가 비용(usage.cost)을 보고하지 않으면 토큰 수 × 단가표(USD/100만 토큰)로 계산한다 — 예약액 전체를 청구하지 않게.
+// 토큰 수도 없으면 null(미보고) — 장부가 예약액을 청구한다. 추론 토큰은 completion_tokens 에 들어 있다.
+// 비용 보고·토큰이 없고 생성된 글도 없으면(empty: 빈 응답·본문 오류, 길이 잘림 아님) 생성이 없었다 — 0 으로 정산한다. 필드: 이런 시도 하나가 reported=false 로 남아
+// 같은 요청의 성공한 재시도까지 예약금 전액($0.6)으로 정산되게 했고, 서버 장부가 OpenRouter 실사용의 4~5배가 됐다.
+// ponytail: 토큰 없이 청구하는 제공자가 생기면 /api/v1/generation?id= 로 실제 비용을 대조한다.
+const costOf=(u,pi,po,empty=false)=>{
+  if(typeof u.cost==="number"&&Number.isFinite(u.cost)&&u.cost>=0)return u.cost;
+  const i=Number(u.prompt_tokens),o=Number(u.completion_tokens);
+  if(empty&&!(i>0)&&!(o>0))return 0;
+  return Number.isFinite(i)&&Number.isFinite(o)&&i>=0&&o>=0?(i*pi+o*po)/1e6:null;
+};
 const VISION_RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"mistralai/ministral-8b-2512":[.15,.15],"qwen/qwen3-vl-8b-instruct":[.12,.45],"openai/gpt-6-luna":[.1,.5]};
 // 구조화 출력은 상자 좌표까지 JSON으로 나가 순수 텍스트보다 길다.
 const VISION_MAX_TOKENS=8192;
@@ -19,6 +30,8 @@ const JUDGE_MODELS={"openai/gpt-4.1-nano":{via:"logprob",rates:[.1,.4]},"typesaf
 // 과제별 고정 라벨 — 모델에게 나가는 선택지 알파벳(A, B, C …)과 Jev 선택지 순서가 이 표를 따른다.
 // 표는 요청·응답 변환과 함께 server/jev.js 에 둔다 — logprob 과 jev 가 같은 라벨 순서를 써야 한다.
 const Jev=require("./jev.js"),JUDGE_TASKS=Jev.JUDGE_TASKS;
+// plan 의 강의 분야 분류에 쓰는 Jev 모델 — c.judgeModels 허용 목록에 있을 때만 분류를 켠다.
+const JEV_MODEL="typesafe/jev-1.13";
 // 판정 프롬프트는 공용 전제 + 과제 블록이다. 자료 안의 지시를 무시하라는 문장이 프롬프트 인젝션 방어선이다.
 const JUDGE_PROMPTS=Object.fromEntries(Object.entries({
   utterance:"과제: 강의 중 한 문장(text)이 어느 종류인지 고른다. A: 강의내용 — 수업 주제의 개념, 정의, 수식, 절차를 직접 설명한다. B: 예시·비유 — 이해를 돕는 사례나 비유다. C: 공지·행정 — 출석, 과제, 시험 일정, 화면·장비 안내다. D: 잡담 — 주제와 무관한 말, 추임새, 농담이다. context가 있으면 앞뒤 문맥이다.",
@@ -121,7 +134,9 @@ function config(env){
   if(!Object.keys(tokens).length&&!env.SUPABASE_URL)throw new Error("APP_TOKENS_JSON required");
   for(const [account,token]of Object.entries(tokens)){safePart(account);if(typeof token!=="string"||token.length<32||known.has(token))throw new Error("unique_32_character_tokens_required");known.add(token);}
   if(!Array.isArray(allow)||!allow.length||allow.some(m=>!RATES[m]))throw new Error("invalid_model_allowlist");
-  if(!/^chrome-extension:\/\/[a-p]{32}$/.test(env.EXTENSION_ORIGIN||""))throw new Error("exact_extension_origin_required");
+  // 정확한 출처 목록(쉼표 구분)이다. 압축 해제 확장의 ID는 폴더 경로에서 나와 개발자마다 다르고 웹스토어 ID도 따로라 하나씩 넣는다.
+  const origins=String(env.EXTENSION_ORIGIN||"").split(",").map(o=>o.trim());
+  if(origins.some(o=>!/^chrome-extension:\/\/[a-p]{32}$/.test(o)))throw new Error("exact_extension_origin_required");
   const providers=JSON.parse(env.OPENROUTER_PROVIDERS_JSON||"{}");
   for(const m of allow)if(!Array.isArray(providers[m])||!providers[m].length||providers[m].some(p=>typeof p!=="string"||p.length>100))throw new Error("explicit_provider_allowlist_required");
   const visionModels=JSON.parse(env.ALLOWED_VISION_MODELS||"[]");
@@ -172,7 +187,7 @@ function config(env){
     if(!Array.isArray(next.models)||!next.models.length||next.models.some(m=>!allow.includes(m)))throw new Error("invalid_plan_models");
     planFeatures[name]=next;
   }
-  const remoteConfig={concurrency:{download:4,decode:1,stt:4,vision:8,judge:2,write:8},throughputMbps:50,minClientVersion:"0.0.0",promptVersion:"v1",schemaVersion:1};
+  const remoteConfig={concurrency:{download:4,decode:1,stt:2,vision:3,judge:2,write:8},throughputMbps:50,minClientVersion:"0.0.0",promptVersion:"v1",schemaVersion:1};
   const remoteIn=JSON.parse(env.REMOTE_CONFIG_JSON||"{}");
   if(!plain(remoteIn)||Object.keys(remoteIn).some(k=>!Object.hasOwn(remoteConfig,k)))throw new Error("invalid_remote_config");
   if(remoteIn.concurrency!==undefined){
@@ -186,7 +201,7 @@ function config(env){
   if(!plain(providerConcurrency)||Object.values(providerConcurrency).some(v=>!Number.isInteger(v)||v<=0))throw new Error("invalid_provider_concurrency");
   // 요청 수·분당 호출 수는 거친 안전망이다. 진짜 상한은 비용 캡(MAX_COST_CENTS, GLOBAL_COST_CENTS)이다 —
   // v2 유료 작업은 강의 1시간에 150회 안팎을 부르고 비전 8레인만으로도 분당 120회에 닿아서 예전 기본값이 정상 작업을 막았다.
-  return {tokens,allow,providers,key:env.OPENROUTER_API_KEY,origin:env.EXTENSION_ORIGIN,root:path.resolve(env.VAULT_DIR||"server-data"),stateFile:env.USAGE_STATE_FILE?path.resolve(env.USAGE_STATE_FILE):null,
+  return {tokens,allow,providers,key:env.OPENROUTER_API_KEY,mgmtKey:env.OPENROUTER_MANAGEMENT_KEY||null,origins,root:path.resolve(env.VAULT_DIR||"server-data"),stateFile:env.USAGE_STATE_FILE?path.resolve(env.USAGE_STATE_FILE):null,
     accountLimits,visionModels,sttModels,judgeModels,featureFlags,remoteConfig,supabase,planFeatures,providerConcurrency,maxCents:positive(env.MAX_COST_CENTS,1500),maxRequests:positive(env.MAX_REQUESTS,10000),globalCents:positive(env.GLOBAL_COST_CENTS,15000),timeout:Math.min(positive(env.OPENROUTER_TIMEOUT_MS,120000),120000),accountConcurrency:positive(env.ACCOUNT_CONCURRENCY,12),providerQueueMs:positive(env.PROVIDER_QUEUE_MS,10000),ratePerMin:positive(env.ACCOUNT_RATE_PER_MIN,300),maxFiles:100,maxArchiveBytes:200*1024*1024};
 }
 function atomic(file,data){fs.mkdirSync(path.dirname(file),{recursive:true});const temp=file+"."+crypto.randomUUID()+".tmp";fs.writeFileSync(temp,JSON.stringify(data),{mode:0o600,flag:"wx"});fs.renameSync(temp,file);}
@@ -228,7 +243,7 @@ function createServer(env=process.env,deps={}){
   const file=fileUsage({state,record,save,month,globalCents:c.globalCents});
   const sb=c.supabase&&supabaseUsage({url:c.supabase.url,key:c.supabase.key,http:sbHttp});
   const vstore=c.supabase&&supabaseVault({url:c.supabase.url,key:c.supabase.key,bucket:c.supabase.bucket,http:sbHttp});
-  const auth=c.supabase&&createAuth({url:c.supabase.url,secret:c.supabase.secret,getJson:url=>sbHttp(url),now:clock});
+  const auth=c.supabase&&createAuth({url:c.supabase.url,secret:c.supabase.secret,getJson:url=>sbHttp(url),now:clock,jwks:env.SUPABASE_JWKS});
   // JWT 계정은 장부 digest 를 HMAC 으로 DB에 보낸다 — 강의 본문의 맨 SHA-256 은 사전 공격이 가능하다. 파일 장부(운영자 디스크)는 기존 그대로다.
   const digestOf=(account,s)=>account.jwt?crypto.createHmac("sha256",c.supabase.digestKey).update(s).digest("hex"):crypto.createHash("sha256").update(s).digest("hex");
   // DB 등급 → 기능·모델. 같은 사용자의 연속 호출은 30초 캐시를 쓰고 /v1/me 만 새로 읽는다(한도 자체는 매 예약마다 DB가 판정하므로 캐시가 한도를 늦추지 않는다).
@@ -238,10 +253,10 @@ function createServer(env=process.env,deps={}){
     else{plan=await sb.plan(id);plans.delete(id);plans.set(id,{plan,at:clock()});if(plans.size>5000)plans.delete(plans.keys().next().value);}
     return {plan,...(c.planFeatures[plan]||c.planFeatures.free)};
   }
-  const fail=(res,code,retryAfterMs)=>{const [status,retryable,message]=ERRORS[code]||[500,false,"요청을 처리하지 못했습니다."];send(res,status,{error:{code,message,retryable,retryAfterMs:Number.isInteger(retryAfterMs)?retryAfterMs:null}});};
+  const fail=(res,code,retryAfterMs,extra)=>{const [status,retryable,message]=ERRORS[code]||[500,false,"요청을 처리하지 못했습니다."];send(res,status,{error:{code,message,retryable,retryAfterMs:Number.isInteger(retryAfterMs)?retryAfterMs:null,...extra}});};
   function send(res,status,data){
     if(res.destroyed||res.writableEnded)return;
-    res.writeHead(status,{"content-type":"application/json","cache-control":"no-store","x-content-type-options":"nosniff","access-control-allow-origin":c.origin,"vary":"Origin","access-control-allow-headers":"authorization,content-type,x-client-version","access-control-allow-methods":"GET,PUT,POST,DELETE,OPTIONS"});
+    res.writeHead(status,{"content-type":"application/json","cache-control":"no-store","x-content-type-options":"nosniff","access-control-allow-origin":res.allowOrigin||c.origins[0],"vary":"Origin","access-control-allow-headers":"authorization,content-type,x-client-version","access-control-allow-methods":"GET,PUT,POST,DELETE,OPTIONS"});
     res.end(status===204?undefined:JSON.stringify(data));
   }
   // 정적 토큰(운영·개발·테스트 계정)이 먼저, 그다음 Supabase JWT. → {id,jwt,limits,client} | {code}. JWT 계정의 limits 는 핸들러가 DB 등급으로 채운다.
@@ -250,7 +265,10 @@ function createServer(env=process.env,deps={}){
     const id=Object.entries(c.tokens).find(([,v])=>tokenEqual(token,v))?.[0];
     if(id!==undefined)return {id,jwt:false,limits:limitFor(id),client};
     const r=auth?await auth.verify(token):null;
-    return r&&r.sub?{id:r.sub,jwt:true,client}:{code:r?.code||"unauthorized"};
+    if(r&&r.sub)return {id:r.sub,jwt:true,client};
+    // 거절 이유는 한 줄로만 — 토큰·sub·이메일은 절대 싣지 않는다(detail 은 auth.js 가 안전한 값만 만든다).
+    if(r&&r.reason)console.warn("auth_reject "+r.reason+(r.detail===undefined?"":" "+JSON.stringify(r.detail)));
+    return {code:r?.code||"unauthorized",reason:r?.reason,detail:r?.detail};
   }
   async function body(req,max){
     const declared=Number(req.headers["content-length"]);if(declared>max)throw new Error("request_too_large");
@@ -352,6 +370,22 @@ function createServer(env=process.env,deps={}){
   const bucket=account=>{let b=buckets.get(account);if(!b){if(buckets.size>=10000)for(const [k,v]of buckets)if(Date.now()-v.ts>6e4)buckets.delete(k);buckets.set(account,b={tokens:c.ratePerMin,ts:Date.now()});}const now=Date.now();b.tokens=Math.min(c.ratePerMin,b.tokens+(now-b.ts)*c.ratePerMin/6e4);b.ts=now;return b;};
   // /v1/plan·/v1/write·/v1/vision·/v1/stt·/v1/judge 가 같은 돈을 쓴다. 예약·멱등·락·정산을 한 군데 두지 않으면
   // 두 라우트의 한도 계산이 조용히 어긋난다 — 어긋난 쪽이 무료로 돌아가는 실패 모드다.
+  // OpenRouter 생성 통계는 응답 직후 잠깐 늦게 잡힌다 — 0·0.6·1.5초에 다시 묻고, 그래도 없으면 null(호출자가 기존 계산을 쓴다).
+  async function billedCost(ids){
+    const one=async id=>{
+      for(const wait of [0,600,1500]){
+        if(wait)await new Promise(r=>setTimeout(r,wait));
+        try{
+          const ctl=new AbortController(),t=setTimeout(()=>ctl.abort(),3000);
+          const r=await fetcher("https://openrouter.ai/api/v1/generation?id="+encodeURIComponent(id),{redirect:"error",signal:ctl.signal,headers:{authorization:"Bearer "+c.mgmtKey}}).finally(()=>clearTimeout(t));
+          if(r.ok){const v=(await r.json())?.data?.total_cost;if(typeof v==="number"&&Number.isFinite(v)&&v>=0)return v;}
+        }catch{}
+      }
+      return null;
+    };
+    const vs=await Promise.all(ids.slice(0,8).map(one));
+    return ids.length<=8&&vs.every(v=>v!==null)?vs.reduce((a,b)=>a+b,0):null;
+  }
   async function withReservation({account,requestId,digest,reserve,minutes=0,model,res,meta={}},run){
     const id=account.id,store=account.jwt?sb:file;
     if((inflight.get(id)||0)>=c.accountConcurrency)return fail(res,"account_concurrency_exceeded",1000);
@@ -366,13 +400,13 @@ function createServer(env=process.env,deps={}){
       if(held.fail)return fail(res,FAIL_CODE[held.fail]);
       timer=setTimeout(()=>controller.abort(),c.timeout);
       const t0=Date.now();
-      let payload,amount=null,error=null,status="ok";
+      let payload,amount=null,error=null,status="ok";const gens=[];
       try{
         // 예약을 기다리는 사이 끊긴 요청은 제공자에 아무것도 보내지 않았으므로 환불이다.
         if(controller.signal.aborted)throw Object.assign(new Error("aborted"),{refund:true,code:"request_cancelled_or_timed_out"});
         const release=await acquire(model,controller.signal,false,store);
         try{
-          const r=await run(controller.signal,store);
+          const r=await run(controller.signal,store,gens);
           // 비용을 보고하지 않은 요청은 amount 가 null 이다 — 장부는 예약액을 그대로 청구한다. 공짜였다고 가정하지 않는다.
           payload=r.payload;amount=r.reported?r.amount:null;
         }finally{release();}
@@ -383,8 +417,11 @@ function createServer(env=process.env,deps={}){
       }
       const code=!error?null:status==="refunded"?error.code||"provider_failed_or_invalid_output":controller.signal.aborted?"request_cancelled_or_timed_out":error.charged?error.code:"provider_failed_or_invalid_output";
       const u=payload?.usage||error?.charged?.usage||{};
+      // 실 결제 금액: 이 요청이 만든 생성(gen id)마다 OpenRouter 가 실제로 청구한 금액(관리 키로 /generation 조회)을 장부에 적는다.
+      // 하나라도 못 받으면 응답의 보고 비용·토큰 계산으로 둔다. 환불(생성 없음)은 조회하지 않는다.
+      if(c.mgmtKey&&gens.length&&status!=="refunded"){const b=await billedCost(gens);if(b!==null)amount=b;}
       let stored=true;
-      try{await held.settle({status,amount,meta:{...meta,inputTokens:u.promptTokens,outputTokens:u.completionTokens,audioSeconds:u.audioSec??meta.audioSeconds,promptVersion:payload?.promptVersion,schemaVersion:payload?.schemaVersion,errorCode:code,latencyMs:Date.now()-t0,clientVersion:account.client}});}catch{stored=false;}
+      try{await held.settle({status,amount,meta:{...meta,inputTokens:u.promptTokens,outputTokens:u.completionTokens,audioSeconds:u.audioSec??meta.audioSeconds,promptVersion:payload?.promptVersion,schemaVersion:payload?.schemaVersion,errorCode:(code&&error?.detail)||code,latencyMs:Date.now()-t0,clientVersion:account.client}});}catch{stored=false;}
       // 정산이 안 닫혀도 이미 만든 결과는 돌려준다 — 예약이 reserved 로 남아 비용이 보수적으로 잡힌다. 환불만은 예약이 안 풀렸으므로 같은 requestId 재시도를 약속할 수 없다.
       if(!error)return send(res,200,payload);
       if(status==="refunded")return stored?fail(res,code,error.retryAfterMs):fail(res,"usage_store_failed");
@@ -395,8 +432,8 @@ function createServer(env=process.env,deps={}){
     if(!(account.limits.features||[]).includes("vision")||c.featureFlags.vision===false)return fail(res,"feature_not_in_account_plan");
     if(!c.visionModels.includes(input.model))return fail(res,"invalid_model");
     safePart(input.requestId);
-    const fields=["model","requestId","slideId","t0","t1","image","mode"];
-    if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)))return fail(res,"unexpected_field");
+    const fields=["model","requestId","slideId","t0","t1","image","mode"],optional=["jobId"];
+    if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)&&!optional.includes(k)))return fail(res,"unexpected_field");
     if(typeof input.slideId!=="string"||!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(input.slideId)||!Number.isFinite(input.t0)||!Number.isFinite(input.t1)||input.t0<0||input.t1<input.t0||!["full","reread"].includes(input.mode))return fail(res,"invalid_vision_params");
     const match=/^data:image\/jpeg;base64,([A-Za-z0-9+/]+={0,2})$/.exec(String(input.image||""));
     if(!match)return fail(res,"invalid_image");
@@ -409,7 +446,7 @@ function createServer(env=process.env,deps={}){
     const reasoning=reasoningFor(input.model),live=reasoning.enabled!==false,maxTokens=live?maxTokensFor(input.model):VISION_MAX_TOKENS;
     // 이미지 토큰 수는 사전에 알 수 없다. 최악값에 형식 실패 재시도분까지 잡고 정산에서 되돌린다.
     const reserve=Math.ceil(attempts*(8000*pi+maxTokens*po)/1e6*100*1.2);
-    return await withReservation({account,requestId:input.requestId,digest,reserve,model:input.model,res,meta:{stage:"vision."+input.mode,provider:"openrouter",model:input.model,images:1}},async signal=>{
+    return await withReservation({account,requestId:input.requestId,digest,reserve,model:input.model,res,meta:{stage:"vision."+input.mode,provider:"openrouter",model:input.model,images:1,jobId:input.jobId}},async (signal,store,gens)=>{
       let usage={promptTokens:0,completionTokens:0},amount=0,reported=true;
       for(let retry=0;retry<attempts;retry++){
         const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
@@ -419,9 +456,9 @@ function createServer(env=process.env,deps={}){
           provider:{only:c.providers[input.model],order:c.providers[input.model],require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}
         })});
         if(!response.ok)throw new Error("provider_failed");
-        const raw=await boundedResponse(response,1024*1024),u=raw.usage||{};
+        const raw=await boundedResponse(response,1024*1024),u=raw.usage||{};if(typeof raw.id==="string")gens.push(raw.id);
         usage={promptTokens:usage.promptTokens+(Number(u.prompt_tokens)||0),completionTokens:usage.completionTokens+(Number(u.completion_tokens)||0)};
-        if(typeof u.cost==="number"&&Number.isFinite(u.cost)&&u.cost>=0)amount+=u.cost;else reported=false;
+        { const c=costOf(u,pi,po); if(c===null)reported=false;else amount+=c; }
         // 형식 실패(잘림·파손·계약 불일치)만 같은 제공자로 한 번 더 간다 — 돈은 이미 나갔다.
         try{
           if(raw.choices?.[0]?.finish_reason!=="stop")throw new Error("provider_output_incomplete");
@@ -435,8 +472,8 @@ function createServer(env=process.env,deps={}){
     if(!(account.limits.features||[]).includes("stt")||c.featureFlags.stt===false)return fail(res,"feature_not_in_account_plan");
     if(!c.sttModels.includes(input.model))return fail(res,"invalid_model");
     safePart(input.requestId);
-    const fields=["model","requestId","t0","durationSec","lang","prompt","audio"];
-    if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)))return fail(res,"unexpected_field");
+    const fields=["model","requestId","t0","durationSec","lang","prompt","audio"],optional=["jobId"];
+    if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)&&!optional.includes(k)))return fail(res,"unexpected_field");
     if(!Number.isFinite(input.t0)||input.t0<0||input.t0>360000||!Number.isFinite(input.durationSec)||input.durationSec<=0||input.durationSec>STT_MAX_SEC||!["ko","en","auto"].includes(input.lang)||typeof input.prompt!=="string"||input.prompt.length>1000)return fail(res,"invalid_stt_params");
     const match=/^data:audio\/(mp4|wav);base64,([A-Za-z0-9+/]+={0,2})$/.exec(String(input.audio||""));
     if(!match)return fail(res,"invalid_audio");
@@ -450,7 +487,7 @@ function createServer(env=process.env,deps={}){
     const phrases=[...new Set(input.prompt.split(",").map(p=>p.trim()).filter(Boolean))].slice(0,100).map(p=>p.slice(0,50));
     const reserve=Math.ceil(STT_RATES[input.model]*Math.max(STT_MIN_BILLED_SEC,input.durationSec)/3600*100*1.2);
     // 월 인식 분량 한도(plans.monthly_minutes_cap)는 선언 길이를 올림한 분으로 센다 — 비용은 따로 제공자가 잰 길이로 정산한다.
-    return await withReservation({account,requestId:input.requestId,digest,reserve,minutes:Math.ceil(input.durationSec/60),model:input.model,res,meta:{stage:"stt",provider:"openrouter",model:input.model,audioSeconds:input.durationSec}},async signal=>{
+    return await withReservation({account,requestId:input.requestId,digest,reserve,minutes:Math.ceil(input.durationSec/60),model:input.model,res,meta:{stage:"stt",provider:"openrouter",model:input.model,audioSeconds:input.durationSec,jobId:input.jobId}},async signal=>{
       // lang auto 는 language 힌트를 보내지 않는다 — 제공자가 언어를 감지하게 둔다.
       const response=await fetcher("https://openrouter.ai/api/v1/audio/transcriptions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
         model:input.model,input_audio:{data:b64,format:match[1]==="mp4"?"m4a":"wav"},...(input.lang==="auto"?{}:{language:input.lang}),response_format:"verbose_json",timestamp_granularities:["segment","word"],
@@ -475,8 +512,8 @@ function createServer(env=process.env,deps={}){
     if(!Object.hasOwn(JUDGE_TASKS,input.task))return fail(res,"invalid_task");
     if(!c.judgeModels.includes(input.model))return fail(res,"invalid_model");
     safePart(input.requestId);
-    const fields=["task","model","requestId","items"];
-    if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)))return fail(res,"unexpected_field");
+    const fields=["task","model","requestId","items"],optional=["jobId"];
+    if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)&&!optional.includes(k)))return fail(res,"unexpected_field");
     const items=input.items;
     if(!Array.isArray(items)||!items.length||items.length>200||items.some(e=>!e||typeof e!=="object"||typeof e.itemId!=="string"||!e.itemId||e.itemId.length>64||typeof e.text!=="string"||!e.text||e.text.length>8000||(e.context!==undefined&&(typeof e.context!=="string"||e.context.length>8000))||Object.keys(e).some(k=>!["itemId","text","context"].includes(k)))||new Set(items.map(e=>e.itemId)).size!==items.length)return fail(res,"invalid_items");
     const text=JSON.stringify(items);
@@ -491,7 +528,7 @@ function createServer(env=process.env,deps={}){
     const inputBytes=via.chunk?units.reduce((s,r)=>s+Buffer.byteLength(JSON.stringify(r.body)),0):Buffer.byteLength(text)+items.length*(Buffer.byteLength(JUDGE_PROMPTS[input.task])+200);
     const reserve=Math.ceil((inputBytes*pi+(via.chunk?0:items.length*po))/1e6*100*1.2);
     // 요청 단위 슬롯은 잡지 않는다(model 없음) — 잡으면 단위 슬롯 대기와 서로를 기다리는 교착이 생긴다.
-    return await withReservation({account,requestId:input.requestId,digest,reserve,res,meta:{stage:"judge."+input.task,provider:"openrouter",model:input.model}},async (signal,store)=>{
+    return await withReservation({account,requestId:input.requestId,digest,reserve,res,meta:{stage:"judge."+input.task,provider:"openrouter",model:input.model,jobId:input.jobId}},async (signal,store)=>{
       const ctl=new AbortController(),stop=()=>ctl.abort();
       signal.addEventListener("abort",stop,{once:true});if(signal.aborted)stop();
       const ctx={c,fetcher,signal:ctl.signal,model:input.model,task:input.task},call=JUDGE_VIA[via.via];
@@ -523,10 +560,13 @@ function createServer(env=process.env,deps={}){
     if(!c.allow.includes(input.model))return fail(res,stage==="plan"?"invalid_model":"invalid_model_or_stage");
     if(!account.limits.models.includes(input.model))return fail(res,"model_not_in_account_plan");
     safePart(input.requestId);
-    const envelope=stage==="plan"?["model","requestId","noteSpecVersion"]:["model","requestId","noteSpecVersion","stage"],fields=[...envelope,...Object.keys(Prompts.REQUEST[stage].properties)];
-    if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)))return fail(res,"unexpected_field");
+    const envelope=stage==="plan"?["model","requestId","noteSpecVersion"]:["model","requestId","noteSpecVersion","stage"],fields=[...envelope,...Object.keys(Prompts.REQUEST[stage].properties)],optional=stage==="plan"?["jobId","host"]:["jobId","sourceLang"];
+    if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)&&!optional.includes(k)))return fail(res,"unexpected_field");
     // 다른 양식 버전의 입력은 모양부터 다를 수 있다. 본문 검사보다 먼저 버전으로 거절해야 클라이언트가 원인을 안다.
     if(input.noteSpecVersion!==NoteContract.NOTE_SPEC_VERSION)return fail(res,"note_spec_mismatch");
+    // 강의 원어(선택): "en" 이면 작성 지시에 영어 강의 규칙이 붙고 섹션·repair 출력의 주장마다 src 가 더해진다. 없으면 기존 요청과 같다.
+    const sourceLang=input.sourceLang;
+    if(sourceLang!==undefined&&!["ko","en"].includes(sourceLang))return fail(res,"request_rejected");
     // 모델 입력은 스키마 순서의 본문만이다 — 클라이언트의 키 순서가 달라도 같은 프롬프트가 나가야 재현된다.
     const rest=Object.fromEntries(Object.keys(Prompts.REQUEST[stage].properties).map(k=>[k,input[k]])),checked=Contracts.validate(Prompts.REQUEST[stage],rest);
     if(!checked.ok)return fail(res,checked.errors.some(e=>e.message==="허용되지 않는 속성입니다")?"unexpected_field":"request_rejected");
@@ -534,19 +574,33 @@ function createServer(env=process.env,deps={}){
     const opts=rest.options;
     if((opts.syntheticExamples||opts.externalAugmentation)&&(!(account.limits.features||[]).includes("augment")||c.featureFlags.augment===false))return fail(res,"feature_not_in_account_plan");
     // 출력 스키마는 요청(계획 블록·옵션)마다 만든다. 계획에 없는 blockId 같은 모순은 note-contract 가 던진다.
-    let outSchema;try{outSchema=Prompts.outputSchema(stage,rest);}catch{return fail(res,"request_rejected");}
-    const system=Prompts.systemFor(stage,opts),user=JSON.stringify(rest);
+    let outSchema;try{outSchema=Prompts.outputSchema(stage,rest,sourceLang);}catch{return fail(res,"request_rejected");}
+    const system=Prompts.systemFor(stage,opts,sourceLang),user=JSON.stringify(rest);
     if(Prompts.estimateTokens(user)>Prompts.inputTokenLimit(stage))return fail(res,"request_too_large");
     // Free 월 분 한도: 로컬 인식은 STT 를 거치지 않으므로 계획 요청에서 강의 길이(유닛 시각 범위)를 분으로 센다.
     // 클라우드 STT 를 쓴 작업은 STT 가 이미 셌다. ponytail: recognition 은 클라이언트 신고다 — STT 기능이 없는 계정은 신고와 무관하게 센다.
     const us=stage==="plan"?rest.ir.units:[],span=us.length?Math.max(...us.map(u=>u.t1))-Math.min(...us.map(u=>u.t0)):0;
     const minutes=stage==="plan"&&(rest.recognition==="local"||!(account.limits.features||[]).includes("stt"))?Math.max(1,Math.ceil(span/60)):0;
-    const digest=digestOf(account,JSON.stringify({route:stage==="plan"?"plan":"write",stage,model:input.model,noteSpecVersion:input.noteSpecVersion,rest}));
+    const digest=digestOf(account,JSON.stringify({route:stage==="plan"?"plan":"write",stage,model:input.model,noteSpecVersion:input.noteSpecVersion,rest,...(sourceLang?{sourceLang}:{})}));
     const [pi,po]=RATES[input.model],params=Prompts.modelParams(input.model,stage),attempts=2;
     // 형식 실패 재시도분까지 예약하고 정산에서 되돌린다. 시스템 본문과 스키마도 입력 토큰이다.
     const reserve=Math.ceil((Prompts.estimateTokens(system+JSON.stringify(outSchema)+user)*pi+params.max_tokens*po)/1e6*100*1.2*attempts);
     const providerOut=providerSchema(outSchema,[]);
-    return await withReservation({account,requestId:input.requestId,digest,reserve,minutes,model:input.model,res,meta:{stage:stage==="plan"?"plan":"write."+stage,provider:"openrouter",model:input.model}},async signal=>{
+    // 정산에 실을 메타 — plan 의 분야 분류 결과(subject·subjectConf)는 run 안에서 더한다.
+    const meta={stage:stage==="plan"?"plan":"write."+stage,provider:"openrouter",model:input.model,jobId:input.jobId,host:input.host,...(stage==="plan"?{lectureSeconds:span,slides:new Set(us.map(u=>u&&u.slideId).filter(Boolean)).size}:{})};
+    // 분야 분류는 슬라이드 첫 줄을 제목으로 모아 Jev 에 한 번 묻는다 — plan 에서만, 제목이 없으면 건너뛴다.
+    const titles=stage==="plan"?[...new Set(us.map(u=>typeof u.slideText==="string"?u.slideText.split("\n")[0].trim():"").filter(Boolean))].slice(0,20):[];
+    return await withReservation({account,requestId:input.requestId,digest,reserve,minutes,model:input.model,res,meta},async (signal,store,gens)=>{
+      // 분류는 계획 호출과 병렬로 시작해 계획이 끝난 뒤에만 기다린다 — 지연(자체 5초)·실패는 meta 를 비워 두고
+      // 응답·상태·청구액은 그대로다. Jev 비용은 사용자 청구에 더하지 않는다.
+      const classifying=titles.length&&c.judgeModels.includes(JEV_MODEL)?(async()=>{
+        const ctl=new AbortController(),off=()=>ctl.abort(),t=setTimeout(()=>ctl.abort(),5000);
+        signal.addEventListener("abort",off,{once:true});
+        try{
+          const response=await fetcher(Jev.ENDPOINT,{method:"POST",redirect:"error",signal:ctl.signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify(Jev.buildSubjectRequest(titles,{model:JEV_MODEL,providers:c.providers[JEV_MODEL]}).body)});
+          return response.ok?Jev.parseSubjectAnswer(await boundedResponse(response,256*1024)):null;
+        }catch{return null;}finally{clearTimeout(t);signal.removeEventListener("abort",off);}
+      })():null;
       let usage={promptTokens:0,completionTokens:0},amount=0,reported=true;
       for(let retry=0;retry<attempts;retry++){
         const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
@@ -555,19 +609,47 @@ function createServer(env=process.env,deps={}){
           response_format:{type:"json_schema",json_schema:{name:"lecture_note_"+stage,strict:true,schema:providerOut}},
           provider:{only:c.providers[input.model],order:c.providers[input.model],require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}
         })});
-        if(!response.ok)throw new Error("provider_failed");
-        const raw=await boundedResponse(response,1024*1024),u=raw.usage||{},choice=raw.choices?.[0];
+        // detail 은 사용 기록(usage_events.error_code)에만 남는 세부 사유다 — 클라이언트에는 기존 코드만 간다.
+        // 4xx 는 라우팅 단계의 거절(파라미터·제공자 없음)이라 생성 비용이 없다 — 첫 시도면 예약을 환불한다.
+        // 5xx·전송 실패는 제공자 쪽에서 돈이 나갔는지 알 수 없어 예약을 그대로 둔다(보수적).
+        if(!response.ok)throw Object.assign(new Error("provider_failed"),{detail:"provider_http_"+response.status},retry===0&&response.status>=400&&response.status<500?{refund:true,code:"provider_failed_or_invalid_output"}:{});
+        const raw=await boundedResponse(response,1024*1024),u=raw.usage||{},choice=raw.choices?.[0];if(typeof raw.id==="string")gens.push(raw.id);
+        // 200 이어도 본문이 오류이고 생성이 없으면(사용량 없음·선택지 없음) 돈이 나가지 않았다 — 첫 시도면 환불한다.
+        // 필드: OpenRouter 크레딧이 바닥난 순간 이런 응답 3건이 각각 예약금 전액($0.57)으로 정산됐다.
+        if(!choice&&!raw.usage)throw Object.assign(new Error("provider_failed"),{detail:"provider_body_"+String(raw.error?.code??"empty").replace(/[^a-z0-9_]/gi,"_").slice(0,24)},retry===0?{refund:true,code:"provider_failed_or_invalid_output"}:{});
         usage={promptTokens:usage.promptTokens+(Number(u.prompt_tokens)||0),completionTokens:usage.completionTokens+(Number(u.completion_tokens)||0)};
-        if(typeof u.cost==="number"&&Number.isFinite(u.cost)&&u.cost>=0)amount+=u.cost;else reported=false;
+        { const c=costOf(u,pi,po,!choice?.message?.content&&choice?.finish_reason!=="length"); if(c===null)reported=false;else amount+=c; }
         // 잘림은 한도를 키워 재시도하지 않는다 — 클라이언트가 섹션을 나눠 새 요청으로 보낸다(§6.5). 재시도 없이 지금까지 나간 비용만 청구한다.
-        if(choice?.finish_reason==="length")throw Object.assign(new Error("llm_output_truncated"),{code:"llm_output_truncated",charged:{amount,reported,usage}});
+        // 잘린 출력이 같은 말을 되풀이했는지(반복 루프) 내용 없이 남긴다: 뒤쪽 4000자의 40자 조각 중 서로 다른 조각 비율. 0.5 미만이면 .rep
+        if(choice?.finish_reason==="length")throw Object.assign(new Error("llm_output_truncated"),{code:"llm_output_truncated",detail:"llm_output_truncated."+(repetitive(choice?.message?.content)?"rep":"long"),charged:{amount,reported,usage}});
         // 형식 실패(파손·계약 불일치·repair 개수 불일치)만 같은 모델·제공자로 한 번 더 간다 — 돈은 이미 나갔다.
         try{
-          if(choice?.finish_reason!=="stop")throw new Error("provider_output_incomplete");
-          const parsed=parseNote(choice.message.content),r=Contracts.validate(outSchema,parsed);
-          if(!r.ok)throw new Error("invalid_note_output");
-          return {amount,reported,payload:{...(stage==="plan"?{plan:parsed}:{output:parsed}),usage:{...usage,costUsd:reported?amount:reserve/100},promptVersion:Prompts.PROMPT_VERSION,schemaVersion:c.remoteConfig.schemaVersion,noteSpecVersion:NoteContract.NOTE_SPEC_VERSION}};
-        }catch(error){if(retry===attempts-1)throw error;}
+          if(choice?.finish_reason!=="stop")throw Object.assign(new Error("provider_output_incomplete"),{detail:"incomplete."+String(choice?.finish_reason||"none").toLowerCase().replace(/[^a-z0-9_]/g,"").slice(0,30)});
+          let parsed;try{parsed=parseNote(choice.message.content);}catch{throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_json"});}
+          if(stage==="plan")parsed=NoteContract.canonicalPlanIds(parsed); // 제공자가 id pattern 을 강제하지 않는다 — 검사 전에 C1../S1.. 로 다시 매긴다
+          else parsed=NoteContract.canonicalMapKeys(parsed,rest.section?.sectionId??null); // 지도 노드 키는 n1.. 로, 섹션 안 "B3" 참조는 "S2_B3" 로
+          // 어긋난 블록만 null 로 — 섹션 전체를 버리지 않는다. 비운 블록의 원래 봉투는 salvaged 로 돌려줘 클라이언트가 repair 로 고치게 한다.
+          // salvagedErrors: 비운 블록마다 스키마 오류의 위치와 사유(블록 안 경로 + 메시지, 내용 없음) — 클라이언트가 repair 지시에 그대로 싣는다.
+          let salvaged=null,salvagedErrors=null;
+          const pre=Contracts.validate(outSchema,parsed);
+          if(!pre.ok){
+            const raw=parsed;parsed=Contracts.salvage(outSchema,parsed).value;
+            if(stage==="section"||stage==="repair")for(const [k,v] of Object.entries(raw?.blocks||{}))if(v&&typeof v==="object"&&!Array.isArray(v)&&parsed?.blocks?.[k]===null){
+              (salvaged??={})[k]=v;
+              // 패턴 위반은 받은 값의 모양(영문 A·숫자 9·한글 가, 나머지 기호 그대로)을 붙인다 — 내용은 싣지 않고 형식만 보여 준다.
+              (salvagedErrors??={})[k]=pre.errors.filter(e=>e.path.startsWith("/blocks/"+k+"/")).map(e=>{
+                const got=e.message==="패턴과 다릅니다"?e.path.split("/").slice(1).reduce((o,p)=>o?.[p],raw):undefined;
+                return (e.path.slice(k.length+8)+" "+e.message+(typeof got==="string"?" got="+shapeOf(got):"")).slice(0,64);
+              }).slice(0,20);
+            }
+          }
+          const r=Contracts.validate(outSchema,parsed);
+          if(!r.ok)throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_schema."+String(r.errors?.[0]?.path||r.errors?.[0]?.keyword||"x").toLowerCase().replace(/[^a-z0-9_.]/g,"_").slice(0,40)});
+          // 계획 호출이 끝난 뒤에만 분류 결과를 기다린다 — 앞서 병렬로 나간 호출이고 이미 끝났거나 5초 안에 끝난다.
+          const classified=classifying?await classifying:null;
+          if(classified){meta.subject=classified.subject;meta.subjectConf=classified.conf;}
+          return {amount,reported,payload:{...(stage==="plan"?{plan:parsed}:{output:parsed}),...(salvaged?{salvaged,salvagedErrors}:{}),usage:{...usage,costUsd:reported?amount:reserve/100},promptVersion:Prompts.PROMPT_VERSION,schemaVersion:c.remoteConfig.schemaVersion,noteSpecVersion:NoteContract.NOTE_SPEC_VERSION}};
+        }catch(error){if(retry===attempts-1)throw error.charged||error.refund?error:Object.assign(error,{code:error.code||"provider_failed_or_invalid_output",charged:{amount,reported,usage}});} // 형식 실패: 보고된 금액만 청구한다
       }
     });
   }
@@ -576,9 +658,10 @@ function createServer(env=process.env,deps={}){
   // handle 은 런타임과 무관한 요청 처리기다. 로컬은 http 서버가, 배포는 supabase/functions/api 의 Deno 어댑터가 같은 함수를 부른다.
   const handle=async(req,res)=>{
     try{
-      if(req.headers.origin&&req.headers.origin!==c.origin)return fail(res,"origin_not_allowed");
+      if(req.headers.origin&&!c.origins.includes(req.headers.origin))return fail(res,"origin_not_allowed");
+      res.allowOrigin=req.headers.origin;
       if(req.method==="OPTIONS")return send(res,204,{});
-      const who=await accountFor(req);if(who.code)return fail(res,who.code);
+      const who=await accountFor(req);if(who.code)return fail(res,who.code,undefined,{reason:who.reason,detail:who.detail});
       const account=who.id;
       if(below(version(req.headers["x-client-version"]),version(c.remoteConfig.minClientVersion)))return fail(res,"client_upgrade_required");
       if(req.method==="POST"){const b=bucket(account);if(b.tokens<1)return fail(res,"rate_limited",Math.ceil((1-b.tokens)*6e4/c.ratePerMin));b.tokens--;}
@@ -630,6 +713,9 @@ function createServer(env=process.env,deps={}){
   server.on("close",()=>{for(const controller of active)controller.abort();});
   return server;
 }
+const repetitive=t=>{if(typeof t!=="string"||t.length<2000)return false;const tail=t.slice(-4000),parts=[];for(let i=0;i+40<=tail.length;i+=40)parts.push(tail.slice(i,i+40));return new Set(parts).size/parts.length<0.5;};
+// id 처럼 생긴 짧은 값(영문 1~3자 + 숫자, 기호 _ - / .)은 글자를 그대로 둔다 — 강의 내용이 아니라 어느 형식을 썼는지가 보여야 고칠 수 있다.
+const shapeOf=v=>/^[A-Za-z]{1,3}[0-9]{0,4}([_\-/.][A-Za-z]{0,3}[0-9]{0,4}){0,2}$/.test(v)?v.slice(0,24):v.slice(0,24).replace(/[A-Za-z]/g,"A").replace(/[0-9]/g,"9").replace(/[가-힣]/g,"가").replace(/A+/g,"A").replace(/9+/g,"9").replace(/가+/g,"가");
 // 모델이 빠뜨린 필드를 채우지 않는다 — 없는 값은 없는 대로 두고 계약 검사가 걸러낸다.
 const clamp01=x=>Number.isFinite(x)?Math.min(1,Math.max(0,x)):x;
 const box=b=>b!==null&&typeof b==="object"&&!Array.isArray(b)?{x:clamp01(b.x),y:clamp01(b.y),w:clamp01(b.w),h:clamp01(b.h)}:b;
@@ -698,5 +784,5 @@ async function boundedResponse(response,max){
   finally{await reader.cancel().catch(()=>{});}
 }
 if(require.main===module)createServer().listen(Number(process.env.PORT||8788),"127.0.0.1",()=>console.log("Summrizei pilot service ready on loopback."));
-module.exports={createServer,config,tokenEqual,RATES,STT_RATES,readState,toTranscript,toSlideDoc,VISION_SCHEMA,judgeProbs,JUDGE_MODELS};
+module.exports={repetitive,createServer,config,tokenEqual,RATES,STT_RATES,readState,toTranscript,toSlideDoc,VISION_SCHEMA,judgeProbs,JUDGE_MODELS};
 

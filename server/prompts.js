@@ -3,10 +3,10 @@
 // 프롬프트는 변하지 않는 시스템 본문이 앞이고 변하는 입력(user)은 호출부가 뒤에 붙인다: 접두 캐시가 맞으려면 이 순서를 지킨다.
 const NoteContract=require("../lib/note-contract.js"),Contracts=require("../lib/contracts.js"),LLM=require("./llm.js");
 // 프롬프트 문구나 아래 규칙을 바꾸면 올린다. 응답에 실려 단계 캐시 키에 들어간다.
-const PROMPT_VERSION="note-v2";
+const PROMPT_VERSION="note-v3";
 const STAGES=["plan","section","global","repair"];
 // 토큰 예산(§8.1). 서버는 바이트 / bytesPerToken 으로 어림한다 — 정확한 토크나이저가 아니라 입력 상한을 거르는 가드다.
-const LIMITS={bytesPerToken:4,tokens:{plannerInput:40000,plannerOutput:8000,writerInput:16000,writerOutput:8000,globalInput:24000,globalOutput:4000}};
+const LIMITS={bytesPerToken:4,tokens:{plannerInput:40000,plannerOutput:16000,writerInput:16000,writerOutput:14000,globalInput:24000,globalOutput:4000}};
 const T=LIMITS.tokens;
 
 // 자료 안의 지시를 무시하라는 문장이 프롬프트 인젝션 방어선이다. 수식은 다시 쓰지 않고 등록부 id 로만 가리킨다.
@@ -39,13 +39,18 @@ const AUG_RULES={
   externalAugmentation:"[강의 밖 보강 허용] 강의에 없는 일반 배경 지식을 basis \"external\"로 보탤 수 있다. B05 explanation·mechanism·examples, B12 note에서만 쓰고, 확실한 교과서 수준 사실만 쓴다. 출처가 필요한 최신 수치·통계는 쓰지 않는다. 정의·결론·답안·공지·계산에는 쓰지 않는다.",
 };
 
+// 영어 강의(sourceLang "en"): 작성 단계에만 붙는다. src 는 근거 지지 판정이 영어 근거와 비교하는 칸이다(섹션·repair 출력에만 있다).
+const EN_RULES=[
+  "[영어 강의] 근거 자료는 영어다. 노트는 한국어로 쓰되, 강의의 주요 전공 용어는 블록에서 처음 쓸 때 \"영단어(한국어 번역)\" 형식으로 쓴다(예: overfitting(과적합)). 같은 블록에서 다시 쓸 때는 영단어만 쓴다. B05 term도 이 형식이고 original은 null로 둔다. 영어 근거의 강조어(important·crucial·remember, exam·midterm·quiz)도 emphasis의 근거가 된다.",
+];
+const EN_SRC="[원문 대조] 주장마다 src를 채운다. src는 그 주장을 강의 자료의 영어 표현으로 쓴 영어 문장이고 text와 같은 내용만 담는다(더하거나 빼지 않는다). basis가 lecture가 아니면 src는 null이다.";
 const STAGE={
   plan:[
     "단계: 계획. 입력은 유닛 목록(units: 슬라이드 글과 발화, 시각, 중요도), 수식 요약(formulas: id, 상태, 나오는 유닛), 도표 요약(figures)이다. 본문은 쓰지 않고 구조만 정한다.",
     "섹션 경계는 청크나 분량이 아니라 내용의 흐름으로 정한다. 섹션 id는 S1부터 순서대로, 각 섹션은 IR 순서로 연속한 유닛을 갖고, 모든 유닛은 정확히 한 섹션에 속한다. 강의 전개 순서를 바꾸지 않는다.",
     `섹션은 최대 40개, 섹션 하나의 유닛은 60개 이하, 블록은 12개 이하다. 한 섹션의 작성 입력(그 유닛의 근거 전부)이 약 ${T.writerInput}토큰 안에 들도록 유닛을 묶는다.`,
     "섹션마다 title(15~40자), question(그 단원이 답하는 질문, 없으면 null), stage(understand·relate·apply·check), 블록 구성(type, purpose 한 문장, 다루는 conceptIds·formulaIds·figureIds)을 정한다. 다른 섹션의 정정이나 정의가 꼭 필요하면 그 유닛을 crossUnitIds(10개 이하)로 잇는다.",
-    "개념(concepts): 강의가 정의하는 개념은 depth defined이고, 홈 섹션에 그 개념 하나만 다루는 B05가 정확히 하나 있다. 이름만 언급되면 mentioned이고 B05를 만들지 않는다.",
+    "개념(concepts): conceptId는 C1, C2처럼 C 뒤에 차례 번호다. 강의가 정의하는 개념은 depth defined이고, 홈 섹션에 그 개념 하나만 다루는 B05가 정확히 하나 있다. 이름만 언급되면 mentioned이고 B05를 만들지 않는다.",
     "B12는 섹션의 첫 블록이 될 수 없다. 섹션마다 B14 자기 점검을 두는 편이 좋고 노트 전체 문항은 4~8개가 적당하다. 수업 공지가 있으면 그 섹션에 B18을 둔다.",
     "global에는 B02(한눈에), 필요하면 B03(강의 지도), B13(연결 정리)을 각각 최대 1개 둔다.",
     "제목, 질문, 개념 이름에 숫자를 쓰면 그 숫자는 해당 유닛 자료에 있어야 한다.",
@@ -53,6 +58,7 @@ const STAGE={
   section:[
     "단계: 섹션 작성. 입력은 이 섹션의 계획(section, 블록마다 blockId), 노트의 개념 목록(concepts), 이 섹션에서 인용할 수 있는 근거 항목(evidence: id, 종류, 시각, 텍스트), 수식 등록부(registry, 읽기 전용), 도표(figures)다.",
     "blocks에는 계획의 blockId마다 그 블록 타입의 봉투를 채운다. evidence에 없는 id는 인용하지 않는다. gist가 스키마에 있으면 단원 요지를 40~100자 한 주장으로 쓴다.",
+    "참조 id는 형식을 그대로 쓴다: targetIds·reviewIds는 블록 id(예: \"S2_B3\"), 섹션 id(\"S2\"), 개념 id(\"C3\"), 사례 단서(\"S2_B3/P1\")만이다. 이름·제목·번호만 쓰지 않는다. 지도 노드 key는 n1, n2처럼 쓴다.",
     "섹션 유닛의 절반 이상이 어떤 주장의 근거로 인용되어야 한다. 잡담, 출석, 인사는 다루지 않는다.",
   ],
   repair:[
@@ -66,10 +72,11 @@ const STAGE={
   ],
 };
 // 시스템 본문 = 공용 + 노트 규칙 + 단계 규칙 (+ 켠 생성 옵션). 같은 단계·옵션이면 모든 호출이 같은 문자열이다.
-const systemFor=(stage,options)=>{
+const systemFor=(stage,options,sourceLang)=>{
   if(!Object.hasOwn(STAGE,stage))throw new Error("invalid_stage");
   const aug=stage==="plan"||stage==="global"?[]:Object.keys(AUG_RULES).filter(k=>options?.[k]===true).map(k=>AUG_RULES[k]);
-  return [COMMON,NOTE_RULES,...STAGE[stage],...aug].join("\n");
+  const en=sourceLang==="en"&&stage!=="plan"?[...EN_RULES,...(stage==="global"?[]:[EN_SRC])]:[];
+  return [COMMON,NOTE_RULES,...STAGE[stage],...aug,...en].join("\n");
 };
 
 // 요청 본문(model·requestId·noteSpecVersion·stage 를 뺀 나머지)의 계약.
@@ -105,10 +112,12 @@ const REQUEST={
   }),
 };
 // 요청별 출력 스키마. 계획에 없는 blockId 같은 잘못된 요청은 note-contract 가 던진다 — 라우트가 request_rejected 로 바꾼다.
-function outputSchema(stage,body){
+// 영어 강의의 섹션·repair 는 주장마다 src 칸이 더해진다(NoteContract.withSource).
+function outputSchema(stage,body,sourceLang){
+  const src=sch=>sourceLang==="en"?NoteContract.withSource(sch):sch;
   if(stage==="plan")return S.plannerOutput;
-  if(stage==="section")return NoteContract.sectionOutputSchemaFor(body.section,{gist:body.withGist,policy:body.options});
-  if(stage==="repair")return NoteContract.repairOutputSchemaFor(body.section,[...new Set(body.repair.map(r=>r.blockId))],body.options);
+  if(stage==="section")return src(NoteContract.sectionOutputSchemaFor(body.section,{gist:body.withGist,policy:body.options}));
+  if(stage==="repair")return src(NoteContract.repairOutputSchemaFor(body.section,[...new Set(body.repair.map(r=>r.blockId))],body.options));
   if(stage==="global")return NoteContract.globalOutputSchemaFor(body.plan.global);
   throw new Error("invalid_stage");
 }
@@ -119,6 +128,6 @@ const inputTokenLimit=stage=>stage==="plan"?T.plannerInput:stage==="global"?T.gl
 const NO_SEED=/^anthropic\//,SEED=7;
 const modelParams=(model,stage)=>({
   max_tokens:Math.min(LLM.maxTokensFor(model),(stage==="plan"?T.plannerOutput:stage==="global"?T.globalOutput:T.writerOutput)+LLM.reasoningBudgetFor(model)),
-  reasoning:LLM.reasoningFor(model),temperature:0,...(NO_SEED.test(model)?{}:{seed:SEED}),
+  reasoning:LLM.reasoningFor(model),...(LLM.noTemperature(model)?{}:{temperature:0}),...(NO_SEED.test(model)?{}:{seed:SEED}), // temperature 를 거절하는 모델(GPT 추론형)에 보내면 require_parameters 로 404 가 난다
 });
 module.exports={PROMPT_VERSION,STAGES,LIMITS,systemFor,REQUEST,outputSchema,estimateTokens,inputTokenLimit,modelParams};

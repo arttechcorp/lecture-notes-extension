@@ -2,8 +2,17 @@
 let session=null,generation=0,starting=false,summaryController=null,archiveBusy=false,bg=null,sink=null; // bg: 실행 중인 백그라운드 작업 {jobId,ctl} — 한 번에 하나
 // 파이프라인 진단 이벤트: 한 버스를 어드민(실시간 포트)과 암호화 로컬 로그가 함께 구독한다. 파이프라인에는 예외를 삼키는 safe 껍데기만 넘긴다.
 const bus=new PipelineEvents.EventBus(),events=PipelineEvents.safe(bus);
+// 확장 버전: offscreen 에는 getManifest 가 없어 패키지의 manifest.json 을 한 번 읽는다(서비스 요청의 x-client-version·진단 파일에 쓴다).
+const versionP=(async()=>{try{return chrome.runtime.getManifest?.()?.version||(await (await fetch(chrome.runtime.getURL("manifest.json"))).json()).version||null;}catch{return null;}})();
+versionP.then(v=>{if(v)globalThis.SUMMRIZEI_VERSION=v;});
 const storeP=PackageStore.indexedDbAdapter().then(PackageStore.createStore); // 로그와 백그라운드 작업이 한 암호화 저장소를 나눠 쓴다
 storeP.then(store=>(sink=new PipelineEvents.LogSink(bus,store)).start()).catch(()=>events.emit({stage:"system",level:"warn",code:"LOG_STORE_UNAVAILABLE"}));
+events.emit({stage:"system",code:"BOOT",msg:"offscreen"});
+// 잡히지 않은 오류도 진단에 남긴다 — error.message 는 입력 텍스트를 담을 수 있어(V8 JSON 오류) 이름과 첫 스택 프레임의 file:line:col 만 싣는다.
+const frameLoc=s=>{for(const l of String(s||"").split("\n")){if(!/^\s*at\b/.test(l))continue;const m=l.match(/[^\s()]+:\d+:\d+/g);if(m)return m.at(-1);}return "-";};
+const uncaught=(name,stack)=>events.emit({stage:"system",level:"error",code:"UNCAUGHT",msg:`${name||"Error"} ${frameLoc(stack)}`});
+globalThis.addEventListener?.("error",e=>uncaught(e.error?.name,e.error?.stack||`at ${e.filename||"-"}:${e.lineno||0}:${e.colno||0}`));
+globalThis.addEventListener?.("unhandledrejection",e=>uncaught(e.reason?.name||typeof e.reason,e.reason?.stack));
 const emit=state=>chrome.runtime.sendMessage({target:"panel",type:"SESSION_STATE",state}).catch(()=>{});
 const trusted=(sender,pages=["/background.js","/sidepanel.html","/options.html"])=>{try{const url=new URL(sender.url),base=new URL(chrome.runtime.getURL(""));return sender.id===chrome.runtime.id&&url.protocol===base.protocol&&url.host===base.host&&pages.includes(url.pathname);}catch{return false;}};
 const settingsOf=s=>({serviceUrl:String(s?.serviceUrl||""),appSessionToken:String(s?.appSessionToken||""),remoteSummaryConsent:s?.remoteSummaryConsent===true,
@@ -17,15 +26,16 @@ const tokenProvider=async(fallback,serviceUrl)=>{
   try{const u=new URL(serviceUrl);if(/^https?:$/.test(u.protocol)&&["localhost","127.0.0.1","[::1]"].includes(u.hostname)&&typeof fallback==="string"&&fallback)return fallback;}catch{}
   throw Object.assign(new Error("로그인이 필요합니다. 메뉴에서 Google로 로그인하세요."),{code:"AUTH_REQUIRED"});
 };
-// 서비스가 401로 토큰을 거부하면 검증 없이 뗀 껍데기(tokenInfo: 종류·alg·kid·발급자·남은 수명)만 진단 이벤트에 싣는다 — 본문·sub·이메일·토큰은 싣지 않는다. 돌려주는 문자열은 세션 디버그 로그 한 줄용이다.
+// 서비스가 401로 토큰을 거부하면 검증 없이 뗀 껍데기(tokenInfo: 종류·alg·kid·발급자·남은 수명)와 서버의 거절 이유(authReason·authDetail)만 진단 이벤트에 싣는다 — 본문·sub·이메일·토큰은 싣지 않는다. 돌려주는 문자열은 세션 디버그 로그 한 줄용이다.
 const tokenInfoText=t=>[t.kind,t.alg,t.kid,t.iss,t.expInSec!=null?`exp ${t.expInSec}s`:null,t.length!=null?`len ${t.length}`:null].filter(v=>v!=null&&v!=="").join(" ");
-const authEvent=(error,extra)=>{if(error?.status!==401||!error?.tokenInfo)return null;const msg=tokenInfoText(error.tokenInfo);events.emit({stage:"auth",level:"warn",code:"AUTH_REJECTED",msg,...extra});return `[인증] 서버가 토큰을 거부함 · ${msg}`;};
+const authEvent=(error,extra)=>{if(error?.status!==401||!error?.tokenInfo)return null;const msg=(tokenInfoText(error.tokenInfo)+(error.authReason?` · reason ${error.authReason}${error.authDetail?" "+error.authDetail:""}`:"")).slice(0,200);events.emit({stage:"auth",level:"warn",code:"AUTH_REJECTED",msg,...extra});return `[인증] 서버가 토큰을 거부함 · ${msg}`;};
 // ── 유료 백그라운드 작업(BG_*, docs/architecture-v2.md §5.3, §6.1, §8) ──
 // 한 번에 하나. 원본 미디어는 메모리에서만 쓰고 파생물(슬라이드·전사·노트)만 암호화 패키지 저장소에 둔다. 진행은 이벤트 버스에서 단계별 개수만 패널에 밀고, 결말은 BG_DONE으로 background에 알린다
 // (background가 절전 방지·Referer 규칙을 풀고 패널에 전한다). BG_*·LIB_* 요청은 background.js만 보낼 수 있다 — 동의 기록과 Referer 출처를 거기서 정하기 때문이다.
 // /v1/me는 요약 모델 목록만 알려 주고 인식·판정 모델은 싣지 않아 모델은 여기 한 곳에 둔다. 서버 allowlist(ALLOWED_*_MODELS)와 어긋나면 invalid_model로 멈춘다 — 다른 모델로 조용히 바꾸지 않는다.
 // ponytail: 계획·작성 분담은 MiMo Pro/Flash 다(2026-10-04 결정).
-const BG_MODELS={plan:"xiaomi/mimo-v2.6-pro",write:"xiaomi/mimo-v2.6-flash",judge:"typesafe/jev-1.13",stt:"microsoft/mai-transcribe-2",vision:"openai/gpt-6-luna"};
+// 계획은 GPT-6.1 Sol(추론 medium) — 100초 안에 못 끝내면 stages가 작성 모델(Flash)로 한 번 다시 계획한다. MiMo Pro는 무료 Edge 150초 안에 못 끝내 뺐다(필드 3/3 시간 초과).
+const BG_MODELS={plan:"openai/gpt-6.1-sol",write:"xiaomi/mimo-v2.6-flash",writeAlt:"openai/gpt-6.1-sol",judge:"typesafe/jev-1.13",stt:"microsoft/mai-transcribe-2",vision:"openai/gpt-6-luna"};
 const bgMe=async(settings,signal)=>ServiceClient.me({baseUrl:settings.serviceUrl,token:await tokenProvider(settings.appSessionToken,settings.serviceUrl),timeoutMs:15000,signal});
 // Referer 규칙은 background가 건다(DNR은 서비스 워커 몫). 새 호스트로 나가기 전에 그 호스트를 더해 달라고 하고 답을 기다린다 — 호스트마다 한 번, 차례로(규칙 갱신이 서로 덮어쓰지 않게).
 // ponytail: 리다이렉트로 호스트가 바뀌면 그 호스트는 규칙에 없어 Referer가 빠지고 SRC_AUTH_EXPIRED로 멈춘다. 필요하면 응답의 url을 보고 규칙을 늘린다.
@@ -56,7 +66,8 @@ async function paintMasks(blob,boxes){
 }
 // ── v2 노트 공통(실시간·백그라운드) ──
 // 계획·작성 모델은 계정 모델 목록(/v1/me)에서 고른다: BG_MODELS 가 목록에 있으면 그것, 없으면 첫 모델. 판정은 judge 기능이 켜진 계정만.
-const noteModels=me=>{const ms=Array.isArray(me?.models)?me.models:[],pick=m=>ms.includes(m)?m:ms[0];return {plan:pick(BG_MODELS.plan),write:pick(BG_MODELS.write),judge:(me?.features||[]).includes("judge")?BG_MODELS.judge:null};};
+// writeAlt(대체 작성 모델, 다른 제공자)는 목록에 있을 때만 — 없으면 실패한 부분은 대체 없이 빠진다.
+const noteModels=me=>{const ms=Array.isArray(me?.models)?me.models:[],pick=m=>ms.includes(m)?m:ms[0];return {plan:pick(BG_MODELS.plan),write:pick(BG_MODELS.write),writeAlt:ms.includes(BG_MODELS.writeAlt)?BG_MODELS.writeAlt:null,judge:(me?.features||[]).includes("judge")?BG_MODELS.judge:null};};
 // GENERATE_NOTES·LIB_REGENERATE 가 같은 모양으로 runNote 를 부른다 — /v1/me 와 서비스 묶음을 한 곳에서 만든다. 토큰은 매 서비스 호출마다 새로 받는다.
 const noteService=settings=>{
   const config=settingsOf(settings),token=()=>tokenProvider(config.appSessionToken,config.serviceUrl);
@@ -88,19 +99,23 @@ async function cropRegions(blob,doc){
   }finally{bmp.close();}
   return {crops,hashes,formulas};
 }
-// 끝난 노트를 보관함 암호(NoteFile)로 암호화해 background 에 파일로 내보낸다 — 내려받기는 background 몫. 저장은 이미 끝났으니 결말("file"|"no-passphrase"|"failed")만 돌려주고, 이벤트에는 코드만 싣는다.
+// 끝난 노트를 로그인 계정 키(NoteFile)로 암호화해 사용자가 온보딩에서 고른 폴더에 바로 쓴다(LibraryFolder) — 저장 때 따로 묻지 않는다.
+// 저장은 이미 끝났으니 결말("file"|"no-folder"|"no-key"|"failed")만 돌려주고, 이벤트에는 코드만 싣는다.
+// no-folder: 폴더를 안 골랐거나 브라우저가 권한을 거둠 / no-key: 이 기기에 계정 키가 아직 없음(패널을 열어 로그인하면 받아 둔다).
 async function exportNote(store,pkg,meta,note){
   try{
     const lk=await NoteFile.loadLibraryKey(store.adapter).catch(()=>null);
-    if(!lk){events.emit({stage:"library",level:"warn",code:"LIBRARY_NO_PASSPHRASE"});return "no-passphrase";}
-    const text=await NoteFile.encryptFile({meta,note,crops:await NoteLibrary.cropUrls(store,pkg)},lk.key,lk.salt);
-    const reply=await chrome.runtime.sendMessage({target:"background",type:"LIB_EXPORT",packageId:pkg,fileName:NoteFile.fileName(meta),text}).catch(()=>null);
-    if(reply?.ok)return "file";
+    if(!lk){events.emit({stage:"library",level:"warn",code:"LIBRARY_NO_KEY"});return "no-key";}
+    const text=await NoteFile.encryptFile({meta,note,crops:await NoteLibrary.cropUrls(store,pkg)},lk.key);
+    await LibraryFolder.write(store.adapter,NoteFile.fileName(meta),text);
+    return "file";
+  }catch(e){
+    if(e?.code==="no-folder"||e?.code==="no-permission"){events.emit({stage:"library",level:"warn",code:"LIBRARY_NO_FOLDER"});return "no-folder";}
     events.emit({stage:"library",level:"warn",code:"LIBRARY_EXPORT_FAILED"});return "failed";
-  }catch{events.emit({stage:"library",level:"warn",code:"LIBRARY_EXPORT_FAILED"});return "failed";}
+  }
 }
-// saveLibrary 의 반환값은 셋("file"|"no-passphrase"|"failed")만 의미 있다 — 노트를 지키며 건너뛴 false 나 저장만 한 경우는 null 로 본다.
-const savedResult=v=>v==="file"||v==="no-passphrase"||v==="failed"?v:null;
+// saveLibrary 의 반환값은 넷("file"|"no-folder"|"no-key"|"failed")만 의미 있다 — 노트를 지키며 건너뛴 false 나 저장만 한 경우는 null 로 본다.
+const savedResult=v=>["file","no-folder","no-key","failed"].includes(v)?v:null;
 // 끝난 노트(또는 인식 결과만)를 로컬 보관함에 둔다: 메타·재생성 입력·노트·크롭(F#·G# 키로 옮김). 강의 내용은 기기 안 암호문으로만 남는다.
 async function saveLibrary(pkg,input,res,{source,host}){
   const store=await storeP,crops={},note=res.note||null;
@@ -123,6 +138,7 @@ function liveInput(cur,{tier,models,consent,options}){
     transcript:{schemaVersion:1,engine:"whisper",model:String(cur.options.whisperModel||"local").slice(0,64),lang,
       segments:asr.map((e,i)=>({id:"a"+(i+1),t0:e.t0,t1:Math.max(e.t0,e.t1??e.t0),text:String(e.text).slice(0,4000),words:[],noSpeechProb:null,avgLogprob:null,compressionRatio:null,status:"kept"}))},
     gaps:cur.gaps||[],tier,models,consent,recognition:"local",options,meta:{title:typeof cur.options.pageTitle==="string"&&cur.options.pageTitle.trim()?cur.options.pageTitle.trim().slice(0,120):null,lang},
+    host:hostOf(cur.options.pageUrl),
   };
 }
 // 진행: 이 작업의 이벤트에서 단계 이름과 끝난 개수만 모아 1초에 한 번 패널에 민다(주소·시각·내용 없음).
@@ -163,6 +179,18 @@ async function bgJob(job,source,settings,me,ctl){
   }catch(error){authEvent(error,{jobId:job.jobId});done={jobId:job.jobId,status:"failed",code:Pipeline.codeOf(error,"SRC")||"UNKNOWN",saved:null};} // 코드 없는 오류(버그)도 체크포인트는 마지막 정상 상태에 남아 BG_LIST에서 이어 갈 수 있다
   finally{bg=null;progress.stop();}
   chrome.runtime.sendMessage({target:"background",type:"BG_DONE",...done}).catch(()=>{});
+  writeJobDiag(job.jobId); // 기다리지 않는다
+}
+// 작업이 끝날 때마다(성공·실패·멈춤) 그 작업의 진단 기록을 노트 폴더 옆 Downloads/Summrizei/diagnostics/ 에 남긴다 — 문의할 때 따로 내보내지 않고 바로 첨부하게.
+// 이벤트는 처음부터 내용 없는 코드·수치뿐이다(§10). 계정·환경 정보는 넣지 않는다 — 그건 설정의 "진단 내보내기"가 사용자가 누를 때만 모은다.
+async function writeJobDiag(jobId){
+  try{
+    await sink?.flush();
+    const evs=(await (await storeP).readLogs()).filter(e=>e.jobId===jobId);
+    if(!evs.length)return;
+    const bundle=Diagnostics.exportBundle(evs,{version:await versionP});
+    await chrome.runtime.sendMessage({target:"background",type:"DIAG_EXPORT",jobId,text:JSON.stringify(bundle,null,2)});
+  }catch{events.emit({stage:"library",jobId,level:"warn",code:"DIAG_EXPORT_FAILED"});}
 }
 // 보관함 패키지의 저장 입력으로 노트를 다시 만든다(옵션 변경·인식만 끝난 강의의 노트화). background.js만 부를 수 있다(BG_*와 같다).
 // 원본 프레임은 없으니 크롭을 새로 자르지 않는다: input 의 figureData/formulaCrops 가 가리키는 `<pkg>:c:*` 블롭이 남아 있고,
@@ -177,7 +205,7 @@ async function libRegenerate(message,settings){
     const svc=noteService(settings),me=await svc.me(),options=message.options||{};
     const paid=(me.features||[]).includes("background");
     if((options.syntheticExamples||options.externalAugmentation)&&!paid)return {ok:false,error:"가상 사례·강의 밖 보강은 유료 기능입니다."};
-    const input={...data.input,models:noteModels(me),consent:{...data.input.consent,summary:true},options:paid?options:{}};
+    const input={...data.input,models:noteModels(me),consent:{...data.input.consent,summary:true},options:paid?options:{},host:data.meta.host};
     const job=await Pipeline.createJob({jobId:`regen-${message.packageId}-${Date.now().toString(36)}`.replace(/[^A-Za-z0-9-]/g,"").slice(0,64),packageId:message.packageId,store,events});
     const res=await NoteStages.runNote(job,input,svc.deps(new AbortController().signal));
     if(!["complete","partial","recognition-only"].includes(res.status)||data.note&&!res.note) // 노트 없이 끝나면 덮어쓰지 않는다 — 저장하면 기존 노트가 지워진다
@@ -186,11 +214,11 @@ async function libRegenerate(message,settings){
     return {ok:true,status:res.status,code:res.code??null,saved:savedResult(saved)};
   }finally{archiveBusy=false;}
 }
-// 보관함의 저장 노트를 암호 파일로 전부 다시 내보낸다. 보관함 암호가 없으면 시작하지 않는다.
+// 보관함의 저장 노트를 암호 파일로 전부 다시 폴더에 쓴다(폴더를 새로 골랐거나 권한을 다시 허용했을 때). 키가 없으면 시작하지 않는다.
 async function libExportAll(){
   if(starting||archiveBusy||summaryController||bg||session&&!["completed","failed","disposed"].includes(session.status))return {ok:false,busy:true,error:"다른 처리가 진행 중입니다. 끝난 뒤 다시 시도하세요."};
   const store=await storeP;
-  if(!await NoteFile.loadLibraryKey(store.adapter).catch(()=>null))return {ok:false,error:"보관함 PIN을 먼저 정하세요."};
+  if(!await NoteFile.loadLibraryKey(store.adapter).catch(()=>null))return {ok:false,error:"보관함 키가 없습니다. 로그인한 뒤 다시 시도하세요."};
   let count=0,failed=0;archiveBusy=true; // 내보내는 동안 지우기·새 작업이 끼어들지 못하게 한다
   try{
     for(const meta of await NoteLibrary.list(store)){
@@ -205,7 +233,7 @@ async function bgList(settings){
   const store=await storeP,jobs=[];
   for(const id of await store.ids("jobs")){
     const r=await store.getJson("jobs",id).catch(()=>null);
-    if(r&&!["done","failed","cancelled"].includes(r.state))jobs.push({jobId:id,state:r.state,code:r.code??null,running:bg?.jobId===id});
+    if(r&&!["done","cancelled"].includes(r.state))jobs.push({jobId:id,state:r.state,code:r.code??null,running:bg?.jobId===id}); // 실패한 작업도 이어 할 수 있으니 싣는다 — 완료·취소만 숨긴다
   }
   // 요금제는 서버만 안다. 확인하지 못하면(로그아웃·오프라인) 백그라운드 처리를 보여 주지 않는다.
   const me=await bgMe(settings).catch(()=>null);
@@ -231,10 +259,21 @@ async function bgMessage(message,sender){
   if(!/^[A-Za-z0-9][A-Za-z0-9-]{7,63}$/.test(jobId)||!/^https?:\/\//i.test(source?.playlistUrl)||!/^https?:\/\//i.test(source?.pageUrl))throw new Error("백그라운드 처리 요청이 올바르지 않습니다.");
   const ctl=new AbortController();bg={jobId,ctl};
   try{
-    const store=await storeP,me=await bgMe(settings,ctl.signal);
-    const job=await Pipeline.loadJob(jobId,store,{events})??await Pipeline.createJob({jobId,store,events}); // 같은 번호면 이어서 한다
+    const store=await storeP,found=await Pipeline.loadJob(jobId,store,{events});
+    if(found?.state==="done"){
+      // 이미 노트까지 만든 강의다 — 다시 돌리지 않고, 저장된 노트가 있으면 끝난 작업처럼 파일도 다시 내보낸 뒤 결말만 알린다.
+      bg=null;
+      const data=await NoteLibrary.load(store,found.packageId).catch(()=>null);
+      const res={status:data?.note?"done":data?.recognition?"recognition-only":"done",packageId:found.packageId,
+        saved:data?.note?savedResult(await exportNote(store,found.packageId,data.meta,data.note)):null};
+      await chrome.runtime.sendMessage({target:"background",type:"BG_DONE",...bgResult(jobId,res)}).catch(()=>{});
+      return {ok:true,already:true,state:"done"};
+    }
+    const me=await bgMe(settings,ctl.signal);
+    if(found?.state==="failed"||found?.state==="cancelled")await found.reopen(); // 끝난 작업을 기록된 단계로 되돌린다 — 앞서 끝난 단계는 패키지 캐시가 메운다
+    const job=found??await Pipeline.createJob({jobId,store,events}); // 같은 번호면 이어서 한다(멈춘 작업은 runBackground가 resume 한다)
     bgJob(job,source,settings,me,ctl); // 기다리지 않는다: 결말은 BG_DONE으로 간다
-    return {ok:true};
+    return {ok:true,...(found?{already:true,state:job.state}:{})};
   }catch(error){bg=null;throw error;}
 }
 // ── 로컬 데이터 관리(options.html "데이터 관리" 카드) ──
@@ -250,6 +289,14 @@ async function localData(message,sender){
   archiveBusy=true; // 지우는 동안 새 캡처·작업·보관이 끼어들지 못하게 보관 작업 자리를 쓴다
   try{await sink?.dispose();await store.wipe();sink=new PipelineEvents.LogSink(bus,store);await sink.start();}
   finally{archiveBusy=false;}
+  return {ok:true};
+}
+// 패널이 잰 로그인 단계별 시간. 이 한 모양(stage:"login", code:"LOGIN_TIMING")만 버스에 싣는다 — 단계 이름과 ms뿐이라 토큰·계정 값은 구조적으로 실릴 수 없다.
+async function diagEvent(e){
+  const msg=e?.msg;
+  if(e?.stage!=="login"||e?.code!=="LOGIN_TIMING"||!Number.isFinite(e?.ms)||e.ms<0||e.ms>600000||typeof msg!=="string"||!/^[a-z_ ]{0,80}$/.test(msg))return {ok:false};
+  await storeP.catch(()=>{}); // 로그 싱크가 붙은 뒤에 실어 암호화 로그에도 남는다
+  events.emit({stage:"login",code:"LOGIN_TIMING",ms:e.ms,msg});
   return {ok:true};
 }
 chrome.runtime.onConnect.addListener(port=>{
@@ -275,6 +322,7 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
   }
   if(!trusted(sender)){reply({ok:false,error:"허용되지 않은 요청입니다."});return;}
   (async()=>{
+    if(message.type==="DIAG_EVENT")return diagEvent(message.event);
     if(String(message.type).startsWith("BG_")||["LIB_REGENERATE","LIB_EXPORT_ALL"].includes(message.type))return bgMessage(message,sender);
     if(message.type==="GET_STATE")return {ok:true,state:session?.state()||null};
     if(message.type==="TAB_GONE"){

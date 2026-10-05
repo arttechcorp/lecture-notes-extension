@@ -160,7 +160,7 @@
 | `JudgeResult` | `itemId, task, probs{label:p}, score?, model` | 패키지 |
 | `Plan` | 섹션 경계, 섹션별 블록 배치, 수식·도표 참조. **블록 타입은 Note 스펙을 참조**. 실행 계약: `docs/note-contract.md` §8.2, `lib/note-contract.js` | 패키지 |
 | `Note` | 노트 양식 v3 → 실행 계약 `lecture-note-1`(`docs/note-contract.md` §8.5, 근거 인덱스 `EvidenceItem` §5) | 패키지 |
-| `Event` | `ts, jobId, traceId, spanId, parentSpanId, stage, unit, status, ms, bytes, model, costUsd, code, level, msg(≤200자, 내용 없음)` | 메모리, 로그 |
+| `Event` | `ts, jobId, traceId, spanId, parentSpanId, requestId, stage, unit, status, ms, bytes, model, costUsd, code, level, msg(≤200자, 내용 없음)` | 메모리, 로그 |
 | `Package` | `meta, slideDocs, transcript, ir, judge, plans[], notes[], crops{id→blob}, boilerplate, jobState, stageCache` | IndexedDB(암호화) |
 
 - 서버는 strict JSON Schema로 입력과 출력을 검증한다. 클라이언트는 서버 응답을 쓰기 전에 다시 검증한다.

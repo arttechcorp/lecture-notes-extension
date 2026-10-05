@@ -41,11 +41,11 @@
 | 암호화 보관함 | 동작 | 사용자 암호로 기기에서 암호화한 ciphertext만 서비스에 저장 |
 | 진단 이벤트 스트림과 기기 암호화 로그 | 동작 | `lib/events.js` → `lib/package-store.js`. 내용 없는 코드·수치만, 14일 또는 20MB |
 | 개발용 어드민(`admin.html`) | 기반 구현 | 이벤트 실시간 피드는 연결돼 있으나 개발 전용. 패키저 감사(`tools/package-cws.mjs`)로 웹스토어 패키지에서 제외 |
-| 강의 패키지 저장(전사·슬라이드 텍스트·노트) | 동작 | 실시간 캡처와 백그라운드 작업 모두 결과를 기기 안 암호화 저장소(`lib/library.js`)에 두고, 노트는 보관함 암호로 암호화한 파일로 Downloads/Summrizei 폴더에 저장합니다 |
+| 강의 패키지 저장(전사·슬라이드 텍스트·노트) | 동작 | 실시간 캡처와 백그라운드 작업 모두 결과를 기기 안 암호화 저장소(`lib/library.js`)에 두고, 노트는 로그인 계정 키로 암호화한 파일로 온보딩에서 고른 보관함 폴더에 확인 없이 바로 저장합니다(별도 비밀번호 없음) |
 | 버전 데이터 계약·검증기(`lib/contracts.js`) | 동작 | 화면 인식·전사·판정·계획/작성 요청과 응답 검증 |
 | 정제·판정·계획·작성·검증 단계(`lib/stages.js`, `/v1/judge`·`/v1/plan`·`/v1/write`, `lib/verify.js`) | 동작 | 실시간 캡처·백그라운드·재생성이 같은 `runNote` 경로를 씁니다 |
 | 노트 양식·렌더(`lib/note-spec.js`, `lib/note-render.js`) | 동작 | `lecture-note-2` 계약과 `render-4` 템플릿. 노트는 `landing/library.html`의 웹사이트 페이지에서 보고 Markdown·PDF(A4)로 내보냅니다 |
-| 노트 목록·보기(`landing/library.html`) | 동작 | 웹사이트에서 Downloads/Summrizei 폴더나 파일을 고르고 보관함 암호를 넣으면 브라우저 안에서 복호화해 보여 줍니다(시험 모드·Markdown·PDF). 생성 옵션을 바꾼 다시 만들기와 인식만 끝난 강의의 노트 만들기는 사이드 패널에서 합니다 |
+| 노트 목록·보기(`landing/library.html`) | 동작 | 웹사이트에서 같은 계정으로 로그인하고 보관함 폴더나 파일을 고르면 브라우저 안에서 복호화해 보여 줍니다(시험 모드·Markdown·PDF). 생성 옵션을 바꾼 다시 만들기와 인식만 끝난 강의의 노트 만들기는 사이드 패널에서 합니다 |
 | 결제(Groble 웹훅 → `entitlements`) | 기반 구현 | `billing-webhook` 함수가 구독 이벤트를 반영합니다. 결제창·포털 주소는 `landing/billing-config.js`에 비어 있습니다 |
 | 유료 백그라운드 처리·클라우드 음성 인식(`lib/background-job.js`) | 동작(실서비스 미검증) | HLS만. 서버 기능 플래그 `background`와 사용 동의 2항목·클라우드 인식 동의가 있어야 시작합니다. 보호 스트림·YouTube는 실시간 모드 선택을 묻습니다. 가짜 공급자와 합성 HLS로만 끝까지 확인(`tools/background-smoke.cjs`) |
 | 로그인·계정(Supabase Auth·사용량 장부·보관함 Storage·계정 삭제) | 동작(실서비스 미검증) | 구글 로그인, JWT 검증, 원자적 사용량 예약, 계정·데이터 삭제. 실제 Supabase 프로젝트 연결 확인 전 |

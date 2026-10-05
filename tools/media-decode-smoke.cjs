@@ -23,7 +23,7 @@ async function body({ origin }) {
     const kfs = segs.flatMap(s => LectureDemux.keyframes(s.video)), tracks = segs.map(s => s.audio);
 
     // 키프레임 → 샘플·JPEG. 샘플은 운영과 같이 VisualGate(비전 모드)에 먹인다.
-    const gate = new VisualGate({ mode: "vision" }), frames = [], accepted = [];
+    const gate = new VisualGate({ mode: "vision", minGapMs: 3500 }), frames = [], accepted = [];
     await timed("video", async () => {
       for await (const k of LectureDecode.keyframeImages(kfs)) {
         const bmp = await createImageBitmap(k.blob), px = k.sample.getContext("2d").getImageData(128, 72, 1, 1).data;

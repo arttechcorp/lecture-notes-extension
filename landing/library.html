@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src https://rppknkhbiivyurhvljoi.supabase.co; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="theme-color" content="#F7F7F4">
 <title>내 노트 — Summrizei</title>
 <link rel="icon" href="/images/favicon.svg" type="image/svg+xml">
@@ -36,8 +36,9 @@
   button:disabled{opacity:.5;cursor:default}
   :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .status{margin:10px 0 0;font-size:13px;color:var(--muted)}
-  #keyForm{display:flex;flex-wrap:wrap;gap:10px}
-  #passInput{flex:1;min-width:180px;min-height:40px;padding:0 12px;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);font:14px var(--sans)}
+  #authRow{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+  #authText{margin:0;font-size:13px;color:var(--muted)}
+  #openRow{margin-top:12px}
   #openBtn{min-height:40px}
   .fail{margin:10px 0 0;padding-left:18px;font-size:12px;color:var(--accentText)}
   .fail li+li{margin-top:2px}
@@ -74,10 +75,18 @@
   <h1 class="header-title">내 노트</h1>
 </div></header>
 <main id="main" class="lib-main">
+  <section class="step" id="stepKey" aria-labelledby="stepKeyH">
+    <h2 id="stepKeyH"><span class="stepno" aria-hidden="true">1</span> 로그인</h2>
+    <div id="authRow">
+      <p id="authText" role="status">노트를 만든 계정으로 로그인하면 노트가 열립니다. 별도 비밀번호는 없습니다.</p>
+      <button id="loginBtn" type="button" class="primary" disabled>Google로 로그인</button>
+      <button id="logoutBtn" type="button" hidden>로그아웃</button>
+    </div>
+  </section>
   <section class="step" id="stepFile" aria-labelledby="stepFileH">
-    <h2 id="stepFileH"><span class="stepno" aria-hidden="true">1</span> 노트 파일 불러오기</h2>
+    <h2 id="stepFileH"><span class="stepno" aria-hidden="true">2</span> 노트 파일 불러오기</h2>
     <div class="drop" id="drop">
-      <p class="drop-hint">다운로드 폴더의 Summrizei 폴더를 고르세요</p>
+      <p class="drop-hint">확장 프로그램에서 고른 보관함 폴더를 고르세요</p>
       <div class="drop-actions">
         <button id="folderBtn" type="button">폴더 선택</button>
         <button id="filesBtn" type="button">파일 선택</button>
@@ -87,13 +96,7 @@
       <input id="filesInput" type="file" multiple accept=".summrizei" hidden>
     </div>
     <p class="status" id="fileStatus" role="status"></p>
-  </section>
-  <section class="step" id="stepKey" aria-labelledby="stepKeyH">
-    <h2 id="stepKeyH"><span class="stepno" aria-hidden="true">2</span> 보관함 PIN</h2>
-    <form id="keyForm">
-      <input id="passInput" type="password" inputmode="numeric" autocomplete="current-password" required aria-label="보관함 PIN" placeholder="보관함 PIN (숫자 4자리)">
-      <button id="openBtn" type="submit" class="primary" disabled>열기</button>
-    </form>
+    <div id="openRow"><button id="openBtn" type="button" class="primary" disabled>열기</button></div>
     <p class="status" id="keyStatus" role="status"></p>
     <ul class="fail" id="failList"></ul>
   </section>
@@ -103,7 +106,7 @@
     <button id="addBtn" type="button">파일 더 불러오기</button>
     <button id="lockBtn" type="button">잠그기</button>
   </div>
-  <p class="privacy">복호화는 이 브라우저 안에서만 일어나며, 파일·PIN·노트 내용은 어디에도 전송하거나 저장하지 않습니다.</p>
+  <p class="privacy">복호화는 이 브라우저 안에서만 일어나며, 노트 파일과 내용은 어디에도 전송하거나 저장하지 않습니다. 로그인할 때 이 계정의 열쇠(암호화 키)만 서비스에서 받아 메모리에 두고, 잠그면 버립니다.</p>
   <section id="listView" aria-label="강의 목록" hidden>
     <div class="cards" id="cards"></div>
   </section>
@@ -132,6 +135,8 @@
 <script src="vendor/summrizei/note-spec.js"></script>
 <script src="vendor/summrizei/note-render.js"></script>
 <script src="vendor/summrizei/note-export.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="supabase-config.js"></script>
 <script src="vendor/summrizei/note-file.js"></script>
 <script src="library.js"></script>
 </body>

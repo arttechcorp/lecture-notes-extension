@@ -15,11 +15,12 @@ Node.js 22 이상, 추가 의존성/빌드 없이 `node server/index.js`. 기본
 OPENROUTER_API_KEY=<운영자 키, 확장에 넣지 않음>
 EXTENSION_ORIGIN=chrome-extension://<실제 32자 확장 ID>
 APP_TOKENS_JSON={"pilot-user":"<계정마다 고유한 32자 이상 난수 앱 토큰>"}
-ALLOWED_MODELS=["xiaomi/mimo-v2.6-pro","xiaomi/mimo-v2.6-flash","google/gemini-2.5-flash-lite"]
+ALLOWED_MODELS=["openai/gpt-6.1-sol","xiaomi/mimo-v2.6-pro","xiaomi/mimo-v2.6-flash","google/gemini-2.5-flash-lite"]
 ALLOWED_VISION_MODELS=["openai/gpt-6-luna"]
 ALLOWED_STT_MODELS=["microsoft/mai-transcribe-2"]
 ALLOWED_JUDGE_MODELS=["typesafe/jev-1.13"]
-OPENROUTER_PROVIDERS_JSON={"xiaomi/mimo-v2.6-pro":["deepinfra/fp8"],"xiaomi/mimo-v2.6-flash":["inference-net/fp8","deepinfra/fp8"],"google/gemini-2.5-flash-lite":["google-vertex"],"openai/gpt-6-luna":["azure"],"typesafe/jev-1.13":["typesafe"]}
+OPENROUTER_PROVIDERS_JSON={"openai/gpt-6.1-sol":["azure"],"xiaomi/mimo-v2.6-pro":["deepinfra/fp8"],"xiaomi/mimo-v2.6-flash":["io-net/fp8","venice/fp8","deepinfra/fp8"],"google/gemini-2.5-flash-lite":["google-vertex"],"openai/gpt-6-luna":["azure"],"typesafe/jev-1.13":["typesafe"]}
+OPENROUTER_MANAGEMENT_KEY=<OpenRouter 관리 키 — 정산 때 /api/v1/generation 으로 생성별 실 청구액을 조회해 장부에 적는다. 없으면 응답 보고 비용·토큰 계산>
 VAULT_DIR=<서비스 전용 영속 볼륨의 절대 경로>
 USAGE_STATE_FILE=<같은 영속 볼륨>/usage.json
 MAX_REQUESTS=10000
@@ -43,7 +44,7 @@ PLAN_FEATURES_JSON={"essential":{"features":["vision","stt","judge","background"
 
 `OPENROUTER_PROVIDERS_JSON`은 필수다. 값은 공급사 이름이 아니라 **모델별 엔드포인트 태그**이며 모델마다 다르다(`google/gemini-2.5-flash-lite`는 `google-vertex`, `google/gemini-3.8-flash`는 `google-vertex/global`). `https://openrouter.ai/api/v1/models/<model>/endpoints`로 태그·ZDR·구조화 출력 지원을 확인하고 넣는다. 없는 태그를 넣으면 모델 요청이 400으로 실패한다. 임의 공급자 fallback을 허용하지 않는다. 공급자가 없거나 필수 파라미터를 지원하지 않으면 요청이 실패하는 것이 정상이다.
 
-현재 모델 세트(2026-10-04 OpenRouter 확인, 전부 ZDR·구조화 출력 지원 태그): 노트 계획은 `xiaomi/mimo-v2.6-pro`(태그 `deepinfra/fp8` — ZDR+구조화 출력을 함께 지원하는 유일한 엔드포인트, `reasoning:{effort:"low"}`에 단계 출력 상한 위 추론 여유분 8000토큰, `server/llm.js`의 `reasoningBudget`), 섹션·전역·재작성 작성은 `xiaomi/mimo-v2.6-flash`(태그 `inference-net/fp8`·`deepinfra/fp8`, 추론을 켜면 느리고 장황해서 `reasoning:{enabled:false}`로 부른다), 비전은 `openai/gpt-6-luna`(`azure`, `{effort:"high"}`), 판정은 `typesafe/jev-1.13`(`typesafe`), STT는 `microsoft/mai-transcribe-2`다. 백그라운드 작업의 모델 선택은 확장 `offscreen.js`의 `BG_MODELS`에 있고 `tools/bg-models.test.mjs`가 서버 `/v1/me`와 대조한다. Free 등급의 기본 모델은 `xiaomi/mimo-v2.6-flash`다(`ALLOWED_MODELS`에 없으면 `google/gemini-2.5-flash-lite`, 그것도 없으면 첫 모델).
+현재 모델 세트(2026-10-04 OpenRouter 확인, 전부 ZDR·구조화 출력 지원 태그): 노트 계획은 `xiaomi/mimo-v2.6-pro`(태그 `deepinfra/fp8` — ZDR+구조화 출력을 함께 지원하는 유일한 엔드포인트, `reasoning:{effort:"low"}`에 단계 출력 상한 위 추론 여유분 8000토큰, `server/llm.js`의 `reasoningBudget`), 섹션·전역·재작성 작성은 `xiaomi/mimo-v2.6-flash`(태그 `io-net/fp8`·`venice/fp8`·`deepinfra/fp8` 순 — 2026-10-05 OpenRouter ZDR 목록에서 구조화 출력을 지원하는 셋, `inference-net` 은 목록에서 사라졌다, 추론을 켜면 느리고 장황해서 `reasoning:{enabled:false}`로 부른다), 비전은 `openai/gpt-6-luna`(`azure`, `{effort:"high"}`), 판정은 `typesafe/jev-1.13`(`typesafe`), STT는 `microsoft/mai-transcribe-2`다. 백그라운드 작업의 모델 선택은 확장 `offscreen.js`의 `BG_MODELS`에 있고 `tools/bg-models.test.mjs`가 서버 `/v1/me`와 대조한다. Free 등급의 기본 모델은 `xiaomi/mimo-v2.6-flash`다(`ALLOWED_MODELS`에 없으면 `google/gemini-2.5-flash-lite`, 그것도 없으면 첫 모델).
 
 화면 인식(비전) 기본 모델은 `openai/gpt-6-luna`다. ZDR 엔드포인트 태그는 `azure`이며 `ALLOWED_VISION_MODELS`과 `OPENROUTER_PROVIDERS_JSON`에 둘 다 넣어야 한다(비전 모델마다 공급자 목록이 없으면 기동을 거부한다). 이 모델은 `reasoning: {effort:"high"}`로 부르고 `temperature`를 지원하지 않는다 — 서버가 `provider.require_parameters`로 보내므로 그 키는 아예 빼고 나간다.
 
@@ -86,7 +87,7 @@ supabase secrets set --env-file <저장소 밖의 env 파일>
 | `ALLOWED_VISION_MODELS` | 비전 모델 목록 |
 | `ALLOWED_STT_MODELS` | `["microsoft/mai-transcribe-2"]` |
 | `ALLOWED_JUDGE_MODELS` | 선택. 판정 모델 |
-| `EXTENSION_ORIGIN` | `chrome-extension://gllijdanodakjamndimlpgmhokaakpod`(저장소 경로에서 계산한 개발용 ID. `chrome://extensions`에서 확인) |
+| `EXTENSION_ORIGIN` | `chrome-extension://gllijdanodakjamndimlpgmhokaakpod,chrome-extension://gibhonakailcjlgjnfgeggpoigdbieef`(쉼표로 구분한 정확한 출처 목록. 압축 해제 ID는 폴더 경로에서 나와 개발자마다 다르다 — 기욱 macOS, 지환 Windows. `chrome://extensions`에서 확인. 목록에 없는 출처의 POST는 403 `origin_not_allowed`) |
 | `USAGE_DIGEST_KEY` | 32자 이상 무작위 문자열(요청 본문 해시용 HMAC 키) |
 
 배포(Docker 불필요):

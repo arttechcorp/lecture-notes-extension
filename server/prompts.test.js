@@ -32,7 +32,7 @@ const basisOf = (schema, out = new Set()) => {
 };
 
 test("every stage has a versioned system prompt that treats input as untrusted data", () => {
-  assert.equal(Prompts.PROMPT_VERSION, "note-v2");
+  assert.equal(Prompts.PROMPT_VERSION, "note-v3");
   assert.match(Prompts.PROMPT_VERSION, /^[a-z0-9][a-z0-9._-]*$/);
   assert.deepEqual(Prompts.STAGES, ["plan", "section", "global", "repair"]);
   for (const stage of Prompts.STAGES) {
@@ -117,7 +117,7 @@ test("generation params pin temperature, cap output by the spec and skip seed wh
   assert.equal("seed" in Prompts.modelParams("anthropic/claude-haiku-4.5", "section"), false);
   assert.equal(Prompts.modelParams("google/gemini-2.5-flash-lite", "section").seed, write.seed, "같은 seed 라야 재현된다");
   const pro = Prompts.modelParams("xiaomi/mimo-v2.6-pro", "plan"), flash = Prompts.modelParams("xiaomi/mimo-v2.6-flash", "section");
-  assert.equal(pro.max_tokens, 16000, "추론 여유분은 단계 출력 상한 위에 얹는다");
+  assert.equal(pro.max_tokens, 20000, "추론 여유분은 단계 출력 상한 위에 얹는다");
   assert.deepEqual(pro.reasoning, { effort: "low" });
   assert.equal(flash.max_tokens, tokens.writerOutput);
   assert.deepEqual(flash.reasoning, { enabled: false });
@@ -125,4 +125,25 @@ test("generation params pin temperature, cap output by the spec and skip seed wh
   assert.equal(Prompts.inputTokenLimit("global"), tokens.globalInput);
   for (const s of ["section", "repair"]) assert.equal(Prompts.inputTokenLimit(s), tokens.writerInput);
   assert.equal(Prompts.estimateTokens("a".repeat(Prompts.LIMITS.bytesPerToken * 10)), 10);
+});
+
+test("modelParams never sends temperature to a model that rejects it (GPT-6.1 Sol: require_parameters would 404)", () => {
+  const sol = Prompts.modelParams("openai/gpt-6.1-sol", "plan");
+  assert.equal("temperature" in sol, false);
+  assert.deepEqual({ ...sol.reasoning }, { effort: "medium" });
+  assert.equal(Prompts.modelParams("xiaomi/mimo-v2.6-flash", "plan").temperature, 0);
+});
+
+test("English lecture: writer stages get the English rules, section/repair schemas add a nullable src to every claim", () => {
+  const ko = Prompts.systemFor("section", OFF), en = Prompts.systemFor("section", OFF, "en");
+  assert.ok(!ko.includes("[영어 강의]") && en.includes("[영어 강의]") && en.includes("[원문 대조]"));
+  assert.ok(en.startsWith(ko), "영어 규칙은 끝에 붙는다(접두 캐시)");
+  assert.ok(Prompts.systemFor("global", OFF, "en").includes("[영어 강의]") && !Prompts.systemFor("global", OFF, "en").includes("[원문 대조]"));
+  assert.equal(Prompts.systemFor("plan", OFF, "en"), Prompts.systemFor("plan", OFF));
+  const body = { section: s1, withGist: true, options: OFF };
+  const plain = JSON.stringify(Prompts.outputSchema("section", body)), withSrc = Prompts.outputSchema("section", body, "en");
+  assert.ok(!plain.includes('"src"'));
+  assert.ok(Contracts.isStrictCompatible(withSrc));
+  assert.deepEqual(withSrc.properties.gist.properties.src, { type: ["string", "null"], maxLength: 600 });
+  assert.equal(JSON.stringify(withSrc).split('"src":').length - 1, plain.split('"basis":').length - 1, "주장마다 하나");
 });

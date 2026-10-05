@@ -92,7 +92,7 @@
 - 사용자가 문제 보고 시 진단 파일(`summrizei-diagnostic-<날짜>.json`)을 첨부했습니다.
 
 **확인**
-- 평문 JSON이다: `{v: 2, createdAt, version, events: [...]}`. `version`은 확장 버전이다.
+- 평문 JSON이다: `{v: 3, createdAt, version, env, events: [...]}`. `version`은 확장 버전, `env`는 허용 키만 담은 환경 요약(앱·브라우저·저장공간·권한·설정·로그인·서버 응답·로그 범위, `lib/diagnostics.js` ENV_KEYS)이다. `auth.userId`와 이벤트의 `jobId`로 서버 `usage_events`(user_id·job_id)를 찾는다.
 
 **조치**
 1. 파일을 열어 `events`의 `stage`·`status`·`code`·`ms`로 실패 지점을 찾습니다. 강의 내용은 들어 있지 않습니다(허용 필드만 내보낸다).
