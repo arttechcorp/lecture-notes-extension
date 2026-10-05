@@ -595,13 +595,18 @@ function createServer(env=process.env,deps={}){
           if(choice?.finish_reason!=="stop")throw Object.assign(new Error("provider_output_incomplete"),{detail:"incomplete."+String(choice?.finish_reason||"none").toLowerCase().replace(/[^a-z0-9_]/g,"").slice(0,30)});
           let parsed;try{parsed=parseNote(choice.message.content);}catch{throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_json"});}
           if(stage==="plan")parsed=NoteContract.canonicalPlanIds(parsed); // 제공자가 id pattern 을 강제하지 않는다 — 검사 전에 C1../S1.. 로 다시 매긴다
-          if(!Contracts.validate(outSchema,parsed).ok)parsed=Contracts.salvage(outSchema,parsed).value; // 어긋난 블록만 null 로 — 섹션 전체를 버리지 않는다
+          // 어긋난 블록만 null 로 — 섹션 전체를 버리지 않는다. 비운 블록의 원래 봉투는 salvaged 로 돌려줘 클라이언트가 repair 로 고치게 한다.
+          let salvaged=null;
+          if(!Contracts.validate(outSchema,parsed).ok){
+            const raw=parsed;parsed=Contracts.salvage(outSchema,parsed).value;
+            if(stage==="section"||stage==="repair")for(const [k,v] of Object.entries(raw?.blocks||{}))if(v&&typeof v==="object"&&!Array.isArray(v)&&parsed?.blocks?.[k]===null)(salvaged??={})[k]=v;
+          }
           const r=Contracts.validate(outSchema,parsed);
           if(!r.ok)throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_schema."+String(r.errors?.[0]?.path||r.errors?.[0]?.keyword||"x").toLowerCase().replace(/[^a-z0-9_.]/g,"_").slice(0,40)});
           // 계획 호출이 끝난 뒤에만 분류 결과를 기다린다 — 앞서 병렬로 나간 호출이고 이미 끝났거나 5초 안에 끝난다.
           const classified=classifying?await classifying:null;
           if(classified){meta.subject=classified.subject;meta.subjectConf=classified.conf;}
-          return {amount,reported,payload:{...(stage==="plan"?{plan:parsed}:{output:parsed}),usage:{...usage,costUsd:reported?amount:reserve/100},promptVersion:Prompts.PROMPT_VERSION,schemaVersion:c.remoteConfig.schemaVersion,noteSpecVersion:NoteContract.NOTE_SPEC_VERSION}};
+          return {amount,reported,payload:{...(stage==="plan"?{plan:parsed}:{output:parsed}),...(salvaged?{salvaged}:{}),usage:{...usage,costUsd:reported?amount:reserve/100},promptVersion:Prompts.PROMPT_VERSION,schemaVersion:c.remoteConfig.schemaVersion,noteSpecVersion:NoteContract.NOTE_SPEC_VERSION}};
         }catch(error){if(retry===attempts-1)throw error.charged||error.refund?error:Object.assign(error,{code:error.code||"provider_failed_or_invalid_output",charged:{amount,reported,usage}});} // 형식 실패: 보고된 금액만 청구한다
       }
     });

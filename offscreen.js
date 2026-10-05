@@ -2,6 +2,9 @@
 let session=null,generation=0,starting=false,summaryController=null,archiveBusy=false,bg=null,sink=null; // bg: 실행 중인 백그라운드 작업 {jobId,ctl} — 한 번에 하나
 // 파이프라인 진단 이벤트: 한 버스를 어드민(실시간 포트)과 암호화 로컬 로그가 함께 구독한다. 파이프라인에는 예외를 삼키는 safe 껍데기만 넘긴다.
 const bus=new PipelineEvents.EventBus(),events=PipelineEvents.safe(bus);
+// 확장 버전: offscreen 에는 getManifest 가 없어 패키지의 manifest.json 을 한 번 읽는다(서비스 요청의 x-client-version·진단 파일에 쓴다).
+const versionP=(async()=>{try{return chrome.runtime.getManifest?.()?.version||(await (await fetch(chrome.runtime.getURL("manifest.json"))).json()).version||null;}catch{return null;}})();
+versionP.then(v=>{if(v)globalThis.SUMMRIZEI_VERSION=v;});
 const storeP=PackageStore.indexedDbAdapter().then(PackageStore.createStore); // 로그와 백그라운드 작업이 한 암호화 저장소를 나눠 쓴다
 storeP.then(store=>(sink=new PipelineEvents.LogSink(bus,store)).start()).catch(()=>events.emit({stage:"system",level:"warn",code:"LOG_STORE_UNAVAILABLE"}));
 events.emit({stage:"system",code:"BOOT",msg:"offscreen"});
@@ -180,7 +183,7 @@ async function writeJobDiag(jobId){
     await sink?.flush();
     const evs=(await (await storeP).readLogs()).filter(e=>e.jobId===jobId);
     if(!evs.length)return;
-    const bundle=Diagnostics.exportBundle(evs,{version:chrome.runtime.getManifest?.()?.version??null});
+    const bundle=Diagnostics.exportBundle(evs,{version:await versionP});
     await chrome.runtime.sendMessage({target:"background",type:"DIAG_EXPORT",jobId,text:JSON.stringify(bundle,null,2)});
   }catch{events.emit({stage:"library",jobId,level:"warn",code:"DIAG_EXPORT_FAILED"});}
 }

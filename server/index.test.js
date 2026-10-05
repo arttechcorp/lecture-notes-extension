@@ -3104,3 +3104,17 @@ test("neither the service-role key nor any token appears in an account-deletion 
       assert.ok(!seen.join("\n").includes(secret), "응답에 있으면 안 된다: " + secret);
   });
 });
+
+test("a section block that breaks the schema is nulled and its original envelope comes back as salvaged; valid blocks pass through", async () => {
+  const broken = JSON.parse(JSON.stringify(s1Out));
+  const bad = Object.keys(broken.blocks).find(k => broken.blocks[k]);
+  broken.blocks[bad] = { ...broken.blocks[bad], notAField: "x" };
+  await withNoteServer(async () => noteReply(broken), async url => {
+    const res = await req(url, "/v1/write", "POST", sectionIn({ requestId: "salvage-1" }), tokenB);
+    assert.equal(res.status, 200);
+    const out = await res.json();
+    assert.equal(out.output.blocks[bad], null);
+    assert.deepEqual(out.salvaged, { [bad]: broken.blocks[bad] });
+    for (const k of Object.keys(s1Out.blocks)) if (k !== bad) assert.deepEqual(out.output.blocks[k], s1Out.blocks[k]);
+  });
+});
