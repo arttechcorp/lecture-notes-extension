@@ -1269,8 +1269,10 @@
     const evUnit = new Map(evidence.map(e => [e.id, e.unitId]));
     const citedUnits = new Set([...finalCited].map(r => evUnit.get(r)).filter(Boolean));
     const uncited = [], uncitedRanges = [];
+    // 판정이 "강의 내용 없음"(인사·출석·잡담, 중요도 1.5 미만)으로 본 유닛은 세지 않는다 — 작성 지침이 일부러 다루지 않는 구간이다. 판정 없는(Free) 유닛은 센다.
+    const chatter = uid => (unitById.get(uid)?.judge?.importance ?? 5) < 1.5;
     for (const st of secLive.values()) for (const uid of st.plan.unitIds)
-      if (!citedUnits.has(uid)) {
+      if (!citedUnits.has(uid) && !chatter(uid)) {
         uncited.push(uid);
         if (unitById.has(uid)) uncitedRanges.push({ t0: unitById.get(uid).t0, t1: unitById.get(uid).t1 });
       }
