@@ -28,6 +28,13 @@ dialog.drawer::backdrop{background:#0006;backdrop-filter:none}
 .drawer-item{display:flex;align-items:center;min-height:44px;padding:0 12px;border:0;border-radius:10px;background:none;color:var(--ink);font:500 14px var(--sans);text-align:left;text-decoration:none;cursor:pointer}
 .drawer-item:hover{background:var(--soft)}
 .drawer-divider{width:100%;margin:8px 0;border:0;border-top:1px solid var(--line)}
+dialog.drawer[open]{display:flex;flex-direction:column}
+.drawer-list{flex:1}
+.drawer-primary{gap:12px;font-weight:600;font-size:15px}
+.drawer-primary svg{flex:none;width:20px;height:20px}
+.drawer-footer{display:flex;flex-wrap:wrap;column-gap:4px;margin-top:auto;padding-top:16px;border-top:1px solid var(--line)}
+.drawer-minor{min-height:44px;padding:0 10px;color:var(--muted);font-size:12px;font-weight:400}
+.drawer-minor:hover{color:var(--ink)}
 
 /* /account 페이지 */
 .account-main{display:grid;grid-template-columns:200px minmax(0,1fr);gap:48px;padding-block:40px 96px;min-height:60vh}

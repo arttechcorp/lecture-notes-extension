@@ -46,20 +46,25 @@
   const list = el("div", "drawer-list");
   list.setAttribute("role", "menu");
   list.setAttribute("aria-label", "계정 메뉴");
-  const logout = el("button", "drawer-item", "로그아웃");
+  const logout = el("button", "drawer-item drawer-minor", "로그아웃");
   logout.type = "button";
   logout.setAttribute("role", "menuitem");
   logout.hidden = true;
+  // 1순위(내 노트)를 맨 위에 따로 두고, 2순위(계정·결제·구독)를 그 아래, 나머지는 바닥에 작은 회색 글씨로 둔다.
+  const notes = link("내 노트 (웹)", "/library");
+  notes.classList.add("drawer-primary");
+  notes.insertAdjacentHTML("afterbegin", '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19v-3"/><path d="M9 7.5h6M9 11h4"/></svg>');
+  const minor = (text, href) => { const a = link(text, href); a.classList.add("drawer-minor"); return a; };
+  const footer = el("div", "drawer-footer");
+  footer.setAttribute("role", "none");
+  footer.append(minor("고객지원", "mailto:" + support), minor("이용약관", "/policies/terms"), minor("개인정보처리방침", "/policies/privacy"), logout);
   list.append(
+    notes,
+    el("hr", "drawer-divider"),
     link("사용자 정보", "/account"),
-    link("내 노트 (웹)", "/library"),
     link("결제 정보", "/account/billing"),
     link("구독 설정", "/account/subscription"),
-    el("hr", "drawer-divider"),
-    link("고객지원", "mailto:" + support),
-    link("이용약관", "/policies/terms"),
-    link("개인정보처리방침", "/policies/privacy"),
-    logout,
+    footer,
   );
   dlg.append(head, userBox, list);
   document.body.append(dlg);
