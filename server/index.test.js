@@ -1216,7 +1216,7 @@ const repairIn = o => ({ model, requestId: "write-r", noteSpecVersion, stage: "r
   repair: [{ blockId: "S1_B3", previous: noteWriter.sections.S1.first.blocks.S1_B3, errors: [{ code: "VAL_EVIDENCE_MISSING", detail: ["/content/note"] }] }], ...o });
 // 출력 스키마가 요청 계획의 blockId 를 요구하므로 제공자는 fixture 의 유효 출력을 그대로 돌려준다.
 const s1Out = noteWriter.sections.S1.first, globalOut = noteWriter.global, repairOut = { blocks: { S1_B3: noteWriter.sections.S1.first.blocks.S1_B3 } };
-const noteReply = (content, o = {}) => ({ ok: true, json: async () => ({ choices: [{ finish_reason: o.finish || "stop", message: { content: typeof content === "string" ? content : JSON.stringify(content) } }], usage: { prompt_tokens: 800, completion_tokens: 90, cost: Object.hasOwn(o, "cost") ? o.cost : .002 } }) });
+const noteReply = (content, o = {}) => ({ ok: true, json: async () => ({ choices: [{ finish_reason: o.finish || "stop", message: { content: typeof content === "string" ? content : JSON.stringify(content) } }], usage: o.usage ?? { prompt_tokens: 800, completion_tokens: 90, cost: Object.hasOwn(o, "cost") ? o.cost : .002 } }) });
 const near = (a, b, label) => assert.ok(Math.abs(a - b) < 1e-9, label + ": " + a + " != " + b);
 const withNoteServer = async (fetcher, run, extra = {}) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
@@ -1371,8 +1371,8 @@ test("a length cut-off is not retried, answers llm_output_truncated and charges 
     await errorOf(await req(url, "/v1/write", "POST", sectionIn({ requestId: "cut-after-retry" })), 422, "llm_output_truncated");
     near(ledger().spentCents - before, settle(.001 + .003), "두 호출의 보고 비용");
 
-    // 비용을 보고하지 않은 잘림은 모르는 비용이라 예약을 그대로 둔다.
-    replies.push(noteReply('{"blocks":[', { finish: "length", cost: null }));
+    // 비용도 토큰 수도 보고하지 않은 잘림은 모르는 비용이라 예약을 그대로 둔다(토큰 수가 있으면 단가표로 계산한다).
+    replies.push(noteReply('{"blocks":[', { finish: "length", usage: {} }));
     const spent = ledger().spentCents;
     await errorOf(await req(url, "/v1/write", "POST", sectionIn({ requestId: "cut-unreported" })), 422, "llm_output_truncated");
     const job = ledger().jobs["cut-unreported"];
@@ -2219,7 +2219,7 @@ test("a client abort during the global wait refunds and frees the local slot", a
   }, { env: { PROVIDER_CONCURRENCY_JSON: JSON.stringify({ [model]: 1 }), PROVIDER_QUEUE_MS: "5000" } });
 });
 
-test("unreported costs settle as null and reported charges settle in micros", async () => {
+test("unreported costs are priced from tokens (null only without tokens) and reported charges settle in micros", async () => {
   let cost = null;
   await withSupabase(async ({ url, sb }) => {
     const jwt = ec1();
@@ -2227,7 +2227,7 @@ test("unreported costs settle as null and reported charges settle in micros", as
     sb.other = async () => reply();
     const body = i => sectionIn({ requestId: "cost-" + i });
     assert.equal((await req(url, "/v1/write", "POST", body(1), jwt)).status, 200);
-    assert.equal(settledOf(sb, 0).p_actual_cost_micros, null, "비용을 보고하지 않으면 null — DB가 예약액을 그대로 청구한다");
+    assert.equal(settledOf(sb, 0).p_actual_cost_micros, Math.ceil(800 * .1 + 90 * .4), "비용을 보고하지 않으면 토큰 수 × 단가표(flash-lite 0.1/0.4 USD per 1M)로 계산한다");
     assert.equal(settledOf(sb, 0).p_status, "ok");
     cost = .0023;
     assert.equal((await req(url, "/v1/write", "POST", body(2), jwt)).status, 200);
@@ -2266,7 +2266,7 @@ test("a length cut-off settles as an error carrying the reported charge, not as 
     });
     await errorOf(await req(url, "/v1/write", "POST", sectionIn({ requestId: "cut-1" }), jwt), 409, "request_already_reserved_or_processed");
 
-    sb.other = async () => noteReply('{"blocks":[', { finish: "length", cost: null });
+    sb.other = async () => noteReply('{"blocks":[', { finish: "length", usage: {} });
     await errorOf(await req(url, "/v1/plan", "POST", planIn({ requestId: "cut-2" }), jwt), 422, "llm_output_truncated");
     const unreported = settledOf(sb, 1);
     assert.equal(unreported.p_status, "error");

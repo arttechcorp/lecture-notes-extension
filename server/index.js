@@ -6,6 +6,13 @@ const Contracts=require("../lib/contracts.js"),NoteContract=require("../lib/note
 const {createAuth}=require("./auth.js"),{fileUsage,supabaseUsage,FAIL_CODE}=require("./usage.js"),{supabaseVault}=require("./vault-store.js");
 const RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"google/gemini-2.5-pro":[1.25,10],"anthropic/claude-haiku-4.5":[1,5],"anthropic/claude-sonnet-4.6":[3,15],"anthropic/claude-sonnet-5":[2,10],"openai/gpt-6.1-sol":[2,10],"xiaomi/mimo-v2.6-pro":[.435,.87],"xiaomi/mimo-v2.6-flash":[.14,.28]};
 // 이미지 입력은 텍스트와 단가가 다르고 출력도 훨씬 짧다. /v1/plan·/v1/write 와 예약 계산을 섞지 않는다.
+// 제공자가 비용(usage.cost)을 보고하지 않으면 토큰 수 × 단가표(USD/100만 토큰)로 계산한다 — 예약액 전체를 청구하지 않게.
+// 토큰 수도 없으면 null(미보고) — 장부가 예약액을 청구한다. 추론 토큰은 completion_tokens 에 들어 있다.
+const costOf=(u,pi,po)=>{
+  if(typeof u.cost==="number"&&Number.isFinite(u.cost)&&u.cost>=0)return u.cost;
+  const i=Number(u.prompt_tokens),o=Number(u.completion_tokens);
+  return Number.isFinite(i)&&Number.isFinite(o)&&i>=0&&o>=0&&i+o>0?(i*pi+o*po)/1e6:null;
+};
 const VISION_RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"mistralai/ministral-8b-2512":[.15,.15],"qwen/qwen3-vl-8b-instruct":[.12,.45],"openai/gpt-6-luna":[.1,.5]};
 // 구조화 출력은 상자 좌표까지 JSON으로 나가 순수 텍스트보다 길다.
 const VISION_MAX_TOKENS=8192;
@@ -426,7 +433,7 @@ function createServer(env=process.env,deps={}){
         if(!response.ok)throw new Error("provider_failed");
         const raw=await boundedResponse(response,1024*1024),u=raw.usage||{};
         usage={promptTokens:usage.promptTokens+(Number(u.prompt_tokens)||0),completionTokens:usage.completionTokens+(Number(u.completion_tokens)||0)};
-        if(typeof u.cost==="number"&&Number.isFinite(u.cost)&&u.cost>=0)amount+=u.cost;else reported=false;
+        { const c=costOf(u,pi,po); if(c===null)reported=false;else amount+=c; }
         // 형식 실패(잘림·파손·계약 불일치)만 같은 제공자로 한 번 더 간다 — 돈은 이미 나갔다.
         try{
           if(raw.choices?.[0]?.finish_reason!=="stop")throw new Error("provider_output_incomplete");
@@ -580,7 +587,7 @@ function createServer(env=process.env,deps={}){
         if(!response.ok)throw Object.assign(new Error("provider_failed"),{detail:"provider_http_"+response.status},retry===0&&response.status>=400&&response.status<500?{refund:true,code:"provider_failed_or_invalid_output"}:{});
         const raw=await boundedResponse(response,1024*1024),u=raw.usage||{},choice=raw.choices?.[0];
         usage={promptTokens:usage.promptTokens+(Number(u.prompt_tokens)||0),completionTokens:usage.completionTokens+(Number(u.completion_tokens)||0)};
-        if(typeof u.cost==="number"&&Number.isFinite(u.cost)&&u.cost>=0)amount+=u.cost;else reported=false;
+        { const c=costOf(u,pi,po); if(c===null)reported=false;else amount+=c; }
         // 잘림은 한도를 키워 재시도하지 않는다 — 클라이언트가 섹션을 나눠 새 요청으로 보낸다(§6.5). 재시도 없이 지금까지 나간 비용만 청구한다.
         if(choice?.finish_reason==="length")throw Object.assign(new Error("llm_output_truncated"),{code:"llm_output_truncated",charged:{amount,reported,usage}});
         // 형식 실패(파손·계약 불일치·repair 개수 불일치)만 같은 모델·제공자로 한 번 더 간다 — 돈은 이미 나갔다.
