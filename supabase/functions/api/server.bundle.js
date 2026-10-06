@@ -687,6 +687,13 @@ const __defs = {
       prunedItems: { type: "integer", minimum: 0 },
       prunedQuestions: { type: "integer", minimum: 0 },
     }, [])),
+    // 끝내 불명확해서 확정 본문에서 뺀 주장·블록을 데이터로 보존한다(제안서 §4). 렌더는 이 칸을 보지 않는다 —
+    // 확정 본문이 아니라 확인 필요 보관이다. claim 단위 보류는 paths+claims(봉투 안 경로와 원래 주장)에,
+    // 필수 칸을 건드린 블록 보류는 envelope(보류 당시 봉투 전체)에 남는다 — 정상 조건·사례를 저장 구조에서 파괴하지 않기 위해서다.
+    pending: arr(obj({
+      blockId: pat(IDS.block), sectionId: orNull(pat(IDS.section)), type: en(WRITER_TYPES),
+      paths: arr(s64, 8, 1), claims: arr(claim, 8), envelope: { type: ["object", "null"] },
+    }), 200),
   }, ["schemaVersion", "noteSpecVersion", "promptVersion", "status", "tier", "policy", "meta", "concepts", "global", "sections", "registry", "figures", "sources", "notices", "dropped", "pruned", "advisories"]);
 
   const schemas = { claim, content, check: checkSchema, plannerOutput, plan: planSchema, note: noteSchema };
@@ -1571,13 +1578,27 @@ const __defs = {
     const unitById = new Map(units.map(u => [u.unitId, u]));
     const dropped = [], pruned = [], failedIds = new Set();
     const live = new Map(), secLive = new Map(), calcMap = new Map();
-    const dropOf = (b, cause = "direct") => ({ blockId: b.id, type: b.type, codes: [...new Set(b.errors.map(e => e.code))].slice(0, 8), cause });
+    // 확인 필요 보존(§4 제안): 호출자가 섹션 출력 옆에 실어 둔다 — 주장 단위는 claims, 블록 단위는 envelope.
+    // 블록 보류는 봉투가 남아 있으므로 탈락(dropped)으로 세지 않는다.
+    const pending = [], pendingIds = new Set();
+    for (const s of sections) for (const p of s.pending ?? []) {
+      if (pending.length >= 200) break;
+      const entry = {
+        blockId: p.blockId, sectionId: p.sectionId ?? s.sectionId ?? null, type: p.type,
+        paths: (p.paths || []).map(String).slice(0, 8),
+        claims: (p.claims || []).map(deep).slice(0, 8),
+        envelope: p.envelope && typeof p.envelope === "object" ? deep(p.envelope) : null,
+      };
+      pending.push(entry);
+      if (entry.envelope) pendingIds.add(entry.blockId);
+    }
+        const dropOf = (b, cause = "direct") => ({ blockId: b.id, type: b.type, codes: [...new Set(b.errors.map(e => e.code))].slice(0, 8), cause });
     for (const sec of plan.sections || []) {
       const r = results.get(sec.sectionId);
       const valid = r ? r.blocks.filter(b => !b.errors.length) : [];
       // 실패 섹션은 아무것도 남기지 않는다 — 블록은 dropped 에도 적지 않는다(§12 b).
       if (!r || r.errors.length || !valid.length) { failedIds.add(sec.sectionId); continue; }
-      for (const b of r.blocks) if (b.errors.length) dropped.push(dropOf(b, "direct"));
+      for (const b of r.blocks) if (b.errors.length && !pendingIds.has(b.id)) dropped.push(dropOf(b, "direct"));
       for (const [k, v] of Object.entries(r.calc)) calcMap.set(k, v);
       sec.blocks.forEach((pb, i) => {
         const b = valid.find(x => x.id === pb.blockId);
@@ -1811,6 +1832,7 @@ const __defs = {
       },
       concepts, global: globalOut, sections: secOut, registry: reg, figures: figs,
       sources, notices, dropped, pruned, advisories, stats,
+      ...(pending.length ? { pending } : {}),
     };
     // 조립 결과가 계약을 깨면 모델이 아니라 이 코드의 버그다 — 조용히 보내지 않고 즉시 던진다.
     const nv = Contracts.validate(schemas.note, note);
@@ -2019,33 +2041,71 @@ const __defs = {
     };
   }
 
+  // /v1/judge 항목당 상한(서버 task 항목 8000자). 넘는 주장은 잘라서 오판하느니 보내지 않는다.
+  const JUDGE_CHARS = 8000;
+  // 분할 판정의 모순 하한: 근거를 묶음으로 나눠 판정할 때 어느 묶음이든 이 미만이면 지지로 받지 않는다 —
+  // 여러 묶음의 최댓값만 취해 통과시키면 모순 근거를 못 본다(제안서 §4).
+  const CONTRA_FLOOR = .2;
+
+  // 근거 목록을 joined text 가 limit 자 이하인 묶음으로 나눈다 — 묶음 경계는 근거 항목 단위다.
+  // 하나가 limit 를 넘는 근거는 어느 묶음에도 못 들어가니 뺀다(잘라서 보내지 않는다).
+  function evidenceBundles(items, limit = JUDGE_CHARS) {
+    const out = [];
+    let cur = [], len = 0;
+    for (const e of items || []) {
+      const t = String(e?.text ?? "");
+      if (!t || t.length > limit) continue;
+      if (cur.length && len + t.length + 1 > limit) { out.push(cur); cur = []; len = 0; }
+      cur.push(e); len += t.length + 1;
+    }
+    if (cur.length) out.push(cur);
+    return out;
+  }
+
   // T5 근거 지지(유료). judge(items)는 /v1/judge task:"support" 항목 {itemId, text, context}를 받아
   // [{itemId, score}](또는 ServiceClient.judge 응답 {results})를 돌려주는 주입 함수다. score = p(supported).
   // 점수가 없는 항목(null, 판정 없음)은 실패가 아니다. 보내지 못한 항목과 함께 unjudged 에 인덱스로 남긴다.
-  // 동기 검사와 독립이라 verifySection 결과를 받지 않고 같은 blocks·evidence 를 다시 받는다.
-  // ponytail: 서버 상한(항목당 8000자, 요청당 200건·64KB)은 judge 구현이 나눠 보낸다. 8000자를 넘는 항목은 잘라서 오판하느니 보내지 않는다.
-  async function checkSupport(blocks, evidence, { judge, threshold = .5 } = {}) {
-    const textById = new Map(evidence.map(e => [e.id, String(e.text ?? "")]));
-    const items = [];
+  // 인용 근거가 8000자를 넘으면 묶음으로 나눠 각각 판정한다 — 한 묶음도 점수를 못 받으면 그 블록은 미판정이다.
+  // 합격 규칙: 최고점이 threshold 이상이면서 최저점이 floor(모순 하한) 이상 — 최댓값만으로는 통과시키지 않는다.
+  // 일부 묶음만 점수가 나와도 미판정은 미판정이다 — 다만 받은 점수는 scores 에 진단용(최고점)으로 남긴다.
+  // scores 의 진단 값은 묶음 최고점이다. 동기 검사와 독립이라 verifySection 결과를 받지 않고 같은 blocks·evidence 를 다시 받는다.
+  // ponytail: 서버 상한(요청당 200건·64KB)은 judge 구현이 나눠 보낸다.
+  async function checkSupport(blocks, evidence, { judge, threshold = .5, floor = CONTRA_FLOOR } = {}) {
+    const evById = new Map(evidence.map(e => [e.id, e]));
+    const items = [], slots = [], totals = new Map();
     blocks.forEach((block, index) => {
       const ids = Array.isArray(block?.evidenceIds) ? block.evidenceIds : [];
       const text = textOf(block).replace(REF, " ").trim();
-      const context = ids.filter(id => textById.has(id)).map(id => textById.get(id)).join("\n").trim();
-      if (text && context && text.length <= 8000 && context.length <= 8000) items.push({ itemId: String(index), text, context });
+      if (!text || text.length > JUDGE_CHARS) return;
+      for (const bundle of evidenceBundles(ids.filter(id => evById.has(id)).map(id => evById.get(id)))) {
+        const context = bundle.map(e => String(e.text ?? "")).join("\n").trim();
+        if (!context) continue;
+        slots.push(index); totals.set(index, (totals.get(index) ?? 0) + 1);
+        items.push({ itemId: String(items.length), text, context });
+      }
     });
     const raw = items.length ? await judge(items) : [];
     const scores = new Map((Array.isArray(raw) ? raw : raw?.results ?? []).map(r => [r?.itemId, r?.score]));
-    const failing = [], judged = new Set(), byIndex = blocks.map(() => null);
-    for (const { itemId } of items) {
-      const score = scores.get(itemId);
-      if (typeof score !== "number" || Number.isNaN(score)) continue;
-      judged.add(+itemId); byIndex[+itemId] = score;
-      if (score < threshold) failing.push({ index: +itemId, errors: [err("VAL_SUPPORT_LOW", [score])] });
+    const judged = new Set(), byIndex = blocks.map(() => null), perBlock = new Map();
+    items.forEach((it, i) => {
+      const score = scores.get(it.itemId);
+      if (typeof score !== "number" || Number.isNaN(score)) return;
+      const index = slots[i];
+      (perBlock.get(index) ?? perBlock.set(index, []).get(index)).push(score);
+      byIndex[index] = Math.max(byIndex[index] ?? -Infinity, score);
+    });
+    const failing = [];
+    for (const [index, list] of perBlock) {
+      if (list.length < totals.get(index)) continue; // 일부 묶음 미판정 — 통과도 거짓도 아니다
+      judged.add(index);
+      if (Math.max(...list) < threshold || Math.min(...list) < floor)
+        failing.push({ index, errors: [err("VAL_SUPPORT_LOW", [Math.max(...list)])] });
     }
+    failing.sort((a, b) => a.index - b.index);
     return { ok: !failing.length, blocks: failing, unjudged: blocks.map((_, i) => i).filter(i => !judged.has(i)), scores: byIndex };
   }
 
-  const api = { verifySection, checkSupport, verbatimIds, textOf, numbersOf };
+  const api = { verifySection, checkSupport, verbatimIds, textOf, numbersOf, evidenceBundles, JUDGE_CHARS, CONTRA_FLOOR };
   globalThis.Verify = api;
   if (typeof module !== "undefined") module.exports = api;
 })();
