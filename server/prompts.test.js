@@ -32,7 +32,7 @@ const basisOf = (schema, out = new Set()) => {
 };
 
 test("every stage has a versioned system prompt that treats input as untrusted data", () => {
-  assert.equal(Prompts.PROMPT_VERSION, "note-v3");
+  assert.equal(Prompts.PROMPT_VERSION, "note-v5");
   assert.match(Prompts.PROMPT_VERSION, /^[a-z0-9][a-z0-9._-]*$/);
   assert.deepEqual(Prompts.STAGES, ["plan", "section", "global", "repair"]);
   for (const stage of Prompts.STAGES) {
@@ -77,6 +77,10 @@ test("output schemas are built per request from the normalized plan", () => {
   for (const b of basisOf(sec)) assert.ok(!["synthetic", "external"].includes(b), "꺼진 옵션의 basis 는 스키마에도 없다: " + b);
   const aug = Prompts.outputSchema("section", { section: s1, withGist: true, options: { syntheticExamples: true, externalAugmentation: true } });
   assert.ok(basisOf(aug).includes("synthetic") && basisOf(aug).includes("external"), "켠 옵션의 basis 만 스키마에 남는다");
+  // 확인 항목의 대상은 이 요청의 계획 블록만이다 — 요청이 아는 id 이므로 enum 으로 미리 좁힌다(제공자는 enum 을 강제한다).
+  const chkEnum = sec.properties.checks.items.properties.targetIds.items;
+  assert.deepEqual(chkEnum, { type: "string", enum: ids }, "확인 항목 대상 enum = 계획 blockId");
+  assert.ok(!chkEnum.enum.includes("n1") && !chkEnum.enum.some(x => /^GB/.test(x)), "지도 노드 키·전역 id 는 대상이 아니다");
   const rep = Prompts.outputSchema("repair", { section: s1, repair: [{ blockId: "S1_B2" }], options: { ...OFF } });
   assert.deepEqual(Object.keys(rep.properties.blocks.properties), ["S1_B2"], "repair 는 실패한 블록만 다시 쓴다");
   assert.throws(() => Prompts.outputSchema("repair", { section: s1, repair: [{ blockId: "S1_B9" }], options: { ...OFF } }), /계획에 없는 블록 id/);
@@ -86,12 +90,52 @@ test("output schemas are built per request from the normalized plan", () => {
     assert.equal(Contracts.isStrictCompatible(Prompts.outputSchema(stage, body)), true, stage + " 출력");
 });
 
+test("editorial guidance: slot meanings, comparison table, logic kinds, quiz allocation, synthesis scope, ref ids", () => {
+  for (const stage of ["section", "repair"]) {
+    const t = Prompts.systemFor(stage);
+    assert.match(t, /definition=무엇인가/, stage + ": B05 칸 뜻");
+    assert.match(t, /explanation=어떻게 이해하는가/, stage);
+    assert.match(t, /mechanism=왜·어떻게 작동하는가/, stage);
+    assert.match(t, /scope=언제 성립하는가/, stage);
+    assert.match(t, /다른 칸을 채우는 의역 반복은 하지 않는다/, stage + ": 슬롯 간 의역 반복 금지");
+    assert.match(t, /표가 비교를 다 담는다/, stage + ": B06 비교를 산문으로 반복 금지");
+    assert.match(t, /확인되지 않은 칸은 null/, stage + ": 미확인 셀 null");
+    assert.match(t, /논증\(argument\)을 구분한다/, stage + ": B07 순서·인과·논증 구분");
+    assert.match(t, /인과로 읽지 않는다/, stage + ": 순서를 인과로 읽지 않음");
+  }
+  const plan = Prompts.systemFor("plan");
+  assert.match(plan, /문항은 노트 전체 4~8개/, "plan: 문항 예산");
+  assert.match(plan, /B14라면 문항 수와 각 문항의 목적·겨눔 대상/, "plan: B14 purpose 에 배분 명시");
+  assert.match(plan, /한 B06에 모은다/, "plan: 같은 축 비교를 한 표에");
+  const sec = Prompts.systemFor("section"), rep = Prompts.systemFor("repair"), glob = Prompts.systemFor("global");
+  assert.match(sec, /purpose에 배정된 문항 수와 각 문항의 목적을 그대로 따라/, "section: 배분 준수");
+  assert.match(sec, /지도 노드 key\(n1 등\)는 어떤 칸의 문서 참조도 아니다/, "section: 노드 키는 참조 아님");
+  assert.match(sec, /확인 항목의 targetIds에는 이 섹션에 계획된 블록 id만 쓴다/, "section: 확인 항목 대상은 자기 섹션 블록");
+  assert.match(sec, /answer\.reviewIds에는 현재 B14 블록을 제외한 실제 본문 블록\(S#_B#\) id만 쓴다/, "section: 복습 위치 도메인");
+  assert.match(sec, /같은 섹션 블록도 되고/, "section: 같은 섹션 복습 허용");
+  assert.match(sec, /전역 블록\(GB#\)은 안 된다/, "section: 복습에 GB 불가");
+  assert.match(sec, /allowedRefs 배열이 칸별 허용 목록이다/, "section: allowedRefs 는 칸별 목록");
+  assert.match(sec, /allowedRefs\.reviewIds가 그 목록이고/, "section: 복습 목록은 reviewIds");
+  assert.match(glob, /살아남은 모든 섹션의 재료를 두루 쓴다/, "global: 전 섹션 종합");
+  assert.match(glob, /입력에 있는 문서 id만 쓴다/, "global: 보이는 문서 id만");
+  assert.match(glob, /allowedRefs\.targetIds가 그 목록이다/, "global: allowedRefs");
+  assert.match(glob, /간선의 끝 표시일 뿐 문서 참조가 아니다/, "global: 노드 키는 문서 참조 아님");
+  assert.match(rep, /VAL_REF_UNKNOWN 대상·복습 참조가 계획에 없거나/, "repair: VAL_REF_UNKNOWN 뜻");
+  assert.match(rep, /allowedRefs/, "repair: allowedRefs 목록 안내");
+  assert.match(rep, /맞는 대상이 없으면 그 항목을 빼거나 블록 값을 null로 둔다/, "repair: 고치거나 항목 제외·보류");
+  assert.match(rep, /새 id를 지어내지 않는다/, "repair: id 지어내기 금지");
+});
+
 test("request contracts are the stage's own field lists", () => {
-  assert.deepEqual(Object.keys(Prompts.REQUEST.plan.properties), ["ir", "formulas", "figures", "recognition", "options"]);
-  assert.deepEqual(Object.keys(Prompts.REQUEST.section.properties), ["section", "concepts", "evidence", "registry", "figures", "options", "withGist"]);
-  assert.deepEqual(Object.keys(Prompts.REQUEST.repair.properties), ["section", "concepts", "evidence", "registry", "figures", "options", "repair"]);
-  assert.deepEqual(Object.keys(Prompts.REQUEST.global.properties), ["plan", "sections", "options"]);
-  for (const stage of ["plan", "section", "global"]) assert.equal(Contracts.isStrictCompatible(Prompts.REQUEST[stage]), true, stage + " 요청");
+  assert.deepEqual(Object.keys(Prompts.REQUEST.plan.properties), ["ir", "formulas", "figures", "recognition", "options", "allowedRefs"]);
+  assert.deepEqual(Object.keys(Prompts.REQUEST.section.properties), ["section", "concepts", "evidence", "registry", "figures", "options", "withGist", "allowedRefs"]);
+  assert.deepEqual(Object.keys(Prompts.REQUEST.repair.properties), ["section", "concepts", "evidence", "registry", "figures", "options", "repair", "allowedRefs"]);
+  assert.deepEqual(Object.keys(Prompts.REQUEST.global.properties), ["plan", "sections", "options", "allowedRefs"]);
+  // allowedRefs 는 네 단계 모두의 유일한 선택 키다 — 나머지 키는 모두 required 로 strict 규칙을 지킨다.
+  for (const stage of Prompts.STAGES)
+    assert.deepEqual(Object.keys(Prompts.REQUEST[stage].properties).filter(k => !Prompts.REQUEST[stage].required.includes(k)), ["allowedRefs"], stage + " 선택 키");
+  for (const stage of ["plan", "section", "global"])
+    assert.equal(Contracts.isStrictCompatible({ ...Prompts.REQUEST[stage], required: Object.keys(Prompts.REQUEST[stage].properties) }), true, stage + " 요청");
   // repair 의 previous 는 이전 봉투를 그대로 싣는 자유 칸이다 — strict 스키마가 아니라 계약 검증으로 본다.
   const body = {
     section: s1, concepts: plan.concepts,
@@ -102,6 +146,53 @@ test("request contracts are the stage's own field lists", () => {
     repair: [{ blockId: "S1_B3", previous: { free: ["form", 1, null] }, errors: [{ code: "VAL_EVIDENCE_MISSING", detail: ["/content/note"] }] }],
   };
   assert.ok(Contracts.validate(Prompts.REQUEST.repair, body).ok, "repair 요청 계약");
+});
+
+test("allowedRefs: 선택 키지만 실으면 모양·패턴·경계를 검증하고 출력 스키마를 좁힌다", () => {
+  const body = {
+    section: s1, concepts: plan.concepts,
+    evidence: [{ id: "U1.s1", unitId: "U1", kind: "slide", t0: 0, t1: 150, slideId: "sl-1", sourceId: "b1", role: "title", text: "원가는 생산량에 어떻게 반응하는가" }],
+    registry: [], figures: [], options: { ...OFF }, withGist: true,
+  };
+  const refs = {
+    targetIds: ["S1", "S1_B1", "S1_B2", "S1_B3", "S2_B1", "GB1", "C1", "S4_B1/P1"],
+    reviewIds: ["S1_B1", "S1_B2", "S1_B3", "S4_B2", "S2_B1"],
+  };
+  assert.ok(Contracts.validate(Prompts.REQUEST.section, body).ok, "없어도 된다(구 요청)");
+  assert.ok(Contracts.validate(Prompts.REQUEST.section, { ...body, allowedRefs: refs }).ok, "유효한 목록 통과");
+  assert.ok(Contracts.validate(Prompts.REQUEST.section, { ...body, allowedRefs: { targetIds: [], reviewIds: [] } }).ok, "빈 목록도 모양은 유효");
+  for (const [allowedRefs, why] of [
+    [{ targetIds: ["S1_B1"] }, "reviewIds 누락"],
+    [{ targetIds: ["n1"], reviewIds: [] }, "지도 노드 키는 대상 id 가 아니다"],
+    [{ targetIds: [], reviewIds: ["S1"] }, "reviewIds 는 섹션 블록(S#_B#)만"],
+    [{ targetIds: [], reviewIds: ["GB1"] }, "reviewIds 에 전역 블록 불가"],
+    [{ targetIds: [], reviewIds: [], extra: 1 }, "추가 속성 거절"],
+    ["S1_B1", "객체가 아님"],
+  ]) assert.ok(!Contracts.validate(Prompts.REQUEST.section, { ...body, allowedRefs }).ok, why);
+  // 출력 스키마: 대상·복습 칸은 목록 enum 으로 좁아지고 확인 항목 대상은 이 섹션의 계획 블록이다.
+  // S4 는 B09·B14 — B14 복습 칸의 자기 배제를 본다.
+  const s4 = plan.sections.find(s => s.sectionId === "S4");
+  const sec = Prompts.outputSchema("section", { section: s4, withGist: true, options: { ...OFF }, allowedRefs: refs });
+  const q = sec.properties.blocks.properties.S4_B2.properties.content.properties.items.items.properties;
+  assert.deepEqual(q.targetIds.items, { type: "string", enum: refs.targetIds }, "문항 대상은 targetIds enum");
+  assert.deepEqual(q.answer.properties.reviewIds.items, { type: "string", enum: ["S1_B1", "S1_B2", "S1_B3", "S2_B1"] }, "자기 B14(S4_B2) 제외");
+  assert.deepEqual(sec.properties.checks.items.properties.targetIds.items.enum, ["S4_B1", "S4_B2"], "확인 대상은 섹션 계획 블록 그대로");
+  const rep = Prompts.outputSchema("repair", { section: s4, repair: [{ blockId: "S4_B2" }], options: { ...OFF }, allowedRefs: refs });
+  assert.deepEqual(rep.properties.blocks.properties.S4_B2.properties.content.properties.items.items.properties.answer.properties.reviewIds.items.enum,
+    ["S1_B1", "S1_B2", "S1_B3", "S2_B1"], "repair 도 같은 목록·같은 자기 배제");
+  const glob = Prompts.outputSchema("global", { plan: { global: plan.global }, allowedRefs: refs });
+  assert.deepEqual(glob.properties.blocks.properties.GB2.properties.content.properties.propositions.items.properties.targetIds.items,
+    { type: "string", enum: refs.targetIds }, "전역 출력도 targetIds enum");
+  // allowedRefs 가 없으면 기존과 같다 — 대상 칸은 패턴이다.
+  const plain = Prompts.outputSchema("section", { section: s4, withGist: true, options: { ...OFF } });
+  const pq = plain.properties.blocks.properties.S4_B2.properties.content.properties.items.items.properties;
+  assert.equal(pq.targetIds.items.pattern, NoteContract.IDS.target);
+  assert.ok(!("enum" in pq.targetIds.items), "구 요청은 패턴 그대로");
+  // 영어 강의: src 칸을 얹어도 좁힌 enum 은 남는다
+  const enSch = Prompts.outputSchema("section", { section: s4, withGist: true, options: { ...OFF }, allowedRefs: refs }, "en");
+  assert.ok(JSON.stringify(enSch).includes('"src"'), "src 칸 유지");
+  assert.deepEqual(enSch.properties.blocks.properties.S4_B2.properties.content.properties.items.items.properties.targetIds.items.enum, refs.targetIds);
+  assert.equal(Contracts.isStrictCompatible(enSch), true, "좁힌 영어 스키마도 strict");
 });
 
 test("generation params pin temperature, cap output by the spec and skip seed where unsupported", () => {

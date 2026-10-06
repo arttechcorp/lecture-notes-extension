@@ -1302,6 +1302,38 @@ test("write answers each stage with the plan-keyed output schema and the stage's
   });
 });
 
+test("allowedRefs is optional on the wire: old clients pass, a valid list is forwarded and narrows the provider schema", async () => {
+  const refs = {
+    targetIds: ["S1", "S2", "S1_B1", "S1_B2", "S1_B3", "S2_B1", "GB1", "GB2", "C1", "S4_B1/P1"],
+    reviewIds: ["S1_B1", "S1_B2", "S1_B3", "S2_B1"],
+  };
+  const bodies = [];
+  let next = null;
+  await withNoteServer(async (_u, o) => { bodies.push(JSON.parse(o.body)); return noteReply(next); }, async url => {
+    // 구 클라이언트 — allowedRefs 를 모르는 요청은 그대로 받고, 모델 입력에 undefined 선택 키를 싣지 않는다.
+    next = s1Out;
+    assert.equal((await req(url, "/v1/write", "POST", sectionIn({ requestId: "refs-old" }))).status, 200, "구 섹션 요청");
+    assert.ok(!("allowedRefs" in JSON.parse(bodies.at(-1).messages[1].content)), "안 실은 선택 키는 모델 입력에도 없다");
+    next = notePlanner;
+    assert.equal((await req(url, "/v1/plan", "POST", planIn({ requestId: "refs-plan" }))).status, 200, "구 계획 요청");
+    // 새 요청 — 유효한 목록은 요청 계약을 통과하고 모델 입력에 그대로 간다.
+    next = s1Out;
+    assert.equal((await req(url, "/v1/write", "POST", sectionIn({ requestId: "refs-sec", allowedRefs: refs }))).status, 200, "allowedRefs 실은 섹션 요청");
+    assert.deepEqual(JSON.parse(bodies.at(-1).messages[1].content).allowedRefs, refs, "목록은 모델 입력에도 그대로");
+    // 섹션이 아닌 writer 단계도 받는다 — 전역 출력 스키마의 대상 칸이 그 목록 enum 이다(GB2 는 B13).
+    next = globalOut;
+    assert.equal((await req(url, "/v1/write", "POST", globalIn({ requestId: "refs-glob", allowedRefs: refs }))).status, 200, "allowedRefs 실은 전역 요청");
+    const sch = bodies.at(-1).response_format.json_schema.schema;
+    assert.deepEqual(sch.properties.blocks.properties.GB2.properties.content.properties.propositions.items.properties.targetIds.items,
+      { type: "string", enum: refs.targetIds }, "제공자 스키마의 대상 칸은 목록 enum");
+    // 선택 키는 실으면 검증된다 — 모양·패턴이 틀리면 거절, 모르는 키는 여전히 거절.
+    assert.equal((await errorOf(await req(url, "/v1/write", "POST", sectionIn({ allowedRefs: { targetIds: ["n1"], reviewIds: [] } })), 400, "request_rejected")).retryable, false);
+    assert.equal((await errorOf(await req(url, "/v1/write", "POST", sectionIn({ allowedRefs: { targetIds: [], reviewIds: ["GB1"] } })), 400, "request_rejected")).retryable, false);
+    await errorOf(await req(url, "/v1/write", "POST", sectionIn({ allowedRefz: refs })), 400, "unexpected_field");
+    assert.equal(bodies.length, 4, "거절된 요청은 제공자를 부르지 않는다");
+  });
+});
+
 test("a write with mimo flash pins its verified provider tags and runs with reasoning off", async () => {
   const mimo = "xiaomi/mimo-v2.6-flash";
   let sent = null;

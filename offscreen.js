@@ -79,25 +79,53 @@ const noteService=settings=>{
 };
 const hostOf=url=>{try{return new URL(url).hostname;}catch{return null;}};
 // 슬라이드 한 장의 도표·수식 영역을 메모리 안에서 잘라 WebP 바이트로 돌려준다(6-6). 슬라이드 전체는 자르지 않는다(D2). 도표는 dHash 도 낸다.
-async function cropRegions(blob,doc){
-  const bmp=await createImageBitmap(blob),crops={},hashes={},formulas=[],canvas=(w,h)=>new OffscreenCanvas(w,h);
-  const bytes=async b=>new Uint8Array(await b.arrayBuffer());
-  // 프레임의 90%를 넘는 영역은 사실상 통째 슬라이다 — 저장하지 않고 내용 없는 경고 코드만 남긴다(불변식: Never store whole slides).
-  const whole=b=>((b?.w??0)*(b?.h??0))>0.9;
+// 후보는 Figures.cropCandidates 가 검사·중복 제거·면적 순위·상한을 정한다 — 잘린 것은 내용 없는 코드(CROP_LIMIT 등)만 남긴다.
+// 도표 크롭에는 소스 픽셀 그대로의 크롭 비트맵에 기기 안 OCR(Figures.cropOcr — 실시간과 같은 PP-OCR 런타임)을 돌려 읽은
+// 텍스트를 ocr 에 담는다 — 이벤트에는 텍스트를 싣지 않는다. 소스가 작은 크롭(lowRes)은 크롭·지문만 남기고 OCR은 건너뛴다.
+// ctx:{jobId,signal} — 작업 취소가 오면 남은 크롭·OCR을 시작하지 않고 AbortError 로 멈춘다.
+async function cropRegions(blob,doc,ctx){
+  const {jobId=null,signal=null}=ctx||{},bail=()=>signal?.throwIfAborted();
+  const warn=(code,extra)=>events.emit({stage:"crop",level:"warn",code,...(jobId?{jobId}:{}),...(extra||{})});
+  const crops={},hashes={},formulas=[],ocr={},lowRes=[];
+  bail();
+  const bmp=await createImageBitmap(blob),canvas=(w,h)=>new OffscreenCanvas(w,h),bytes=async b=>new Uint8Array(await b.arrayBuffer());
+  const pick=(list,kinds,cap)=>{
+    const {items,rejected,omitted}=Figures.cropCandidates(list,bmp.width,bmp.height,{kinds,cap});
+    for(const rj of rejected)warn(rj.code,{unit:`${doc.slideId}/${rj.f.id}`});
+    if(omitted)warn("CROP_LIMIT",{msg:`omitted:${omitted}`});
+    return items;
+  };
+  let engine=null,engineTried=false;
   try{
-    for(const f of (doc.figures||[]).filter(f=>["table","chart","diagram"].includes(f.kind)&&f.bbox&&f.id).slice(0,3)){
-      if(whole(f.bbox)){events.emit({stage:"crop",level:"warn",code:"CROP_WHOLE_FRAME"});continue;}
-      const key=`${doc.slideId}/${f.id}`;crops[key]=await bytes(await Figures.cropFigure(bmp,f.bbox,{createCanvas:canvas}));
+    bail();
+    for(const {f,r} of pick(doc.figures,new Set(["table","chart","diagram"]),3)){
+      bail();
+      const key=`${doc.slideId}/${f.id}`;
+      crops[key]=await bytes(await Figures.cropFigure(bmp,f.bbox,{createCanvas:canvas}));bail();
       const c=canvas(9,8),g=c.getContext("2d",{willReadFrequently:true});
-      g.drawImage(bmp,f.bbox.x*bmp.width,f.bbox.y*bmp.height,Math.max(1,f.bbox.w*bmp.width),Math.max(1,f.bbox.h*bmp.height),0,0,9,8);
+      g.drawImage(bmp,r.sx,r.sy,r.sw,r.sh,0,0,9,8);
       hashes[key]=Figures.dHash({width:9,height:8,data:g.getImageData(0,0,9,8).data,channels:4});
+      if(r.lowRes){lowRes.push(key);warn("CROP_LOW_RES",{unit:key});continue;}
+      if(!engineTried){engineTried=true;engine=await Figures.cropOcr();bail();if(!engine)warn("CROP_OCR_UNAVAILABLE",{unit:key});}
+      if(!engine)continue;
+      let cb=null;
+      try{
+        cb=await createImageBitmap(bmp,r.sx,r.sy,r.sw,r.sh);bail(); // 소스 픽셀 그대로 — 늘리지 않는다
+        const text=String((await engine.recognize(cb))?.text??"").trim();bail();
+        if(text)ocr[key]=text.slice(0,4000);else warn("CROP_OCR_EMPTY",{unit:key});
+      }catch(e){if(signal?.aborted)throw e;warn("CROP_OCR_EMPTY",{unit:key});}
+      finally{cb?.close?.();}
     }
-    for(const f of (doc.formulas||[]).filter(f=>f.bbox&&f.id).slice(0,4)){
-      if(whole(f.bbox)){events.emit({stage:"crop",level:"warn",code:"CROP_WHOLE_FRAME"});continue;}
-      const key=`${doc.slideId}/${f.id}`;crops[key]=await bytes(await Figures.cropFigure(bmp,f.bbox,{createCanvas:canvas,maxSide:900}));formulas.push(key);
+    for(const {f,r} of pick(doc.formulas,null,4)){
+      bail();
+      const key=`${doc.slideId}/${f.id}`;
+      const cut=await Figures.cropFigure(bmp,f.bbox,{createCanvas:canvas,maxSide:900});bail();
+      crops[key]=await bytes(cut);bail();
+      formulas.push(key);
+      if(r.lowRes){lowRes.push(key);warn("CROP_LOW_RES",{unit:key});}
     }
   }finally{bmp.close();}
-  return {crops,hashes,formulas};
+  return {crops,hashes,formulas,ocr,lowRes};
 }
 // 끝난 노트를 로그인 계정 키(NoteFile)로 암호화해 사용자가 온보딩에서 고른 폴더에 바로 쓴다(LibraryFolder) — 저장 때 따로 묻지 않는다.
 // 저장은 이미 끝났으니 결말("file"|"no-folder"|"no-key"|"failed")만 돌려주고, 이벤트에는 코드만 싣는다.
@@ -206,7 +234,7 @@ async function bgJob(job,source,settings,me,ctl){
     });
     done=bgResult(job.jobId,res);
   }catch(error){authEvent(error,{jobId:job.jobId});done={jobId:job.jobId,status:"failed",code:Pipeline.codeOf(error,"SRC")||"UNKNOWN",saved:null};} // 코드 없는 오류(버그)도 체크포인트는 마지막 정상 상태에 남아 BG_LIST에서 이어 갈 수 있다
-  finally{bg=null;progress.stop();}
+  finally{await globalThis.Figures?.cropOcrDispose?.().catch(()=>{});bg=null;progress.stop();} // runBackground 가 settle되면 크롭 작업은 다 끝났다 — 재사용한 로컬 OCR 엔진 해제를 기다린 뒤 자리를 비워 다음 BG_RUN이 해제 중인 엔진과 엇갈리지 않게 한다
   chrome.runtime.sendMessage({target:"background",type:"BG_DONE",...done}).catch(()=>{});
   writeJobDiag(job.jobId); // 기다리지 않는다
 }

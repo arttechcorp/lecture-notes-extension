@@ -560,7 +560,8 @@ function createServer(env=process.env,deps={}){
     if(!c.allow.includes(input.model))return fail(res,stage==="plan"?"invalid_model":"invalid_model_or_stage");
     if(!account.limits.models.includes(input.model))return fail(res,"model_not_in_account_plan");
     safePart(input.requestId);
-    const envelope=stage==="plan"?["model","requestId","noteSpecVersion"]:["model","requestId","noteSpecVersion","stage"],fields=[...envelope,...Object.keys(Prompts.REQUEST[stage].properties)],optional=stage==="plan"?["jobId","host"]:["jobId","sourceLang"];
+    // 필수 키는 봉투 + 계약의 required 다 — 계약의 선택 키(allowedRefs)는 없어도 된다. properties 밖의 키는 여전히 거절.
+    const spec=Prompts.REQUEST[stage],envelope=stage==="plan"?["model","requestId","noteSpecVersion"]:["model","requestId","noteSpecVersion","stage"],fields=[...envelope,...spec.required],optional=["jobId",...(stage==="plan"?["host"]:["sourceLang"]),...Object.keys(spec.properties).filter(k=>!spec.required.includes(k))];
     if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)&&!optional.includes(k)))return fail(res,"unexpected_field");
     // 다른 양식 버전의 입력은 모양부터 다를 수 있다. 본문 검사보다 먼저 버전으로 거절해야 클라이언트가 원인을 안다.
     if(input.noteSpecVersion!==NoteContract.NOTE_SPEC_VERSION)return fail(res,"note_spec_mismatch");
@@ -568,7 +569,8 @@ function createServer(env=process.env,deps={}){
     const sourceLang=input.sourceLang;
     if(sourceLang!==undefined&&!["ko","en"].includes(sourceLang))return fail(res,"request_rejected");
     // 모델 입력은 스키마 순서의 본문만이다 — 클라이언트의 키 순서가 달라도 같은 프롬프트가 나가야 재현된다.
-    const rest=Object.fromEntries(Object.keys(Prompts.REQUEST[stage].properties).map(k=>[k,input[k]])),checked=Contracts.validate(Prompts.REQUEST[stage],rest);
+    // 안 실은 선택 키는 undefined 로 만들지 않고 아예 뺀다 — undefined 도 hasOwn 이 잡혀 계약 검사가 깨진다.
+    const rest=Object.fromEntries(Object.keys(spec.properties).filter(k=>input[k]!==undefined).map(k=>[k,input[k]])),checked=Contracts.validate(spec,rest);
     if(!checked.ok)return fail(res,checked.errors.some(e=>e.message==="허용되지 않는 속성입니다")?"unexpected_field":"request_rejected");
     // 가상 사례·강의 밖 보강(6-8)은 계정 기능 augment 가 있어야 켤 수 있다. 화면의 버튼만으로 막지 않는다(§18).
     const opts=rest.options;
