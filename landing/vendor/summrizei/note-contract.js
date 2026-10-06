@@ -328,7 +328,16 @@
     dropped: arr(obj({ blockId: pat(IDS.block), type: en(WRITER_TYPES), codes: arr(s64, 8, 1) }), 500),
     pruned: arr(obj({ id: s64, codes: arr(s64, 4, 1) }), 500),
     advisories: arr(obj({ code: pat(IDS.code), id: s64 }), 500),
+    // 끝내 불명확해서 확정 본문에서 뺀 주장·블록을 데이터로 보존한다(제안서 §4). 렌더는 이 칸을 보지 않는다 —
+    // 확정 본문이 아니라 확인 필요 보관이다. claim 단위 보류는 paths+claims(봉투 안 경로와 원래 주장)에,
+    // 필수 칸을 건드린 블록 보류는 envelope(보류 당시 봉투 전체)에 남는다 — 정상 조건·사례를 저장 구조에서 파괴하지 않기 위해서다.
+    pending: arr(obj({
+      blockId: pat(IDS.block), sectionId: orNull(pat(IDS.section)), type: en(WRITER_TYPES),
+      paths: arr(s64, 8, 1), claims: arr(claim, 8), envelope: { type: ["object", "null"] },
+    }), 200),
   });
+  // pending 은 보존용 선택 필드다 — 이전에 저장된 노트에는 없을 수 있어 필수 목록에서 뺀다(읽기 호환, §8.5).
+  noteSchema.required = noteSchema.required.filter(k => k !== "pending");
 
   const schemas = { claim, content, check: checkSchema, plannerOutput, plan: planSchema, note: noteSchema };
 
@@ -1177,13 +1186,27 @@
     const unitById = new Map(units.map(u => [u.unitId, u]));
     const dropped = [], pruned = [], failedIds = new Set();
     const live = new Map(), secLive = new Map(), calcMap = new Map();
+    // 확인 필요 보존(§4 제안): 호출자가 섹션 출력 옆에 실어 둔다 — 주장 단위는 claims, 블록 단위는 envelope.
+    // 블록 보류는 봉투가 남아 있으므로 탈락(dropped)으로 세지 않는다.
+    const pending = [], pendingIds = new Set();
+    for (const s of sections) for (const p of s.pending ?? []) {
+      if (pending.length >= 200) break;
+      const entry = {
+        blockId: p.blockId, sectionId: p.sectionId ?? s.sectionId ?? null, type: p.type,
+        paths: (p.paths || []).map(String).slice(0, 8),
+        claims: (p.claims || []).map(deep).slice(0, 8),
+        envelope: p.envelope && typeof p.envelope === "object" ? deep(p.envelope) : null,
+      };
+      pending.push(entry);
+      if (entry.envelope) pendingIds.add(entry.blockId);
+    }
     const dropOf = b => ({ blockId: b.id, type: b.type, codes: [...new Set(b.errors.map(e => e.code))].slice(0, 8) });
     for (const sec of plan.sections || []) {
       const r = results.get(sec.sectionId);
       const valid = r ? r.blocks.filter(b => !b.errors.length) : [];
       // 실패 섹션은 아무것도 남기지 않는다 — 블록은 dropped 에도 적지 않는다(§12 b).
       if (!r || r.errors.length || !valid.length) { failedIds.add(sec.sectionId); continue; }
-      for (const b of r.blocks) if (b.errors.length) dropped.push(dropOf(b));
+      for (const b of r.blocks) if (b.errors.length && !pendingIds.has(b.id)) dropped.push(dropOf(b));
       for (const [k, v] of Object.entries(r.calc)) calcMap.set(k, v);
       sec.blocks.forEach((pb, i) => {
         const b = valid.find(x => x.id === pb.blockId);
@@ -1412,6 +1435,7 @@
       },
       concepts, global: globalOut, sections: secOut, registry: reg, figures: figs,
       sources, notices, dropped, pruned, advisories,
+      ...(pending.length ? { pending } : {}),
     };
     // 조립 결과가 계약을 깨면 모델이 아니라 이 코드의 버그다 — 조용히 보내지 않고 즉시 던진다.
     const nv = Contracts.validate(schemas.note, note);

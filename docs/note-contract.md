@@ -272,6 +272,7 @@ Note = {
   dropped:  [{ blockId, type, codes: [code](1..8) }],                 # 내용 없음
   pruned:   [{ id, codes: [code](1..4) }],                            # 정리 전 위치 ID, 내용 없음
   advisories: [{ code, id }]                                          # 조판 힌트
+  pending?: [{ blockId, sectionId: s?, type, paths: [s](1..8), claims: [Claim](0..8), envelope: object? }]  # 확정 본문에서 뺀 확인 필요 주장·블록의 보존(§4 제안). 렌더는 보지 않는다
 }
 Block = { id: blockId, type, sectionId: sectionId?, status, importance, emphasis, content }   # content는 type으로 검증
 ```
@@ -281,8 +282,9 @@ Block = { id: blockId, type, sectionId: sectionId?, status, importance, emphasis
 - **B15·B16·B01·시스템 B17은 Note에 저장하지 않는다.** 렌더 시점에 Note에서 투영한다. 그래서 답안 공개 방식과 필기란 여부는 Note의 사실 내용을 바꾸지 않는다.
 - `status`는 실패한 섹션, 녹화 공백, 제외된 블록 중 하나라도 있으면 `partial`이다. 처리 누락이 있는 노트를 완전한 노트로 표시하지 않는다(`proposal.md` §14.1).
 - **시스템 상태와 콘텐츠 상태를 분리한다.**
-  - 시스템 상태: `status`, `notices`, `dropped`, `pruned`.
+  - 시스템 상태: `status`, `notices`, `dropped`, `pruned`, `pending`.
   - 콘텐츠 상태: 블록 `status`와 섹션 `checks`.
+  - `pending`은 판정 단계(T5)가 끝내 불명확하다고 본 주장을 지우지 않고 보존하는 선택 필드다 — `dropped`와 달리 내용(주장·보류 블록 봉투)을 담고, 확정 본문이 아니라서 렌더에는 나오지 않는다. 보류 블록은 `dropped`에도 세지 않는다.
 
 ## 9. B01–B18 슬롯
 
