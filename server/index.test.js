@@ -1279,7 +1279,8 @@ test("plan reads units through strict json_schema, allows the free tier and carr
     assert.equal(res.status, 200);
     const out = await res.json();
     assert.deepEqual(out.plan, notePlanner);
-    assert.ok(Contracts.validate(NoteContract.schemas.plannerOutput, out.plan).ok);
+    // W2 선택 칸을 뺀 출력도 클라이언트가 채운 기본값으로는 strict 계획 스키마를 통과한다.
+    assert.ok(Contracts.validate(NoteContract.schemas.plannerOutput, NoteContract.withPlannerDefaults(out.plan)).ok);
     assert.equal(out.promptVersion, Prompts.PROMPT_VERSION);
     assert.equal(out.schemaVersion, Contracts.CONTRACT_VERSION);
     assert.equal(out.noteSpecVersion, NoteContract.NOTE_SPEC_VERSION);

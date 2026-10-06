@@ -54,6 +54,8 @@ const STAGE={
     "개념(concepts): conceptId는 C1, C2처럼 C 뒤에 차례 번호다. 강의가 정의하는 개념은 depth defined이고, 홈 섹션에 그 개념 하나만 다루는 B05가 정확히 하나 있다. 이름만 언급되면 mentioned이고 B05를 만들지 않는다.",
     "B12는 섹션의 첫 블록이 될 수 없다. 같은 기준으로 비교할 개념은 한 B06에 모은다. B14 자기 점검 문항은 노트 전체 4~8개로 정해 섹션별 purpose에 나눠 배정한다. 수업 공지가 있으면 그 섹션에 B18을 둔다.",
     "global에는 B02(한눈에), 필요하면 B03(강의 지도), B13(연결 정리)을 각각 최대 1개 둔다.",
+    "학습 항목(learningItems): 이 강의에서 배워야 할 것을 항목으로 뽑아 L1, L2처럼 번호를 매긴다(최대 200개, 없으면 null). kind는 definition·causal·procedure·comparison_criterion·example·condition·exception·formula·interpretation_caution 중 하나, unitIds는 그 항목의 근거 유닛, importance는 core·supporting·minor다. 강의가 앞선 항목을 바로잡으면 correctionOf에 그 itemId를 적고 아니면 null이다.",
+    "섹션마다 다룰 학습 항목의 id를 learningItemIds에 배정한다 — core 항목은 반드시 한 섹션에 배정한다. 필요하면 prerequisites(먼저 알아야 할 conceptIds), compareAxes(비교 기준 문자열 5개 이하), needs({formula, figure}), expectedSize(small·medium·large), worker(general·formula·comparison·argument·figure)를 적고 해당 없으면 null이다.",
     "제목, 질문, 개념 이름에 숫자를 쓰면 그 숫자는 해당 유닛 자료에 있어야 한다.",
   ],
   section:[
@@ -61,6 +63,7 @@ const STAGE={
     "blocks에는 계획의 blockId마다 그 블록 타입의 봉투를 채운다. evidence에 없는 id는 인용하지 않는다. gist가 스키마에 있으면 단원 요지를 40~100자 한 주장으로 쓴다.",
     "참조 id는 칸마다 허용 범위가 다르다 — 요청 본문의 allowedRefs 배열이 칸별 허용 목록이다. 이름·제목·번호와 지도 노드 key(n1 등)는 어떤 칸의 문서 참조도 아니다. B13 명제·B14 문항·B03 노드의 targetIds·targetId에는 allowedRefs.targetIds에 있는 id(계획된 섹션 id \"S2\", 블록 id \"S2_B3\", 개념 id \"C3\", 사례·자료 블록의 단서 위치 \"S2_B3/P1\")만 쓴다. checks 확인 항목의 targetIds에는 이 섹션에 계획된 블록 id만 쓴다. B14의 answer.reviewIds에는 현재 B14 블록을 제외한 실제 본문 블록(S#_B#) id만 쓴다 — allowedRefs.reviewIds가 그 목록이고, 같은 섹션 블록도 되고(예: calc 문항이 앞선 B10을 복습 위치로), 전역 블록(GB#)은 안 된다. 지도 노드 key는 n1, n2처럼 간선 끝 표시로만 쓴다.",
     "각 블록은 계획의 purpose가 적은 일만 한다 — 다른 블록에 담긴 설명을 산문으로 되풀이하지 않고 targetIds로 가리킨다. B14는 purpose에 배정된 문항 수와 각 문항의 목적을 그대로 따라 임의로 문항을 더하거나 빼지 않는다.",
+    "입력의 learningItems는 이 섹션에 배정된 학습 항목(id·kind·importance·근거 유닛)이다. 배정된 core 항목은 빠짐없이 다루고, 다룰 근거가 없으면 지어내지 말고 관련 블록을 null로 둔다.",
     "섹션 유닛의 절반 이상이 어떤 주장의 근거로 인용되어야 한다. 잡담, 출석, 인사는 다루지 않는다.",
   ],
   repair:[
@@ -94,7 +97,9 @@ const figureKind={type:"string",enum:["table","chart","diagram"]};
 const figures=arr(obj({id:pat(IDS.figure),kind:figureKind,title:{type:["string","null"],maxLength:300},
   cells:{type:["array","null"],maxItems:30,items:arr({type:"string",maxLength:200},6)}}),50);
 const planSection=S.plan.properties.sections.items,planConcepts=S.plan.properties.concepts;
-const writerBody={section:planSection,concepts:planConcepts,evidence:arr(Contracts.SCHEMAS.evidenceItem,800,1),registry,figures,options};
+// 섹션에 배정된 학습 항목(id·kind·importance·근거 유닛만 — 항목 텍스트나 처리 상태는 싣지 않는다).
+const learningItems=arr(obj({itemId:pat(IDS.learningItem),kind:{type:"string",enum:NoteContract.LEARNING_ITEM_KINDS},unitIds:arr(pat(IDS.unit),20,1),importance:{type:"string",enum:["core","supporting","minor"]}}),50);
+const writerBody={section:planSection,concepts:planConcepts,evidence:arr(Contracts.SCHEMAS.evidenceItem,800,1),registry,figures,options,learningItems};
 // allowedRefs(선택): 클라이언트가 계획 전체에서 만든 유효 참조 목록 — 싣고 오면 출력 스키마의 대상·복습 칸을 이 목록의 enum 으로 좁힌다.
 const allowedRefs=obj({targetIds:arr(pat(IDS.target),3500),reviewIds:arr(pat(IDS.secBlock),500)});
 // 전역 Writer 입력(6-4): 근거 원문 대신 살아남은 섹션 블록의 주장 텍스트와 참조만 보낸다.
@@ -109,8 +114,8 @@ const REQUEST={
     options,
     allowedRefs,
   },["allowedRefs"]),
-  section:opt({...writerBody,withGist:{type:"boolean"},allowedRefs},["allowedRefs"]),
-  repair:opt({...writerBody,repair:arr(obj({blockId:pat(IDS.block),previous:{},errors:arr(obj({code:pat(IDS.code),detail:arr({type:"string",maxLength:64},20)}),20,1)}),12,1),allowedRefs},["allowedRefs"]),
+  section:opt({...writerBody,withGist:{type:"boolean"},allowedRefs},["allowedRefs","learningItems"]),
+  repair:opt({...writerBody,repair:arr(obj({blockId:pat(IDS.block),previous:{},errors:arr(obj({code:pat(IDS.code),detail:arr({type:"string",maxLength:64},20)}),20,1)}),12,1),allowedRefs},["allowedRefs","learningItems"]),
   global:opt({
     plan:obj({concepts:planConcepts,global:arr(S.plan.properties.global.items,3,1)}),
     sections:arr(obj({sectionId:pat(IDS.section),title:{type:"string",maxLength:80},gist:{...claimRef,type:["object","null"]},
