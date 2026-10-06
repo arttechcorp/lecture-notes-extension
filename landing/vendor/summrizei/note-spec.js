@@ -130,6 +130,7 @@
       return lines.length ? `<aside class="note-check note-sys"><h4>처리 고지</h4><ul>${lines.map(t => `<li>${t}</li>`).join("")}</ul></aside>` : "";
     }
     const c = b.check || {}, corr = c.kind === "correction";
+    if (!corr) return ""; // [인식 확인 필요]·[자료 충돌]·[확인 필요] 상자는 띄우지 않는다(사용자 결정) — 노트 데이터에는 남는다. 강의 중 정정은 강의 내용이라 둔다.
     const line = (label, cl) => (cl ? `<p><strong>${label}</strong> ${h.claim(cl, { tag: "span" })}</p>` : "");
     return `<aside class="note-check" data-kind="${h.esc(c.kind || "")}"><h4>[${CHECK[c.kind] || "확인 필요"}]</h4>`
       + h.claim(c.claim) + line(corr ? "정정 전" : "이전 값", c.before) + line(corr ? "정정 후" : "새 값", c.after)
@@ -353,13 +354,6 @@
       if (i < 0) stray.push(f.id);
       else { const l = orphan.get(i) || []; l.push(f.id); orphan.set(i, l); }
     }
-    // §12.3: dropped 의 blockId(S#_B#)가 살아 있는 단원으로 풀리면 그 단원 끝에 건수만 알린다.
-    // 없는 단원·전역 블록(GB#)은 매핑하지 않는다 — 문서 끝 처리 고지(NOTE_BLOCKS_DROPPED)가 그대로 알린다.
-    const droppedBySec = new Map();
-    for (const d of arr(note.dropped)) {
-      const m = /^(S\d+)_B\d+$/.exec((d && d.blockId) || "");
-      if (m) droppedBySec.set(m[1], (droppedBySec.get(m[1]) || 0) + 1);
-    }
     const pieces = [B01(null, h)];
     for (const b of b18) pieces.push(h.block(b));
     for (const g of arr(note.global)) if (g && g.type !== "B13") pieces.push(h.block(g));
@@ -379,8 +373,6 @@
       }
       for (const g of orphan.get(si) || []) body.push(h.figure(g));
       for (const c of arr(s.checks)) body.push(templates.B17({ check: c }, h));
-      const dropped = droppedBySec.get(s && s.sectionId) || 0;
-      if (dropped) body.push(`<p class="note-dropped">이 단원에서 검증을 통과하지 못해 뺀 내용 ${dropped}건</p>`);
       pieces.push(`<section class="note-sec" id="${h.esc(s.sectionId)}">${B04({ sec: s }, h)}${body.join("")}</section>`);
     });
     for (const g of stray) pieces.push(h.figure(g));
@@ -401,8 +393,8 @@
     return `<article class="note">${pieces.join("")}</article>`;
   };
 
-  // 화면·PDF 에 띄우지 않는 고지(사용자 결정): 원본 이미지로 보인 수식 수는 알릴 필요가 없다. 노트 데이터에는 남는다.
-  const HIDDEN = new Set(["NOTE_FORMULAS_IMAGE"]);
+  // 화면·PDF 에 띄우지 않는 고지(사용자 결정): 원본 이미지로 보인 수식 수와 검증에서 뺀 내용 건수는 알리지 않는다. 노트 데이터에는 남는다.
+  const HIDDEN = new Set(["NOTE_FORMULAS_IMAGE", "NOTE_BLOCKS_DROPPED"]);
 
   // §12.3 고지 문구 — 일반 텍스트를 돌려준다(이스케이프는 h.notice 가 한다). ids 는 절대 문구에 쓰지 않는다.
   const TEXT = {
@@ -518,7 +510,6 @@
     `.note-check h4{color:var(--accentText)}`,
     `.note-sys{background:var(--surfaceSubtle)}`,
     `.note-sys ul{margin:.3em 0;padding-left:1.2em}`,
-    `.note-dropped{margin:10px 0;padding-top:6px;border-top:1px dashed var(--line);font-size:12px;color:var(--muted)}`,
     `.note-checklist,.note-answers{border-top:1px solid var(--line);margin-top:28px;padding-top:16px}`,
     `.qsec{color:var(--muted);font-size:10px;display:block;margin-bottom:6px}`,
     `.question{display:flex;gap:12px;margin:14px 0}`,
