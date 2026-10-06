@@ -2419,7 +2419,11 @@ function createServer(env=process.env,deps={}){
   // 모델별 제공자 슬롯. 대기자는 FIFO로 슬롯을 물려받고 타임아웃은 .refund로 구분한다 —
   // 슬롯을 얻지 못한 요청은 제공자에 아무것도 보내지 않았으므로 예약을 정확히 되돌려야 한다.
   const slot=s=>{s.running++;let used=false;return()=>{if(used)return;used=true;s.running--;const w=s.queue.find(x=>!x.done);if(w){s.queue.splice(s.queue.indexOf(w),1);w.grant();}};};
-  const busyErr=()=>Object.assign(new Error("provider_busy"),{refund:true,code:"provider_busy",retryAfterMs:2000});
+  const busyErr=()=>Object.assign(new Error("provider_busy"),{refund:true,code:"provider_busy",retryAfterMs:2000,detail:"queue_busy"});
+  const httpDetail=res=>{
+    const h=res.headers?.get?.("retry-after")??res.headers?.get?.("Retry-After"),s=h!=null&&String(h).trim()!==""?Number(h):NaN;
+    return "provider_http_"+res.status+(Number.isFinite(s)&&s>=0?".ra"+Math.min(999,Math.round(s)):"");
+  };
   const abortErr=patient=>patient?new Error("aborted"):Object.assign(new Error("aborted"),{refund:true,code:"request_cancelled_or_timed_out"});
   function acquire(model,signal,patient,store){
     if(!model)return Promise.resolve(()=>{});
@@ -2555,7 +2559,7 @@ function createServer(env=process.env,deps={}){
           response_format:{type:"json_schema",json_schema:{name:"slide_doc",strict:true,schema:VISION_SCHEMA}},
           provider:{only:c.providers[input.model],order:c.providers[input.model],require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}
         })});
-        if(!response.ok)throw new Error("provider_failed");
+        if(!response.ok)throw Object.assign(new Error("provider_failed"),{detail:httpDetail(response)});
         const raw=await boundedResponse(response,1024*1024),u=raw.usage||{};if(typeof raw.id==="string")gens.push(raw.id);
         usage={promptTokens:usage.promptTokens+(Number(u.prompt_tokens)||0),completionTokens:usage.completionTokens+(Number(u.completion_tokens)||0)};
         { const c=costOf(u,pi,po); if(c===null)reported=false;else amount+=c; }
@@ -2594,7 +2598,7 @@ function createServer(env=process.env,deps={}){
         ...(phrases.length?{provider:{options:{azure:{phraseList:{phrases}}}}}:{})
       })});
       // 제공자 HTTP 오류는 요청이 처리되지 않았다고 확정할 수 있으므로 refund — 예약을 정확히 되돌린다.
-      if(!response.ok){const h=response.headers?.get?.("retry-after"),s=Number(h);throw Object.assign(new Error("provider_rejected"),{refund:true,code:response.status===429?"provider_busy":"provider_failed_or_invalid_output",retryAfterMs:response.status===429?(h==null||!Number.isFinite(s)?2000:Math.min(Math.max(Math.round(s*1000),1000),30000)):undefined});}
+      if(!response.ok){const h=response.headers?.get?.("retry-after"),s=Number(h);throw Object.assign(new Error("provider_rejected"),{refund:true,code:response.status===429?"provider_busy":"provider_failed_or_invalid_output",detail:httpDetail(response),retryAfterMs:response.status===429?(h==null||!Number.isFinite(s)?2000:Math.min(Math.max(Math.round(s*1000),1000),30000)):undefined});}
       const raw=await boundedResponse(response,2*1024*1024);
       // auto 로 보낸 요청은 제공자가 되돌린 감지 언어를 ko/en으로 접는다 — 못 읽으면 계약이 허용하는 auto로 둔다.
       const detected={ko:"ko",korean:"ko",en:"en",english:"en"}[String(raw.language??"").trim().toLowerCase()];

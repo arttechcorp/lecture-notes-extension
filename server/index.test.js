@@ -2206,7 +2206,7 @@ test("a full global pool answers provider_busy after the queue wait and refunds"
     assert.ok(sb.rpcNamed("acquire_provider_slot").length > 1, "잡힐 때까지 250ms 간격으로 다시 본다");
     const args = settledOf(sb, 0);
     assert.equal(args.p_status, "refunded");
-    assert.equal(args.p_error_code, "provider_busy");
+    assert.equal(args.p_error_code, "queue_busy");
   }, { env: { PROVIDER_CONCURRENCY_JSON: JSON.stringify({ [model]: 1 }), PROVIDER_QUEUE_MS: "400" } });
 });
 
@@ -2335,14 +2335,14 @@ test("refund paths settle as refunded with no cost and no usage, and the same re
     assert.deepEqual(settledOf(sb, 0), {
       p_user: UID, p_request_id: "stt-r1", p_actual_cost_micros: null, p_status: "refunded", p_stage: "stt", p_provider: "openrouter", p_model: "microsoft/mai-transcribe-2",
       p_input_tokens: null, p_output_tokens: null, p_audio_seconds: null, p_images: null, p_prompt_version: null, p_schema_version: null,
-      p_error_code: "provider_failed_or_invalid_output", p_latency_ms: settledOf(sb, 0).p_latency_ms, p_client_version: null, p_host: null,
+      p_error_code: "provider_http_500", p_latency_ms: settledOf(sb, 0).p_latency_ms, p_client_version: null, p_host: null,
       p_job_id: null, p_lecture_seconds: null, p_slides: null, p_subject: null, p_subject_conf: null,
     });
     mode = "busy";
     e = await errorOf(await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-r2" }), jwt), 429, "provider_busy");
     assert.equal(e.retryAfterMs, 3000);
     assert.equal(settledOf(sb, 1).p_status, "refunded");
-    assert.equal(settledOf(sb, 1).p_error_code, "provider_busy");
+    assert.equal(settledOf(sb, 1).p_error_code, "provider_http_429.ra3");
     // 실제 RPC 는 환불하면 예약 행을 지운다 — 같은 requestId 로 다시 보낼 수 있다.
     sb.reservations.delete(UID + ":stt-r1");
     mode = "ok";
@@ -2377,6 +2377,49 @@ test("refund paths settle as refunded with no cost and no usage, and the same re
       return { ok: true, json: async () => maiRaw() };
     };
   } });
+});
+
+test("STT upstream rejection records provider_http status and Retry-After in the ledger", async () => {
+  let mode = "busy-12";
+  await withSupabase(async ({ url, sb }) => {
+    const jwt = ec1();
+    sb.other = async () => {
+      if (mode === "busy-12") return { ok: false, status: 429, headers: new Map([["retry-after", "12"]]), json: async () => ({}) };
+      if (mode === "fail-503") return { ok: false, status: 503, headers: new Map(), json: async () => ({}) };
+      return { ok: true, json: async () => maiRaw() };
+    };
+
+    // (a) STT upstream 429 with Retry-After: 12 -> client gets 429 provider_busy with retryAfterMs 12000, and errorCode "provider_http_429.ra12"
+    const e = await errorOf(await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-ra12" }), jwt), 429, "provider_busy");
+    assert.equal(e.retryAfterMs, 12000);
+    assert.equal(settledOf(sb, 0).p_status, "refunded");
+    assert.equal(settledOf(sb, 0).p_error_code, "provider_http_429.ra12");
+
+    // (b) STT upstream 503 -> errorCode "provider_http_503"
+    mode = "fail-503";
+    await errorOf(await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-503" }), jwt), 502, "provider_failed_or_invalid_output");
+    assert.equal(settledOf(sb, 1).p_status, "refunded");
+    assert.equal(settledOf(sb, 1).p_error_code, "provider_http_503");
+  }, { setup: sb => { sb.plan = "essential"; } });
+});
+
+test("vision upstream rejection records provider_http status and Retry-After in the ledger", async () => {
+  let mode = "busy-12";
+  await withSupabase(async ({ url, sb }) => {
+    const jwt = ec1();
+    sb.other = async () => {
+      if (mode === "busy-12") return { ok: false, status: 429, headers: new Map([["retry-after", "12"]]), json: async () => ({}) };
+      if (mode === "fail-503") return { ok: false, status: 503, headers: new Map(), json: async () => ({}) };
+      return slideProvider();
+    };
+
+    await errorOf(await req(url, "/v1/vision", "POST", visionBody({ requestId: "vision-ra12" }), jwt), 502, "provider_failed_or_invalid_output");
+    assert.equal(settledOf(sb, 0).p_error_code, "provider_http_429.ra12");
+
+    mode = "fail-503";
+    await errorOf(await req(url, "/v1/vision", "POST", visionBody({ requestId: "vision-503" }), jwt), 502, "provider_failed_or_invalid_output");
+    assert.equal(settledOf(sb, 1).p_error_code, "provider_http_503");
+  }, { setup: sb => { sb.plan = "essential"; } });
 });
 
 test("when Supabase is unavailable no request reaches a provider and every failure is a retryable 503", async () => {
