@@ -402,13 +402,14 @@ const __defs = {
     localRef: "^[ic][0-9]{1,2}$",
     nodeKey: "^n[0-9]{1,2}$",
     code: "^[A-Z][A-Z0-9_]{1,63}$",
+    learningItem: "^L[0-9]{1,4}$",
   };
 
   // contracts.js 와 같은 규칙: required 를 properties 키에서 파생해 strict 호환을 지킨다.
   const obj = (properties, required = Object.keys(properties)) => ({ type: "object", additionalProperties: false, required, properties });
   const arr = (items, maxItems, minItems = 0) => ({ type: "array", minItems, maxItems, items });
   const str = n => ({ type: "string", minLength: 1, maxLength: n });
-  const orNull = s => ({ ...s, type: [].concat(s.type, "null") });
+  const orNull = s => ({ ...s, type: [].concat(s.type, "null"), ...(s.enum ? { enum: [...s.enum, null] } : {}) });
   const pat = source => ({ type: "string", pattern: source });
   const en = values => ({ type: "string", enum: values });
   const nonneg = { type: "number", minimum: 0 };
@@ -603,6 +604,31 @@ const __defs = {
     type: en(SECTION_TYPES), purpose: str(200),
     conceptIds: arr(pat(IDS.concept), 6), formulaIds: arr(pat(IDS.formula), 6), figureIds: arr(pat(IDS.figure), 3),
   });
+  const LEARNING_ITEM_KINDS = ["definition", "causal", "procedure", "comparison_criterion", "example", "condition", "exception", "formula", "interpretation_caution"];
+  const LEARNING_ITEM_STATUSES = ["included", "merged", "deferred", "excluded"];
+  const LEARNING_ITEM_REASONS = ["duplicate", "off_lecture", "unrecognizable", "out_of_scope"];
+  const SECTION_WORKERS = ["general", "formula", "comparison", "argument", "figure"];
+  const EXPECTED_SIZES = ["small", "medium", "large"];
+
+  const planLearningItem = obj({
+    itemId: pat(IDS.learningItem),
+    kind: en(LEARNING_ITEM_KINDS),
+    unitIds: arr(pat(IDS.unit), 20, 1),
+    importance: en(["core", "supporting", "minor"]),
+    correctionOf: orNull(pat(IDS.learningItem)),
+  });
+
+  const planNormalizedLearningItem = obj({
+    itemId: pat(IDS.learningItem),
+    kind: en(LEARNING_ITEM_KINDS),
+    unitIds: arr(pat(IDS.unit), 20, 1),
+    importance: en(["core", "supporting", "minor"]),
+    status: en(LEARNING_ITEM_STATUSES),
+    reason: orNull(en(LEARNING_ITEM_REASONS)),
+    sectionId: orNull(pat(IDS.section)),
+    correctionOf: orNull(pat(IDS.learningItem)),
+  }, ["itemId", "kind", "unitIds", "importance", "status"]);
+
   const planGlobal = idPattern => obj({
     ...(idPattern ? { blockId: pat(idPattern) } : {}),
     type: en(GLOBAL_TYPES), purpose: str(200), conceptIds: arr(pat(IDS.concept), 6),
@@ -615,9 +641,34 @@ const __defs = {
     stage: en(["understand", "relate", "apply", "check"]),
     unitIds: arr(pat(IDS.unit), 60, 1), crossUnitIds: arr(pat(IDS.unit), 10),
     blocks: arr(planBlock(idPattern), 12, 1),
+    learningItemIds: arr(pat(IDS.learningItem), 50),
+    prerequisites: arr(pat(IDS.concept), 10),
+    compareAxes: arr(str(40), 5),
+    needs: obj({ formula: { type: "boolean" }, figure: { type: "boolean" } }),
+    expectedSize: en(EXPECTED_SIZES),
+    worker: en(SECTION_WORKERS),
+  }, ["sectionId", "title", "question", "stage", "unitIds", "crossUnitIds", "blocks"]);
+
+  const plannerOutputSection = idPattern => obj({
+    sectionId: pat(IDS.section), title: str(80), question: orNull(str(160)),
+    stage: en(["understand", "relate", "apply", "check"]),
+    unitIds: arr(pat(IDS.unit), 60, 1), crossUnitIds: arr(pat(IDS.unit), 10),
+    blocks: arr(planBlock(idPattern), 12, 1),
+    learningItemIds: orNull(arr(pat(IDS.learningItem), 50)),
+    prerequisites: orNull(arr(pat(IDS.concept), 10)),
+    compareAxes: orNull(arr(str(40), 5)),
+    needs: orNull(obj({ formula: { type: "boolean" }, figure: { type: "boolean" } })),
+    expectedSize: orNull(en(EXPECTED_SIZES)),
+    worker: orNull(en(SECTION_WORKERS)),
   });
+
   const policySchema = obj({ externalAugmentation: { type: "boolean" }, syntheticExamples: { type: "boolean" } });
-  const plannerOutput = obj({ concepts: planConcepts, sections: arr(planSection(null), 40, 1), global: arr(planGlobal(null), 3) });
+  const plannerOutput = obj({
+    concepts: planConcepts,
+    sections: arr(plannerOutputSection(null), 40, 1),
+    global: arr(planGlobal(null), 3),
+    learningItems: orNull(arr(planLearningItem, 200)),
+  });
   const planSchema = obj({
     schemaVersion: { type: "integer", const: NOTE_SCHEMA_VERSION },
     noteSpecVersion: { type: "string", const: NOTE_SPEC_VERSION },
@@ -625,7 +676,41 @@ const __defs = {
     concepts: planConcepts,
     sections: arr(planSection("^S[0-9]{1,3}_B[0-9]{1,2}$"), 40, 1),
     global: arr(planGlobal("^GB[0-9]$"), 3),
-  });
+    learningItems: arr(planNormalizedLearningItem, 200),
+  }, ["schemaVersion", "noteSpecVersion", "policy", "concepts", "sections", "global"]);
+
+  const coverageItem = obj({
+    itemId: pat(IDS.learningItem),
+    kind: en(LEARNING_ITEM_KINDS),
+    importance: en(["core", "supporting", "minor"]),
+    status: en(LEARNING_ITEM_STATUSES),
+    reason: orNull(en(LEARNING_ITEM_REASONS)),
+    sectionId: orNull(pat(IDS.section)),
+  }, ["itemId", "kind", "importance", "status"]);
+  const coverageSchema = obj({ items: arr(coverageItem, 200) });
+
+  function formatCoverageMsg(items) {
+    const byStatus = { included: 0, merged: 0, deferred: 0, excluded: 0 };
+    const byImportance = {
+      core: { included: 0, merged: 0, deferred: 0, excluded: 0, total: 0 },
+      supporting: { included: 0, merged: 0, deferred: 0, excluded: 0, total: 0 },
+      minor: { included: 0, merged: 0, deferred: 0, excluded: 0, total: 0 },
+    };
+    const byKind = {};
+    for (const it of (items || [])) {
+      if (byStatus[it.status] !== undefined) byStatus[it.status]++;
+      const imp = byImportance[it.importance] || (byImportance[it.importance] = { included: 0, merged: 0, deferred: 0, excluded: 0, total: 0 });
+      imp.total++;
+      if (imp[it.status] !== undefined) imp[it.status]++;
+      const k = byKind[it.kind] || (byKind[it.kind] = { included: 0, total: 0 });
+      k.total++;
+      if (it.status === "included") k.included++;
+    }
+    const cond = byKind.condition || { included: 0, total: 0 };
+    const excp = byKind.exception || { included: 0, total: 0 };
+    const exmp = byKind.example || { included: 0, total: 0 };
+    return `inc=${byStatus.included} mrg=${byStatus.merged} def=${byStatus.deferred} exc=${byStatus.excluded} core=${byImportance.core.included}/${byImportance.core.total} sup=${byImportance.supporting.included}/${byImportance.supporting.total} min=${byImportance.minor.included}/${byImportance.minor.total} cond=${cond.included}/${cond.total} excp=${excp.included}/${excp.total} exmp=${exmp.included}/${exmp.total}`;
+  }
 
   // §8.5 Note: B01·B04·B15·B16·B17(시스템)은 렌더 시점에 투영하므로 저장하지 않는다.
   const t0t1 = obj({ t0: nonneg, t1: nonneg });
@@ -694,6 +779,7 @@ const __defs = {
       blockId: pat(IDS.block), sectionId: orNull(pat(IDS.section)), type: en(WRITER_TYPES),
       paths: arr(s64, 8, 1), claims: arr(claim, 8), envelope: { type: ["object", "null"] },
     }), 200),
+    coverage: coverageSchema,
   }, ["schemaVersion", "noteSpecVersion", "promptVersion", "status", "tier", "policy", "meta", "concepts", "global", "sections", "registry", "figures", "sources", "notices", "dropped", "pruned", "advisories"]);
 
   const schemas = { claim, content, check: checkSchema, plannerOutput, plan: planSchema, note: noteSchema };
@@ -793,13 +879,27 @@ const __defs = {
     };
   }
 
+  // plannerOutput 은 strict 라 전 키가 필수다 — W2 선택 칸을 뺀 구 출력·구 픽스처는 null 로 채워 받는다.
+  const withPlannerDefaults = output => output && typeof output === "object" ? {
+    ...output,
+    learningItems: Array.isArray(output.learningItems) ? output.learningItems.map(l => l && typeof l === "object" ? {
+      correctionOf: null,
+      ...l,
+    } : l) : (output.learningItems ?? null),
+    sections: Array.isArray(output.sections) ? output.sections.map(s => s && typeof s === "object" ? {
+      learningItemIds: null, prerequisites: null, compareAxes: null, needs: null, expectedSize: null, worker: null,
+      ...s,
+    } : s) : output.sections,
+  } : output;
+
   function normalizePlan(output, { units = [], formulaUnits = {}, figures = [], policy = POLICY } = {}) {
-    const v = Contracts.validate(plannerOutput, output);
+    const raw = withPlannerDefaults(output);
+    const v = Contracts.validate(plannerOutput, raw);
     if (!v.ok) return { ok: false, errors: [{ code: "VAL_PLAN_INVALID", detail: v.errors.map(e => "schema:" + e.path) }] };
 
     const bad = [], flag = m => { if (bad.length < 20) bad.push(m); };
     const ir = new Map(units.map((u, i) => [u.unitId, i]));
-    const secs = output.sections;
+    const secs = raw.sections;
 
     secs.forEach((s, i) => { if (s.sectionId !== "S" + (i + 1)) flag("order:" + s.sectionId); });
     const seen = new Set();
@@ -870,16 +970,81 @@ const __defs = {
     for (const g of output.global) { if (gSeen.has(g.type)) flag("global:" + g.type); gSeen.add(g.type); }
     if (bad.length) return { ok: false, errors: [{ code: "VAL_PLAN_INVALID", detail: bad }] };
     const caps = measurePlanCaps(output);
+    let normalizedLearningItems = undefined;
+    const deferredCore = [];
+    if (Array.isArray(output.learningItems) && output.learningItems.length) {
+      const secMap = new Map(secs.map(s => [s.sectionId, s]));
+      const unitToSec = new Map();
+      for (const s of secs) for (const u of s.unitIds) unitToSec.set(u, s.sectionId);
+      normalizedLearningItems = output.learningItems.slice(0, 200).map(raw => {
+        const item = {
+          itemId: raw.itemId,
+          kind: raw.kind,
+          unitIds: [...(raw.unitIds || [])],
+          importance: raw.importance,
+          status: "deferred",
+          reason: null,
+          sectionId: null,
+          ...(raw.correctionOf ? { correctionOf: raw.correctionOf } : {}),
+        };
+        const knownUnits = (item.unitIds || []).filter(u => ir.has(u));
+        if (!knownUnits.length) {
+          item.status = "excluded";
+          item.reason = "unrecognizable";
+          return item;
+        }
+        const assignedSec = secs.find(s => Array.isArray(s.learningItemIds) && s.learningItemIds.includes(item.itemId));
+        if (assignedSec) {
+          item.status = "included";
+          item.sectionId = assignedSec.sectionId;
+          return item;
+        }
+        if (item.importance === "core") {
+          const targetSecId = knownUnits.map(u => unitToSec.get(u)).find(Boolean);
+          if (targetSecId && secMap.has(targetSecId)) {
+            const targetSec = secMap.get(targetSecId);
+            targetSec.learningItemIds = [...(targetSec.learningItemIds || [])];
+            if (!targetSec.learningItemIds.includes(item.itemId)) targetSec.learningItemIds.push(item.itemId);
+            item.status = "included";
+            item.sectionId = targetSecId;
+          } else {
+            item.status = "deferred";
+            deferredCore.push(item.itemId);
+          }
+        } else {
+          item.status = "deferred";
+        }
+        return item;
+      });
+    }
     const plan = {
       schemaVersion: NOTE_SCHEMA_VERSION, noteSpecVersion: NOTE_SPEC_VERSION, policy: policyOf(policy),
       concepts: output.concepts.map(c => ({ ...c })),
-      sections: secs.map(s => ({ ...s, blocks: s.blocks.map((b, i) => ({ blockId: `${s.sectionId}_B${i + 1}`, ...b })) })),
+      sections: secs.map(s => {
+        const sec = {
+          sectionId: s.sectionId,
+          title: s.title,
+          question: s.question,
+          stage: s.stage,
+          unitIds: s.unitIds,
+          crossUnitIds: s.crossUnitIds,
+          blocks: s.blocks.map((b, i) => ({ blockId: `${s.sectionId}_B${i + 1}`, ...b })),
+        };
+        if (Array.isArray(s.learningItemIds)) sec.learningItemIds = s.learningItemIds;
+        if (Array.isArray(s.prerequisites)) sec.prerequisites = s.prerequisites;
+        if (Array.isArray(s.compareAxes)) sec.compareAxes = s.compareAxes;
+        if (s.needs && typeof s.needs === "object") sec.needs = s.needs;
+        if (s.expectedSize) sec.expectedSize = s.expectedSize;
+        if (s.worker) sec.worker = s.worker;
+        return sec;
+      }),
       global: output.global.map((g, i) => ({ blockId: `GB${i + 1}`, ...g })),
+      ...(normalizedLearningItems ? { learningItems: normalizedLearningItems } : {}),
     };
     // 정규화 결과가 Plan 스키마를 깨면 모델이 아니라 코드의 버그다.
     if (!Contracts.validate(schemas.plan, plan).ok) throw new Error("normalizePlan 결과가 Plan 스키마를 통과하지 못했습니다.");
     if (caps) Object.defineProperty(plan, "caps", { value: caps, enumerable: false, writable: true });
-    return { ok: true, plan, caps };
+    return { ok: true, plan, caps, ...(deferredCore.length ? { deferredCore } : {}) };
   }
 
   // 제공자는 json_schema 의 pattern 을 강제하지 않아 모델이 개념·섹션 id 를 제멋대로 쓴다(필드 관찰: concepts[0].conceptId 로 4연속 거절).
@@ -930,11 +1095,37 @@ const __defs = {
     const blocks = a => Array.isArray(a) ? a.map(b => b && typeof b === "object" ? { ...b, ...cut(b, "purpose", 200), conceptIds: ids(b.conceptIds),
       ...(Array.isArray(b.formulaIds) ? { formulaIds: keep(b.formulaIds, /^F[0-9]{1,6}$/, 6) } : {}),
       ...(Array.isArray(b.figureIds) ? { figureIds: keep(b.figureIds, /^G[0-9]{1,4}$/, 3) } : {}) } : b) : a;
+    // 학습 항목도 개념·섹션처럼 L1.. 로 차례대로 다시 매긴다 — 참조(learningItemIds·correctionOf)를 옮길 맵을 먼저 채운다.
+    const lMap = new Map();
+    if (Array.isArray(plan.learningItems)) plan.learningItems.slice(0, 200).forEach((l, i) => {
+      const k = key(l?.itemId);
+      if (k !== null && !lMap.has(k)) lMap.set(k, "L" + (i + 1));
+    });
+    const learningItems = Array.isArray(plan.learningItems) ? plan.learningItems.slice(0, 200).map((l, i) => {
+      if (!l || typeof l !== "object") return l;
+      const co = l.correctionOf ? lMap.get(key(l.correctionOf)) ?? l.correctionOf : null;
+      return {
+        ...l,
+        itemId: "L" + (i + 1),
+        ...(co && /^L[0-9]{1,4}$/.test(co) ? { correctionOf: co } : {}),
+      };
+    }) : undefined;
     return {
       ...plan,
       concepts: Array.isArray(concepts) ? concepts.slice(0, 40).map(c => c && typeof c === "object" ? { ...c, ...cut(c, "name", 60), homeSectionId: sMap.get(key(c.homeSectionId)) ?? c.homeSectionId } : c) : concepts,
-      sections: Array.isArray(sections) ? sections.map(s => s && typeof s === "object" ? { ...s, ...cut(s, "title", 80), ...cut(s, "question", 160), blocks: blocks(Array.isArray(s.blocks) ? s.blocks.slice(0, 12) : s.blocks), ...(Array.isArray(s.crossUnitIds) ? { crossUnitIds: keep(s.crossUnitIds, /^U[0-9]{1,4}$/, 10) } : {}) } : s) : sections,
+      sections: Array.isArray(sections) ? sections.map(s => s && typeof s === "object" ? {
+        ...s, ...cut(s, "title", 80), ...cut(s, "question", 160),
+        blocks: blocks(Array.isArray(s.blocks) ? s.blocks.slice(0, 12) : s.blocks),
+        ...(Array.isArray(s.crossUnitIds) ? { crossUnitIds: keep(s.crossUnitIds, /^U[0-9]{1,4}$/, 10) } : {}),
+        ...(Array.isArray(s.learningItemIds) ? { learningItemIds: keep(s.learningItemIds.map(x => lMap.get(key(x)) ?? x), /^L[0-9]{1,4}$/, 50) } : {}),
+        ...(Array.isArray(s.prerequisites) ? { prerequisites: ids(s.prerequisites) } : {}),
+        ...(Array.isArray(s.compareAxes) ? { compareAxes: s.compareAxes.filter(x => typeof x === "string").slice(0, 5).map(x => x.slice(0, 40)) } : {}),
+        ...(s.needs && typeof s.needs === "object" ? { needs: { formula: !!s.needs.formula, figure: !!s.needs.figure } } : {}),
+        ...(s.expectedSize && EXPECTED_SIZES.includes(s.expectedSize) ? { expectedSize: s.expectedSize } : {}),
+        ...(s.worker && SECTION_WORKERS.includes(s.worker) ? { worker: s.worker } : {}),
+      } : s) : sections,
       global: blocks(plan.global),
+      ...(learningItems !== undefined ? { learningItems } : {}),
     };
   }
 
@@ -1568,7 +1759,7 @@ const __defs = {
 
   // §12: 검증 → 정정 지도 → 재검증 → 의존 정리(고정점) → Note 조립.
   // 입력 객체는 절대 바꾸지 않는다 — 살아남은 봉투·확인 항목·요지만 깊은 복사해 다듬는다.
-  function assembleNote({ plan, sections = [], global = null, units = [], evidence = [], registry = [], formulaUnits = {}, figures = [], crops = [], meta = {}, tier, systemNotices = [], promptVersion = null, katex }) {
+  function assembleNote({ plan, sections = [], global = null, units = [], evidence = [], registry = [], formulaUnits = {}, figures = [], crops = [], meta = {}, tier, systemNotices = [], promptVersion = null, katex, events = null }) {
     const outputs = new Map(sections.map(s => [s.sectionId, s.output]));
     const run = sup => {
       const m = new Map();
@@ -1830,6 +2021,31 @@ const __defs = {
     const prunedItems = pruned.length;
     const prunedQuestions = pruned.filter(p => p.id.includes("/Q")).length;
     const stats = { directBlocks, cascadeBlocks, prunedItems, prunedQuestions };
+    let coverage = null;
+    if (Array.isArray(plan?.learningItems) && plan.learningItems.length) {
+      const survivingSecIds = new Set(secOut.map(s => s.sectionId));
+      const items = plan.learningItems.map(it => {
+        let status = it.status || "deferred";
+        let sectionId = it.sectionId ?? null;
+        let reason = it.reason ?? null;
+        // 최종 노트에서 그 섹션이 살아남지 못하면 status 를 deferred 로 내리는 정산 포함
+        if (status === "included") {
+          if (!sectionId || !survivingSecIds.has(sectionId)) {
+            status = "deferred";
+            sectionId = null;
+          }
+        }
+        return {
+          itemId: it.itemId,
+          kind: it.kind,
+          importance: it.importance,
+          status,
+          ...(reason ? { reason } : {}),
+          ...(sectionId ? { sectionId } : {}),
+        };
+      });
+      coverage = { items };
+    }
     const note = {
       schemaVersion: NOTE_SCHEMA_VERSION, noteSpecVersion: NOTE_SPEC_VERSION,
       promptVersion: promptVersion ?? null,
@@ -1845,7 +2061,16 @@ const __defs = {
       concepts, global: globalOut, sections: secOut, registry: reg, figures: figs,
       sources, notices, dropped, pruned, advisories, stats,
       ...(pending.length ? { pending } : {}),
+      ...(coverage ? { coverage } : {}),
     };
+    if (coverage && events && typeof events.emit === "function") {
+      events.emit({
+        stage: "validate",
+        level: "info",
+        code: "COVERAGE",
+        msg: formatCoverageMsg(coverage.items),
+      });
+    }
     // 조립 결과가 계약을 깨면 모델이 아니라 이 코드의 버그다 — 조용히 보내지 않고 즉시 던진다.
     const nv = Contracts.validate(schemas.note, note);
     if (!nv.ok) throw new Error("Note 조립 결과가 스키마를 통과하지 못했습니다: " + nv.errors[0].path);
@@ -1859,6 +2084,7 @@ const __defs = {
   const freeze = o => { for (const v of Object.values(o)) if (v && typeof v === "object") freeze(v); return Object.freeze(o); };
   const api = freeze({
     NOTE_SPEC_VERSION, NOTE_SCHEMA_VERSION, POLICY, TYPES, SECTION_TYPES, GLOBAL_TYPES, WRITER_TYPES, IDS,
+    LEARNING_ITEM_KINDS, LEARNING_ITEM_STATUSES, LEARNING_ITEM_REASONS, SECTION_WORKERS, EXPECTED_SIZES, formatCoverageMsg, withPlannerDefaults,
     schemas, envelopeSchema, sectionOutputSchemaFor, repairOutputSchemaFor, globalOutputSchemaFor, linkOutputSchema,
     normalizePlan, repairPlan, canonicalPlanIds, canonicalMapKeys, checkCalc, displayOf, citedRefs, validateSection, validateGlobal, assembleNote, restrictBasis, policyOf, AUG, withSource, measurePlanCaps,
   });
@@ -2898,11 +3124,14 @@ function createServer(env=process.env,deps={}){
           else parsed=NoteContract.canonicalMapKeys(parsed,rest.section?.sectionId??null); // 지도 노드 키는 n1.. 로, 섹션 안 "B3" 참조는 "S2_B3" 로
           // 어긋난 블록만 null 로 — 섹션 전체를 버리지 않는다. 비운 블록의 원래 봉투는 salvaged 로 돌려줘 클라이언트가 repair 로 고치게 한다.
           // salvagedErrors: 비운 블록마다 스키마 오류의 위치와 사유(블록 안 경로 + 메시지, 내용 없음) — 클라이언트가 repair 지시에 그대로 싣는다.
+          // 계획의 W2 선택 칸 기본값은 검증용 복사본에만 채운다 — 모델이 뺐을 때 응답에 null 을 주입하면 구 클라이언트의 strict 스키마가 깨진다.
+          let checked=stage==="plan"?NoteContract.withPlannerDefaults(parsed):parsed;
           let salvaged=null,salvagedErrors=null;
-          const pre=Contracts.validate(outSchema,parsed);
+          const pre=Contracts.validate(outSchema,checked);
           if(!pre.ok){
-            const raw=parsed;parsed=Contracts.salvage(outSchema,parsed).value;
-            if(stage==="section"||stage==="repair")for(const [k,v] of Object.entries(raw?.blocks||{}))if(v&&typeof v==="object"&&!Array.isArray(v)&&parsed?.blocks?.[k]===null){
+            const raw=checked;checked=Contracts.salvage(outSchema,checked).value;
+            parsed=checked; // salvage 가 고친 결과를 돌린다 — 계획은 기본값이 채워진 모양이다
+            if(stage==="section"||stage==="repair")for(const [k,v] of Object.entries(raw?.blocks||{}))if(v&&typeof v==="object"&&!Array.isArray(v)&&checked?.blocks?.[k]===null){
               (salvaged??={})[k]=v;
               // 패턴 위반은 받은 값의 모양(영문 A·숫자 9·한글 가, 나머지 기호 그대로)을 붙인다 — 내용은 싣지 않고 형식만 보여 준다.
               (salvagedErrors??={})[k]=pre.errors.filter(e=>e.path.startsWith("/blocks/"+k+"/")).map(e=>{
@@ -2911,7 +3140,7 @@ function createServer(env=process.env,deps={}){
               }).slice(0,20);
             }
           }
-          const r=Contracts.validate(outSchema,parsed);
+          const r=Contracts.validate(outSchema,checked);
           if(!r.ok)throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_schema."+String(r.errors?.[0]?.path||r.errors?.[0]?.keyword||"x").toLowerCase().replace(/[^a-z0-9_.]/g,"_").slice(0,40)});
           // 계획 호출이 끝난 뒤에만 분류 결과를 기다린다 — 앞서 병렬로 나간 호출이고 이미 끝났거나 5초 안에 끝난다.
           const classified=classifying?await classifying:null;
@@ -3393,6 +3622,8 @@ const STAGE={
     "개념(concepts): conceptId는 C1, C2처럼 C 뒤에 차례 번호다. 강의가 정의하는 개념은 depth defined이고, 홈 섹션에 그 개념 하나만 다루는 B05가 정확히 하나 있다. 이름만 언급되면 mentioned이고 B05를 만들지 않는다.",
     "B12는 섹션의 첫 블록이 될 수 없다. 같은 기준으로 비교할 개념은 한 B06에 모은다. B14 자기 점검 문항은 노트 전체 4~8개로 정해 섹션별 purpose에 나눠 배정한다. 수업 공지가 있으면 그 섹션에 B18을 둔다.",
     "global에는 B02(한눈에), 필요하면 B03(강의 지도), B13(연결 정리)을 각각 최대 1개 둔다.",
+    "학습 항목(learningItems): 이 강의에서 배워야 할 것을 항목으로 뽑아 L1, L2처럼 번호를 매긴다(최대 200개, 없으면 null). kind는 definition·causal·procedure·comparison_criterion·example·condition·exception·formula·interpretation_caution 중 하나, unitIds는 그 항목의 근거 유닛, importance는 core·supporting·minor다. 강의가 앞선 항목을 바로잡으면 correctionOf에 그 itemId를 적고 아니면 null이다.",
+    "섹션마다 다룰 학습 항목의 id를 learningItemIds에 배정한다 — core 항목은 반드시 한 섹션에 배정한다. 필요하면 prerequisites(먼저 알아야 할 conceptIds), compareAxes(비교 기준 문자열 5개 이하), needs({formula, figure}), expectedSize(small·medium·large), worker(general·formula·comparison·argument·figure)를 적고 해당 없으면 null이다.",
     "제목, 질문, 개념 이름에 숫자를 쓰면 그 숫자는 해당 유닛 자료에 있어야 한다.",
   ],
   section:[
@@ -3400,6 +3631,7 @@ const STAGE={
     "blocks에는 계획의 blockId마다 그 블록 타입의 봉투를 채운다. evidence에 없는 id는 인용하지 않는다. gist가 스키마에 있으면 단원 요지를 40~100자 한 주장으로 쓴다.",
     "참조 id는 칸마다 허용 범위가 다르다 — 요청 본문의 allowedRefs 배열이 칸별 허용 목록이다. 이름·제목·번호와 지도 노드 key(n1 등)는 어떤 칸의 문서 참조도 아니다. B13 명제·B14 문항·B03 노드의 targetIds·targetId에는 allowedRefs.targetIds에 있는 id(계획된 섹션 id \"S2\", 블록 id \"S2_B3\", 개념 id \"C3\", 사례·자료 블록의 단서 위치 \"S2_B3/P1\")만 쓴다. checks 확인 항목의 targetIds에는 이 섹션에 계획된 블록 id만 쓴다. B14의 answer.reviewIds에는 현재 B14 블록을 제외한 실제 본문 블록(S#_B#) id만 쓴다 — allowedRefs.reviewIds가 그 목록이고, 같은 섹션 블록도 되고(예: calc 문항이 앞선 B10을 복습 위치로), 전역 블록(GB#)은 안 된다. 지도 노드 key는 n1, n2처럼 간선 끝 표시로만 쓴다.",
     "각 블록은 계획의 purpose가 적은 일만 한다 — 다른 블록에 담긴 설명을 산문으로 되풀이하지 않고 targetIds로 가리킨다. B14는 purpose에 배정된 문항 수와 각 문항의 목적을 그대로 따라 임의로 문항을 더하거나 빼지 않는다.",
+    "입력의 learningItems는 이 섹션에 배정된 학습 항목(id·kind·importance·근거 유닛)이다. 배정된 core 항목은 빠짐없이 다루고, 다룰 근거가 없으면 지어내지 말고 관련 블록을 null로 둔다.",
     "섹션 유닛의 절반 이상이 어떤 주장의 근거로 인용되어야 한다. 잡담, 출석, 인사는 다루지 않는다.",
   ],
   repair:[
@@ -3448,7 +3680,9 @@ const figureKind={type:"string",enum:["table","chart","diagram"]};
 const figures=arr(obj({id:pat(IDS.figure),kind:figureKind,title:{type:["string","null"],maxLength:300},
   cells:{type:["array","null"],maxItems:30,items:arr({type:"string",maxLength:200},6)}}),50);
 const planSection=S.plan.properties.sections.items,planConcepts=S.plan.properties.concepts;
-const writerBody={section:planSection,concepts:planConcepts,evidence:arr(Contracts.SCHEMAS.evidenceItem,800,1),registry,figures,options};
+// 섹션에 배정된 학습 항목(id·kind·importance·근거 유닛만 — 항목 텍스트나 처리 상태는 싣지 않는다).
+const learningItems=arr(obj({itemId:pat(IDS.learningItem),kind:{type:"string",enum:NoteContract.LEARNING_ITEM_KINDS},unitIds:arr(pat(IDS.unit),20,1),importance:{type:"string",enum:["core","supporting","minor"]}}),50);
+const writerBody={section:planSection,concepts:planConcepts,evidence:arr(Contracts.SCHEMAS.evidenceItem,800,1),registry,figures,options,learningItems};
 // allowedRefs(선택): 클라이언트가 계획 전체에서 만든 유효 참조 목록 — 싣고 오면 출력 스키마의 대상·복습 칸을 이 목록의 enum 으로 좁힌다.
 const allowedRefs=obj({targetIds:arr(pat(IDS.target),3500),reviewIds:arr(pat(IDS.secBlock),500)});
 // 전역 Writer 입력(6-4): 근거 원문 대신 살아남은 섹션 블록의 주장 텍스트와 참조만 보낸다.
@@ -3467,8 +3701,8 @@ const REQUEST={
     options,
     allowedRefs,
   },["allowedRefs"]),
-  section:opt({...writerBody,withGist:{type:"boolean"},allowedRefs},["allowedRefs"]),
-  repair:opt({...writerBody,repair:arr(obj({blockId:pat(IDS.block),previous:{},errors:arr(obj({code:pat(IDS.code),detail:arr({type:"string",maxLength:64},20)}),20,1)}),12,1),allowedRefs},["allowedRefs"]),
+  section:opt({...writerBody,withGist:{type:"boolean"},allowedRefs},["allowedRefs","learningItems"]),
+  repair:opt({...writerBody,repair:arr(obj({blockId:pat(IDS.block),previous:{},errors:arr(obj({code:pat(IDS.code),detail:arr({type:"string",maxLength:64},20)}),20,1)}),12,1),allowedRefs},["allowedRefs","learningItems"]),
   global:opt({
     plan:obj({concepts:planConcepts,global:arr(S.plan.properties.global.items,3,1)}),
     sections:survSections(claimRef),

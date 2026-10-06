@@ -55,13 +55,14 @@
     localRef: "^[ic][0-9]{1,2}$",
     nodeKey: "^n[0-9]{1,2}$",
     code: "^[A-Z][A-Z0-9_]{1,63}$",
+    learningItem: "^L[0-9]{1,4}$",
   };
 
   // contracts.js 와 같은 규칙: required 를 properties 키에서 파생해 strict 호환을 지킨다.
   const obj = (properties, required = Object.keys(properties)) => ({ type: "object", additionalProperties: false, required, properties });
   const arr = (items, maxItems, minItems = 0) => ({ type: "array", minItems, maxItems, items });
   const str = n => ({ type: "string", minLength: 1, maxLength: n });
-  const orNull = s => ({ ...s, type: [].concat(s.type, "null") });
+  const orNull = s => ({ ...s, type: [].concat(s.type, "null"), ...(s.enum ? { enum: [...s.enum, null] } : {}) });
   const pat = source => ({ type: "string", pattern: source });
   const en = values => ({ type: "string", enum: values });
   const nonneg = { type: "number", minimum: 0 };
@@ -256,6 +257,31 @@
     type: en(SECTION_TYPES), purpose: str(200),
     conceptIds: arr(pat(IDS.concept), 6), formulaIds: arr(pat(IDS.formula), 6), figureIds: arr(pat(IDS.figure), 3),
   });
+  const LEARNING_ITEM_KINDS = ["definition", "causal", "procedure", "comparison_criterion", "example", "condition", "exception", "formula", "interpretation_caution"];
+  const LEARNING_ITEM_STATUSES = ["included", "merged", "deferred", "excluded"];
+  const LEARNING_ITEM_REASONS = ["duplicate", "off_lecture", "unrecognizable", "out_of_scope"];
+  const SECTION_WORKERS = ["general", "formula", "comparison", "argument", "figure"];
+  const EXPECTED_SIZES = ["small", "medium", "large"];
+
+  const planLearningItem = obj({
+    itemId: pat(IDS.learningItem),
+    kind: en(LEARNING_ITEM_KINDS),
+    unitIds: arr(pat(IDS.unit), 20, 1),
+    importance: en(["core", "supporting", "minor"]),
+    correctionOf: orNull(pat(IDS.learningItem)),
+  });
+
+  const planNormalizedLearningItem = obj({
+    itemId: pat(IDS.learningItem),
+    kind: en(LEARNING_ITEM_KINDS),
+    unitIds: arr(pat(IDS.unit), 20, 1),
+    importance: en(["core", "supporting", "minor"]),
+    status: en(LEARNING_ITEM_STATUSES),
+    reason: orNull(en(LEARNING_ITEM_REASONS)),
+    sectionId: orNull(pat(IDS.section)),
+    correctionOf: orNull(pat(IDS.learningItem)),
+  }, ["itemId", "kind", "unitIds", "importance", "status"]);
+
   const planGlobal = idPattern => obj({
     ...(idPattern ? { blockId: pat(idPattern) } : {}),
     type: en(GLOBAL_TYPES), purpose: str(200), conceptIds: arr(pat(IDS.concept), 6),
@@ -268,9 +294,34 @@
     stage: en(["understand", "relate", "apply", "check"]),
     unitIds: arr(pat(IDS.unit), 60, 1), crossUnitIds: arr(pat(IDS.unit), 10),
     blocks: arr(planBlock(idPattern), 12, 1),
+    learningItemIds: arr(pat(IDS.learningItem), 50),
+    prerequisites: arr(pat(IDS.concept), 10),
+    compareAxes: arr(str(40), 5),
+    needs: obj({ formula: { type: "boolean" }, figure: { type: "boolean" } }),
+    expectedSize: en(EXPECTED_SIZES),
+    worker: en(SECTION_WORKERS),
+  }, ["sectionId", "title", "question", "stage", "unitIds", "crossUnitIds", "blocks"]);
+
+  const plannerOutputSection = idPattern => obj({
+    sectionId: pat(IDS.section), title: str(80), question: orNull(str(160)),
+    stage: en(["understand", "relate", "apply", "check"]),
+    unitIds: arr(pat(IDS.unit), 60, 1), crossUnitIds: arr(pat(IDS.unit), 10),
+    blocks: arr(planBlock(idPattern), 12, 1),
+    learningItemIds: orNull(arr(pat(IDS.learningItem), 50)),
+    prerequisites: orNull(arr(pat(IDS.concept), 10)),
+    compareAxes: orNull(arr(str(40), 5)),
+    needs: orNull(obj({ formula: { type: "boolean" }, figure: { type: "boolean" } })),
+    expectedSize: orNull(en(EXPECTED_SIZES)),
+    worker: orNull(en(SECTION_WORKERS)),
   });
+
   const policySchema = obj({ externalAugmentation: { type: "boolean" }, syntheticExamples: { type: "boolean" } });
-  const plannerOutput = obj({ concepts: planConcepts, sections: arr(planSection(null), 40, 1), global: arr(planGlobal(null), 3) });
+  const plannerOutput = obj({
+    concepts: planConcepts,
+    sections: arr(plannerOutputSection(null), 40, 1),
+    global: arr(planGlobal(null), 3),
+    learningItems: orNull(arr(planLearningItem, 200)),
+  });
   const planSchema = obj({
     schemaVersion: { type: "integer", const: NOTE_SCHEMA_VERSION },
     noteSpecVersion: { type: "string", const: NOTE_SPEC_VERSION },
@@ -278,7 +329,41 @@
     concepts: planConcepts,
     sections: arr(planSection("^S[0-9]{1,3}_B[0-9]{1,2}$"), 40, 1),
     global: arr(planGlobal("^GB[0-9]$"), 3),
-  });
+    learningItems: arr(planNormalizedLearningItem, 200),
+  }, ["schemaVersion", "noteSpecVersion", "policy", "concepts", "sections", "global"]);
+
+  const coverageItem = obj({
+    itemId: pat(IDS.learningItem),
+    kind: en(LEARNING_ITEM_KINDS),
+    importance: en(["core", "supporting", "minor"]),
+    status: en(LEARNING_ITEM_STATUSES),
+    reason: orNull(en(LEARNING_ITEM_REASONS)),
+    sectionId: orNull(pat(IDS.section)),
+  }, ["itemId", "kind", "importance", "status"]);
+  const coverageSchema = obj({ items: arr(coverageItem, 200) });
+
+  function formatCoverageMsg(items) {
+    const byStatus = { included: 0, merged: 0, deferred: 0, excluded: 0 };
+    const byImportance = {
+      core: { included: 0, merged: 0, deferred: 0, excluded: 0, total: 0 },
+      supporting: { included: 0, merged: 0, deferred: 0, excluded: 0, total: 0 },
+      minor: { included: 0, merged: 0, deferred: 0, excluded: 0, total: 0 },
+    };
+    const byKind = {};
+    for (const it of (items || [])) {
+      if (byStatus[it.status] !== undefined) byStatus[it.status]++;
+      const imp = byImportance[it.importance] || (byImportance[it.importance] = { included: 0, merged: 0, deferred: 0, excluded: 0, total: 0 });
+      imp.total++;
+      if (imp[it.status] !== undefined) imp[it.status]++;
+      const k = byKind[it.kind] || (byKind[it.kind] = { included: 0, total: 0 });
+      k.total++;
+      if (it.status === "included") k.included++;
+    }
+    const cond = byKind.condition || { included: 0, total: 0 };
+    const excp = byKind.exception || { included: 0, total: 0 };
+    const exmp = byKind.example || { included: 0, total: 0 };
+    return `inc=${byStatus.included} mrg=${byStatus.merged} def=${byStatus.deferred} exc=${byStatus.excluded} core=${byImportance.core.included}/${byImportance.core.total} sup=${byImportance.supporting.included}/${byImportance.supporting.total} min=${byImportance.minor.included}/${byImportance.minor.total} cond=${cond.included}/${cond.total} excp=${excp.included}/${excp.total} exmp=${exmp.included}/${exmp.total}`;
+  }
 
   // §8.5 Note: B01·B04·B15·B16·B17(시스템)은 렌더 시점에 투영하므로 저장하지 않는다.
   const t0t1 = obj({ t0: nonneg, t1: nonneg });
@@ -347,6 +432,7 @@
       blockId: pat(IDS.block), sectionId: orNull(pat(IDS.section)), type: en(WRITER_TYPES),
       paths: arr(s64, 8, 1), claims: arr(claim, 8), envelope: { type: ["object", "null"] },
     }), 200),
+    coverage: coverageSchema,
   }, ["schemaVersion", "noteSpecVersion", "promptVersion", "status", "tier", "policy", "meta", "concepts", "global", "sections", "registry", "figures", "sources", "notices", "dropped", "pruned", "advisories"]);
 
   const schemas = { claim, content, check: checkSchema, plannerOutput, plan: planSchema, note: noteSchema };
@@ -446,13 +532,27 @@
     };
   }
 
+  // plannerOutput 은 strict 라 전 키가 필수다 — W2 선택 칸을 뺀 구 출력·구 픽스처는 null 로 채워 받는다.
+  const withPlannerDefaults = output => output && typeof output === "object" ? {
+    ...output,
+    learningItems: Array.isArray(output.learningItems) ? output.learningItems.map(l => l && typeof l === "object" ? {
+      correctionOf: null,
+      ...l,
+    } : l) : (output.learningItems ?? null),
+    sections: Array.isArray(output.sections) ? output.sections.map(s => s && typeof s === "object" ? {
+      learningItemIds: null, prerequisites: null, compareAxes: null, needs: null, expectedSize: null, worker: null,
+      ...s,
+    } : s) : output.sections,
+  } : output;
+
   function normalizePlan(output, { units = [], formulaUnits = {}, figures = [], policy = POLICY } = {}) {
-    const v = Contracts.validate(plannerOutput, output);
+    const raw = withPlannerDefaults(output);
+    const v = Contracts.validate(plannerOutput, raw);
     if (!v.ok) return { ok: false, errors: [{ code: "VAL_PLAN_INVALID", detail: v.errors.map(e => "schema:" + e.path) }] };
 
     const bad = [], flag = m => { if (bad.length < 20) bad.push(m); };
     const ir = new Map(units.map((u, i) => [u.unitId, i]));
-    const secs = output.sections;
+    const secs = raw.sections;
 
     secs.forEach((s, i) => { if (s.sectionId !== "S" + (i + 1)) flag("order:" + s.sectionId); });
     const seen = new Set();
@@ -523,16 +623,81 @@
     for (const g of output.global) { if (gSeen.has(g.type)) flag("global:" + g.type); gSeen.add(g.type); }
     if (bad.length) return { ok: false, errors: [{ code: "VAL_PLAN_INVALID", detail: bad }] };
     const caps = measurePlanCaps(output);
+    let normalizedLearningItems = undefined;
+    const deferredCore = [];
+    if (Array.isArray(output.learningItems) && output.learningItems.length) {
+      const secMap = new Map(secs.map(s => [s.sectionId, s]));
+      const unitToSec = new Map();
+      for (const s of secs) for (const u of s.unitIds) unitToSec.set(u, s.sectionId);
+      normalizedLearningItems = output.learningItems.slice(0, 200).map(raw => {
+        const item = {
+          itemId: raw.itemId,
+          kind: raw.kind,
+          unitIds: [...(raw.unitIds || [])],
+          importance: raw.importance,
+          status: "deferred",
+          reason: null,
+          sectionId: null,
+          ...(raw.correctionOf ? { correctionOf: raw.correctionOf } : {}),
+        };
+        const knownUnits = (item.unitIds || []).filter(u => ir.has(u));
+        if (!knownUnits.length) {
+          item.status = "excluded";
+          item.reason = "unrecognizable";
+          return item;
+        }
+        const assignedSec = secs.find(s => Array.isArray(s.learningItemIds) && s.learningItemIds.includes(item.itemId));
+        if (assignedSec) {
+          item.status = "included";
+          item.sectionId = assignedSec.sectionId;
+          return item;
+        }
+        if (item.importance === "core") {
+          const targetSecId = knownUnits.map(u => unitToSec.get(u)).find(Boolean);
+          if (targetSecId && secMap.has(targetSecId)) {
+            const targetSec = secMap.get(targetSecId);
+            targetSec.learningItemIds = [...(targetSec.learningItemIds || [])];
+            if (!targetSec.learningItemIds.includes(item.itemId)) targetSec.learningItemIds.push(item.itemId);
+            item.status = "included";
+            item.sectionId = targetSecId;
+          } else {
+            item.status = "deferred";
+            deferredCore.push(item.itemId);
+          }
+        } else {
+          item.status = "deferred";
+        }
+        return item;
+      });
+    }
     const plan = {
       schemaVersion: NOTE_SCHEMA_VERSION, noteSpecVersion: NOTE_SPEC_VERSION, policy: policyOf(policy),
       concepts: output.concepts.map(c => ({ ...c })),
-      sections: secs.map(s => ({ ...s, blocks: s.blocks.map((b, i) => ({ blockId: `${s.sectionId}_B${i + 1}`, ...b })) })),
+      sections: secs.map(s => {
+        const sec = {
+          sectionId: s.sectionId,
+          title: s.title,
+          question: s.question,
+          stage: s.stage,
+          unitIds: s.unitIds,
+          crossUnitIds: s.crossUnitIds,
+          blocks: s.blocks.map((b, i) => ({ blockId: `${s.sectionId}_B${i + 1}`, ...b })),
+        };
+        if (Array.isArray(s.learningItemIds)) sec.learningItemIds = s.learningItemIds;
+        if (Array.isArray(s.prerequisites)) sec.prerequisites = s.prerequisites;
+        if (Array.isArray(s.compareAxes)) sec.compareAxes = s.compareAxes;
+        if (s.needs && typeof s.needs === "object") sec.needs = s.needs;
+        if (s.expectedSize) sec.expectedSize = s.expectedSize;
+        if (s.worker) sec.worker = s.worker;
+        return sec;
+      }),
       global: output.global.map((g, i) => ({ blockId: `GB${i + 1}`, ...g })),
+      ...(normalizedLearningItems ? { learningItems: normalizedLearningItems } : {}),
     };
     // 정규화 결과가 Plan 스키마를 깨면 모델이 아니라 코드의 버그다.
     if (!Contracts.validate(schemas.plan, plan).ok) throw new Error("normalizePlan 결과가 Plan 스키마를 통과하지 못했습니다.");
     if (caps) Object.defineProperty(plan, "caps", { value: caps, enumerable: false, writable: true });
-    return { ok: true, plan, caps };
+    return { ok: true, plan, caps, ...(deferredCore.length ? { deferredCore } : {}) };
   }
 
   // 제공자는 json_schema 의 pattern 을 강제하지 않아 모델이 개념·섹션 id 를 제멋대로 쓴다(필드 관찰: concepts[0].conceptId 로 4연속 거절).
@@ -583,11 +748,37 @@
     const blocks = a => Array.isArray(a) ? a.map(b => b && typeof b === "object" ? { ...b, ...cut(b, "purpose", 200), conceptIds: ids(b.conceptIds),
       ...(Array.isArray(b.formulaIds) ? { formulaIds: keep(b.formulaIds, /^F[0-9]{1,6}$/, 6) } : {}),
       ...(Array.isArray(b.figureIds) ? { figureIds: keep(b.figureIds, /^G[0-9]{1,4}$/, 3) } : {}) } : b) : a;
+    // 학습 항목도 개념·섹션처럼 L1.. 로 차례대로 다시 매긴다 — 참조(learningItemIds·correctionOf)를 옮길 맵을 먼저 채운다.
+    const lMap = new Map();
+    if (Array.isArray(plan.learningItems)) plan.learningItems.slice(0, 200).forEach((l, i) => {
+      const k = key(l?.itemId);
+      if (k !== null && !lMap.has(k)) lMap.set(k, "L" + (i + 1));
+    });
+    const learningItems = Array.isArray(plan.learningItems) ? plan.learningItems.slice(0, 200).map((l, i) => {
+      if (!l || typeof l !== "object") return l;
+      const co = l.correctionOf ? lMap.get(key(l.correctionOf)) ?? l.correctionOf : null;
+      return {
+        ...l,
+        itemId: "L" + (i + 1),
+        ...(co && /^L[0-9]{1,4}$/.test(co) ? { correctionOf: co } : {}),
+      };
+    }) : undefined;
     return {
       ...plan,
       concepts: Array.isArray(concepts) ? concepts.slice(0, 40).map(c => c && typeof c === "object" ? { ...c, ...cut(c, "name", 60), homeSectionId: sMap.get(key(c.homeSectionId)) ?? c.homeSectionId } : c) : concepts,
-      sections: Array.isArray(sections) ? sections.map(s => s && typeof s === "object" ? { ...s, ...cut(s, "title", 80), ...cut(s, "question", 160), blocks: blocks(Array.isArray(s.blocks) ? s.blocks.slice(0, 12) : s.blocks), ...(Array.isArray(s.crossUnitIds) ? { crossUnitIds: keep(s.crossUnitIds, /^U[0-9]{1,4}$/, 10) } : {}) } : s) : sections,
+      sections: Array.isArray(sections) ? sections.map(s => s && typeof s === "object" ? {
+        ...s, ...cut(s, "title", 80), ...cut(s, "question", 160),
+        blocks: blocks(Array.isArray(s.blocks) ? s.blocks.slice(0, 12) : s.blocks),
+        ...(Array.isArray(s.crossUnitIds) ? { crossUnitIds: keep(s.crossUnitIds, /^U[0-9]{1,4}$/, 10) } : {}),
+        ...(Array.isArray(s.learningItemIds) ? { learningItemIds: keep(s.learningItemIds.map(x => lMap.get(key(x)) ?? x), /^L[0-9]{1,4}$/, 50) } : {}),
+        ...(Array.isArray(s.prerequisites) ? { prerequisites: ids(s.prerequisites) } : {}),
+        ...(Array.isArray(s.compareAxes) ? { compareAxes: s.compareAxes.filter(x => typeof x === "string").slice(0, 5).map(x => x.slice(0, 40)) } : {}),
+        ...(s.needs && typeof s.needs === "object" ? { needs: { formula: !!s.needs.formula, figure: !!s.needs.figure } } : {}),
+        ...(s.expectedSize && EXPECTED_SIZES.includes(s.expectedSize) ? { expectedSize: s.expectedSize } : {}),
+        ...(s.worker && SECTION_WORKERS.includes(s.worker) ? { worker: s.worker } : {}),
+      } : s) : sections,
       global: blocks(plan.global),
+      ...(learningItems !== undefined ? { learningItems } : {}),
     };
   }
 
@@ -1221,7 +1412,7 @@
 
   // §12: 검증 → 정정 지도 → 재검증 → 의존 정리(고정점) → Note 조립.
   // 입력 객체는 절대 바꾸지 않는다 — 살아남은 봉투·확인 항목·요지만 깊은 복사해 다듬는다.
-  function assembleNote({ plan, sections = [], global = null, units = [], evidence = [], registry = [], formulaUnits = {}, figures = [], crops = [], meta = {}, tier, systemNotices = [], promptVersion = null, katex }) {
+  function assembleNote({ plan, sections = [], global = null, units = [], evidence = [], registry = [], formulaUnits = {}, figures = [], crops = [], meta = {}, tier, systemNotices = [], promptVersion = null, katex, events = null }) {
     const outputs = new Map(sections.map(s => [s.sectionId, s.output]));
     const run = sup => {
       const m = new Map();
@@ -1483,6 +1674,31 @@
     const prunedItems = pruned.length;
     const prunedQuestions = pruned.filter(p => p.id.includes("/Q")).length;
     const stats = { directBlocks, cascadeBlocks, prunedItems, prunedQuestions };
+    let coverage = null;
+    if (Array.isArray(plan?.learningItems) && plan.learningItems.length) {
+      const survivingSecIds = new Set(secOut.map(s => s.sectionId));
+      const items = plan.learningItems.map(it => {
+        let status = it.status || "deferred";
+        let sectionId = it.sectionId ?? null;
+        let reason = it.reason ?? null;
+        // 최종 노트에서 그 섹션이 살아남지 못하면 status 를 deferred 로 내리는 정산 포함
+        if (status === "included") {
+          if (!sectionId || !survivingSecIds.has(sectionId)) {
+            status = "deferred";
+            sectionId = null;
+          }
+        }
+        return {
+          itemId: it.itemId,
+          kind: it.kind,
+          importance: it.importance,
+          status,
+          ...(reason ? { reason } : {}),
+          ...(sectionId ? { sectionId } : {}),
+        };
+      });
+      coverage = { items };
+    }
     const note = {
       schemaVersion: NOTE_SCHEMA_VERSION, noteSpecVersion: NOTE_SPEC_VERSION,
       promptVersion: promptVersion ?? null,
@@ -1498,7 +1714,16 @@
       concepts, global: globalOut, sections: secOut, registry: reg, figures: figs,
       sources, notices, dropped, pruned, advisories, stats,
       ...(pending.length ? { pending } : {}),
+      ...(coverage ? { coverage } : {}),
     };
+    if (coverage && events && typeof events.emit === "function") {
+      events.emit({
+        stage: "validate",
+        level: "info",
+        code: "COVERAGE",
+        msg: formatCoverageMsg(coverage.items),
+      });
+    }
     // 조립 결과가 계약을 깨면 모델이 아니라 이 코드의 버그다 — 조용히 보내지 않고 즉시 던진다.
     const nv = Contracts.validate(schemas.note, note);
     if (!nv.ok) throw new Error("Note 조립 결과가 스키마를 통과하지 못했습니다: " + nv.errors[0].path);
@@ -1512,6 +1737,7 @@
   const freeze = o => { for (const v of Object.values(o)) if (v && typeof v === "object") freeze(v); return Object.freeze(o); };
   const api = freeze({
     NOTE_SPEC_VERSION, NOTE_SCHEMA_VERSION, POLICY, TYPES, SECTION_TYPES, GLOBAL_TYPES, WRITER_TYPES, IDS,
+    LEARNING_ITEM_KINDS, LEARNING_ITEM_STATUSES, LEARNING_ITEM_REASONS, SECTION_WORKERS, EXPECTED_SIZES, formatCoverageMsg, withPlannerDefaults,
     schemas, envelopeSchema, sectionOutputSchemaFor, repairOutputSchemaFor, globalOutputSchemaFor, linkOutputSchema,
     normalizePlan, repairPlan, canonicalPlanIds, canonicalMapKeys, checkCalc, displayOf, citedRefs, validateSection, validateGlobal, assembleNote, restrictBasis, policyOf, AUG, withSource, measurePlanCaps,
   });

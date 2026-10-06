@@ -107,6 +107,8 @@ test("editorial guidance: slot meanings, comparison table, logic kinds, quiz all
   assert.match(plan, /문항은 노트 전체 4~8개/, "plan: 문항 예산");
   assert.match(plan, /B14라면 문항 수와 각 문항의 목적·겨눔 대상/, "plan: B14 purpose 에 배분 명시");
   assert.match(plan, /한 B06에 모은다/, "plan: 같은 축 비교를 한 표에");
+  assert.match(plan, /learningItems.*L1/, "plan: 학습 항목 id 체계");
+  assert.match(plan, /core 항목은 반드시 한 섹션에 배정한다/, "plan: core 배정 의무");
   const sec = Prompts.systemFor("section"), rep = Prompts.systemFor("repair"), glob = Prompts.systemFor("global");
   assert.match(sec, /purpose에 배정된 문항 수와 각 문항의 목적을 그대로 따라/, "section: 배분 준수");
   assert.match(sec, /지도 노드 key\(n1 등\)는 어떤 칸의 문서 참조도 아니다/, "section: 노드 키는 참조 아님");
@@ -114,6 +116,7 @@ test("editorial guidance: slot meanings, comparison table, logic kinds, quiz all
   assert.match(sec, /answer\.reviewIds에는 현재 B14 블록을 제외한 실제 본문 블록\(S#_B#\) id만 쓴다/, "section: 복습 위치 도메인");
   assert.match(sec, /같은 섹션 블록도 되고/, "section: 같은 섹션 복습 허용");
   assert.match(sec, /전역 블록\(GB#\)은 안 된다/, "section: 복습에 GB 불가");
+  assert.match(sec, /배정된 core 항목은 빠짐없이 다루고/, "section: 배정 core 항목 커버 의무");
   assert.match(sec, /allowedRefs 배열이 칸별 허용 목록이다/, "section: allowedRefs 는 칸별 목록");
   assert.match(sec, /allowedRefs\.reviewIds가 그 목록이고/, "section: 복습 목록은 reviewIds");
   assert.match(glob, /살아남은 모든 섹션의 재료를 두루 쓴다/, "global: 전 섹션 종합");
@@ -128,16 +131,22 @@ test("editorial guidance: slot meanings, comparison table, logic kinds, quiz all
 
 test("request contracts are the stage's own field lists", () => {
   assert.deepEqual(Object.keys(Prompts.REQUEST.plan.properties), ["ir", "formulas", "figures", "recognition", "options", "allowedRefs"]);
-  assert.deepEqual(Object.keys(Prompts.REQUEST.section.properties), ["section", "concepts", "evidence", "registry", "figures", "options", "withGist", "allowedRefs"]);
-  assert.deepEqual(Object.keys(Prompts.REQUEST.repair.properties), ["section", "concepts", "evidence", "registry", "figures", "options", "repair", "allowedRefs"]);
+  assert.deepEqual(Object.keys(Prompts.REQUEST.section.properties), ["section", "concepts", "evidence", "registry", "figures", "options", "learningItems", "withGist", "allowedRefs"]);
+  assert.deepEqual(Object.keys(Prompts.REQUEST.repair.properties), ["section", "concepts", "evidence", "registry", "figures", "options", "learningItems", "repair", "allowedRefs"]);
   assert.deepEqual(Object.keys(Prompts.REQUEST.global.properties), ["plan", "sections", "options", "allowedRefs"]);
   assert.deepEqual(Object.keys(Prompts.REQUEST.link.properties), ["concepts", "sections", "options", "allowedRefs"]);
   assert.deepEqual(Object.keys(Prompts.REQUEST.questions.properties), ["section", "blockId", "concepts", "sections", "options", "allowedRefs"]);
-  // allowedRefs 는 모든 단계의 유일한 선택 키다 — 나머지 키는 모두 required 로 strict 규칙을 지킨다.
-  for (const stage of Prompts.STAGES)
-    assert.deepEqual(Object.keys(Prompts.REQUEST[stage].properties).filter(k => !Prompts.REQUEST[stage].required.includes(k)), ["allowedRefs"], stage + " 선택 키");
-  for (const stage of ["plan", "section", "global"])
+  // 선택 키: 네 단계 모두 allowedRefs, section·repair 는 섹션에 배정된 learningItems 도 없어도 된다 — 나머지 키는 모두 required 로 strict 규칙을 지킨다.
+  for (const stage of Prompts.STAGES) {
+    const optional = ["section", "repair"].includes(stage) ? ["learningItems", "allowedRefs"] : ["allowedRefs"];
+    assert.deepEqual(Object.keys(Prompts.REQUEST[stage].properties).filter(k => !Prompts.REQUEST[stage].required.includes(k)), optional, stage + " 선택 키");
+  }
+  // plan·global 요청은 strict 모양을 지킨다. section·repair 는 정규화된 Plan 섹션을 싣는데,
+  // W2 의 선택 필드(learningItemIds·needs·worker 등)가 구 클라이언트 호환으로 optional 이라 strict 가 아니다 — 요청 계약이라 출력 스키마와 규칙이 다르다.
+  for (const stage of ["plan", "global"])
     assert.equal(Contracts.isStrictCompatible({ ...Prompts.REQUEST[stage], required: Object.keys(Prompts.REQUEST[stage].properties) }), true, stage + " 요청");
+  for (const stage of ["section", "repair"])
+    assert.doesNotThrow(() => Contracts.validate(Prompts.REQUEST[stage], null), stage + " 요청 lint");
   // repair 의 previous 는 이전 봉투를 그대로 싣는 자유 칸이다 — strict 스키마가 아니라 계약 검증으로 본다.
   const body = {
     section: s1, concepts: plan.concepts,
@@ -148,6 +157,14 @@ test("request contracts are the stage's own field lists", () => {
     repair: [{ blockId: "S1_B3", previous: { free: ["form", 1, null] }, errors: [{ code: "VAL_EVIDENCE_MISSING", detail: ["/content/note"] }] }],
   };
   assert.ok(Contracts.validate(Prompts.REQUEST.repair, body).ok, "repair 요청 계약");
+  // learningItems(선택): 섹션에 배정된 학습 항목 — id·kind·importance·근거 유닛만 싣는다.
+  const secBody = { ...body, section: s1, withGist: false };
+  delete secBody.repair;
+  const items = [{ itemId: "L1", kind: "definition", unitIds: ["U1"], importance: "core" }];
+  assert.ok(Contracts.validate(Prompts.REQUEST.section, { ...secBody, learningItems: items }).ok, "learningItems 있는 section 요청");
+  assert.ok(Contracts.validate(Prompts.REQUEST.repair, { ...body, learningItems: items }).ok, "learningItems 있는 repair 요청");
+  assert.ok(!Contracts.validate(Prompts.REQUEST.section, { ...secBody, learningItems: [{ itemId: "L1", kind: "bogus", unitIds: ["U1"], importance: "core" }] }).ok, "모르는 kind 거절");
+  assert.ok(!Contracts.validate(Prompts.REQUEST.section, { ...secBody, learningItems: [{ itemId: "L1", kind: "definition", unitIds: ["U1"], importance: "core", text: "원문" }] }).ok, "항목 텍스트 필드 거절");
 });
 
 test("allowedRefs: 선택 키지만 실으면 모양·패턴·경계를 검증하고 출력 스키마를 좁힌다", () => {

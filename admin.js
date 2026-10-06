@@ -1030,6 +1030,43 @@
     }
   }
 
+  // 커버리지 원장(제안서 §3): 학습 항목별 포함/병합/보류/제외 — id·코드만 있고 항목 텍스트는 없다.
+  function renderCoverageColumn() {
+    const list = $("cmpCoverageList"), countEl = $("cmpCovCount"), sumEl = $("cmpCovSummary");
+    list.textContent = "";
+    const cov = cmpModel?.coverage ?? AdminView.coverageLedger(cmpModel?.finalNote);
+    countEl.textContent = String(cov?.total ?? 0);
+    if (!cov || !cov.items.length) {
+      sumEl.textContent = "";
+      const empty = document.createElement("div");
+      empty.className = "note";
+      empty.textContent = "커버리지 원장이 없습니다 (학습 항목을 뽑지 않은 계획)";
+      list.appendChild(empty);
+      return;
+    }
+    const c = cov.counts;
+    sumEl.textContent = `포함 ${c.included} · 병합 ${c.merged} · 보류 ${c.deferred} · 제외 ${c.excluded}`;
+    for (const it of cov.items) {
+      const card = document.createElement("div");
+      card.className = "cmpCard";
+      const head = document.createElement("div");
+      head.className = "cmpCardHead";
+      const idSpan = document.createElement("b");
+      idSpan.textContent = it.itemId;
+      const badge = document.createElement("span");
+      badge.className = `cmpBadge badge-${it.status === "included" ? "kept" : it.status === "merged" ? "relinked" : "direct"}`;
+      badge.textContent = AdminView.COVERAGE_STATUS_LABELS[it.status] || it.status;
+      head.append(idSpan, badge);
+      const info = document.createElement("div");
+      info.className = "cmpText";
+      info.textContent = `${it.kind} · ${it.importance}` +
+        (it.sectionId ? ` → ${it.sectionId}` : "") +
+        (it.reason ? ` · 사유: ${AdminView.COVERAGE_REASON_LABELS[it.reason] || it.reason}` : "");
+      card.append(head, info);
+      list.appendChild(card);
+    }
+  }
+
   async function loadComparePackage() {
     const pkg = $("cmpPkgPick").value;
     if (!pkg) return void cmpStatus("패키지를 선택하세요");
@@ -1060,6 +1097,7 @@
         $("cmpDraftList").textContent = "";
         $("cmpJudgeList").textContent = "";
         $("cmpFinalList").textContent = "";
+        renderCoverageColumn();
         cmpStatus("초안 캐시 없음");
         return;
       }
@@ -1077,6 +1115,7 @@
       renderDraftColumn();
       renderJudgeColumn();
       renderFinalColumn();
+      renderCoverageColumn();
       cmpStatus("불러오기 완료");
     } catch (e) {
       cmpStatus("불러오기 실패: " + (e?.message || e));

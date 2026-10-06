@@ -674,11 +674,14 @@ function createServer(env=process.env,deps={}){
           else parsed=NoteContract.canonicalMapKeys(parsed,rest.section?.sectionId??null); // 지도 노드 키는 n1.. 로, 섹션 안 "B3" 참조는 "S2_B3" 로
           // 어긋난 블록만 null 로 — 섹션 전체를 버리지 않는다. 비운 블록의 원래 봉투는 salvaged 로 돌려줘 클라이언트가 repair 로 고치게 한다.
           // salvagedErrors: 비운 블록마다 스키마 오류의 위치와 사유(블록 안 경로 + 메시지, 내용 없음) — 클라이언트가 repair 지시에 그대로 싣는다.
+          // 계획의 W2 선택 칸 기본값은 검증용 복사본에만 채운다 — 모델이 뺐을 때 응답에 null 을 주입하면 구 클라이언트의 strict 스키마가 깨진다.
+          let checked=stage==="plan"?NoteContract.withPlannerDefaults(parsed):parsed;
           let salvaged=null,salvagedErrors=null;
-          const pre=Contracts.validate(outSchema,parsed);
+          const pre=Contracts.validate(outSchema,checked);
           if(!pre.ok){
-            const raw=parsed;parsed=Contracts.salvage(outSchema,parsed).value;
-            if(stage==="section"||stage==="repair")for(const [k,v] of Object.entries(raw?.blocks||{}))if(v&&typeof v==="object"&&!Array.isArray(v)&&parsed?.blocks?.[k]===null){
+            const raw=checked;checked=Contracts.salvage(outSchema,checked).value;
+            parsed=checked; // salvage 가 고친 결과를 돌린다 — 계획은 기본값이 채워진 모양이다
+            if(stage==="section"||stage==="repair")for(const [k,v] of Object.entries(raw?.blocks||{}))if(v&&typeof v==="object"&&!Array.isArray(v)&&checked?.blocks?.[k]===null){
               (salvaged??={})[k]=v;
               // 패턴 위반은 받은 값의 모양(영문 A·숫자 9·한글 가, 나머지 기호 그대로)을 붙인다 — 내용은 싣지 않고 형식만 보여 준다.
               (salvagedErrors??={})[k]=pre.errors.filter(e=>e.path.startsWith("/blocks/"+k+"/")).map(e=>{
@@ -687,7 +690,7 @@ function createServer(env=process.env,deps={}){
               }).slice(0,20);
             }
           }
-          const r=Contracts.validate(outSchema,parsed);
+          const r=Contracts.validate(outSchema,checked);
           if(!r.ok)throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_schema."+String(r.errors?.[0]?.path||r.errors?.[0]?.keyword||"x").toLowerCase().replace(/[^a-z0-9_.]/g,"_").slice(0,40)});
           // 계획 호출이 끝난 뒤에만 분류 결과를 기다린다 — 앞서 병렬로 나간 호출이고 이미 끝났거나 5초 안에 끝난다.
           const classified=classifying?await classifying:null;
