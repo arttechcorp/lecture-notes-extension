@@ -19,6 +19,7 @@
   <script src="lib/note-contract.js"></script>
   <script src="lib/note-spec.js"></script>
   <script src="lib/note-render.js"></script>
+  <script src="lib/print-check.js"></script>
 </head>
 <body>
   <div id="content"><div class="empty-notice">노트가 완성되면 서식·수식이 여기에 렌더링됩니다.</div></div>
@@ -94,10 +95,28 @@
 
     async function printNote(note, crops, options) {
       try {
-        const { html } = NoteRender.renderNote(note, { katex, crops: crops || {}, options: { ...(options || {}), medium: 'print' } });
+        const { html, warnings } = NoteRender.renderNote(note, { katex, crops: crops || {}, options: { ...(options || {}), medium: 'print' } });
         content.innerHTML = html;
         await document.fonts.ready;
-        await Promise.all([...content.querySelectorAll('img')].map(img => img.decode().catch(() => {})));
+        await Promise.all([...content.querySelectorAll('img')].map(img => img.decode().catch(err => {
+          img.dataset.decodeFailed = 'true';
+          return null;
+        })));
+        const readyState = (typeof PrintCheck !== 'undefined')
+          ? await PrintCheck.waitForPrintReady(content, { document })
+          : { ready: true, failedImages: [] };
+        const checkReport = (typeof PrintCheck !== 'undefined')
+          ? await PrintCheck.checkAndRelayout(content, { note, crops, options })
+          : { ok: true, attempts: 0, issues: [] };
+        window.parent.postMessage({
+          type: 'PRINT_CHECK_REPORT',
+          ok: checkReport.ok,
+          attempts: checkReport.attempts,
+          issues: checkReport.issues,
+          metrics: checkReport.metrics,
+          failedImagesCount: readyState.failedImages.length,
+          warnings: warnings || [],
+        }, '*');
         window.focus();
         window.print();
       } catch (err) {
