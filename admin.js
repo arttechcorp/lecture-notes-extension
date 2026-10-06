@@ -501,11 +501,13 @@
     $("viewSource").hidden = t !== "source";
     $("viewJobs").hidden = t !== "jobs";
     $("viewArtifacts").hidden = t !== "artifacts";
+    $("viewCompare").hidden = t !== "compare";
     $("tabPipeline").classList.toggle("active", t === "pipeline");
     $("tabLogs").classList.toggle("active", t === "logs");
     $("tabSource").classList.toggle("active", t === "source");
     $("tabJobs").classList.toggle("active", t === "jobs");
     $("tabArtifacts").classList.toggle("active", t === "artifacts");
+    $("tabCompare").classList.toggle("active", t === "compare");
     render();
   }
 
@@ -513,6 +515,7 @@
   $("tabLogs").addEventListener("click", () => showTab("logs"));
   $("tabJobs").addEventListener("click", () => showTab("jobs"));
   $("tabArtifacts").addEventListener("click", () => { showTab("artifacts"); refreshPackages(); });
+  $("tabCompare").addEventListener("click", () => { showTab("compare"); refreshComparePackages(); });
   $("tabSource").addEventListener("click", () => { showTab("source"); refreshTabs(); });
   $("fLevel").addEventListener("change", render);
   for (const id of ["fStage", "fJob", "fText"]) $(id).addEventListener("input", render);
@@ -821,6 +824,269 @@
   }
   $("pkgRefresh").addEventListener("click", refreshPackages);
   $("pkgLoad").addEventListener("click", loadPackage);
+
+  // ---- 비교 화면 탭: 네 칸 뷰 (근거 → 초안 → 점수/복구/이유 → 최종 노트) ----
+  // 메모리에서만 복호화하며 서버로 본문·해시·근거 문자열을 전송하지 않는다.
+  let cmpModel = null, selectedClaimId = null;
+  const cmpStatus = m => { $("cmpStatus").textContent = m; };
+
+  async function refreshComparePackages() {
+    const sel = $("cmpPkgPick"), prev = sel.value;
+    sel.textContent = "";
+    if (!globalThis.NoteLibrary?.list) return void cmpStatus("라이브러리를 불러오지 못했습니다");
+    try {
+      const list = await NoteLibrary.list(await getStore()) || [];
+      for (const p of list) {
+        const o = document.createElement("option");
+        o.value = p.packageId;
+        o.textContent = [p.title || p.packageId, p.host].filter(Boolean).join(" · ").slice(0, 60);
+        sel.appendChild(o);
+      }
+      if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
+      cmpStatus(list.length ? "" : "패키지가 없습니다");
+    } catch (e) { cmpStatus("목록을 가져오지 못했습니다: " + (e?.message || e)); }
+  }
+
+  function renderEvidenceColumn(filterClaim = null) {
+    const list = $("cmpEvidenceList"), countEl = $("cmpEvCount"), resetBtn = $("cmpResetEvFilter");
+    list.textContent = "";
+    const items = AdminView.filterEvidenceForClaim(cmpModel?.evidence || [], filterClaim);
+    countEl.textContent = String(items.length);
+    resetBtn.hidden = !filterClaim;
+
+    if (!items.length) {
+      const empty = document.createElement("div");
+      empty.className = "note";
+      empty.textContent = filterClaim ? "선택된 주장의 근거가 없습니다" : "근거가 없습니다";
+      list.appendChild(empty);
+      return;
+    }
+
+    for (const ev of items) {
+      const card = document.createElement("div");
+      card.className = "cmpCard";
+      const head = document.createElement("div");
+      head.className = "cmpCardHead";
+      const idSpan = document.createElement("b");
+      idSpan.textContent = ev.id;
+      const kindSpan = document.createElement("span");
+      kindSpan.className = "cmpTag";
+      kindSpan.textContent = `${ev.kind} · ${ev.unitId || ""}`;
+      head.append(idSpan, kindSpan);
+
+      const body = document.createElement("div");
+      body.className = "cmpText";
+      body.textContent = ev.text || "";
+
+      card.append(head, body);
+      list.appendChild(card);
+    }
+  }
+
+  function selectClaim(claim) {
+    selectedClaimId = claim?.claimId === selectedClaimId ? null : claim?.claimId;
+    for (const card of document.querySelectorAll(".cmpCard.claimCard")) {
+      card.classList.toggle("selected", card.dataset.claimId === selectedClaimId);
+    }
+    const curClaim = selectedClaimId ? cmpModel?.claims?.find(c => c.claimId === selectedClaimId) : null;
+    renderEvidenceColumn(curClaim);
+  }
+
+  function renderDraftColumn() {
+    const list = $("cmpDraftList"), countEl = $("cmpDraftCount");
+    list.textContent = "";
+    const claims = cmpModel?.claims || [];
+    countEl.textContent = String(claims.length);
+
+    for (const sec of cmpModel?.draft?.sections || []) {
+      const secTitle = document.createElement("div");
+      secTitle.className = "note";
+      secTitle.style.fontWeight = "bold";
+      secTitle.textContent = `[${sec.sectionId}] ${sec.title}`;
+      list.appendChild(secTitle);
+
+      for (const blk of sec.blocks || []) {
+        for (const c of blk.claims || []) {
+          const card = document.createElement("div");
+          card.className = "cmpCard claimCard clickable";
+          card.dataset.claimId = c.claimId;
+          if (c.claimId === selectedClaimId) card.classList.add("selected");
+
+          const head = document.createElement("div");
+          head.className = "cmpCardHead";
+          const idSpan = document.createElement("span");
+          idSpan.textContent = `${blk.blockId} (${blk.type})`;
+          const badge = document.createElement("span");
+          badge.className = `cmpBadge badge-${c.status || "unjudged"}`;
+          badge.textContent = c.statusLabel || "미판정";
+          head.append(idSpan, badge);
+
+          const body = document.createElement("div");
+          body.className = "cmpText";
+          body.textContent = c.text;
+
+          const refs = document.createElement("div");
+          refs.className = "cmpEvidenceRefs";
+          refs.textContent = `근거: ${c.evidenceIds?.join(", ") || "없음"} · 기준: ${c.basis}`;
+
+          card.append(head, body, refs);
+          card.addEventListener("click", () => selectClaim(c));
+          list.appendChild(card);
+        }
+      }
+    }
+  }
+
+  function renderJudgeColumn() {
+    const list = $("cmpJudgeList");
+    list.textContent = "";
+
+    for (const c of cmpModel?.claims || []) {
+      const card = document.createElement("div");
+      card.className = "cmpCard";
+      const head = document.createElement("div");
+      head.className = "cmpCardHead";
+      const idSpan = document.createElement("span");
+      idSpan.textContent = c.claimId;
+      const badge = document.createElement("span");
+      badge.className = `cmpBadge badge-${c.status || "unjudged"}`;
+      badge.textContent = c.statusLabel || "미판정";
+      head.append(idSpan, badge);
+
+      const info = document.createElement("div");
+      info.className = "cmpText";
+      let desc = `상태: ${c.statusLabel}`;
+      if (c.status === "collateral") desc += " (블록 내 다른 사유로 인한 동반 탈락)";
+      else if (c.status === "cascade") desc += " (선행 블록 탈락으로 인한 연쇄 보류)";
+      else if (c.status === "direct") desc += " (품질·근거·숫자 검증 미달 직접 보류)";
+      else if (c.status === "fixed") desc += " (검증 후 재작성 회복 성공)";
+      else if (c.status === "kept") desc += " (검증 통과 유지)";
+      info.textContent = desc;
+
+      card.append(head, info);
+      list.appendChild(card);
+    }
+  }
+
+  function renderFinalColumn() {
+    const list = $("cmpFinalList"), countEl = $("cmpFinalCount");
+    list.textContent = "";
+    const note = cmpModel?.finalNote;
+    if (!note) {
+      list.textContent = "최종 노트가 없습니다";
+      countEl.textContent = "0";
+      return;
+    }
+
+    const sections = note.sections || [];
+    let blkCount = 0;
+    for (const s of sections) blkCount += (s.blocks || []).length;
+    blkCount += (note.global || []).length;
+    countEl.textContent = `블록 ${blkCount}개`;
+
+    for (const sec of sections) {
+      const secTitle = document.createElement("div");
+      secTitle.className = "note";
+      secTitle.style.fontWeight = "bold";
+      secTitle.textContent = `[${sec.sectionId}] ${sec.title}`;
+      list.appendChild(secTitle);
+
+      for (const b of sec.blocks || []) {
+        const card = document.createElement("div");
+        card.className = "cmpCard";
+        const head = document.createElement("div");
+        head.className = "cmpCardHead";
+        head.textContent = `${b.id} (${b.type})`;
+        const text = document.createElement("div");
+        text.className = "cmpText";
+        const claims = AdminView.claimsIn(b.envelope?.content || b.content);
+        text.textContent = claims.map(c => c.claim.text).join("\n") || "(내용)";
+        card.append(head, text);
+        list.appendChild(card);
+      }
+    }
+
+    if (note.dropped?.length) {
+      const dTitle = document.createElement("div");
+      dTitle.className = "note";
+      dTitle.style.fontWeight = "bold";
+      dTitle.style.color = "#991b1b";
+      dTitle.textContent = `제외 블록 (${note.dropped.length}개)`;
+      list.appendChild(dTitle);
+
+      for (const d of note.dropped) {
+        const card = document.createElement("div");
+        card.className = "cmpCard";
+        card.style.background = "#fef2f2";
+        const head = document.createElement("div");
+        head.className = "cmpCardHead";
+        head.textContent = `${d.blockId} (${d.type}) · 사유: ${d.cause || "direct"}`;
+        const codes = document.createElement("div");
+        codes.className = "cmpText";
+        codes.textContent = d.codes?.join(", ") || "-";
+        card.append(head, codes);
+        list.appendChild(card);
+      }
+    }
+  }
+
+  async function loadComparePackage() {
+    const pkg = $("cmpPkgPick").value;
+    if (!pkg) return void cmpStatus("패키지를 선택하세요");
+    const btn = $("cmpPkgLoad");
+    btn.disabled = true;
+    selectedClaimId = null;
+    cmpStatus("불러오는 중…");
+
+    try {
+      const store = await getStore();
+      const ids = (await store.ids("packages")).filter(i => i.startsWith(pkg + ":"));
+      const records = {};
+      for (const full of ids) {
+        const short = full.slice(pkg.length + 1);
+        try { records[short] = await store.getJson("packages", full); } catch {}
+      }
+
+      cmpModel = AdminView.buildComparisonModel({ records });
+      const alertBox = $("cmpAlertBox"), metricsBar = $("cmpMetricsBar");
+
+      if (!cmpModel.available) {
+        alertBox.hidden = false;
+        alertBox.className = "cmpAlert";
+        alertBox.textContent = `${cmpModel.reason} (단계 캐시에 작성 초안이 없습니다. 과거 최종 노트만으로 삭제 전 초안을 복원하지 않습니다.)`;
+        metricsBar.hidden = true;
+        $("cmpEvidenceList").textContent = "";
+        $("cmpDraftList").textContent = "";
+        $("cmpJudgeList").textContent = "";
+        $("cmpFinalList").textContent = "";
+        cmpStatus("초안 캐시 없음");
+        return;
+      }
+
+      alertBox.hidden = true;
+      metricsBar.hidden = false;
+      const m = cmpModel.metrics;
+      $("mLowRate").textContent = m.judge_low_rate != null ? `${(m.judge_low_rate * 100).toFixed(1)}% (${m.initialLow}/${m.initialJudged})` : "-";
+      $("mCollateralRate").textContent = m.collateral_loss_rate != null ? `${(m.collateral_loss_rate * 100).toFixed(1)}% (${m.collateralClaims}/${m.totalDraftClaims})` : "-";
+      $("mTotalClaims").textContent = String(m.totalDraftClaims);
+      $("mCollateralClaims").textContent = String(m.collateralClaims);
+      $("mRepairs").textContent = `${m.repairStats.accepted}/${m.repairStats.attempted}`;
+
+      renderEvidenceColumn();
+      renderDraftColumn();
+      renderJudgeColumn();
+      renderFinalColumn();
+      cmpStatus("불러오기 완료");
+    } catch (e) {
+      cmpStatus("불러오기 실패: " + (e?.message || e));
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  $("cmpPkgRefresh").addEventListener("click", refreshComparePackages);
+  $("cmpPkgLoad").addEventListener("click", loadComparePackage);
+  $("cmpResetEvFilter").addEventListener("click", () => selectClaim(null));
 
   connect();
   setInterval(() => { if (!$("viewPipeline").hidden) scheduleRender(); }, 1000); // 열린 막대가 자라도록

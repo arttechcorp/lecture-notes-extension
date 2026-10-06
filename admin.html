@@ -66,6 +66,32 @@
   .bbox.frm { border-color: #34d; }
   .bbox.fig { border-color: #a3a; }
   .cropImg { max-width: 320px; display: block; margin: 6px 0; }
+  /* 비교 화면 (개발용, 4칸 뷰) */
+  #cmpControls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+  .cmpMetricsBar { display: flex; gap: 16px; background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 8px 12px; margin: 8px 0; flex-wrap: wrap; align-items: center; font-size: 12px; }
+  .cmpMetric { display: flex; flex-direction: column; }
+  .cmpMetric label { font-size: 11px; color: #666; }
+  .cmpMetric b { font-size: 14px; color: #111; }
+  .cmpGrid { display: grid; grid-template-columns: 1fr 1.2fr 1fr 1.2fr; gap: 8px; margin-top: 10px; }
+  .cmpCol { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 10px; max-height: 72vh; overflow-y: auto; }
+  .cmpColHead { font-size: 13px; font-weight: bold; margin: 0 0 8px 0; padding-bottom: 6px; border-bottom: 2px solid #eee; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; background: #fff; z-index: 1; }
+  .cmpCard { border: 1px solid #e5e7eb; border-radius: 5px; padding: 8px; margin-bottom: 8px; font-size: 12px; transition: border-color 0.15s, background-color 0.15s; }
+  .cmpCard.clickable { cursor: pointer; }
+  .cmpCard.clickable:hover { border-color: #93c5fd; background: #f8fafc; }
+  .cmpCard.selected { border-color: #2563eb; background: #eff6ff; box-shadow: 0 0 0 1px #2563eb; }
+  .cmpCardHead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; font-size: 11px; color: #6b7280; }
+  .cmpBadge { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .badge-kept { background: #dcfce7; color: #166534; }
+  .badge-fixed { background: #e0e7ff; color: #3730a3; }
+  .badge-relinked { background: #e0f2fe; color: #0369a1; }
+  .badge-pending, .badge-direct { background: #fee2e2; color: #991b1b; }
+  .badge-collateral { background: #fef3c7; color: #92400e; }
+  .badge-cascade { background: #f3e8ff; color: #6b21a8; }
+  .badge-unjudged { background: #f3f4f6; color: #4b5563; }
+  .cmpAlert { background: #fffbeb; border: 1px solid #fef3c7; color: #92400e; padding: 14px; border-radius: 6px; margin: 10px 0; font-weight: 500; font-size: 13px; }
+  .cmpEvidenceRefs { font-size: 11px; color: #4b5563; margin-top: 4px; }
+  .cmpText { white-space: pre-line; word-break: break-word; }
+  .cmpTag { background: #f1f5f9; padding: 1px 5px; border-radius: 3px; font-size: 10px; margin-right: 4px; color: #475569; }
 </style>
 </head>
 <body>
@@ -82,6 +108,7 @@
   <button id="tabSource" type="button" class="tab">소스 진단</button>
   <button id="tabJobs" type="button" class="tab">작업</button>
   <button id="tabArtifacts" type="button" class="tab">산출물</button>
+  <button id="tabCompare" type="button" class="tab">비교 화면</button>
 </nav>
 <section id="viewPipeline">
   <table id="stageTable">
@@ -143,9 +170,48 @@
   <p class="note" id="pkgStatus" role="status" aria-live="polite"></p>
   <div id="pkgRecords"></div>
 </section>
+<section id="viewCompare" hidden>
+  <p class="note">개발 전용: 네 칸 뷰(근거 → 검증 전 초안 → 점수/복구/이유 → 최종 노트). 로컬 암호화 캐시를 메모리에서만 복호화하며 서버로 본문·해시·근거를 전송하지 않습니다.</p>
+  <div id="cmpControls">
+    <select id="cmpPkgPick"></select>
+    <button id="cmpPkgRefresh" type="button">목록 새로고침</button>
+    <button id="cmpPkgLoad" type="button">불러오기</button>
+    <span class="note" id="cmpStatus" role="status" aria-live="polite"></span>
+  </div>
+  <div id="cmpAlertBox" hidden></div>
+  <div id="cmpMetricsBar" class="cmpMetricsBar" hidden>
+    <div class="cmpMetric"><label>초기 저점수율 (judge_low_rate)</label><b id="mLowRate">-</b></div>
+    <div class="cmpMetric"><label>블록 동반 손실율 (collateral_loss_rate)</label><b id="mCollateralRate">-</b></div>
+    <div class="cmpMetric"><label>초안 주장 수</label><b id="mTotalClaims">-</b></div>
+    <div class="cmpMetric"><label>동반/연쇄 탈락</label><b id="mCollateralClaims">-</b></div>
+    <div class="cmpMetric"><label>복구 성공</label><b id="mRepairs">-</b></div>
+  </div>
+  <div id="cmpGrid" class="cmpGrid">
+    <div class="cmpCol">
+      <div class="cmpColHead">
+        <span>1. 근거 (<span id="cmpEvCount">0</span>)</span>
+        <button id="cmpResetEvFilter" type="button" style="font-size:11px;padding:1px 5px;" hidden>전체 보기</button>
+      </div>
+      <div id="cmpEvidenceList"></div>
+    </div>
+    <div class="cmpCol">
+      <div class="cmpColHead"><span>2. 검증 전 초안 (<span id="cmpDraftCount">0</span>)</span></div>
+      <div id="cmpDraftList"></div>
+    </div>
+    <div class="cmpCol">
+      <div class="cmpColHead"><span>3. 점수 / 복구 / 이유</span></div>
+      <div id="cmpJudgeList"></div>
+    </div>
+    <div class="cmpCol">
+      <div class="cmpColHead"><span>4. 최종 노트 (<span id="cmpFinalCount">0</span>)</span></div>
+      <div id="cmpFinalList"></div>
+    </div>
+  </div>
+</section>
 <script src="lib/package-store.js"></script>
 <script src="lib/media-source.js"></script>
 <script src="lib/library.js"></script>
+<script src="lib/admin-view.js"></script>
 <script src="admin.js"></script>
 </body>
 </html>
