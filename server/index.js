@@ -356,6 +356,8 @@ function createServer(env=process.env,deps={}){
     // 장부가 Postgres(store.slot)면 로컬 슬롯 뒤에 전역 슬롯도 잡는다 — 프로세스 메모리 세마포어는 워커마다 따로 센다.
     // 로컬·전역 대기를 합쳐 providerQueueMs 안에 못 잡으면 로컬을 놓고 같은 provider_busy로 되돌린다.
     const g=store&&store.slot,deadline=patient?Infinity:Date.now()+c.providerQueueMs;
+    // provider_slots.provider 의 CHECK 에는 '@'가 없다(supabase/schema-v2.sql:318) — 변형 id 는 ':' 로 바꿔 같은 풀을 유지한다.
+    const slotKey=m=>m.replace(/@/g,":");
     const granted=local=>{
       if(!g)return Promise.resolve(local);
       let id=null;
@@ -372,7 +374,7 @@ function createServer(env=process.env,deps={}){
         for(;;){
           if(signal?.aborted)throw abortErr(patient);
           if(!patient&&Date.now()>=deadline)throw busyErr();
-          try{id=await g.acquire(model,c.providerConcurrency[model]||16,c.timeout+30000);}catch{}
+          try{id=await g.acquire(slotKey(model),c.providerConcurrency[model]||16,c.timeout+30000);}catch{}
           // 꽉 찼거나(null) RPC가 실패해도 250ms 뒤 다시 본다. 잡는 사이 기한·연결이 닫혔으면 잡은 슬롯을 돌려놓는다.
           if(id){
             if((patient||Date.now()<deadline)&&!signal?.aborted)return finish();

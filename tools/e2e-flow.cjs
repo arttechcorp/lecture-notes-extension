@@ -500,8 +500,8 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
               view: !document.getElementById('viewMode')?.hidden ? 'mode' : (!document.getElementById('viewPrep')?.hidden ? document.getElementById('viewPrep').dataset.mode : null),
               donePill: document.getElementById('donePill')?.textContent?.trim(),
               notesDisabled: !!document.getElementById('notesBtn')?.disabled,
-              recognition: !document.getElementById('recognitionBox')?.hidden,
-              retryNote: !document.getElementById('retryNoteBtn')?.hidden,
+              recognition: !!document.getElementById('recognitionBox')?.checkVisibility?.(),
+              retryNote: !!document.getElementById('retryNoteBtn')?.checkVisibility?.(),
             }));
             // Shared completion screen for an already-processed lecture.
             if (st.stage === 'stageDone') {
@@ -538,7 +538,7 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
               doneSummary: document.getElementById('doneSummary')?.textContent?.trim(),
               doneAlert: document.getElementById('doneAlert')?.hidden ? '' : document.getElementById('doneAlert')?.textContent?.trim().slice(0, 300),
               notesBtnDisabled: !!document.getElementById('notesBtn')?.disabled,
-              vis: Object.fromEntries(['bgRetryBtn', 'bgCancelBtn', 'bgLiveBtn', 'bgConsentBtn', 'bgMakeBtn', 'bgDiscardBtn', 'bgBilling', 'bgSummaryLink', 'notesBtn', 'makeNoteBtn', 'retryNoteBtn', 'siteNotesBtn', 'againBtn'].map(b => [b, !document.getElementById(b)?.hidden])),
+              vis: Object.fromEntries(['bgRetryBtn', 'bgCancelBtn', 'bgLiveBtn', 'bgConsentBtn', 'bgMakeBtn', 'bgDiscardBtn', 'bgBilling', 'bgSummaryLink', 'notesBtn', 'makeNoteBtn', 'retryNoteBtn', 'siteNotesBtn', 'againBtn'].map(b => [b, !!document.getElementById(b)?.checkVisibility?.()])), // ancestors may be hidden — own .hidden is not enough
             })).catch(() => null);
             const shot = async name => { const s = await snap(panel, name); if (s) rec.screenshots.push(s); };
             while (Date.now() < deadline) {

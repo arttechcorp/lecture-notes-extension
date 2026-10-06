@@ -1908,6 +1908,8 @@ function supabaseFake() {
         return ok("reserved");
       }
       if (rpc === "acquire_provider_slot") {
+        // provider_slots.provider 의 CHECK 와 같은 패턴(supabase/schema-v2.sql:318) — '@'는 거절된다.
+        if (!/^[A-Za-z0-9][A-Za-z0-9_./:-]{0,127}$/.test(args.p_provider)) return bad(400);
         if (f.slotQueue && f.slotQueue.length) return ok(f.slotQueue.shift());
         const now = Date.now();
         for (const [id, s] of f.slots) if (s.expires <= now) f.slots.delete(id);
@@ -2252,6 +2254,17 @@ test("a write holds a global provider slot between reserve and settle", async ()
     assert.equal(rel.length, 1);
     assert.equal(rel[0].args.p_id.length, 36);
   }, { env: { PROVIDER_CONCURRENCY_JSON: JSON.stringify({ [model]: 2 }), OPENROUTER_TIMEOUT_MS: "40000" } });
+});
+
+test("a luna variant write acquires its global slot under a '@'-free key", async () => {
+  const variant = "openai/gpt-6-luna@xhigh";
+  await withSupabase(async ({ url, sb }) => {
+    sb.other = async () => noteReply(s1Out);
+    assert.equal((await req(url, "/v1/write", "POST", sectionIn({ requestId: "luna-slot", model: variant }), ec1())).status, 200, "슬롯 키가 CHECK 에 걸리면 요청 전체가 provider_busy 로 죽는다");
+    const acq = sb.rpcNamed("acquire_provider_slot");
+    assert.equal(acq.length, 1);
+    assert.equal(acq[0].args.p_provider, "openai/gpt-6-luna:xhigh", "변형 별 전역 풀 — '@'는 ':'로 바꿔 provider_slots CHECK를 통과한다");
+  }, { env: { ALLOWED_MODELS: JSON.stringify([model, variant]), OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], "openai/gpt-6-luna": ["azure"] }) }, setup: sb => { sb.plan = "essential"; } });
 });
 
 test("a 4xx provider rejection (no endpoint for the parameters) refunds the reservation — nothing was generated", async () => {

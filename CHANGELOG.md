@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.5.0.3 — 2026-10-06
+
+- luna 작성 변형(@medium/@high/@xhigh) 요청이 다시 나간다 — 전역 제공자 슬롯 키를 '@' 대신 ':'으로 바꿔 provider_slots 검사를 통과한다(필드: luna 변형 요청이 전부 queue_busy 429로 끝났다).
+
 ## 2.5.0.2 — 2026-10-06
 
 - 작성 모델 실험용 luna 강도별 변형(openai/gpt-6-luna@medium/@high/@xhigh)을 서버에 추가한다 — 기본 작성 모델은 그대로(mimo flash)다(필드: mimo flash 작성이 120초 상한에 붙어 섹션 시도의 33%가 타임아웃이었다).
