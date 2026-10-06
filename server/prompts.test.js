@@ -34,7 +34,7 @@ const basisOf = (schema, out = new Set()) => {
 test("every stage has a versioned system prompt that treats input as untrusted data", () => {
   assert.equal(Prompts.PROMPT_VERSION, "note-v5");
   assert.match(Prompts.PROMPT_VERSION, /^[a-z0-9][a-z0-9._-]*$/);
-  assert.deepEqual(Prompts.STAGES, ["plan", "section", "global", "repair"]);
+  assert.deepEqual(Prompts.STAGES, ["plan", "section", "global", "repair", "link", "questions"]);
   for (const stage of Prompts.STAGES) {
     const text = Prompts.systemFor(stage);
     assert.equal(Prompts.systemFor(stage), text, "단계 안에서는 호출마다 같은 문자열이어야 접두 캐시가 맞는다");
@@ -46,7 +46,7 @@ test("every stage has a versioned system prompt that treats input as untrusted d
     assert.match(text, /그대로 옮기거나 이어 붙이지 않는다/, stage + ": 비대체성");
     assert.ok(!/\$\{|undefined|\[object/.test(text), stage + ": 템플릿 잔재");
   }
-  assert.equal(new Set(Prompts.STAGES.map(s => Prompts.systemFor(s))).size, 4, "단계마다 지시가 다르다");
+  assert.equal(new Set(Prompts.STAGES.map(s => Prompts.systemFor(s))).size, 6, "단계마다 지시가 다르다");
   assert.throws(() => Prompts.systemFor("summary"), /invalid_stage/);
   assert.throws(() => Prompts.outputSchema("summary"), /invalid_stage/);
 });
@@ -131,7 +131,9 @@ test("request contracts are the stage's own field lists", () => {
   assert.deepEqual(Object.keys(Prompts.REQUEST.section.properties), ["section", "concepts", "evidence", "registry", "figures", "options", "withGist", "allowedRefs"]);
   assert.deepEqual(Object.keys(Prompts.REQUEST.repair.properties), ["section", "concepts", "evidence", "registry", "figures", "options", "repair", "allowedRefs"]);
   assert.deepEqual(Object.keys(Prompts.REQUEST.global.properties), ["plan", "sections", "options", "allowedRefs"]);
-  // allowedRefs 는 네 단계 모두의 유일한 선택 키다 — 나머지 키는 모두 required 로 strict 규칙을 지킨다.
+  assert.deepEqual(Object.keys(Prompts.REQUEST.link.properties), ["concepts", "sections", "options", "allowedRefs"]);
+  assert.deepEqual(Object.keys(Prompts.REQUEST.questions.properties), ["section", "blockId", "concepts", "sections", "options", "allowedRefs"]);
+  // allowedRefs 는 모든 단계의 유일한 선택 키다 — 나머지 키는 모두 required 로 strict 규칙을 지킨다.
   for (const stage of Prompts.STAGES)
     assert.deepEqual(Object.keys(Prompts.REQUEST[stage].properties).filter(k => !Prompts.REQUEST[stage].required.includes(k)), ["allowedRefs"], stage + " 선택 키");
   for (const stage of ["plan", "section", "global"])
@@ -237,4 +239,54 @@ test("English lecture: writer stages get the English rules, section/repair schem
   assert.ok(Contracts.isStrictCompatible(withSrc));
   assert.deepEqual(withSrc.properties.gist.properties.src, { type: ["string", "null"], maxLength: 600 });
   assert.equal(JSON.stringify(withSrc).split('"src":').length - 1, plain.split('"basis":').length - 1, "주장마다 하나");
+});
+
+// W2-D 연결 편집(link)·본문 확정 뒤 문항(questions) 단계의 요청·출력 계약.
+test("link stage: claims carry envelope paths, output is an edits proposal list (no body rewrite)", () => {
+  const t = Prompts.systemFor("link");
+  assert.match(t, /본문을 새로 쓰지 않는다/, "link: 재작성 금지");
+  assert.match(t, /rename_term|drop_duplicate|flag|rewrite/, "link: 제안 액션 나열");
+  assert.match(t, /모순은 flag로만/, "link: 모순은 확인 표시만");
+  const sectionClaims = { blockId: "S1_B1", type: "B05", claims: [{ path: "/content/definition", text: "고정비는 생산량과 무관하다", evidenceIds: ["U1.s2"], basis: "lecture" }] };
+  const body = { concepts: plan.concepts, sections: [{ sectionId: "S1", title: "비용", gist: null, blocks: [sectionClaims] }], options: { ...OFF } };
+  assert.ok(Contracts.validate(Prompts.REQUEST.link, body).ok, "link 요청 계약");
+  const bad = JSON.parse(JSON.stringify(body));
+  delete bad.sections[0].blocks[0].claims[0].path;
+  assert.ok(!Contracts.validate(Prompts.REQUEST.link, bad).ok, "path 없는 주장은 link 요청이 아니다");
+  const sch = Prompts.outputSchema("link");
+  assert.equal(Contracts.isStrictCompatible(sch), true, "link 출력 strict");
+  const item = sch.properties.edits.items;
+  assert.deepEqual(item.properties.kind.enum, ["term", "contradiction", "duplicate"]);
+  assert.deepEqual(item.properties.action.enum, ["rename_term", "flag", "drop_duplicate", "rewrite"]);
+  assert.match(item.properties.targets.items.pattern, /S\[0-9\]/, "targets 는 블록 id+경로 패턴");
+  // 제안 목록 검증: 온전한 제안은 통과, 잘못된 대상은 거절
+  const ok = { edits: [{ kind: "term", targets: ["S1_B1/content/definition"], action: "rename_term", text: "새 문장" }] };
+  assert.ok(Contracts.validate(sch, ok).ok, "제안 출력 통과");
+  for (const bad2 of [
+    { edits: [{ kind: "term", targets: ["n1"], action: "flag", text: null }] },
+    { edits: [{ kind: "term", targets: [], action: "flag", text: null }] },
+    { edits: [{ kind: "shrink", targets: ["S1_B1"], action: "flag", text: null }] },
+  ]) assert.ok(!Contracts.validate(sch, bad2).ok, JSON.stringify(bad2));
+  // link 는 주장을 새로 쓰지 않는다 — 생성 옵션 규칙도 영어 src 칸도 붙지 않는다.
+  assert.ok(!Prompts.systemFor("link", { syntheticExamples: true, externalAugmentation: true }).includes("[가상 사례 허용]"), "link: aug 규칙 없음");
+  assert.ok(!Prompts.systemFor("link", OFF, "en").includes("[원문 대조]"), "link: src 칸 없음");
+});
+
+test("questions stage: request pins the plan's B14 block; output is that one envelope", () => {
+  const t = Prompts.systemFor("questions");
+  assert.match(t, /purpose가 정한 문항 수/, "questions: 계획 배분 준수");
+  assert.match(t, /입력에 없는 지식을 묻지 않는다/, "questions: 본문 근거 한정");
+  const s4 = plan.sections.find(s => s.sectionId === "S4"), b14 = s4.blocks.find(b => b.type === "B14");
+  const claims = [{ text: "자료 해석은 표본 대표성을 본다", evidenceIds: ["U5.t1"], basis: "lecture" }];
+  const body = { section: s4, blockId: b14.blockId, concepts: plan.concepts, sections: [{ sectionId: "S4", title: s4.title, gist: null, blocks: [{ blockId: "S4_B1", type: "B09", claims }] }], options: { ...OFF } };
+  assert.ok(Contracts.validate(Prompts.REQUEST.questions, body).ok, "questions 요청 계약");
+  const sch = Prompts.outputSchema("questions", body);
+  assert.deepEqual(Object.keys(sch.properties.blocks.properties), [b14.blockId], "출력은 그 B14 하나");
+  assert.ok(Contracts.isStrictCompatible(sch), "questions 출력 strict");
+  // 계획에 없는 id·B14 가 아닌 블록은 거절이다.
+  assert.throws(() => Prompts.outputSchema("questions", { ...body, blockId: "S4_B1" }), /invalid_stage/, "B14 아닌 블록 거절");
+  assert.throws(() => Prompts.outputSchema("questions", { ...body, blockId: "S9_B1" }), /invalid_stage/, "계획 밖 거절");
+  const enSch = Prompts.outputSchema("questions", body, "en");
+  assert.ok(JSON.stringify(enSch).includes('"src"'), "영어 강의는 주장에 src 칸");
+  assert.ok(Contracts.isStrictCompatible(enSch), "영어 questions 출력 strict");
 });

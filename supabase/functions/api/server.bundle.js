@@ -735,6 +735,18 @@ const __defs = {
     blocks: obj(Object.fromEntries(planGlobal.map(g => [g.blockId, orNull(restrictRefs(envelopeSchema(g.type), allowedRefs, g.blockId))]))),
   });
 
+  // 연결 편집 출력(제안서 §3 제한된 워커): 본문 재작성이 아니라 변경 제안 목록이다. targets 는
+  // "S2_B3/content/scope/0"처럼 블록 id + 봉투 안 경로다 — 경로가 없으면 블록 전체다. 적용·재검증은 호출자가 한다.
+  const linkTarget = pat("^S[0-9]{1,3}_B[0-9]{1,2}(/[A-Za-z0-9_]{1,24}){0,8}$");
+  const linkOutputSchema = obj({
+    edits: arr(obj({
+      kind: en(["term", "contradiction", "duplicate"]),
+      targets: arr(linkTarget, 8, 1),
+      action: en(["rename_term", "flag", "drop_duplicate", "rewrite"]),
+      text: orNull(str(600)),
+    }), 40),
+  });
+
   // 유닛의 슬라이드·발화에 나온 숫자 집합 — 단원 제목·질문과 개념 이름은 B04 머리와 개념 색인으로
   // 그대로 노출되는데 Writer 검사를 거치지 않으므로 그 섹션(개념은 홈 섹션) 유닛의 숫자만 쓸 수 있다(§8.2).
   // 정규화의 검사와 보정의 제거가 같은 판정을 쓰게 하려고 한 곳에 둔다.
@@ -1847,7 +1859,7 @@ const __defs = {
   const freeze = o => { for (const v of Object.values(o)) if (v && typeof v === "object") freeze(v); return Object.freeze(o); };
   const api = freeze({
     NOTE_SPEC_VERSION, NOTE_SCHEMA_VERSION, POLICY, TYPES, SECTION_TYPES, GLOBAL_TYPES, WRITER_TYPES, IDS,
-    schemas, envelopeSchema, sectionOutputSchemaFor, repairOutputSchemaFor, globalOutputSchemaFor,
+    schemas, envelopeSchema, sectionOutputSchemaFor, repairOutputSchemaFor, globalOutputSchemaFor, linkOutputSchema,
     normalizePlan, repairPlan, canonicalPlanIds, canonicalMapKeys, checkCalc, displayOf, citedRefs, validateSection, validateGlobal, assembleNote, restrictBasis, policyOf, AUG, withSource, measurePlanCaps,
   });
   globalThis.NoteContract = api;
@@ -2420,7 +2432,7 @@ function config(env){
     if(!Array.isArray(next.models)||!next.models.length||next.models.some(m=>!allow.includes(m)))throw new Error("invalid_plan_models");
     planFeatures[name]=next;
   }
-  const remoteConfig={concurrency:{download:4,decode:1,stt:2,vision:3,judge:2,write:8},throughputMbps:50,minClientVersion:"0.0.0",promptVersion:"v1",schemaVersion:1,policyVersion:"v1"};
+  const remoteConfig={concurrency:{download:4,decode:1,stt:2,vision:3,judge:2,write:8},throughputMbps:50,minClientVersion:"0.0.0",promptVersion:"v1",schemaVersion:1,policyVersion:"v1",linkEditor:false};
   const remoteIn=JSON.parse(env.REMOTE_CONFIG_JSON||"{}");
   if(!plain(remoteIn)||Object.keys(remoteIn).some(k=>!Object.hasOwn(remoteConfig,k)))throw new Error("invalid_remote_config");
   if(remoteIn.concurrency!==undefined){
@@ -2431,6 +2443,7 @@ function config(env){
   if(remoteIn.minClientVersion!==undefined){if(typeof remoteIn.minClientVersion!=="string"||!/^\d+\.\d+\.\d+$/.test(remoteIn.minClientVersion))throw new Error("invalid_remote_config");remoteConfig.minClientVersion=remoteIn.minClientVersion;}
   if(remoteIn.promptVersion!==undefined){if(typeof remoteIn.promptVersion!=="string"||!remoteIn.promptVersion)throw new Error("invalid_remote_config");remoteConfig.promptVersion=remoteIn.promptVersion;}
   if(remoteIn.policyVersion!==undefined){if(typeof remoteIn.policyVersion!=="string"||!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$/.test(remoteIn.policyVersion))throw new Error("invalid_remote_config");remoteConfig.policyVersion=remoteIn.policyVersion;}
+  if(remoteIn.linkEditor!==undefined){if(typeof remoteIn.linkEditor!=="boolean")throw new Error("invalid_remote_config");remoteConfig.linkEditor=remoteIn.linkEditor;}
   const providerConcurrency=JSON.parse(env.PROVIDER_CONCURRENCY_JSON||"{}");
   if(!plain(providerConcurrency)||Object.values(providerConcurrency).some(v=>!Number.isInteger(v)||v<=0))throw new Error("invalid_provider_concurrency");
   // 요청 수·분당 호출 수는 거친 안전망이다. 진짜 상한은 비용 캡(MAX_COST_CENTS, GLOBAL_COST_CENTS)이다 —
@@ -2910,7 +2923,7 @@ function createServer(env=process.env,deps={}){
     });
   }
   const plan=(input,account,res)=>noteRoute(input,account,res,"plan");
-  const write=(input,account,res)=>["section","global","repair"].includes(input.stage)?noteRoute(input,account,res,input.stage):fail(res,"invalid_model_or_stage");
+  const write=(input,account,res)=>["section","global","repair","link","questions"].includes(input.stage)?noteRoute(input,account,res,input.stage):fail(res,"invalid_model_or_stage");
   // handle 은 런타임과 무관한 요청 처리기다. 로컬은 http 서버가, 배포는 supabase/functions/api 의 Deno 어댑터가 같은 함수를 부른다.
   const handle=async(req,res)=>{
     try{
@@ -2932,7 +2945,7 @@ function createServer(env=process.env,deps={}){
         // noteSpecVersion·promptVersion 은 plan/write 응답과 같은 값이다 — 클라이언트가 호출 전에 맞는지 미리 본다(config.promptVersion 은 비전·판정용 원격 설정이다).
         // promptVersions 는 작업별 프롬프트 버전 — 클라이언트가 단계·호출 캐시 키에 섞어 서버 프롬프트 개선 시 낡은 결과를 재사용하지 않게 한다(§7). judge·비전·전사는 원격 설정 버전이다.
         const limits=who.limits,head={accountId:account,...(who.jwt?{plan:limits.plan}:{}),models:limits.models,routeModels:{vision:c.visionModels,stt:c.sttModels,judge:c.judgeModels},features:(limits.features||[]).filter(f=>c.featureFlags[f]!==false),config:c.remoteConfig,noteSpecVersion:NoteContract.NOTE_SPEC_VERSION,promptVersion:Prompts.PROMPT_VERSION,
-          promptVersions:{plan:Prompts.PROMPT_VERSION,section:Prompts.PROMPT_VERSION,repair:Prompts.PROMPT_VERSION,global:Prompts.PROMPT_VERSION,judge:c.remoteConfig.promptVersion}};
+          promptVersions:{plan:Prompts.PROMPT_VERSION,section:Prompts.PROMPT_VERSION,repair:Prompts.PROMPT_VERSION,global:Prompts.PROMPT_VERSION,link:Prompts.PROMPT_VERSION,questions:Prompts.PROMPT_VERSION,judge:c.remoteConfig.promptVersion}};
         if(!who.jwt){const r=record(account);return send(res,200,{...head,quota:{month:r.month,requests:r.requests,maxRequests:limits.maxRequests,spentCents:r.spentCents,maxCents:limits.maxCostCents}});}
         // 한도는 DB가 정한다. 상한이 null 이면 무제한이고 maxCents 는 항상 있다(plans 에 없는 등급은 0 — 예약이 닫힌 채 거절한다).
         let q;try{q=await sb.quota(account,limits.plan,month()+"-01");}catch{return fail(res,"usage_store_failed");}
@@ -3330,7 +3343,7 @@ module.exports={MODELS,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperatur
 const NoteContract=require("../lib/note-contract.js"),Contracts=require("../lib/contracts.js"),LLM=require("./llm.js");
 // 프롬프트 문구나 아래 규칙을 바꾸면 올린다. 응답에 실려 단계 캐시 키에 들어간다.
 const PROMPT_VERSION="note-v5";
-const STAGES=["plan","section","global","repair"];
+const STAGES=["plan","section","global","repair","link","questions"];
 // 토큰 예산(§8.1). 서버는 바이트 / bytesPerToken 으로 어림한다 — 정확한 토크나이저가 아니라 입력 상한을 거르는 가드다.
 const LIMITS={bytesPerToken:4,tokens:{plannerInput:40000,plannerOutput:16000,writerInput:16000,writerOutput:14000,globalInput:24000,globalOutput:4000}};
 const T=LIMITS.tokens;
@@ -3398,12 +3411,27 @@ const STAGE={
     "단계: 전체 글. 입력은 노트 계획의 전역 블록(plan.global), 개념 목록, 검증을 통과한 섹션 요약(sections: 섹션별 블록과 그 주장, 각 주장의 evidenceIds)이다.",
     "전역 블록만 새로 쓴다. 주장의 evidenceIds는 sections의 주장이 이미 인용한 id 중에서만 고르고 새 근거를 만들지 않는다. 섹션 결과에 없는 사실은 쓰지 않는다. B02는 강의 전체를 아우르는 질문에 답한다 — 앞쪽 섹션만이 아니라 살아남은 모든 섹션의 재료를 두루 쓴다. targetIds·targetId에는 입력에 있는 문서 id만 쓴다 — sections의 sectionId·blockId, 개념 id, 계획된 전역 블록 id(GB#), 사례·자료 블록의 단서 위치(\"S3_B3/P1\"); 입력의 allowedRefs.targetIds가 그 목록이다. 지도 노드 key(n1 등)는 B03 간선의 끝 표시일 뿐 문서 참조가 아니다.",
   ],
+  link:[
+    "단계: 연결 편집. 입력은 검증을 통과한 섹션들(sections: 섹션별 블록과 그 주장, 각 주장의 evidenceIds)이다 — 각 주장에는 봉투 안 경로(path)가 붙어 있다. 근거 원문은 없고, 본문을 새로 쓰지 않는다.",
+    "용어 일관성(term), 사실 모순(contradiction), 같은 내용의 중복(duplicate)만 찾아 edits에 변경 제안을 담는다. targets는 \"S2_B3/content/note\"처럼 블록 id 뒤에 주장의 path를 붙인 위치다. action은 rename_term·flag·drop_duplicate·rewrite 중 하나다.",
+    "- rename_term·rewrite: targets에 주장 하나, text에 바꿀 새 문장. 용어 통일이나 문장 다듬기만 한다 — 주장의 숫자·사실·인용 근거는 바꾸지 않는다.",
+    "- drop_duplicate: targets의 첫 항목을 남기고 나머지 중복 주장을 빼라는 제안이다.",
+    "- flag·contradiction: 본문을 바꾸지 않는다 — 호스트가 확인 항목으로 남긴다. 모순은 flag로만 제안한다.",
+    "확실한 것만 제안한다. 제안이 없으면 edits는 빈 배열이다.",
+  ],
+  questions:[
+    "단계: 자기 점검 문항. 본문은 이미 확정됐다 — 입력은 문항 블록이 속한 섹션의 계획(section), 채울 블록 id(blockId), 개념 목록(concepts), 살아남은 섹션들의 주장 목록(sections: 섹션별 블록과 그 주장)이다. 근거 원문은 없다.",
+    "blocks에는 blockId 하나(B14)의 봉투를 채운다. 계획의 purpose가 정한 문항 수와 각 문항의 목적·겨눔 대상을 그대로 따른다. 문항은 sections의 주장만으로 풀 수 있어야 한다 — 입력에 없는 지식을 묻지 않는다.",
+    "문항의 주장이 입력 주장과 같은 사실을 쓰면 그 주장의 evidenceIds를 그대로 인용하고 입력에 없는 근거 id는 만들지 않는다. 주장에 있는 숫자·조건만 쓰고 새 수치는 쓰지 않는다. targetIds와 answer.reviewIds는 입력의 allowedRefs 목록 안에서만 고른다 — reviewIds에는 본문 블록 id만 쓴다.",
+    "본문만으로 답할 수 없는 문항은 만들지 않는다 — 채울 수 없으면 blocks의 그 칸을 null로 둔다.",
+  ],
 };
 // 시스템 본문 = 공용 + 노트 규칙 + 단계 규칙 (+ 켠 생성 옵션). 같은 단계·옵션이면 모든 호출이 같은 문자열이다.
 const systemFor=(stage,options,sourceLang)=>{
   if(!Object.hasOwn(STAGE,stage))throw new Error("invalid_stage");
-  const aug=stage==="plan"||stage==="global"?[]:Object.keys(AUG_RULES).filter(k=>options?.[k]===true).map(k=>AUG_RULES[k]);
-  const en=sourceLang==="en"&&stage!=="plan"?[...EN_RULES,...(stage==="global"?[]:[EN_SRC])]:[];
+  // link 는 주장을 새로 쓰지 않으므로 생성 옵션 규칙도 영어 원문 대조(src) 칸도 없다.
+  const aug=stage==="plan"||stage==="global"||stage==="link"?[]:Object.keys(AUG_RULES).filter(k=>options?.[k]===true).map(k=>AUG_RULES[k]);
+  const en=sourceLang==="en"&&stage!=="plan"?[...EN_RULES,...(stage==="global"||stage==="link"?[]:[EN_SRC])]:[];
   return [COMMON,NOTE_RULES,...STAGE[stage],...aug,...en].join("\n");
 };
 
@@ -3425,6 +3453,10 @@ const writerBody={section:planSection,concepts:planConcepts,evidence:arr(Contrac
 const allowedRefs=obj({targetIds:arr(pat(IDS.target),3500),reviewIds:arr(pat(IDS.secBlock),500)});
 // 전역 Writer 입력(6-4): 근거 원문 대신 살아남은 섹션 블록의 주장 텍스트와 참조만 보낸다.
 const claimRef=obj({text:{type:"string",maxLength:600},evidenceIds:arr({type:"string",maxLength:32},8),basis:{type:"string",maxLength:16}});
+// 연결 편집 입력은 같은 축약에 봉투 안 경로(path)를 얹는다 — 제안의 targets가 주장을 이 경로로 가리킨다.
+const claimPos=obj({path:pat("^/[A-Za-z0-9_]{1,24}(/[A-Za-z0-9_]{1,24}){0,7}$"),text:{type:"string",maxLength:600},evidenceIds:arr({type:"string",maxLength:32},8),basis:{type:"string",maxLength:16}});
+const survSections=claimItem=>arr(obj({sectionId:pat(IDS.section),title:{type:"string",maxLength:80},gist:{...claimItem,type:["object","null"]},
+  blocks:arr(obj({blockId:pat(IDS.block),type:{type:"string",enum:NoteContract.WRITER_TYPES},claims:arr(claimItem,80)}),12)}),40,1);
 const REQUEST={
   plan:opt({
     ir:obj({units:arr(Contracts.SCHEMAS.unit,500,1)}),
@@ -3439,8 +3471,22 @@ const REQUEST={
   repair:opt({...writerBody,repair:arr(obj({blockId:pat(IDS.block),previous:{},errors:arr(obj({code:pat(IDS.code),detail:arr({type:"string",maxLength:64},20)}),20,1)}),12,1),allowedRefs},["allowedRefs"]),
   global:opt({
     plan:obj({concepts:planConcepts,global:arr(S.plan.properties.global.items,3,1)}),
-    sections:arr(obj({sectionId:pat(IDS.section),title:{type:"string",maxLength:80},gist:{...claimRef,type:["object","null"]},
-      blocks:arr(obj({blockId:pat(IDS.block),type:{type:"string",enum:NoteContract.WRITER_TYPES},claims:arr(claimRef,80)}),12)}),40,1),
+    sections:survSections(claimRef),
+    options,
+    allowedRefs,
+  },["allowedRefs"]),
+  link:opt({
+    concepts:planConcepts,
+    sections:survSections(claimPos),
+    options,
+    allowedRefs,
+  },["allowedRefs"]),
+  // 본문 확정 뒤 문항(draft 경로): 채울 B14 는 계획 블록 하나, 참고는 살아남은 본문 주장이다.
+  questions:opt({
+    section:planSection,
+    blockId:pat(IDS.secBlock),
+    concepts:planConcepts,
+    sections:survSections(claimRef),
     options,
     allowedRefs,
   },["allowedRefs"]),
@@ -3453,15 +3499,18 @@ function outputSchema(stage,body,sourceLang){
   if(stage==="section")return src(NoteContract.sectionOutputSchemaFor(body.section,{gist:body.withGist,policy:body.options,allowedRefs:body.allowedRefs}));
   if(stage==="repair")return src(NoteContract.repairOutputSchemaFor(body.section,[...new Set(body.repair.map(r=>r.blockId))],body.options,body.allowedRefs));
   if(stage==="global")return NoteContract.globalOutputSchemaFor(body.plan.global,body.allowedRefs);
+  if(stage==="link")return NoteContract.linkOutputSchema;
+  // questions 는 계획된 B14 블록 하나만 채운다 — 다른 타입이나 계획 밖 id 는 거절이다.
+  if(stage==="questions"){const pb=(body.section?.blocks||[]).find(b=>b.blockId===body.blockId);if(pb?.type!=="B14")throw new Error("invalid_stage");return src(NoteContract.repairOutputSchemaFor(body.section,[body.blockId],body.options,body.allowedRefs));}
   throw new Error("invalid_stage");
 }
 
 const estimateTokens=text=>Math.ceil(Buffer.byteLength(text)/LIMITS.bytesPerToken);
-const inputTokenLimit=stage=>stage==="plan"?T.plannerInput:stage==="global"?T.globalInput:T.writerInput;
+const inputTokenLimit=stage=>stage==="plan"?T.plannerInput:["global","link","questions"].includes(stage)?T.globalInput:T.writerInput;
 // 생성 파라미터. seed 를 지원하지 않는 모델에 보내면 require_parameters 때문에 요청이 통째로 거절된다(Anthropic).
 const NO_SEED=/^anthropic\//,SEED=7;
 const modelParams=(model,stage)=>({
-  max_tokens:Math.min(LLM.maxTokensFor(model),(stage==="plan"?T.plannerOutput:stage==="global"?T.globalOutput:T.writerOutput)+LLM.reasoningBudgetFor(model)),
+  max_tokens:Math.min(LLM.maxTokensFor(model),(stage==="plan"?T.plannerOutput:["global","link"].includes(stage)?T.globalOutput:T.writerOutput)+LLM.reasoningBudgetFor(model)),
   reasoning:LLM.reasoningFor(model),...(LLM.noTemperature(model)?{}:{temperature:0}),...(NO_SEED.test(model)?{}:{seed:SEED}), // temperature 를 거절하는 모델(GPT 추론형)에 보내면 require_parameters 로 404 가 난다
 });
 module.exports={PROMPT_VERSION,STAGES,LIMITS,systemFor,REQUEST,outputSchema,estimateTokens,inputTokenLimit,modelParams};

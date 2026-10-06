@@ -208,7 +208,7 @@ function config(env){
     if(!Array.isArray(next.models)||!next.models.length||next.models.some(m=>!allow.includes(m)))throw new Error("invalid_plan_models");
     planFeatures[name]=next;
   }
-  const remoteConfig={concurrency:{download:4,decode:1,stt:2,vision:3,judge:2,write:8},throughputMbps:50,minClientVersion:"0.0.0",promptVersion:"v1",schemaVersion:1,policyVersion:"v1"};
+  const remoteConfig={concurrency:{download:4,decode:1,stt:2,vision:3,judge:2,write:8},throughputMbps:50,minClientVersion:"0.0.0",promptVersion:"v1",schemaVersion:1,policyVersion:"v1",linkEditor:false};
   const remoteIn=JSON.parse(env.REMOTE_CONFIG_JSON||"{}");
   if(!plain(remoteIn)||Object.keys(remoteIn).some(k=>!Object.hasOwn(remoteConfig,k)))throw new Error("invalid_remote_config");
   if(remoteIn.concurrency!==undefined){
@@ -219,6 +219,7 @@ function config(env){
   if(remoteIn.minClientVersion!==undefined){if(typeof remoteIn.minClientVersion!=="string"||!/^\d+\.\d+\.\d+$/.test(remoteIn.minClientVersion))throw new Error("invalid_remote_config");remoteConfig.minClientVersion=remoteIn.minClientVersion;}
   if(remoteIn.promptVersion!==undefined){if(typeof remoteIn.promptVersion!=="string"||!remoteIn.promptVersion)throw new Error("invalid_remote_config");remoteConfig.promptVersion=remoteIn.promptVersion;}
   if(remoteIn.policyVersion!==undefined){if(typeof remoteIn.policyVersion!=="string"||!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$/.test(remoteIn.policyVersion))throw new Error("invalid_remote_config");remoteConfig.policyVersion=remoteIn.policyVersion;}
+  if(remoteIn.linkEditor!==undefined){if(typeof remoteIn.linkEditor!=="boolean")throw new Error("invalid_remote_config");remoteConfig.linkEditor=remoteIn.linkEditor;}
   const providerConcurrency=JSON.parse(env.PROVIDER_CONCURRENCY_JSON||"{}");
   if(!plain(providerConcurrency)||Object.values(providerConcurrency).some(v=>!Number.isInteger(v)||v<=0))throw new Error("invalid_provider_concurrency");
   // 요청 수·분당 호출 수는 거친 안전망이다. 진짜 상한은 비용 캡(MAX_COST_CENTS, GLOBAL_COST_CENTS)이다 —
@@ -698,7 +699,7 @@ function createServer(env=process.env,deps={}){
     });
   }
   const plan=(input,account,res)=>noteRoute(input,account,res,"plan");
-  const write=(input,account,res)=>["section","global","repair"].includes(input.stage)?noteRoute(input,account,res,input.stage):fail(res,"invalid_model_or_stage");
+  const write=(input,account,res)=>["section","global","repair","link","questions"].includes(input.stage)?noteRoute(input,account,res,input.stage):fail(res,"invalid_model_or_stage");
   // handle 은 런타임과 무관한 요청 처리기다. 로컬은 http 서버가, 배포는 supabase/functions/api 의 Deno 어댑터가 같은 함수를 부른다.
   const handle=async(req,res)=>{
     try{
@@ -720,7 +721,7 @@ function createServer(env=process.env,deps={}){
         // noteSpecVersion·promptVersion 은 plan/write 응답과 같은 값이다 — 클라이언트가 호출 전에 맞는지 미리 본다(config.promptVersion 은 비전·판정용 원격 설정이다).
         // promptVersions 는 작업별 프롬프트 버전 — 클라이언트가 단계·호출 캐시 키에 섞어 서버 프롬프트 개선 시 낡은 결과를 재사용하지 않게 한다(§7). judge·비전·전사는 원격 설정 버전이다.
         const limits=who.limits,head={accountId:account,...(who.jwt?{plan:limits.plan}:{}),models:limits.models,routeModels:{vision:c.visionModels,stt:c.sttModels,judge:c.judgeModels},features:(limits.features||[]).filter(f=>c.featureFlags[f]!==false),config:c.remoteConfig,noteSpecVersion:NoteContract.NOTE_SPEC_VERSION,promptVersion:Prompts.PROMPT_VERSION,
-          promptVersions:{plan:Prompts.PROMPT_VERSION,section:Prompts.PROMPT_VERSION,repair:Prompts.PROMPT_VERSION,global:Prompts.PROMPT_VERSION,judge:c.remoteConfig.promptVersion}};
+          promptVersions:{plan:Prompts.PROMPT_VERSION,section:Prompts.PROMPT_VERSION,repair:Prompts.PROMPT_VERSION,global:Prompts.PROMPT_VERSION,link:Prompts.PROMPT_VERSION,questions:Prompts.PROMPT_VERSION,judge:c.remoteConfig.promptVersion}};
         if(!who.jwt){const r=record(account);return send(res,200,{...head,quota:{month:r.month,requests:r.requests,maxRequests:limits.maxRequests,spentCents:r.spentCents,maxCents:limits.maxCostCents}});}
         // 한도는 DB가 정한다. 상한이 null 이면 무제한이고 maxCents 는 항상 있다(plans 에 없는 등급은 0 — 예약이 닫힌 채 거절한다).
         let q;try{q=await sb.quota(account,limits.plan,month()+"-01");}catch{return fail(res,"usage_store_failed");}
