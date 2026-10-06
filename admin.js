@@ -827,7 +827,7 @@
 
   // ---- 비교 화면 탭: 네 칸 뷰 (근거 → 초안 → 점수/복구/이유 → 최종 노트) ----
   // 메모리에서만 복호화하며 서버로 본문·해시·근거 문자열을 전송하지 않는다.
-  let cmpModel = null, selectedClaimId = null;
+  let cmpModel = null, selectedClaimId = null, cmpMeta = null;
   const cmpStatus = m => { $("cmpStatus").textContent = m; };
 
   async function refreshComparePackages() {
@@ -1047,6 +1047,7 @@
         try { records[short] = await store.getJson("packages", full); } catch {}
       }
 
+      cmpMeta = records.meta ?? null;
       cmpModel = AdminView.buildComparisonModel({ records });
       const alertBox = $("cmpAlertBox"), metricsBar = $("cmpMetricsBar");
 
@@ -1087,6 +1088,28 @@
   $("cmpPkgRefresh").addEventListener("click", refreshComparePackages);
   $("cmpPkgLoad").addEventListener("click", loadComparePackage);
   $("cmpResetEvFilter").addEventListener("click", () => selectClaim(null));
+
+  // 평가용보내기: 실행 기록 JSON을 로컬 파일로만 내린다 — 서버·네트워크 경로가 없다.
+  // 비용·지연은 패키지 생성 시각을 덮는 작업 이벤트에서 추정하고 못 찾으면 비운다(하네스가 "측정 안 됨"으로 보고).
+  $("cmpEvalExport").addEventListener("click", () => {
+    if (!cmpModel?.available) return void cmpStatus("먼저 패키지를 불러오세요");
+    const pkg = $("cmpPkgPick").value;
+    const sel = $("cmpEvalPath").value;
+    const job = AdminView.jobForPackage(jobSummary(events), cmpMeta?.createdAt);
+    const out = AdminView.buildEvalExport(cmpModel, {
+      packageId: pkg,
+      lectureId: $("cmpEvalLecture").value.trim() || null,
+      path: sel === "auto" ? null : sel,
+      run: job ? { jobId: job.jobId, costUsd: job.costUsd, ms: job.totalMs } : {},
+    });
+    const url = URL.createObjectURL(new Blob([JSON.stringify(out, null, 2)], { type: "application/json" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `eval-run-${out.path}-${pkg}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    cmpStatus(`보내기 완료: ${out.path} · 주장 ${out.claims.length}개 — 파일은 저장소 밖에 두세요`);
+  });
 
   connect();
   setInterval(() => { if (!$("viewPipeline").hidden) scheduleRender(); }, 1000); // 열린 막대가 자라도록

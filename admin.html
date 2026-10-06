@@ -176,8 +176,17 @@
     <select id="cmpPkgPick"></select>
     <button id="cmpPkgRefresh" type="button">목록 새로고침</button>
     <button id="cmpPkgLoad" type="button">불러오기</button>
+    <input id="cmpEvalLecture" placeholder="강의 id(기본=패키지)" size="16">
+    <select id="cmpEvalPath">
+      <option value="auto">경로: 자동</option>
+      <option value="current_delete">current_delete</option>
+      <option value="shadow">shadow</option>
+      <option value="preserve">preserve</option>
+    </select>
+    <button id="cmpEvalExport" type="button">평가용보내기</button>
     <span class="note" id="cmpStatus" role="status" aria-live="polite"></span>
   </div>
+  <p class="note">평가용보내기는 주장·근거 평문을 담은 JSON을 이 기기에만 다운로드합니다 — 서버로 보내지 않으며, 받은 파일은 저장소 밖에 두고 tools/eval-notes.mjs 로 처리합니다(docs/eval-protocol.md).</p>
   <div id="cmpAlertBox" hidden></div>
   <div id="cmpMetricsBar" class="cmpMetricsBar" hidden>
     <div class="cmpMetric"><label>초기 저점수율 (judge_low_rate)</label><b id="mLowRate">-</b></div>
