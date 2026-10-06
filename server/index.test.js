@@ -190,8 +190,11 @@ test("/v1/me exposes per-task promptVersions and the policy version in remote co
     assert.equal(me.promptVersions.section, me.promptVersion);
     assert.equal(me.promptVersions.repair, me.promptVersion);
     assert.equal(me.promptVersions.global, me.promptVersion);
+    assert.equal(me.promptVersions.link, me.promptVersion);
+    assert.equal(me.promptVersions.questions, me.promptVersion);
     assert.equal(me.promptVersions.judge, me.config.promptVersion);
     assert.equal(me.config.policyVersion, "v1");
+    assert.equal(me.config.linkEditor, false, "linkEditor 기본값은 꺼짐");
   } finally { await close(server); removeTemp(root); }
 });
 
@@ -345,7 +348,7 @@ test("per-account rate limit throttles POST routes", async () => {
 test("invalid remote config and provider concurrency fail at boot", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
   try {
-    for (const bad of [{ bogus: 1 }, { throughputMbps: 0 }, { concurrency: { vision: -1 } }, { concurrency: { bogus: 1 } }, { minClientVersion: "soon" }])
+    for (const bad of [{ bogus: 1 }, { throughputMbps: 0 }, { concurrency: { vision: -1 } }, { concurrency: { bogus: 1 } }, { minClientVersion: "soon" }, { linkEditor: "yes" }])
       assert.throws(() => createServer({ ...config(root), REMOTE_CONFIG_JSON: JSON.stringify(bad) }), undefined, JSON.stringify(bad));
     assert.throws(() => createServer({ ...config(root), PROVIDER_CONCURRENCY_JSON: JSON.stringify({ [model]: 0 }) }));
     assert.throws(() => createServer({ ...config(root), PROVIDER_CONCURRENCY_JSON: JSON.stringify({ [model]: 1.5 }) }));
@@ -2689,9 +2692,9 @@ test("/v1/me for a JWT user returns plan, features, DB limits, remote config and
     assert.deepEqual(me, {
       accountId: UID, plan: "free", models: [model], features: [],
       routeModels: { vision: ["google/gemini-2.5-flash-lite"], stt: ["microsoft/mai-transcribe-2"], judge: ["openai/gpt-4.1-nano"] },
-      config: { concurrency: { download: 4, decode: 1, stt: 2, vision: 3, judge: 2, write: 8 }, throughputMbps: 50, minClientVersion: "0.0.0", promptVersion: "v1", schemaVersion: 1, policyVersion: "v1" },
+      config: { concurrency: { download: 4, decode: 1, stt: 2, vision: 3, judge: 2, write: 8 }, throughputMbps: 50, minClientVersion: "0.0.0", promptVersion: "v1", schemaVersion: 1, policyVersion: "v1", linkEditor: false },
       noteSpecVersion: NoteContract.NOTE_SPEC_VERSION, promptVersion: Prompts.PROMPT_VERSION,
-      promptVersions: { plan: Prompts.PROMPT_VERSION, section: Prompts.PROMPT_VERSION, repair: Prompts.PROMPT_VERSION, global: Prompts.PROMPT_VERSION, judge: "v1" },
+      promptVersions: { plan: Prompts.PROMPT_VERSION, section: Prompts.PROMPT_VERSION, repair: Prompts.PROMPT_VERSION, global: Prompts.PROMPT_VERSION, link: Prompts.PROMPT_VERSION, questions: Prompts.PROMPT_VERSION, judge: "v1" },
       quota: { month, requests: 3, maxRequests: 300, minutes: 7, maxMinutes: 600, spentCents: 12.3456, maxCents: 30 },
     });
     assert.notEqual(me.promptVersion, me.config.promptVersion, "plan/write 프롬프트 버전은 비전·판정용 원격 설정과 별개다");

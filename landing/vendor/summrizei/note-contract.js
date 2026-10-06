@@ -388,6 +388,18 @@
     blocks: obj(Object.fromEntries(planGlobal.map(g => [g.blockId, orNull(restrictRefs(envelopeSchema(g.type), allowedRefs, g.blockId))]))),
   });
 
+  // 연결 편집 출력(제안서 §3 제한된 워커): 본문 재작성이 아니라 변경 제안 목록이다. targets 는
+  // "S2_B3/content/scope/0"처럼 블록 id + 봉투 안 경로다 — 경로가 없으면 블록 전체다. 적용·재검증은 호출자가 한다.
+  const linkTarget = pat("^S[0-9]{1,3}_B[0-9]{1,2}(/[A-Za-z0-9_]{1,24}){0,8}$");
+  const linkOutputSchema = obj({
+    edits: arr(obj({
+      kind: en(["term", "contradiction", "duplicate"]),
+      targets: arr(linkTarget, 8, 1),
+      action: en(["rename_term", "flag", "drop_duplicate", "rewrite"]),
+      text: orNull(str(600)),
+    }), 40),
+  });
+
   // 유닛의 슬라이드·발화에 나온 숫자 집합 — 단원 제목·질문과 개념 이름은 B04 머리와 개념 색인으로
   // 그대로 노출되는데 Writer 검사를 거치지 않으므로 그 섹션(개념은 홈 섹션) 유닛의 숫자만 쓸 수 있다(§8.2).
   // 정규화의 검사와 보정의 제거가 같은 판정을 쓰게 하려고 한 곳에 둔다.
@@ -1500,7 +1512,7 @@
   const freeze = o => { for (const v of Object.values(o)) if (v && typeof v === "object") freeze(v); return Object.freeze(o); };
   const api = freeze({
     NOTE_SPEC_VERSION, NOTE_SCHEMA_VERSION, POLICY, TYPES, SECTION_TYPES, GLOBAL_TYPES, WRITER_TYPES, IDS,
-    schemas, envelopeSchema, sectionOutputSchemaFor, repairOutputSchemaFor, globalOutputSchemaFor,
+    schemas, envelopeSchema, sectionOutputSchemaFor, repairOutputSchemaFor, globalOutputSchemaFor, linkOutputSchema,
     normalizePlan, repairPlan, canonicalPlanIds, canonicalMapKeys, checkCalc, displayOf, citedRefs, validateSection, validateGlobal, assembleNote, restrictBasis, policyOf, AUG, withSource, measurePlanCaps,
   });
   globalThis.NoteContract = api;
