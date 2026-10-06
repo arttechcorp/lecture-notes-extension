@@ -75,7 +75,7 @@ const noteService=settings=>{
   const svc=name=>async o=>ServiceClient[name]({baseUrl:config.serviceUrl,token:await token(),...o});
   return {
     me:async signal=>ServiceClient.me({baseUrl:config.serviceUrl,token:await token(),timeoutMs:15000,signal}),
-    deps:(signal,me,stats)=>({service:{plan:svc("plan"),write:svc("write"),judge:svc("judge")},katex,events,signal,sleep:ms=>new Promise(r=>setTimeout(r,ms)),promptVersions:me?.promptVersions??null,cacheStats:stats??null}),
+    deps:(signal,me,stats)=>({service:{plan:svc("plan"),write:svc("write"),judge:svc("judge")},katex,events,signal,sleep:ms=>new Promise(r=>setTimeout(r,ms)),promptVersions:me?.promptVersions??null,cacheStats:stats??null,writer:me?.config?.noteWriter}),
     // 로컬 결과 캐시 적중은 서버 원장에 안 보인다 — 내용 없는 수치(jobId·hit/miss·rerun 번호)만 모아 보낸다. 실패해도 노트 흐름을 막지 않는다.
     report:async(jobId,rerun,stats)=>{try{await ServiceClient.reportRun({baseUrl:config.serviceUrl,token:await token(),jobId,cacheHits:stats?.hits??0,cacheMisses:stats?.misses??0,rerun});}catch{}},
   };
@@ -242,7 +242,7 @@ async function bgJob(job,source,settings,me,ctl){
       // 끝나면(인식 결과만 있어도) 로컬 보관함에 둔다. 저장 실패는 노트를 잃게 하지 않도록 코드만 남기고 결말은 그대로 알린다.
       runNote:async(j,input,o)=>{
         const stats={hits:0,misses:0};
-        const res=await NoteStages.runNote(j,input,{...o,service:{plan:svc("plan"),write:svc("write"),judge:svc("judge")},katex,promptVersions:me?.promptVersions??null,cacheStats:stats});
+        const res=await NoteStages.runNote(j,input,{...o,service:{plan:svc("plan"),write:svc("write"),judge:svc("judge")},katex,promptVersions:me?.promptVersions??null,cacheStats:stats,writer:me?.config?.noteWriter});
         try{await ServiceClient.reportRun({baseUrl:base,token:await token(),jobId:j.jobId,cacheHits:stats.hits,cacheMisses:stats.misses,rerun:input?.rerun??0});}catch{}
         const saved=["complete","partial","recognition-only"].includes(res.status)?await saveLibrary(j.packageId,input,res,{source:"background",host:hostOf(source.pageUrl)}).catch(()=>events.emit({stage:"library",jobId:j.jobId,level:"warn",code:"LIBRARY_SAVE_FAILED"})):null;
         return {...res,packageId:j.packageId,saved:savedResult(saved)};

@@ -34,7 +34,7 @@ const basisOf = (schema, out = new Set()) => {
 test("every stage has a versioned system prompt that treats input as untrusted data", () => {
   assert.equal(Prompts.PROMPT_VERSION, "note-v5");
   assert.match(Prompts.PROMPT_VERSION, /^[a-z0-9][a-z0-9._-]*$/);
-  assert.deepEqual(Prompts.STAGES, ["plan", "section", "global", "repair"]);
+  assert.deepEqual(Prompts.STAGES, ["plan", "section", "global", "repair", "draft"]);
   for (const stage of Prompts.STAGES) {
     const text = Prompts.systemFor(stage);
     assert.equal(Prompts.systemFor(stage), text, "단계 안에서는 호출마다 같은 문자열이어야 접두 캐시가 맞는다");
@@ -46,13 +46,13 @@ test("every stage has a versioned system prompt that treats input as untrusted d
     assert.match(text, /그대로 옮기거나 이어 붙이지 않는다/, stage + ": 비대체성");
     assert.ok(!/\$\{|undefined|\[object/.test(text), stage + ": 템플릿 잔재");
   }
-  assert.equal(new Set(Prompts.STAGES.map(s => Prompts.systemFor(s))).size, 4, "단계마다 지시가 다르다");
+  assert.equal(new Set(Prompts.STAGES.map(s => Prompts.systemFor(s))).size, 5, "단계마다 지시가 다르다");
   assert.throws(() => Prompts.systemFor("summary"), /invalid_stage/);
   assert.throws(() => Prompts.outputSchema("summary"), /invalid_stage/);
 });
 
 test("turned-on generation options append their rule only to writer prompts", () => {
-  for (const stage of ["section", "repair"]) {
+  for (const stage of ["section", "repair", "draft"]) {
     assert.ok(Prompts.systemFor(stage, { syntheticExamples: true, externalAugmentation: false }).includes("[가상 사례 허용]"), stage + ": 가상 사례 규칙");
     assert.ok(!Prompts.systemFor(stage, { syntheticExamples: true, externalAugmentation: false }).includes("[강의 밖 보강 허용]"), stage + ": 켠 것만 붙는다");
     assert.ok(Prompts.systemFor(stage, { syntheticExamples: false, externalAugmentation: true }).includes("[강의 밖 보강 허용]"), stage + ": 보강 규칙");
@@ -86,7 +86,7 @@ test("output schemas are built per request from the normalized plan", () => {
   assert.throws(() => Prompts.outputSchema("repair", { section: s1, repair: [{ blockId: "S1_B9" }], options: { ...OFF } }), /계획에 없는 블록 id/);
   const glob = Prompts.outputSchema("global", { plan: { global: plan.global } });
   assert.deepEqual(Object.keys(glob.properties.blocks.properties), plan.global.map(g => g.blockId));
-  for (const [stage, body] of [["plan"], ["section", { section: s1, withGist: true, options: { ...OFF } }], ["repair", { section: s1, repair: [{ blockId: "S1_B1" }], options: { ...OFF } }], ["global", { plan: { global: plan.global } }]])
+  for (const [stage, body] of [["plan"], ["section", { section: s1, withGist: true, options: { ...OFF } }], ["repair", { section: s1, repair: [{ blockId: "S1_B1" }], options: { ...OFF } }], ["global", { plan: { global: plan.global } }], ["draft", { section: s1, withGist: true, options: { ...OFF } }]])
     assert.equal(Contracts.isStrictCompatible(Prompts.outputSchema(stage, body)), true, stage + " 출력");
 });
 
@@ -131,10 +131,10 @@ test("request contracts are the stage's own field lists", () => {
   assert.deepEqual(Object.keys(Prompts.REQUEST.section.properties), ["section", "concepts", "evidence", "registry", "figures", "options", "withGist", "allowedRefs"]);
   assert.deepEqual(Object.keys(Prompts.REQUEST.repair.properties), ["section", "concepts", "evidence", "registry", "figures", "options", "repair", "allowedRefs"]);
   assert.deepEqual(Object.keys(Prompts.REQUEST.global.properties), ["plan", "sections", "options", "allowedRefs"]);
-  // allowedRefs 는 네 단계 모두의 유일한 선택 키다 — 나머지 키는 모두 required 로 strict 규칙을 지킨다.
+  // allowedRefs 는 모든 단계의 유일한 선택 키다 — 나머지 키는 모두 required 로 strict 규칙을 지킨다.
   for (const stage of Prompts.STAGES)
     assert.deepEqual(Object.keys(Prompts.REQUEST[stage].properties).filter(k => !Prompts.REQUEST[stage].required.includes(k)), ["allowedRefs"], stage + " 선택 키");
-  for (const stage of ["plan", "section", "global"])
+  for (const stage of ["plan", "section", "global", "draft"])
     assert.equal(Contracts.isStrictCompatible({ ...Prompts.REQUEST[stage], required: Object.keys(Prompts.REQUEST[stage].properties) }), true, stage + " 요청");
   // repair 의 previous 는 이전 봉투를 그대로 싣는 자유 칸이다 — strict 스키마가 아니라 계약 검증으로 본다.
   const body = {
@@ -214,7 +214,7 @@ test("generation params pin temperature, cap output by the spec and skip seed wh
   assert.deepEqual(flash.reasoning, { enabled: false });
   assert.equal(Prompts.inputTokenLimit("plan"), tokens.plannerInput);
   assert.equal(Prompts.inputTokenLimit("global"), tokens.globalInput);
-  for (const s of ["section", "repair"]) assert.equal(Prompts.inputTokenLimit(s), tokens.writerInput);
+  for (const s of ["section", "repair", "draft"]) assert.equal(Prompts.inputTokenLimit(s), tokens.writerInput);
   assert.equal(Prompts.estimateTokens("a".repeat(Prompts.LIMITS.bytesPerToken * 10)), 10);
 });
 
@@ -237,4 +237,48 @@ test("English lecture: writer stages get the English rules, section/repair schem
   assert.ok(Contracts.isStrictCompatible(withSrc));
   assert.deepEqual(withSrc.properties.gist.properties.src, { type: ["string", "null"], maxLength: 600 });
   assert.equal(JSON.stringify(withSrc).split('"src":').length - 1, plain.split('"basis":').length - 1, "주장마다 하나");
+});
+
+test("draft stage: semantic-draft prompt, request contract, output schema, specialist worker", () => {
+  // 요청 계약은 섹션 작성과 같다 — 출력만 블록 봉투 대신 주장·typed 관계다.
+  assert.deepEqual(Object.keys(Prompts.REQUEST.draft.properties), ["section", "concepts", "evidence", "registry", "figures", "options", "withGist", "allowedRefs"]);
+  const t = Prompts.systemFor("draft");
+  assert.match(t, /의미 초안/, "draft: 단계 이름");
+  assert.match(t, /지면\(B01–B18 슬롯·색·번호·HTML\)이 아니라 의미 단위만 쓴다/, "draft: 지면이 아니라 의미");
+  assert.match(t, /로컬 키/, "draft: claimId 는 로컬 키");
+  assert.match(t, /계획 순서로 하나씩 대응/, "draft: 관계는 계획 순서로 블록에 대응");
+  assert.match(t, /B14\(자기 점검\)는 이 단계에서 만들지 않는다/, "draft: 문항은 이 경로가 만들지 않는다");
+  assert.match(t, /지어내지 않고 null·빈 배열로 둔다/, "draft: 재료 없는 칸은 비움");
+  assert.match(t, /\"i1\" 입력, \"c2\" 단계/, "draft: calcs 로컬 참조 안내");
+
+  const body = { section: s1, withGist: true, options: { ...OFF } };
+  const schema = Prompts.outputSchema("draft", body);
+  assert.equal(Contracts.isStrictCompatible(schema), true, "draft 출력 strict");
+  assert.deepEqual(Object.keys(schema.properties), ["sectionId", "gist", "claims", "relations", "checks"]);
+  // 확인 항목의 대상은 이 요청의 계획 블록만이다.
+  assert.deepEqual(schema.properties.checks.items.properties.targetIds.items.enum, s1.blocks.map(b => b.blockId));
+  // 로컬 주장 키는 c1.. — 호스트가 블록에 얹을 때 옮긴다.
+  assert.equal(schema.properties.claims.items.properties.claimId.pattern, "^c[0-9]{1,3}$");
+  // 기존 주장 규칙 재사용 — 꺼진 옵션의 basis 는 초안 주장 스키마에도 없다.
+  for (const b of basisOf(schema)) assert.ok(!["synthetic", "external"].includes(b), "꺼진 옵션의 basis 없음: " + b);
+  const aug = Prompts.outputSchema("draft", { ...body, options: { syntheticExamples: true, externalAugmentation: true } });
+  assert.ok(basisOf(aug).includes("synthetic") && basisOf(aug).includes("external"));
+  // allowedRefs 는 링크 명제·지도 노드의 대상 칸을 좁힌다.
+  const refs = { targetIds: ["S1", "S1_B1", "C1"], reviewIds: [] };
+  const narrowed = Prompts.outputSchema("draft", { ...body, allowedRefs: refs });
+  assert.deepEqual(narrowed.properties.relations.properties.links.items.properties.propositions.items.properties.targetIds.items, { type: "string", enum: refs.targetIds });
+  assert.deepEqual(narrowed.properties.relations.properties.maps.items.properties.nodes.items.properties.targetId.enum, [...refs.targetIds, null]);
+
+  // 조건부 전문 워커 — 같은 worker 값이면 같은 문자열(접두 캐시), 없으면 general(추가 없음).
+  const gen = Prompts.systemFor("draft", OFF);
+  assert.equal(Prompts.systemFor("draft", OFF, undefined, "general"), gen, "general 은 추가 지시 없음");
+  const w = Prompts.systemFor("draft", OFF, undefined, "formula");
+  assert.ok(w.startsWith(gen + "\n[전문 초점: 수식·단위·계산]"), "워커 지시는 초안 지시 뒤에 한 문장");
+  assert.equal(Prompts.systemFor("draft", OFF, undefined, "formula"), w, "같은 worker 면 같은 문자열");
+  for (const worker of ["comparison", "argument", "figure"]) {
+    const x = Prompts.systemFor("draft", OFF, undefined, worker);
+    assert.ok(x.length > gen.length && x.startsWith(gen), worker + ": 전문 지시가 붙는다");
+  }
+  assert.equal(Prompts.systemFor("draft", OFF, undefined, "bogus"), gen, "모르는 worker 는 무시");
+  assert.equal(Prompts.systemFor("section", OFF, undefined, "formula"), Prompts.systemFor("section", OFF), "다른 단계는 worker 를 무시한다");
 });
