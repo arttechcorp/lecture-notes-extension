@@ -2962,7 +2962,7 @@ const fs=require("node:fs"),path=require("node:path"),http=require("node:http"),
 const Vault=require("../lib/vault.js");
 const Contracts=require("../lib/contracts.js"),NoteContract=require("../lib/note-contract.js"),Prompts=require("./prompts.js");
 const {createAuth}=require("./auth.js"),{fileUsage,supabaseUsage,FAIL_CODE}=require("./usage.js"),{supabaseVault}=require("./vault-store.js");
-const RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"google/gemini-2.5-pro":[1.25,10],"anthropic/claude-haiku-4.5":[1,5],"anthropic/claude-sonnet-4.6":[3,15],"anthropic/claude-sonnet-5":[2,10],"openai/gpt-6.1-sol":[2,10],"xiaomi/mimo-v2.6-pro":[.435,.87],"xiaomi/mimo-v2.6-flash":[.14,.28]};
+const RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"google/gemini-2.5-pro":[1.25,10],"anthropic/claude-haiku-4.5":[1,5],"anthropic/claude-sonnet-4.6":[3,15],"anthropic/claude-sonnet-5":[2,10],"openai/gpt-6-luna":[.1,.5],"openai/gpt-6.1-sol":[2,10],"xiaomi/mimo-v2.6-pro":[.435,.87],"xiaomi/mimo-v2.6-flash":[.14,.28]};
 // 이미지 입력은 텍스트와 단가가 다르고 출력도 훨씬 짧다. /v1/plan·/v1/write 와 예약 계산을 섞지 않는다.
 // 제공자가 비용(usage.cost)을 보고하지 않으면 토큰 수 × 단가표(USD/100만 토큰)로 계산한다 — 예약액 전체를 청구하지 않게.
 // 토큰 수도 없으면 null(미보고) — 장부가 예약액을 청구한다. 추론 토큰은 completion_tokens 에 들어 있다.
@@ -3050,7 +3050,7 @@ function providerSchema(s,drop){
   return out;
 }
 const VISION_SCHEMA=providerSchema({type:"object",additionalProperties:false,required:["blocks","formulas","figures"],properties:{blocks:Contracts.SCHEMAS.slideDoc.properties.blocks,formulas:Contracts.SCHEMAS.slideDoc.properties.formulas,figures:Contracts.SCHEMAS.slideDoc.properties.figures}},["id","status"]);
-const {cachedSystem,parseNote,reasoningFor,maxTokensFor,noTemperature,cacheOf}=require("./llm.js");
+const {cachedSystem,cachedUser,cacheModeOf,parseNote,reasoningFor,maxTokensFor,noTemperature,cacheOf,upstreamOf}=require("./llm.js");
 const safePart=x=>{if(typeof x!=="string"||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(x))throw new Error("invalid_id");return x;};
 const tokenEqual=(a,b)=>{const x=Buffer.from(String(a)),y=Buffer.from(String(b));return x.length===y.length&&crypto.timingSafeEqual(x,y);};
 const positive=(x,fallback)=>{const n=Number(x??fallback);if(!Number.isFinite(n)||n<=0)throw new Error("invalid_limit");return n;};
@@ -3112,12 +3112,12 @@ function config(env){
   // Supabase 를 켠 배포는 정적 토큰 없이(JWT 계정만) 뜰 수 있다.
   if(!Object.keys(tokens).length&&!env.SUPABASE_URL)throw new Error("APP_TOKENS_JSON required");
   for(const [account,token]of Object.entries(tokens)){safePart(account);if(typeof token!=="string"||token.length<32||known.has(token))throw new Error("unique_32_character_tokens_required");known.add(token);}
-  if(!Array.isArray(allow)||!allow.length||allow.some(m=>!RATES[m]))throw new Error("invalid_model_allowlist");
+  if(!Array.isArray(allow)||!allow.length||allow.some(m=>!RATES[m]&&!RATES[upstreamOf(m)]))throw new Error("invalid_model_allowlist");
   // 정확한 출처 목록(쉼표 구분)이다. 압축 해제 확장의 ID는 폴더 경로에서 나와 개발자마다 다르고 웹스토어 ID도 따로라 하나씩 넣는다.
   const origins=String(env.EXTENSION_ORIGIN||"").split(",").map(o=>o.trim());
   if(origins.some(o=>!/^chrome-extension:\/\/[a-p]{32}$/.test(o)))throw new Error("exact_extension_origin_required");
   const providers=JSON.parse(env.OPENROUTER_PROVIDERS_JSON||"{}");
-  for(const m of allow)if(!Array.isArray(providers[m])||!providers[m].length||providers[m].some(p=>typeof p!=="string"||p.length>100))throw new Error("explicit_provider_allowlist_required");
+  for(const m of allow){const pin=providers[m]??providers[upstreamOf(m)];if(!Array.isArray(pin)||!pin.length||pin.some(p=>typeof p!=="string"||p.length>100))throw new Error("explicit_provider_allowlist_required");}
   const visionModels=JSON.parse(env.ALLOWED_VISION_MODELS||"[]");
   if(!Array.isArray(visionModels)||visionModels.some(m=>!VISION_RATES[m]))throw new Error("invalid_vision_model_allowlist");
   for(const m of visionModels)if(!Array.isArray(providers[m])||!providers[m].length)throw new Error("explicit_provider_allowlist_required");
@@ -3583,7 +3583,11 @@ function createServer(env=process.env,deps={}){
     const us=stage==="plan"?rest.ir.units:[],span=us.length?Math.max(...us.map(u=>u.t1))-Math.min(...us.map(u=>u.t0)):0;
     const minutes=stage==="plan"&&(rest.recognition==="local"||!(account.limits.features||[]).includes("stt"))?Math.max(1,Math.ceil(span/60)):0;
     const digest=digestOf(account,JSON.stringify({route:stage==="plan"?"plan":"write",stage,model:input.model,noteSpecVersion:input.noteSpecVersion,rest,...(sourceLang?{sourceLang}:{})}));
-    const [pi,po]=RATES[input.model],params=Prompts.modelParams(input.model,stage),attempts=2;
+    const [pi,po]=RATES[input.model]||RATES[upstreamOf(input.model)],params=Prompts.modelParams(input.model,stage),attempts=2;
+    const upModel=upstreamOf(input.model),upProviders=c.providers[input.model]??c.providers[upModel];
+    // openai-explicit: 고정 시스템 접두만 캐시에 쓴다. key 는 작업 라우팅 친화용 — provider.order 를 쓰면 sticky 라우팅이 꺼져
+    // 없으면 같은 작업도 매번 다른 엔드포인트에 캐시를 쓴다. 내용 없이 단계와 jobId 해시만 넣는다.
+    const cacheMode=cacheModeOf(input.model),cacheFields=cacheMode==="openai-explicit"?{prompt_cache_options:{mode:"explicit",ttl:"30m"},...(input.jobId?{prompt_cache_key:`${stage}:${crypto.createHash("sha256").update(String(input.jobId)).digest("hex").slice(0,32)}`}:{})}:{};
     // 형식 실패 재시도분까지 예약하고 정산에서 되돌린다. 시스템 본문과 스키마도 입력 토큰이다.
     const reserve=Math.ceil((Prompts.estimateTokens(system+JSON.stringify(outSchema)+user)*pi+params.max_tokens*po)/1e6*100*1.2*attempts);
     const providerOut=providerSchema(outSchema,[]);
@@ -3607,10 +3611,10 @@ function createServer(env=process.env,deps={}){
         for(let retry=0;retry<attempts;retry++){
           const at=Date.now();
           const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
-            model:input.model,...params,
-            messages:[cachedSystem(input.model,system),{role:"user",content:user}],
+            model:upModel,...params,...cacheFields,
+            messages:[cachedSystem(input.model,system),cachedUser(input.model,user,stage)],
             response_format:{type:"json_schema",json_schema:{name:"lecture_note_"+stage,strict:true,schema:providerOut}},
-            provider:{only:c.providers[input.model],order:c.providers[input.model],require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}
+            provider:{only:upProviders,order:upProviders,require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}
           })});
           // detail 은 사용 기록(usage_events.error_code)에만 남는 세부 사유다 — 클라이언트에는 기존 코드만 간다.
           // 4xx 는 라우팅 단계의 거절(파라미터·제공자 없음)이라 생성 비용이 없다 — 첫 시도면 예약을 환불한다.
@@ -3655,7 +3659,7 @@ function createServer(env=process.env,deps={}){
           // 계획 호출이 끝난 뒤에만 분류 결과를 기다린다 — 앞서 병렬로 나간 호출이고 이미 끝났거나 5초 안에 끝난다.
           const classified=classifying?await classifying:null;
           if(classified){meta.subject=classified.subject;meta.subjectConf=classified.conf;}
-          return {amount,reported,attempts:tries,payload:{...(stage==="plan"?{plan:parsed}:{output:parsed}),...(salvaged?{salvaged,salvagedErrors}:{}),usage:{...usage,costUsd:reported?amount:reserve/100},promptVersion:Prompts.PROMPT_VERSION,schemaVersion:c.remoteConfig.schemaVersion,noteSpecVersion:NoteContract.NOTE_SPEC_VERSION}};
+          return {amount,reported,attempts:tries,payload:{...(stage==="plan"?{plan:parsed}:{output:parsed}),...(salvaged?{salvaged,salvagedErrors}:{}),usage:{...usage,costUsd:reported?amount:reserve/100},promptVersion:Prompts.PROMPT_VERSIONS[stage]||Prompts.PROMPT_VERSION,schemaVersion:c.remoteConfig.schemaVersion,noteSpecVersion:NoteContract.NOTE_SPEC_VERSION}};
         }catch(error){const t=tries.at(-1);t.status="error";t.error=errCode(error);if(retry===attempts-1)throw error.charged||error.refund?error:Object.assign(error,{code:error.code||"provider_failed_or_invalid_output",charged:{amount,reported,usage}});} // 형식 실패: 보고된 금액만 청구한다
         }
       }catch(e){e.attempts??=tries;throw e;}
@@ -3684,7 +3688,7 @@ function createServer(env=process.env,deps={}){
         // noteSpecVersion·promptVersion 은 plan/write 응답과 같은 값이다 — 클라이언트가 호출 전에 맞는지 미리 본다(config.promptVersion 은 비전·판정용 원격 설정이다).
         // promptVersions 는 작업별 프롬프트 버전 — 클라이언트가 단계·호출 캐시 키에 섞어 서버 프롬프트 개선 시 낡은 결과를 재사용하지 않게 한다(§7). judge·비전·전사는 원격 설정 버전이다.
         const limits=who.limits,head={accountId:account,...(who.jwt?{plan:limits.plan}:{}),models:limits.models,routeModels:{vision:c.visionModels,stt:c.sttModels,judge:c.judgeModels},features:(limits.features||[]).filter(f=>c.featureFlags[f]!==false),config:c.remoteConfig,noteSpecVersion:NoteContract.NOTE_SPEC_VERSION,promptVersion:Prompts.PROMPT_VERSION,
-          promptVersions:{plan:Prompts.PROMPT_VERSION,section:Prompts.PROMPT_VERSION,repair:Prompts.PROMPT_VERSION,global:Prompts.PROMPT_VERSION,link:Prompts.PROMPT_VERSION,questions:Prompts.PROMPT_VERSION,draft:Prompts.PROMPT_VERSION,judge:c.remoteConfig.promptVersion}};
+          promptVersions:{...Prompts.PROMPT_VERSIONS,judge:c.remoteConfig.promptVersion}};
         if(!who.jwt){const r=record(account);return send(res,200,{...head,quota:{month:r.month,requests:r.requests,maxRequests:limits.maxRequests,spentCents:r.spentCents,maxCents:limits.maxCostCents}});}
         // 한도는 DB가 정한다. 상한이 null 이면 무제한이고 maxCents 는 항상 있다(plans 에 없는 등급은 0 — 예약이 닫힌 채 거절한다).
         let q;try{q=await sb.quota(account,limits.plan,month()+"-01");}catch{return fail(res,"usage_store_failed");}
@@ -4046,16 +4050,36 @@ const MODELS={
   "anthropic/claude-haiku-4.5":{tags:["amazon-bedrock/global"],reasoning:{enabled:false},maxTokens:32768,cache:true},
   "anthropic/claude-sonnet-4.6":{tags:["amazon-bedrock/global"],reasoning:{enabled:false},maxTokens:32768,cache:true},
   "openai/gpt-6-luna":{tags:["azure"],reasoning:{effort:"high"},maxTokens:16384,temperature:false},
+  // 작성 모델 실험용 변형 — id 는 effort 마다 하나씩, 업스트림 요청에는 base 만 간다(upstreamOf).
+  "openai/gpt-6-luna@medium":{base:"openai/gpt-6-luna",tags:["azure","azure/us","azure/eu"],reasoning:{effort:"medium"},reasoningBudget:4000,maxTokens:32768,temperature:false,cacheMode:"openai-explicit"},
+  "openai/gpt-6-luna@high":{base:"openai/gpt-6-luna",tags:["azure","azure/us","azure/eu"],reasoning:{effort:"high"},reasoningBudget:8000,maxTokens:32768,temperature:false,cacheMode:"openai-explicit"},
+  "openai/gpt-6-luna@xhigh":{base:"openai/gpt-6-luna",tags:["azure","azure/us","azure/eu"],reasoning:{effort:"xhigh"},reasoningBudget:16000,maxTokens:32768,temperature:false,cacheMode:"openai-explicit"},
   "openai/gpt-6.1-sol":{tags:["azure","openai","azure/us","azure/eu"],reasoning:{effort:"medium"},reasoningBudget:8000,maxTokens:32768,temperature:false},
   "xiaomi/mimo-v2.6-pro":{tags:["deepinfra/fp8"],reasoning:{effort:"low"},reasoningBudget:4000,maxTokens:32768},
   "xiaomi/mimo-v2.6-flash":{tags:["io-net/fp8","venice/fp8","deepinfra/fp8"],reasoning:{enabled:false},maxTokens:32768},
 };
+const upstreamOf=model=>MODELS[model]?.base||model;
 const reasoningFor=model=>MODELS[model]?.reasoning||{enabled:false};
 const reasoningBudgetFor=model=>MODELS[model]?.reasoningBudget||0;
 const maxTokensFor=model=>MODELS[model]?.maxTokens||8192;
 const noTemperature=model=>MODELS[model]?.temperature===false;
+const cacheModeOf=model=>MODELS[model]?.cacheMode||null;
 // 캐시를 안 쓰는 모델에는 문자열을 그대로 보낸다. 배열 본문은 공급자마다 정규화 경로가 달라 얻는 게 없는 쪽까지 바꾸지 않는다.
-const cachedSystem=(model,text)=>({role:"system",content:MODELS[model]?.cache?[{type:"text",text,cache_control:{type:"ephemeral"}}]:text});
+// openai-explicit 도 같은 모양이다 — OpenRouter 가 Anthropic 식 cache_control 블록을 OpenAI prompt_cache_breakpoint 로 번역한다.
+const cachedSystem=(model,text)=>({role:"system",content:(MODELS[model]?.cache||MODELS[model]?.cacheMode==="openai-explicit")?[{type:"text",text,cache_control:{type:"ephemeral"}}]:text});
+// 두 번째 중단점: 작업 공유 칸만 담은 user 접두다. 요청 스키마 순서가 공유 칸을 앞에 놓으므로(prompts.js REQUEST)
+// head 를 따로 직렬화해 본문 앞부분과 바이트가 같으면 잘라 둘로 나누고, 아니면 한 덩어리로 둔다(안전 장치).
+const SHARED_HEAD={section:["concepts","options","allowedRefs"],draft:["concepts","options","allowedRefs"],repair:["concepts","options","allowedRefs"],questions:["concepts","sections","options","allowedRefs"]};
+const cachedUser=(model,user,stage)=>{
+  const keys=SHARED_HEAD[stage];
+  if(!(MODELS[model]?.cache||MODELS[model]?.cacheMode==="openai-explicit")||!keys)return {role:"user",content:user};
+  let parsed;try{parsed=JSON.parse(user);}catch{return {role:"user",content:user};}
+  const head={};for(const k of keys)if(parsed[k]!==undefined)head[k]=parsed[k];
+  if(!Object.keys(head).length)return {role:"user",content:user};
+  const cut=JSON.stringify(head).length,headText=user.slice(0,cut-1)+",";
+  if(!user.startsWith(headText))return {role:"user",content:user};
+  return {role:"user",content:[{type:"text",text:headText,cache_control:{type:"ephemeral"}},{type:"text",text:user.slice(cut)}]};
+};
 // 모델이 JSON 안에 LaTeX 백슬래시를 한 번만 쓰면 JSON.parse 가 \t \f \b \r 제어문자로 읽는다. 알려진 명령만 되살린다.
 // ponytail: \n 으로 시작하는 명령(\neq 등)과 \to·\rm 은 되살리지 않는다 — 정상 줄바꿈·들여쓰기와 부딪히고 실측 손상 0건이었다.
 const UNMANGLE=[
@@ -4072,7 +4096,7 @@ const parseNote=text=>JSON.parse(text,(_,v)=>typeof v==="string"?unmangle(v):v);
 const cacheOf=u=>{const num=v=>Number.isFinite(v)&&v>=0?Math.floor(v):null,d=u?.prompt_tokens_details;
   return {cached_input_tokens:num(d?.cached_tokens)??num(u?.cache_read_input_tokens)??num(u?.prompt_cache_hit_tokens),
     cache_write_tokens:num(u?.cache_creation_input_tokens)??num(u?.cache_write_tokens)};};
-module.exports={MODELS,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cachedSystem,parseNote,cacheOf};
+module.exports={MODELS,upstreamOf,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cachedSystem,cachedUser,cacheModeOf,parseNote,cacheOf};
 
 },
 "server/prompts.js": function (module, exports, require, __filename, __dirname) {
@@ -4082,6 +4106,8 @@ module.exports={MODELS,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperatur
 const NoteContract=require("../lib/note-contract.js"),Contracts=require("../lib/contracts.js"),LLM=require("./llm.js"),SectionDraft=require("../lib/section-draft.js");
 // 프롬프트 문구나 아래 규칙을 바꾸면 올린다. 응답에 실려 단계 캐시 키에 들어간다.
 const PROMPT_VERSION="note-v6";
+// 단계별 버전: 프롬프트 문구나 아래 규칙을 바꾸면 그 단계만 올린다 — plan 캐시가 section 의 본문 재배치에 휘말려 무효가 되지 않게.
+const PROMPT_VERSIONS={plan:"note-v6",global:"note-v6",link:"note-v6",section:"note-v7",draft:"note-v7",repair:"note-v7",questions:"note-v7"};
 const STAGES=["plan","section","global","repair","link","questions","draft"];
 // 토큰 예산(§8.1). 서버는 바이트 / bytesPerToken 으로 어림한다 — 정확한 토크나이저가 아니라 입력 상한을 거르는 가드다.
 const LIMITS={bytesPerToken:4,tokens:{plannerInput:40000,plannerOutput:16000,writerInput:16000,writerOutput:14000,globalInput:24000,globalOutput:4000}};
@@ -4229,10 +4255,12 @@ const REQUEST={
     options,
     allowedRefs,
   },["allowedRefs"]),
-  section:opt({...writerBody,withGist:{type:"boolean"},allowedRefs},["allowedRefs","learningItems"]),
-  repair:opt({...writerBody,repair:arr(obj({blockId:pat(IDS.block),previous:{},errors:arr(obj({code:pat(IDS.code),detail:arr({type:"string",maxLength:64},20)}),20,1)}),12,1),allowedRefs},["allowedRefs","learningItems"]),
+  // 섹션 계열은 작업 공유 칸(concepts·options·allowedRefs)이 먼저 온다 — 직렬화가 스키마 순서라 공유 접두가 같으면
+  // 앞서 찍은 두 번째 캐시 중단점(llm.js cachedUser)까지 재사용된다. 재배치는 키 순서뿐, 스키마는 그대로다.
+  section:opt({concepts:planConcepts,options,allowedRefs,...writerBody,withGist:{type:"boolean"}},["allowedRefs","learningItems"]),
+  repair:opt({concepts:planConcepts,options,allowedRefs,...writerBody,repair:arr(obj({blockId:pat(IDS.block),previous:{},errors:arr(obj({code:pat(IDS.code),detail:arr({type:"string",maxLength:64},20)}),20,1)}),12,1)},["allowedRefs","learningItems"]),
   // 의미 초안 경로(§2 대안 B): 입력은 섹션 작성과 같고, 출력은 블록 봉투 대신 주장·typed 관계다(lib/section-draft.js).
-  draft:opt({...writerBody,withGist:{type:"boolean"},allowedRefs},["allowedRefs","learningItems"]),
+  draft:opt({concepts:planConcepts,options,allowedRefs,...writerBody,withGist:{type:"boolean"}},["allowedRefs","learningItems"]),
   global:opt({
     plan:obj({concepts:planConcepts,global:arr(S.plan.properties.global.items,3,1)}),
     sections:survSections(claimRef),
@@ -4247,12 +4275,12 @@ const REQUEST={
   },["allowedRefs"]),
   // 본문 확정 뒤 문항(draft 경로): 채울 B14 는 계획 블록 하나, 참고는 살아남은 본문 주장이다.
   questions:opt({
-    section:planSection,
-    blockId:pat(IDS.secBlock),
     concepts:planConcepts,
     sections:survSections(claimRef),
     options,
     allowedRefs,
+    section:planSection,
+    blockId:pat(IDS.secBlock),
   },["allowedRefs"]),
 };
 // 요청별 출력 스키마. 계획에 없는 blockId 같은 잘못된 요청은 note-contract 가 던진다 — 라우트가 request_rejected 로 바꾼다.
@@ -4278,7 +4306,7 @@ const modelParams=(model,stage)=>({
   max_tokens:Math.min(LLM.maxTokensFor(model),(stage==="plan"?T.plannerOutput:["global","link"].includes(stage)?T.globalOutput:T.writerOutput)+LLM.reasoningBudgetFor(model)),
   reasoning:LLM.reasoningFor(model),...(LLM.noTemperature(model)?{}:{temperature:0}),...(NO_SEED.test(model)?{}:{seed:SEED}), // temperature 를 거절하는 모델(GPT 추론형)에 보내면 require_parameters 로 404 가 난다
 });
-module.exports={PROMPT_VERSION,STAGES,LIMITS,systemFor,REQUEST,outputSchema,estimateTokens,inputTokenLimit,modelParams};
+module.exports={PROMPT_VERSION,PROMPT_VERSIONS,STAGES,LIMITS,systemFor,REQUEST,outputSchema,estimateTokens,inputTokenLimit,modelParams};
 
 },
 "server/usage.js": function (module, exports, require, __filename, __dirname) {

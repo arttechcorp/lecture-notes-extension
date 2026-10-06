@@ -67,7 +67,10 @@ async function paintMasks(blob,boxes){
 // ── v2 노트 공통(실시간·백그라운드) ──
 // 계획·작성 모델은 계정 모델 목록(/v1/me)에서 고른다: BG_MODELS 가 목록에 있으면 그것, 없으면 첫 모델. 판정은 judge 기능이 켜진 계정만.
 // writeAlt(대체 작성 모델, 다른 제공자)는 목록에 있을 때만 — 없으면 실패한 부분은 대체 없이 빠진다.
-const noteModels=me=>{const ms=Array.isArray(me?.models)?me.models:[],pick=m=>ms.includes(m)?m:ms[0];return {plan:pick(BG_MODELS.plan),write:pick(BG_MODELS.write),writeAlt:ms.includes(BG_MODELS.writeAlt)?BG_MODELS.writeAlt:null,judge:(me?.features||[]).includes("judge")?BG_MODELS.judge:null};};
+// devWriteModel(숨은 실험 설정)은 계정 목록에 있을 때만 write를 덮어쓴다 — 목록에 없거나 빈 값이면 기본 그대로.
+const noteModels=(me,settings)=>{const ms=Array.isArray(me?.models)?me.models:[],pick=m=>ms.includes(m)?m:ms[0],dev=typeof settings?.devWriteModel==="string"?settings.devWriteModel.trim():"";return {plan:pick(BG_MODELS.plan),write:dev&&ms.includes(dev)?dev:pick(BG_MODELS.write),writeAlt:ms.includes(BG_MODELS.writeAlt)?BG_MODELS.writeAlt:null,judge:(me?.features||[]).includes("judge")?BG_MODELS.judge:null};};
+// 노트 실행 시작 때 쓴 모델 셋을 내용 없는 이벤트 한 줄로 남긴다 — devWriteModel 실험군을 작업 진단 파일에서 구분하기 위해서.
+const noteModelsEvent=(jobId,m)=>events.emit({stage:"job",jobId,code:"NOTE_MODELS",msg:`plan=${m?.plan||"-"} write=${m?.write||"-"} alt=${m?.writeAlt||"-"}`});
 // GENERATE_NOTES·LIB_REGENERATE 가 같은 모양으로 runNote 를 부른다 — /v1/me 와 서비스 묶음을 한 곳에서 만든다. 토큰은 매 서비스 호출마다 새로 받는다.
 // deps(signal, me, stats): /v1/me 의 작업별 서버 프롬프트 버전을 단계·호출 캐시 키에 넣고, 로컬 캐시 적중 수를 stats 에 모아 run 끝에 한 번 보고한다.
 const noteService=settings=>{
@@ -238,9 +241,10 @@ async function bgJob(job,source,settings,me,ctl){
       fetch:refererFetch(source.pageUrl),decode:LectureDecode,paint:paintMasks,
       // 강의가 길면 기본 200장을 넘는다. 진짜 상한은 서버의 월 비용 한도다.
       vision:VisionClient.createVisionEngine({baseUrl:base,token,model:BG_MODELS.vision,maxCalls:Infinity,signal:ctl.signal}),
-      stt:{stt:svc("stt")},settings,features:me,models:{...BG_MODELS,...noteModels(me),judge:BG_MODELS.judge},signal:ctl.signal,crop:cropRegions,options:settingsOf(settings).noteOptions,
+      stt:{stt:svc("stt")},settings,features:me,models:{...BG_MODELS,...noteModels(me,settings),judge:BG_MODELS.judge},signal:ctl.signal,crop:cropRegions,options:settingsOf(settings).noteOptions,
       // 끝나면(인식 결과만 있어도) 로컬 보관함에 둔다. 저장 실패는 노트를 잃게 하지 않도록 코드만 남기고 결말은 그대로 알린다.
       runNote:async(j,input,o)=>{
+        noteModelsEvent(j.jobId,input?.models);
         const stats={hits:0,misses:0};
         const res=await NoteStages.runNote(j,input,{...o,service:{plan:svc("plan"),write:svc("write"),judge:svc("judge")},katex,promptVersions:me?.promptVersions??null,cacheStats:stats,linkEditor:me?.config?.linkEditor===true,writer:me?.config?.noteWriter});
         try{await ServiceClient.reportRun({baseUrl:base,token:await token(),jobId:j.jobId,cacheHits:stats.hits,cacheMisses:stats.misses,rerun:input?.rerun??0});}catch{}
@@ -283,9 +287,10 @@ async function libRegenerate(message,settings){
     if((options.syntheticExamples||options.externalAugmentation)&&!paid)return {ok:false,error:"가상 사례·강의 밖 보강은 유료 기능입니다."};
     // '새로 만들기'는 명시적 generation revision(rerun)을 올린다 — 저장 입력의 번호 다음. 계획·판정은 재사용하고
     // 쓰기 이후 단계 캐시 키가 갈리며, 성공한 호출은 호출 캐시에서, 실패했던 호출만 새 requestId 로 다시 나간다.
-    const input={...data.input,models:noteModels(me),consent:{...data.input.consent,summary:true},options:paid?options:{},host:data.meta.host,rerun:(data.input.rerun||0)+1};
+    const input={...data.input,models:noteModels(me,settings),consent:{...data.input.consent,summary:true},options:paid?options:{},host:data.meta.host,rerun:(data.input.rerun||0)+1};
     const job=await Pipeline.createJob({jobId:`regen-${message.packageId}-${Date.now().toString(36)}`.replace(/[^A-Za-z0-9-]/g,"").slice(0,64),packageId:message.packageId,store,events});
     const stats={hits:0,misses:0};
+    noteModelsEvent(job.jobId,input.models);
     const res=await NoteStages.runNote(job,input,svc.deps(new AbortController().signal,me,stats));
     await svc.report(job.jobId,input.rerun,stats);
     if(!["complete","partial","recognition-only"].includes(res.status)||data.note&&!res.note) // 노트 없이 끝나면 덮어쓰지 않는다 — 저장하면 기존 노트가 지워진다
@@ -467,9 +472,10 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
         const paid=(me.features||[]).includes("background"),store=await storeP,pkg=current.packageId||=NoteLibrary.packageIdFor({});
         const job=await Pipeline.createJob({jobId:`live-${current.id}-${current.summaryAttempt}`.replace(/[^A-Za-z0-9-]/g,"").slice(0,64),packageId:pkg,store,events});
         // 요약을 다시 누른 것은 새로 만들기다 — rerun 을 올려 쓰기 이후 단계를 다시 돌리고, 성공한 호출은 호출 캐시가 메운다.
-        const input={...liveInput(current,{tier:paid?"paid":"free",models:noteModels(me),consent:{summary:config.remoteSummaryConsent},options:paid?config.noteOptions:{}}),rerun:current.summaryAttempt-1};
+        const input={...liveInput(current,{tier:paid?"paid":"free",models:noteModels(me,message.settings),consent:{summary:config.remoteSummaryConsent},options:paid?config.noteOptions:{}}),rerun:current.summaryAttempt-1};
         current.log(`[요약] v2 · ${paid?"유료":"Free"} · 슬라이드 ${input.slides.length} · 발화 ${input.transcript.segments.length} · 동의 ${config.remoteSummaryConsent?"완료":"미확인"}`);
         const stats={hits:0,misses:0};
+        noteModelsEvent(job.jobId,input.models);
         const res=await NoteStages.runNote(job,input,svc.deps(summaryController.signal,me,stats));
         await svc.report(job.jobId,input.rerun,stats);
         if(!["complete","partial","recognition-only"].includes(res.status))throw Object.assign(new Error(Pipeline.CODES[res.code]?.userMessage||"요약을 마치지 못했습니다."),{code:res.code});

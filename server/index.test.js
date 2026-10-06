@@ -185,13 +185,9 @@ test("/v1/me exposes per-task promptVersions and the policy version in remote co
   const { server, url } = await listen(root, async () => provider());
   try {
     const me = await (await req(url, "/v1/me")).json();
-    // 클라이언트 캐시 키 계약: plan·section·repair·global 은 노트 프롬프트 버전, judge 는 원격 설정 버전.
-    assert.equal(me.promptVersions.plan, me.promptVersion);
-    assert.equal(me.promptVersions.section, me.promptVersion);
-    assert.equal(me.promptVersions.repair, me.promptVersion);
-    assert.equal(me.promptVersions.global, me.promptVersion);
-    assert.equal(me.promptVersions.link, me.promptVersion);
-    assert.equal(me.promptVersions.questions, me.promptVersion);
+    // 클라이언트 캐시 키 계약: 단계별 노트 프롬프트 버전(입력 재배치는 섹션 계열만 v7), judge 는 원격 설정 버전.
+    for (const s of ["plan", "global", "link"]) assert.equal(me.promptVersions[s], me.promptVersion, s);
+    for (const s of ["section", "draft", "repair", "questions"]) assert.equal(me.promptVersions[s], "note-v7", s);
     assert.equal(me.promptVersions.judge, me.config.promptVersion);
     assert.equal(me.config.policyVersion, "v1");
     assert.equal(me.config.linkEditor, false, "linkEditor 기본값은 꺼짐");
@@ -1324,7 +1320,7 @@ test("write answers each stage with the plan-keyed output schema and the stage's
       assert.deepEqual(out.output, output, stage);
       const { model: _m, requestId: _r, noteSpecVersion: _v, stage: _s, ...rest } = body;
       assert.ok(Contracts.validate(Prompts.outputSchema(stage, rest), out.output).ok, stage);
-      assert.equal(out.promptVersion, Prompts.PROMPT_VERSION);
+      assert.equal(out.promptVersion, Prompts.PROMPT_VERSIONS[stage]);
       assert.equal(out.schemaVersion, Contracts.CONTRACT_VERSION);
       assert.equal(out.noteSpecVersion, NoteContract.NOTE_SPEC_VERSION);
       assert.equal(out.usage.costUsd, .002);
@@ -1357,7 +1353,7 @@ test("/v1/write stage \"draft\": same route and controls, semantic-draft output 
     assert.equal(res.status, 200);
     const out = await res.json();
     assert.deepEqual(out.output, draftOut);
-    assert.equal(out.promptVersion, Prompts.PROMPT_VERSION);
+    assert.equal(out.promptVersion, Prompts.PROMPT_VERSIONS.draft);
     const sent = bodies[0];
     assert.equal(sent.messages[0].content, Prompts.systemFor("draft", noteOpts), "draft 시스템 프롬프트");
     assert.equal(sent.response_format.json_schema.name, "lecture_note_draft");
@@ -2223,7 +2219,7 @@ test("a successful write reserves then settles through PostgREST with content-fr
     const { p_latency_ms, p_attempts, ...settled } = settledOf(sb);
     assert.deepEqual(settled, {
       p_user: UID, p_request_id: "request-one", p_actual_cost_micros: Math.ceil(.002 * 1e6), p_status: "ok", p_stage: "write.section", p_provider: "openrouter", p_model: model,
-      p_input_tokens: 800, p_output_tokens: 90, p_audio_seconds: null, p_images: null, p_prompt_version: Prompts.PROMPT_VERSION, p_schema_version: 1, p_error_code: null, p_client_version: "1.2.3", p_host: null,
+      p_input_tokens: 800, p_output_tokens: 90, p_audio_seconds: null, p_images: null, p_prompt_version: Prompts.PROMPT_VERSIONS.section, p_schema_version: 1, p_error_code: null, p_client_version: "1.2.3", p_host: null,
       p_job_id: null, p_lecture_seconds: null, p_slides: null, p_subject: null, p_subject_conf: null,
       p_logical_task_id: "request-one", p_attempt_id: "a0", p_cache_kind: "provider_prompt", p_cache_status: "unknown",
       p_cached_input_tokens: null, p_cache_write_tokens: null, p_provider_reported_cost_micros: Math.ceil(.002 * 1e6), p_cost_status: "provider_reported", p_policy_version: "v1",
@@ -2355,7 +2351,7 @@ test("unreported costs are priced from tokens (null only without tokens) and rep
     assert.equal((await req(url, "/v1/write", "POST", body(3), jwt)).status, 200);
     assert.equal(settledOf(sb, 2).p_actual_cost_micros, 0, "0 으로 보고한 비용은 0 이다(미보고와 다르다)");
     assert.equal(settledOf(sb, 2).p_stage, "write.section");
-    assert.equal(settledOf(sb, 2).p_prompt_version, Prompts.PROMPT_VERSION, "plan/write 의 프롬프트 버전이 원장에 남는다");
+    assert.equal(settledOf(sb, 2).p_prompt_version, Prompts.PROMPT_VERSIONS.section, "plan/write 의 단계별 프롬프트 버전이 원장에 남는다");
     assert.equal(settledOf(sb, 2).p_schema_version, 1);
 
     // 제공자가 끝내 실패하면 예약을 그대로 두고(actual null) error 로 닫는다. 같은 requestId 는 다시 못 쓴다.
@@ -2730,7 +2726,7 @@ test("/v1/me for a JWT user returns plan, features, DB limits, remote config and
       routeModels: { vision: ["google/gemini-2.5-flash-lite"], stt: ["microsoft/mai-transcribe-2"], judge: ["openai/gpt-4.1-nano"] },
       config: { concurrency: { download: 4, decode: 1, stt: 2, vision: 3, judge: 2, write: 8 }, throughputMbps: 50, minClientVersion: "0.0.0", promptVersion: "v1", schemaVersion: 1, policyVersion: "v1", linkEditor: false, noteWriter: "blocks" },
       noteSpecVersion: NoteContract.NOTE_SPEC_VERSION, promptVersion: Prompts.PROMPT_VERSION,
-      promptVersions: { plan: Prompts.PROMPT_VERSION, section: Prompts.PROMPT_VERSION, repair: Prompts.PROMPT_VERSION, global: Prompts.PROMPT_VERSION, link: Prompts.PROMPT_VERSION, questions: Prompts.PROMPT_VERSION, draft: Prompts.PROMPT_VERSION, judge: "v1" },
+      promptVersions: { ...Prompts.PROMPT_VERSIONS, judge: "v1" },
       quota: { month, requests: 3, maxRequests: 300, minutes: 7, maxMinutes: 600, spentCents: 12.3456, maxCents: 30 },
     });
     assert.notEqual(me.promptVersion, me.config.promptVersion, "plan/write 프롬프트 버전은 비전·판정용 원격 설정과 별개다");
@@ -3386,4 +3382,71 @@ test("EXTENSION_ORIGIN accepts a comma list of exact origins — each developer'
     }
     assert.equal((await req(url, "/v1/me", "GET", undefined, token, "chrome-extension://" + "c".repeat(32))).status, 403);
   } finally { await close(server); removeTemp(root); }
+});
+
+test("write with a luna effort variant sends the base upstream, pins upstream providers and charges luna rates", async () => {
+  const variant = "openai/gpt-6-luna@xhigh", mimo = "xiaomi/mimo-v2.6-flash";
+  const bodies = [];
+  await withNoteServer(async (_u, o) => { bodies.push(JSON.parse(o.body)); return noteReply(s1Out, { usage: { prompt_tokens: 1000000, completion_tokens: 2000000 } }); }, async (url, root) => {
+    const res = await req(url, "/v1/write", "POST", sectionIn({ requestId: "luna-v1", model: variant, jobId: "job-luna-1" }));
+    assert.equal(res.status, 200);
+    const sent = bodies.at(-1);
+    assert.equal(sent.model, "openai/gpt-6-luna", "변형 id 는 서버 안 식별자다 — 업스트림에는 base 만 나간다");
+    assert.deepEqual(sent.reasoning, { effort: "xhigh" });
+    assert.equal(sent.max_tokens, Prompts.LIMITS.tokens.writerOutput + 16000, "writerOutput + reasoningBudget(xhigh)");
+    assert.equal(sent.temperature, undefined, "temperature 를 거절하는 모델에는 키를 뺀다");
+    assert.deepEqual(sent.provider.only, ["azure"], "업스트림 핀은 base 모델 키로도 찾는다");
+    assert.deepEqual(sent.prompt_cache_options, { mode: "explicit", ttl: "30m" });
+    assert.match(sent.prompt_cache_key, /^section:[0-9a-f]{32}$/);
+    assert.deepEqual(sent.messages[0].content, [{ type: "text", text: Prompts.systemFor("section", noteOpts), cache_control: { type: "ephemeral" } }], "정적 시스템 접두만 캐시 표시한다");
+    const usage = (await res.json()).usage;
+    near(usage.costUsd, (1e6 * .1 + 2e6 * .5) / 1e6, "토큰 × luna 단가");
+
+    assert.equal((await req(url, "/v1/write", "POST", sectionIn({ requestId: "mimo-1", model: mimo }))).status, 200);
+    const m = bodies.at(-1);
+    assert.equal(m.model, mimo);
+    assert.ok(!Object.hasOwn(m, "prompt_cache_options") && !Object.hasOwn(m, "prompt_cache_key"), "cacheMode 없는 모델에는 캐시 필드가 없다");
+    assert.equal(typeof m.messages[0].content, "string");
+  }, { ALLOWED_MODELS: JSON.stringify([model, variant, mimo]), OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], "openai/gpt-6-luna": ["azure"], [mimo]: ["io-net/fp8"] }) });
+});
+
+test("luna variant keeps the variant id in the ledger and carries cache-token usage", async () => {
+  const variant = "openai/gpt-6-luna@high";
+  await withSupabase(async ({ url, sb }) => {
+    sb.other = async () => noteReply(s1Out, { usage: { prompt_tokens: 2000, completion_tokens: 500, cost: .0011, prompt_tokens_details: { cached_tokens: 1024 }, cache_write_tokens: 3000 } });
+    const res = await req(url, "/v1/write", "POST", sectionIn({ requestId: "luna-ledger", model: variant, jobId: "job-ledger" }), ec1());
+    assert.equal(res.status, 200);
+    const s = settledOf(sb);
+    assert.equal(s.p_model, variant, "정산 메타(usage_events.model)에는 변형 id 가 남는다 — 강도별 비교 기준");
+    const [attempt] = s.p_attempts;
+    assert.equal(attempt.cached_input_tokens, 1024, "시도별 캐시 읽기 토큰");
+    assert.equal(attempt.cache_write_tokens, 3000, "시도별 캐시 쓰기 토큰");
+  }, { env: { ALLOWED_MODELS: JSON.stringify([model, variant]), OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], "openai/gpt-6-luna": ["azure"] }) }, setup: sb => { sb.plan = "essential"; } });
+});
+
+test("write serializes shared job keys first and marks the shared head for caching models only", async () => {
+  const variant = "openai/gpt-6-luna@xhigh", claude = "anthropic/claude-haiku-4.5", mimo = "xiaomi/mimo-v2.6-flash";
+  const bodies = [];
+  await withNoteServer(async (_u, o) => { bodies.push(JSON.parse(o.body)); return noteReply(s1Out); }, async url => {
+    const refs = { targetIds: ["S1_B1"], reviewIds: [] };
+    for (const [i, m] of [variant, claude, mimo].entries()) {
+      const res = await req(url, "/v1/write", "POST", sectionIn({ requestId: "sh-" + i, model: m, allowedRefs: refs }));
+      assert.equal(res.status, 200, m + ": " + (await res.json().catch(() => ({}))).error);
+    }
+    const [luna, anth, mm] = bodies;
+    const text = c => typeof c === "string" ? c : c.map(b => b.text).join("");
+    for (const b of [luna, anth, mm]) // 공유 칸이 본문 앞에 온다 — 캐시 접두가 작업마다 같게
+      assert.deepEqual(Object.keys(JSON.parse(text(b.messages[1].content))).slice(0, 3), ["concepts", "options", "allowedRefs"]);
+    for (const [name, b] of [["luna", luna], ["claude", anth]]) {
+      const blocks = b.messages[1].content;
+      assert.equal(blocks.length, 2, name);
+      assert.equal(blocks[0].type, "text" && "text");
+      assert.deepEqual(blocks[0].cache_control, { type: "ephemeral" }, name);
+      const headJson = blocks[0].text.endsWith(",") ? blocks[0].text.slice(0, -1) + "}" : blocks[0].text;
+      assert.deepEqual(Object.keys(JSON.parse(headJson)), ["concepts", "options", "allowedRefs"], name + " head");
+      assert.equal(text(blocks), text(mm.messages[1].content), "두 블록을 이으면 단일 문자열과 바이트가 같다");
+      assert.deepEqual(JSON.parse(text(blocks)), JSON.parse(text(mm.messages[1].content)));
+    }
+    assert.equal(typeof mm.messages[1].content, "string", "cacheMode 없는 모델은 한 덩어리");
+  }, { ALLOWED_MODELS: JSON.stringify([model, variant, claude, mimo]), OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], "openai/gpt-6-luna": ["azure"], [claude]: ["provider-b"], [mimo]: ["io-net/fp8"] }) });
 });

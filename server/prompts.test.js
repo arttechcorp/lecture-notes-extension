@@ -131,14 +131,14 @@ test("editorial guidance: slot meanings, comparison table, logic kinds, quiz all
 
 test("request contracts are the stage's own field lists", () => {
   assert.deepEqual(Object.keys(Prompts.REQUEST.plan.properties), ["ir", "formulas", "figures", "recognition", "options", "allowedRefs"]);
-  assert.deepEqual(Object.keys(Prompts.REQUEST.section.properties), ["section", "concepts", "evidence", "registry", "figures", "options", "learningItems", "withGist", "allowedRefs"]);
-  assert.deepEqual(Object.keys(Prompts.REQUEST.repair.properties), ["section", "concepts", "evidence", "registry", "figures", "options", "learningItems", "repair", "allowedRefs"]);
+  assert.deepEqual(Object.keys(Prompts.REQUEST.section.properties), ["concepts", "options", "allowedRefs", "section", "evidence", "registry", "figures", "learningItems", "withGist"]);
+  assert.deepEqual(Object.keys(Prompts.REQUEST.repair.properties), ["concepts", "options", "allowedRefs", "section", "evidence", "registry", "figures", "learningItems", "repair"]);
   assert.deepEqual(Object.keys(Prompts.REQUEST.global.properties), ["plan", "sections", "options", "allowedRefs"]);
   assert.deepEqual(Object.keys(Prompts.REQUEST.link.properties), ["concepts", "sections", "options", "allowedRefs"]);
-  assert.deepEqual(Object.keys(Prompts.REQUEST.questions.properties), ["section", "blockId", "concepts", "sections", "options", "allowedRefs"]);
+  assert.deepEqual(Object.keys(Prompts.REQUEST.questions.properties), ["concepts", "sections", "options", "allowedRefs", "section", "blockId"]);
   // 선택 키: 네 단계 모두 allowedRefs, section·repair 는 섹션에 배정된 learningItems 도 없어도 된다 — 나머지 키는 모두 required 로 strict 규칙을 지킨다.
   for (const stage of Prompts.STAGES) {
-    const optional = ["section", "repair", "draft"].includes(stage) ? ["learningItems", "allowedRefs"] : ["allowedRefs"];
+    const optional = ["section", "repair", "draft"].includes(stage) ? ["allowedRefs", "learningItems"] : ["allowedRefs"];
     assert.deepEqual(Object.keys(Prompts.REQUEST[stage].properties).filter(k => !Prompts.REQUEST[stage].required.includes(k)), optional, stage + " 선택 키");
   }
   // plan·global 요청은 strict 모양을 지킨다. section·repair 는 정규화된 Plan 섹션을 싣는데,
@@ -310,7 +310,7 @@ test("questions stage: request pins the plan's B14 block; output is that one env
 
 test("draft stage: semantic-draft prompt, request contract, output schema, specialist worker", () => {
   // 요청 계약은 섹션 작성과 같다 — 출력만 블록 봉투 대신 주장·typed 관계다.
-  assert.deepEqual(Object.keys(Prompts.REQUEST.draft.properties), ["section", "concepts", "evidence", "registry", "figures", "options", "learningItems", "withGist", "allowedRefs"]);
+  assert.deepEqual(Object.keys(Prompts.REQUEST.draft.properties), ["concepts", "options", "allowedRefs", "section", "evidence", "registry", "figures", "learningItems", "withGist"]);
   const t = Prompts.systemFor("draft");
   assert.match(t, /의미 초안/, "draft: 단계 이름");
   assert.match(t, /지면\(B01–B18 슬롯·색·번호·HTML\)이 아니라 의미 단위만 쓴다/, "draft: 지면이 아니라 의미");

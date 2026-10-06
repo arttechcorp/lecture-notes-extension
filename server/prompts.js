@@ -4,6 +4,8 @@
 const NoteContract=require("../lib/note-contract.js"),Contracts=require("../lib/contracts.js"),LLM=require("./llm.js"),SectionDraft=require("../lib/section-draft.js");
 // 프롬프트 문구나 아래 규칙을 바꾸면 올린다. 응답에 실려 단계 캐시 키에 들어간다.
 const PROMPT_VERSION="note-v6";
+// 단계별 버전: 프롬프트 문구나 아래 규칙을 바꾸면 그 단계만 올린다 — plan 캐시가 section 의 본문 재배치에 휘말려 무효가 되지 않게.
+const PROMPT_VERSIONS={plan:"note-v6",global:"note-v6",link:"note-v6",section:"note-v7",draft:"note-v7",repair:"note-v7",questions:"note-v7"};
 const STAGES=["plan","section","global","repair","link","questions","draft"];
 // 토큰 예산(§8.1). 서버는 바이트 / bytesPerToken 으로 어림한다 — 정확한 토크나이저가 아니라 입력 상한을 거르는 가드다.
 const LIMITS={bytesPerToken:4,tokens:{plannerInput:40000,plannerOutput:16000,writerInput:16000,writerOutput:14000,globalInput:24000,globalOutput:4000}};
@@ -151,10 +153,12 @@ const REQUEST={
     options,
     allowedRefs,
   },["allowedRefs"]),
-  section:opt({...writerBody,withGist:{type:"boolean"},allowedRefs},["allowedRefs","learningItems"]),
-  repair:opt({...writerBody,repair:arr(obj({blockId:pat(IDS.block),previous:{},errors:arr(obj({code:pat(IDS.code),detail:arr({type:"string",maxLength:64},20)}),20,1)}),12,1),allowedRefs},["allowedRefs","learningItems"]),
+  // 섹션 계열은 작업 공유 칸(concepts·options·allowedRefs)이 먼저 온다 — 직렬화가 스키마 순서라 공유 접두가 같으면
+  // 앞서 찍은 두 번째 캐시 중단점(llm.js cachedUser)까지 재사용된다. 재배치는 키 순서뿐, 스키마는 그대로다.
+  section:opt({concepts:planConcepts,options,allowedRefs,...writerBody,withGist:{type:"boolean"}},["allowedRefs","learningItems"]),
+  repair:opt({concepts:planConcepts,options,allowedRefs,...writerBody,repair:arr(obj({blockId:pat(IDS.block),previous:{},errors:arr(obj({code:pat(IDS.code),detail:arr({type:"string",maxLength:64},20)}),20,1)}),12,1)},["allowedRefs","learningItems"]),
   // 의미 초안 경로(§2 대안 B): 입력은 섹션 작성과 같고, 출력은 블록 봉투 대신 주장·typed 관계다(lib/section-draft.js).
-  draft:opt({...writerBody,withGist:{type:"boolean"},allowedRefs},["allowedRefs","learningItems"]),
+  draft:opt({concepts:planConcepts,options,allowedRefs,...writerBody,withGist:{type:"boolean"}},["allowedRefs","learningItems"]),
   global:opt({
     plan:obj({concepts:planConcepts,global:arr(S.plan.properties.global.items,3,1)}),
     sections:survSections(claimRef),
@@ -169,12 +173,12 @@ const REQUEST={
   },["allowedRefs"]),
   // 본문 확정 뒤 문항(draft 경로): 채울 B14 는 계획 블록 하나, 참고는 살아남은 본문 주장이다.
   questions:opt({
-    section:planSection,
-    blockId:pat(IDS.secBlock),
     concepts:planConcepts,
     sections:survSections(claimRef),
     options,
     allowedRefs,
+    section:planSection,
+    blockId:pat(IDS.secBlock),
   },["allowedRefs"]),
 };
 // 요청별 출력 스키마. 계획에 없는 blockId 같은 잘못된 요청은 note-contract 가 던진다 — 라우트가 request_rejected 로 바꾼다.
@@ -200,4 +204,4 @@ const modelParams=(model,stage)=>({
   max_tokens:Math.min(LLM.maxTokensFor(model),(stage==="plan"?T.plannerOutput:["global","link"].includes(stage)?T.globalOutput:T.writerOutput)+LLM.reasoningBudgetFor(model)),
   reasoning:LLM.reasoningFor(model),...(LLM.noTemperature(model)?{}:{temperature:0}),...(NO_SEED.test(model)?{}:{seed:SEED}), // temperature 를 거절하는 모델(GPT 추론형)에 보내면 require_parameters 로 404 가 난다
 });
-module.exports={PROMPT_VERSION,STAGES,LIMITS,systemFor,REQUEST,outputSchema,estimateTokens,inputTokenLimit,modelParams};
+module.exports={PROMPT_VERSION,PROMPT_VERSIONS,STAGES,LIMITS,systemFor,REQUEST,outputSchema,estimateTokens,inputTokenLimit,modelParams};

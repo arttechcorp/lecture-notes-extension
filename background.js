@@ -17,7 +17,7 @@ const offscreenPage = sender => sender.id === chrome.runtime.id && !sender.tab &
 // ponytail: offscreen이 BG_DONE 없이 사라지면 절전 방지와 규칙이 남는다(확장을 다시 불러오거나 브라우저를 재시작하면 풀린다). 서비스 워커 시작 때 offscreen 문서가 없으면 풀어 주는 정리를 더할 수 있다.
 const BG_RULE = 900002; // admin.js 소스 진단 규칙(900001)과 겹치지 않는다
 const OFFSCREEN_ONLY = new Set(["BG_REFERER", "BG_DONE", "DIAG_EXPORT", "LIBRARY_KEY"]); // 패널이 Referer 규칙을 걸거나 작업 종료·파일 쓰기를 흉내 내지 못하게 한다
-const BG_SETTINGS = ["serviceUrl", "appSessionToken", "whisperLang", "remoteSummaryConsent", "visionConsent", "visionConsentVersion", "backgroundConsent", "noteOptions"];
+const BG_SETTINGS = ["serviceUrl", "appSessionToken", "whisperLang", "remoteSummaryConsent", "visionConsent", "visionConsentVersion", "backgroundConsent", "noteOptions", "devWriteModel"];
 // 동의 기록은 패널이 보낸 값이 아니라 저장소에서 읽는다. 로그인 세션(authSession)은 offscreen에 넘기지 않는다 — 토큰은 AUTH_TOKEN으로만 건넨다.
 const bgSettings = async () => { const s = await loadSettings(); return Object.fromEntries(BG_SETTINGS.map(k => [k, s[k]])); };
 async function bgRun(message) {
