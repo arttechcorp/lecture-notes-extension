@@ -1,10 +1,10 @@
 // 노트 계획·작성 프롬프트, 요청 계약, 요청별 출력 스키마, 생성 파라미터(docs/note-contract.md §8·§9·§17 6-2·6-7·6-8).
 // 출력 스키마는 lib/note-contract.js 가 계획에서 요청마다 만든다(blockId → 타입별 슬롯). 서버와 확장이 같은 함수를 쓴다.
 // 프롬프트는 변하지 않는 시스템 본문이 앞이고 변하는 입력(user)은 호출부가 뒤에 붙인다: 접두 캐시가 맞으려면 이 순서를 지킨다.
-const NoteContract=require("../lib/note-contract.js"),Contracts=require("../lib/contracts.js"),LLM=require("./llm.js");
+const NoteContract=require("../lib/note-contract.js"),Contracts=require("../lib/contracts.js"),LLM=require("./llm.js"),SectionDraft=require("../lib/section-draft.js");
 // 프롬프트 문구나 아래 규칙을 바꾸면 올린다. 응답에 실려 단계 캐시 키에 들어간다.
 const PROMPT_VERSION="note-v5";
-const STAGES=["plan","section","global","repair","link","questions"];
+const STAGES=["plan","section","global","repair","link","questions","draft"];
 // 토큰 예산(§8.1). 서버는 바이트 / bytesPerToken 으로 어림한다 — 정확한 토크나이저가 아니라 입력 상한을 거르는 가드다.
 const LIMITS={bytesPerToken:4,tokens:{plannerInput:40000,plannerOutput:16000,writerInput:16000,writerOutput:14000,globalInput:24000,globalOutput:4000}};
 const T=LIMITS.tokens;
@@ -89,14 +89,32 @@ const STAGE={
     "문항의 주장이 입력 주장과 같은 사실을 쓰면 그 주장의 evidenceIds를 그대로 인용하고 입력에 없는 근거 id는 만들지 않는다. 주장에 있는 숫자·조건만 쓰고 새 수치는 쓰지 않는다. targetIds와 answer.reviewIds는 입력의 allowedRefs 목록 안에서만 고른다 — reviewIds에는 본문 블록 id만 쓴다.",
     "본문만으로 답할 수 없는 문항은 만들지 않는다 — 채울 수 없으면 blocks의 그 칸을 null로 둔다.",
   ],
+  draft:[
+    "단계: 섹션 의미 초안. 입력은 이 섹션의 계획(section), 개념 목록(concepts), 인용할 수 있는 근거 항목(evidence: id, 종류, 시각, 텍스트), 수식 등록부(registry), 도표(figures)다. 지면(B01–B18 슬롯·색·번호·HTML)이 아니라 의미 단위만 쓴다 — 코드가 초안을 계획 블록으로 조판한다. gist가 스키마에 있으면 단원 요지를 40~100자 한 주장으로 쓴다.",
+    "claims는 주장의 평탄한 목록이다. claimId는 c1, c2처럼 이 초안 안에서만 유효한 로컬 키다. role은 주장의 의미 기능이다 — definition(정의)·intuition(직관·비유·읽는 법)·mechanism(왜·어떻게 작동하는가)·condition·exception(성립 조건·예외)·example(사례)·comparison·argument·procedure·calculation·notice(수업 공지). conceptIds는 주장이 다루는 계획 개념, dependsOn은 먼저 이해해야 하는 주장의 claimId다. 한 칸의 말을 고쳐 다른 주장으로 되풀이하지 않는다.",
+    "relations는 주장을 구조로 엮은 typed 객체다 — 산문으로 쓴 뒤 다시 구조화하지 않는다. 관계 안의 주장 칸은 모두 claimId다. 같은 타입의 계획 블록과 계획 순서로 하나씩 대응한다: 계획이 B05 두 개를 세우고 claims에 그 개념의 주장이 있으면 conceptIds로 갈린다. B06은 comparisons, B07은 arguments, B08은 cases, B09는 materials, B10은 calcs, B11은 pitfalls, B12는 notes, B13은 links, B18은 notices, B03은 maps다. B14(자기 점검)는 이 단계에서 만들지 않는다.",
+    "설명 순서는 강의 유형을 따라간다 — 개념형은 정의→직관→원리→조건·예외→적용, 논증형은 주장–근거–숨은 전제–반론–한계, 경영형은 정의–작동–가정–비교–사례·의사결정. 역사·철학처럼 원리가 해당 없으면 mechanism 주장을 지어내지 않는다.",
+    "재료가 없는 관계·칸은 만들지 않는다 — 확인되지 않은 칸에 넣을 주장을 지어내지 않고 null·빈 배열로 둔다. 근거가 부족해 계획한 블록의 재료를 만들 수 없으면 그 타입의 관계를 만들지 않는다.",
+    "calcs 관계의 주장이 같은 계산의 입력·단계 값을 가리킬 때는 evidenceIds에 그 계산 안의 참조(\"i1\" 입력, \"c2\" 단계)를 적는다 — 코드가 블록 id를 붙인다.",
+    "참조 id는 칸마다 허용 범위가 다르다 — 요청 본문의 allowedRefs 배열이 그 목록이다(섹션 작성과 같다). links 명제와 maps 노드의 targetIds·targetId에는 allowedRefs.targetIds의 id만 쓴다. 확인 항목(checks)의 targetIds에는 이 요청에 계획된 블록 id만 쓴다. 섹션 유닛의 절반 이상이 어떤 주장의 근거로 인용되어야 한다. 잡담, 출석, 인사는 다루지 않는다.",
+  ],
 };
-// 시스템 본문 = 공용 + 노트 규칙 + 단계 규칙 (+ 켠 생성 옵션). 같은 단계·옵션이면 모든 호출이 같은 문자열이다.
-const systemFor=(stage,options,sourceLang)=>{
+// 조건부 전문 워커(§3): 계획 섹션의 선택 필드 worker(W2-B)가 있으면 draft 지시 끝에 한 문장을 붙인다.
+// 같은 worker 값이면 같은 문자열이어야 한다 — 문장을 바꾸면 그 worker 의 캐시 접두가 갈린다. 없으면 general(추가 없음).
+const WORKER={
+  general:null,
+  formula:"[전문 초점: 수식·단위·계산] 수식의 의미와 변수의 단위, 계산의 입력·단계·해석을 claims와 calcs 관계로 정확히 나눈다. inputs에는 근거에 있는 숫자만 넣고 단순 산술의 결과 값은 코드가 검산한다.",
+  comparison:"[전문 초점: 비교] 같은 기준 행으로 대상을 나란히 비교하는 comparisons 관계로 구조화한다. 확인되지 않은 칸은 주장을 지어내지 않고 null로 둔다.",
+  argument:"[전문 초점: 논증] 주장–근거–숨은 전제–반론–한계를 arguments 관계의 steps·missingLinks로 구조화하고, 사실 근거(evidence)와 규범 전제(value_premise)를 구분한다.",
+  figure:"[전문 초점: 도표·자료 해석] 자료가 말하는 것과 말하지 못하는 것을 나누어 쓰고, 표·그래프의 값은 근거 항목과 calcs의 figureIds로만 가리킨다.",
+};
+// 시스템 본문 = 공용 + 노트 규칙 + 단계 규칙 (+ 켠 생성 옵션 + 영어 규칙 + 전문 워커 지시). 같은 단계·옵션·worker 면 모든 호출이 같은 문자열이다.
+const systemFor=(stage,options,sourceLang,worker)=>{
   if(!Object.hasOwn(STAGE,stage))throw new Error("invalid_stage");
   // link 는 주장을 새로 쓰지 않으므로 생성 옵션 규칙도 영어 원문 대조(src) 칸도 없다.
   const aug=stage==="plan"||stage==="global"||stage==="link"?[]:Object.keys(AUG_RULES).filter(k=>options?.[k]===true).map(k=>AUG_RULES[k]);
   const en=sourceLang==="en"&&stage!=="plan"?[...EN_RULES,...(stage==="global"||stage==="link"?[]:[EN_SRC])]:[];
-  return [COMMON,NOTE_RULES,...STAGE[stage],...aug,...en].join("\n");
+  return [COMMON,NOTE_RULES,...STAGE[stage],...aug,...en,...(stage==="draft"&&WORKER[worker]?[WORKER[worker]]:[])].join("\n");
 };
 
 // 요청 본문(model·requestId·noteSpecVersion·stage 를 뺀 나머지)의 계약.
@@ -135,6 +153,8 @@ const REQUEST={
   },["allowedRefs"]),
   section:opt({...writerBody,withGist:{type:"boolean"},allowedRefs},["allowedRefs","learningItems"]),
   repair:opt({...writerBody,repair:arr(obj({blockId:pat(IDS.block),previous:{},errors:arr(obj({code:pat(IDS.code),detail:arr({type:"string",maxLength:64},20)}),20,1)}),12,1),allowedRefs},["allowedRefs","learningItems"]),
+  // 의미 초안 경로(§2 대안 B): 입력은 섹션 작성과 같고, 출력은 블록 봉투 대신 주장·typed 관계다(lib/section-draft.js).
+  draft:opt({...writerBody,withGist:{type:"boolean"},allowedRefs},["allowedRefs","learningItems"]),
   global:opt({
     plan:obj({concepts:planConcepts,global:arr(S.plan.properties.global.items,3,1)}),
     sections:survSections(claimRef),
@@ -163,6 +183,7 @@ function outputSchema(stage,body,sourceLang){
   const src=sch=>sourceLang==="en"?NoteContract.withSource(sch):sch;
   if(stage==="plan")return S.plannerOutput;
   if(stage==="section")return src(NoteContract.sectionOutputSchemaFor(body.section,{gist:body.withGist,policy:body.options,allowedRefs:body.allowedRefs}));
+  if(stage==="draft")return SectionDraft.outputSchemaFor(body.section,{gist:body.withGist,policy:body.options,allowedRefs:body.allowedRefs,sourceLang});
   if(stage==="repair")return src(NoteContract.repairOutputSchemaFor(body.section,[...new Set(body.repair.map(r=>r.blockId))],body.options,body.allowedRefs));
   if(stage==="global")return NoteContract.globalOutputSchemaFor(body.plan.global,body.allowedRefs);
   if(stage==="link")return NoteContract.linkOutputSchema;

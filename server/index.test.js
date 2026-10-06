@@ -348,7 +348,7 @@ test("per-account rate limit throttles POST routes", async () => {
 test("invalid remote config and provider concurrency fail at boot", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
   try {
-    for (const bad of [{ bogus: 1 }, { throughputMbps: 0 }, { concurrency: { vision: -1 } }, { concurrency: { bogus: 1 } }, { minClientVersion: "soon" }, { linkEditor: "yes" }])
+    for (const bad of [{ bogus: 1 }, { throughputMbps: 0 }, { concurrency: { vision: -1 } }, { concurrency: { bogus: 1 } }, { minClientVersion: "soon" }, { linkEditor: "yes" }, { noteWriter: "bogus" }, { noteWriter: 1 }])
       assert.throws(() => createServer({ ...config(root), REMOTE_CONFIG_JSON: JSON.stringify(bad) }), undefined, JSON.stringify(bad));
     assert.throws(() => createServer({ ...config(root), PROVIDER_CONCURRENCY_JSON: JSON.stringify({ [model]: 0 }) }));
     assert.throws(() => createServer({ ...config(root), PROVIDER_CONCURRENCY_JSON: JSON.stringify({ [model]: 1.5 }) }));
@@ -1340,6 +1340,41 @@ test("write answers each stage with the plan-keyed output schema and the stage's
     }
     assert.notEqual(Prompts.systemFor("section"), Prompts.systemFor("global"));
     assert.equal(bodies.length, 3);
+  });
+});
+
+test("/v1/write stage \"draft\": same route and controls, semantic-draft output schema, specialist worker text", async () => {
+  // 모델은 블록 봉투 대신 주장+typed 관계를 돌려준다 — 컴파일은 클라이언트의 lib/section-draft.js 가 한다.
+  const draftOut = {
+    sectionId: "S1", gist: { text: "원가는 생산량에 따라 고정비와 변동비로 나뉜다", evidenceIds: ["U1.s1"], basis: "lecture" },
+    claims: [{ claimId: "c1", role: "definition", text: "고정비는 생산량과 상관없이 드는 비용이다", basis: "lecture", evidenceIds: ["U1.s2"], conceptIds: ["C1"], dependsOn: [], emphasis: null }],
+    relations: { comparisons: [], arguments: [], cases: [], materials: [], calcs: [], pitfalls: [], notes: [{ status: null, importance: null, kind: "term", note: "c1" }], links: [], notices: [], maps: [] },
+    checks: [],
+  };
+  const bodies = [];
+  await withNoteServer(async (_u, o) => { bodies.push(JSON.parse(o.body)); return noteReply(draftOut); }, async url => {
+    const res = await req(url, "/v1/write", "POST", sectionIn({ stage: "draft" }), tokenB);
+    assert.equal(res.status, 200);
+    const out = await res.json();
+    assert.deepEqual(out.output, draftOut);
+    assert.equal(out.promptVersion, Prompts.PROMPT_VERSION);
+    const sent = bodies[0];
+    assert.equal(sent.messages[0].content, Prompts.systemFor("draft", noteOpts), "draft 시스템 프롬프트");
+    assert.equal(sent.response_format.json_schema.name, "lecture_note_draft");
+    assert.deepEqual(Object.keys(sent.response_format.json_schema.schema.properties), ["sectionId", "gist", "claims", "relations", "checks"], "draft 출력 스키마 칸");
+    assert.equal(sent.max_tokens, Prompts.LIMITS.tokens.writerOutput, "작성 출력 상한과 같다");
+    assert.equal(sent.temperature, 0);
+  });
+  // 잘못된 초안 출력(블록 봉투 모양)은 형식 오류다 — draft 는 주장·관계 스키마로 검증하고 blocks 경로의 salvage 도 안 한다.
+  await withNoteServer(async () => noteReply({ sectionId: "S1", blocks: {} }), async url => {
+    const res = await req(url, "/v1/write", "POST", sectionIn({ stage: "draft", requestId: "draft-bad" }), tokenB);
+    assert.equal(res.status, 502);
+    assert.equal((await res.json()).error.code, "provider_failed_or_invalid_output");
+  });
+  // 계획 섹션의 전문 워커 필드(W2-B 선택 필드)를 실은 요청도 받는다.
+  await withNoteServer(async () => noteReply(draftOut), async url => {
+    const res = await req(url, "/v1/write", "POST", sectionIn({ stage: "draft", requestId: "draft-worker", section: { ...noteS1, worker: "formula" } }), tokenB);
+    assert.equal(res.status, 200);
   });
 });
 
@@ -2693,9 +2728,9 @@ test("/v1/me for a JWT user returns plan, features, DB limits, remote config and
     assert.deepEqual(me, {
       accountId: UID, plan: "free", models: [model], features: [],
       routeModels: { vision: ["google/gemini-2.5-flash-lite"], stt: ["microsoft/mai-transcribe-2"], judge: ["openai/gpt-4.1-nano"] },
-      config: { concurrency: { download: 4, decode: 1, stt: 2, vision: 3, judge: 2, write: 8 }, throughputMbps: 50, minClientVersion: "0.0.0", promptVersion: "v1", schemaVersion: 1, policyVersion: "v1", linkEditor: false },
+      config: { concurrency: { download: 4, decode: 1, stt: 2, vision: 3, judge: 2, write: 8 }, throughputMbps: 50, minClientVersion: "0.0.0", promptVersion: "v1", schemaVersion: 1, policyVersion: "v1", linkEditor: false, noteWriter: "blocks" },
       noteSpecVersion: NoteContract.NOTE_SPEC_VERSION, promptVersion: Prompts.PROMPT_VERSION,
-      promptVersions: { plan: Prompts.PROMPT_VERSION, section: Prompts.PROMPT_VERSION, repair: Prompts.PROMPT_VERSION, global: Prompts.PROMPT_VERSION, link: Prompts.PROMPT_VERSION, questions: Prompts.PROMPT_VERSION, judge: "v1" },
+      promptVersions: { plan: Prompts.PROMPT_VERSION, section: Prompts.PROMPT_VERSION, repair: Prompts.PROMPT_VERSION, global: Prompts.PROMPT_VERSION, link: Prompts.PROMPT_VERSION, questions: Prompts.PROMPT_VERSION, draft: Prompts.PROMPT_VERSION, judge: "v1" },
       quota: { month, requests: 3, maxRequests: 300, minutes: 7, maxMinutes: 600, spentCents: 12.3456, maxCents: 30 },
     });
     assert.notEqual(me.promptVersion, me.config.promptVersion, "plan/write 프롬프트 버전은 비전·판정용 원격 설정과 별개다");
