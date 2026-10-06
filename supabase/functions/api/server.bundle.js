@@ -405,7 +405,7 @@ const __defs = {
   };
 
   // contracts.js 와 같은 규칙: required 를 properties 키에서 파생해 strict 호환을 지킨다.
-  const obj = properties => ({ type: "object", additionalProperties: false, required: Object.keys(properties), properties });
+  const obj = (properties, required = Object.keys(properties)) => ({ type: "object", additionalProperties: false, required, properties });
   const arr = (items, maxItems, minItems = 0) => ({ type: "array", minItems, maxItems, items });
   const str = n => ({ type: "string", minLength: 1, maxLength: n });
   const orNull = s => ({ ...s, type: [].concat(s.type, "null") });
@@ -672,10 +672,22 @@ const __defs = {
     }), 200),
     sources: arr(obj({ id: evId, kind: en(["slide", "speech", "figure"]), t0: nonneg, t1: nonneg, slideId: orNull(str(64)) }), 20000),
     notices: arr(obj({ code: pat(IDS.code), count: orNull({ type: "integer", minimum: 0 }), ids: orNull(arr(s64, 200)), ranges: orNull(arr(t0t1, 200)) }), 50),
-    dropped: arr(obj({ blockId: pat(IDS.block), type: en(WRITER_TYPES), codes: arr(s64, 8, 1) }), 500),
-    pruned: arr(obj({ id: s64, codes: arr(s64, 4, 1) }), 500),
+    dropped: arr(obj({
+      blockId: pat(IDS.block), type: en(WRITER_TYPES), codes: arr(s64, 8, 1),
+      cause: orNull(en(["direct", "cascade"])),
+    }, ["blockId", "type", "codes"]), 500),
+    pruned: arr(obj({
+      id: s64, codes: arr(s64, 4, 1),
+      cause: orNull(en(["direct", "cascade"])),
+    }, ["id", "codes"]), 500),
     advisories: arr(obj({ code: pat(IDS.code), id: s64 }), 500),
-  });
+    stats: orNull(obj({
+      directBlocks: { type: "integer", minimum: 0 },
+      cascadeBlocks: { type: "integer", minimum: 0 },
+      prunedItems: { type: "integer", minimum: 0 },
+      prunedQuestions: { type: "integer", minimum: 0 },
+    }, [])),
+  }, ["schemaVersion", "noteSpecVersion", "promptVersion", "status", "tier", "policy", "meta", "concepts", "global", "sections", "registry", "figures", "sources", "notices", "dropped", "pruned", "advisories"]);
 
   const schemas = { claim, content, check: checkSchema, plannerOutput, plan: planSchema, note: noteSchema };
 
@@ -728,6 +740,40 @@ const __defs = {
   // §8.2: Planner 출력을 검사하고 코드가 blockId·버전·정책을 붙여 Plan 을 만든다.
   // 실패는 VAL_PLAN_INVALID 하나다 — 모델 계획은 temp 0 이라 같은 계획 재요청이 소용없어 보정하지 않고 거절한다(보정은 repairPlan).
   // detail 에는 코드·id 만 싣는다(내용 없는 오류, §10).
+  function measurePlanCaps(output) {
+    if (!output || typeof output !== "object") return null;
+    let cappedConcepts = 0, cappedSections = 0, cappedBlocks = 0;
+    let cappedCrossUnits = 0, cappedFormulaIds = 0, cappedFigureIds = 0;
+    if (Array.isArray(output.concepts) && output.concepts.length > 40) {
+      cappedConcepts = output.concepts.length - 40;
+    }
+    if (Array.isArray(output.sections)) {
+      if (output.sections.length > 40) cappedSections = output.sections.length - 40;
+      for (const s of output.sections) {
+        if (!s || typeof s !== "object") continue;
+        if (Array.isArray(s.blocks) && s.blocks.length > 12) {
+          cappedBlocks += s.blocks.length - 12;
+        }
+        if (Array.isArray(s.crossUnitIds) && s.crossUnitIds.length > 10) {
+          cappedCrossUnits += s.crossUnitIds.length - 10;
+        }
+        for (const b of s.blocks || []) {
+          if (!b || typeof b !== "object") continue;
+          if (Array.isArray(b.formulaIds) && b.formulaIds.length > 6) {
+            cappedFormulaIds += b.formulaIds.length - 6;
+          }
+          if (Array.isArray(b.figureIds) && b.figureIds.length > 3) {
+            cappedFigureIds += b.figureIds.length - 3;
+          }
+        }
+      }
+    }
+    return {
+      cappedConcepts, cappedSections, cappedBlocks,
+      cappedCrossUnits, cappedFormulaIds, cappedFigureIds,
+    };
+  }
+
   function normalizePlan(output, { units = [], formulaUnits = {}, figures = [], policy = POLICY } = {}) {
     const v = Contracts.validate(plannerOutput, output);
     if (!v.ok) return { ok: false, errors: [{ code: "VAL_PLAN_INVALID", detail: v.errors.map(e => "schema:" + e.path) }] };
@@ -803,8 +849,8 @@ const __defs = {
     }
     const gSeen = new Set();
     for (const g of output.global) { if (gSeen.has(g.type)) flag("global:" + g.type); gSeen.add(g.type); }
-
     if (bad.length) return { ok: false, errors: [{ code: "VAL_PLAN_INVALID", detail: bad }] };
+    const caps = measurePlanCaps(output);
     const plan = {
       schemaVersion: NOTE_SCHEMA_VERSION, noteSpecVersion: NOTE_SPEC_VERSION, policy: policyOf(policy),
       concepts: output.concepts.map(c => ({ ...c })),
@@ -813,7 +859,8 @@ const __defs = {
     };
     // 정규화 결과가 Plan 스키마를 깨면 모델이 아니라 코드의 버그다.
     if (!Contracts.validate(schemas.plan, plan).ok) throw new Error("normalizePlan 결과가 Plan 스키마를 통과하지 못했습니다.");
-    return { ok: true, plan };
+    if (caps) Object.defineProperty(plan, "caps", { value: caps, enumerable: false, writable: true });
+    return { ok: true, plan, caps };
   }
 
   // 제공자는 json_schema 의 pattern 을 강제하지 않아 모델이 개념·섹션 id 를 제멋대로 쓴다(필드 관찰: concepts[0].conceptId 로 4연속 거절).
@@ -1524,13 +1571,13 @@ const __defs = {
     const unitById = new Map(units.map(u => [u.unitId, u]));
     const dropped = [], pruned = [], failedIds = new Set();
     const live = new Map(), secLive = new Map(), calcMap = new Map();
-    const dropOf = b => ({ blockId: b.id, type: b.type, codes: [...new Set(b.errors.map(e => e.code))].slice(0, 8) });
+    const dropOf = (b, cause = "direct") => ({ blockId: b.id, type: b.type, codes: [...new Set(b.errors.map(e => e.code))].slice(0, 8), cause });
     for (const sec of plan.sections || []) {
       const r = results.get(sec.sectionId);
       const valid = r ? r.blocks.filter(b => !b.errors.length) : [];
       // 실패 섹션은 아무것도 남기지 않는다 — 블록은 dropped 에도 적지 않는다(§12 b).
       if (!r || r.errors.length || !valid.length) { failedIds.add(sec.sectionId); continue; }
-      for (const b of r.blocks) if (b.errors.length) dropped.push(dropOf(b));
+      for (const b of r.blocks) if (b.errors.length) dropped.push(dropOf(b, "direct"));
       for (const [k, v] of Object.entries(r.calc)) calcMap.set(k, v);
       sec.blocks.forEach((pb, i) => {
         const b = valid.find(x => x.id === pb.blockId);
@@ -1544,18 +1591,18 @@ const __defs = {
     if (global != null && (plan.global || []).length) {
       const surv = [...secLive.keys()].map(sid => ({ ...results.get(sid), blocks: results.get(sid).blocks.filter(b => !b.errors.length) }));
       for (const b of validateGlobal({ plan, output: global, sections: surv, evidence, registry, formulaUnits, figures, katex }).blocks) {
-        if (b.errors.length) { dropped.push(dropOf(b)); continue; }
+        if (b.errors.length) { dropped.push(dropOf(b, "direct")); continue; }
         live.set(b.id, { id: b.id, type: b.type, sectionId: null, env: deep(b.envelope), planBlock: plan.global.find(g => g.blockId === b.id), prev: null, wrapped: null });
       }
     }
     // §12.2 의존 정리. 목록 항목은 정리 전 위치 ID 를 pruned 에 남긴다 — 최종 번호는 렌더가 매긴다(§4).
     const LIST = { B02: ["items", "I"], B13: ["propositions", "R"], B14: ["items", "Q"], B18: ["items", "N"] };
     const conceptIds = new Set((plan.concepts || []).map(c => c.conceptId));
-    const dropBlock = (id, code) => {
+    const dropBlock = (id, code, cause = "cascade") => {
       const b = live.get(id);
       if (!b) return;
       live.delete(id);
-      dropped.push({ blockId: id, type: b.type, codes: [code] });
+      dropped.push({ blockId: id, type: b.type, codes: [code], cause });
     };
     const deadCalc = r => { const m = CALC_RE.exec(r); return !!m && (!live.has(m[1]) || !calcMap.has(r)); };
     const hasDeadCalc = node => claimsOf(node).some(({ claim }) => claim.evidenceIds.some(deadCalc));
@@ -1579,7 +1626,7 @@ const __defs = {
               if (kept.length !== it.answer.reviewIds.length) { it.answer.reviewIds = kept; changed = true; }
               if (!kept.length) codes.push("NOTE_REVIEW_DROPPED");
             }
-            if (codes.length) { pruned.push({ id: `${id}/${prefix}${w.pos}`, codes }); changed = true; }
+            if (codes.length) { pruned.push({ id: `${id}/${prefix}${w.pos}`, codes, cause: "cascade" }); changed = true; }
             else keep.push(w);
           }
           b.wrapped = keep;
@@ -1745,6 +1792,11 @@ const __defs = {
       const n = [...live.values()].filter(b => b.sectionId === sid && b.type === "B11").length;
       if (n > TYPES.B11.advice.perSection) adv("NOTE_ADVISORY_PITFALLS_MANY", sid);
     }
+    const directBlocks = dropped.filter(d => d.cause === "direct").length;
+    const cascadeBlocks = dropped.filter(d => d.cause === "cascade").length;
+    const prunedItems = pruned.length;
+    const prunedQuestions = pruned.filter(p => p.id.includes("/Q")).length;
+    const stats = { directBlocks, cascadeBlocks, prunedItems, prunedQuestions };
     const note = {
       schemaVersion: NOTE_SCHEMA_VERSION, noteSpecVersion: NOTE_SPEC_VERSION,
       promptVersion: promptVersion ?? null,
@@ -1758,7 +1810,7 @@ const __defs = {
         processed: meta.processed ?? null,
       },
       concepts, global: globalOut, sections: secOut, registry: reg, figures: figs,
-      sources, notices, dropped, pruned, advisories,
+      sources, notices, dropped, pruned, advisories, stats,
     };
     // 조립 결과가 계약을 깨면 모델이 아니라 이 코드의 버그다 — 조용히 보내지 않고 즉시 던진다.
     const nv = Contracts.validate(schemas.note, note);
@@ -1774,7 +1826,7 @@ const __defs = {
   const api = freeze({
     NOTE_SPEC_VERSION, NOTE_SCHEMA_VERSION, POLICY, TYPES, SECTION_TYPES, GLOBAL_TYPES, WRITER_TYPES, IDS,
     schemas, envelopeSchema, sectionOutputSchemaFor, repairOutputSchemaFor, globalOutputSchemaFor,
-    normalizePlan, repairPlan, canonicalPlanIds, canonicalMapKeys, checkCalc, displayOf, citedRefs, validateSection, validateGlobal, assembleNote, restrictBasis, policyOf, AUG, withSource,
+    normalizePlan, repairPlan, canonicalPlanIds, canonicalMapKeys, checkCalc, displayOf, citedRefs, validateSection, validateGlobal, assembleNote, restrictBasis, policyOf, AUG, withSource, measurePlanCaps,
   });
   globalThis.NoteContract = api;
   if (typeof module !== "undefined") module.exports = api;

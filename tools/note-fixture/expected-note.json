@@ -1512,7 +1512,8 @@
       "type": "B07",
       "codes": [
         "VAL_NUMBER_MISSING"
-      ]
+      ],
+      "cause": "direct"
     }
   ],
   "pruned": [
@@ -1520,13 +1521,15 @@
       "id": "S4_B2/Q3",
       "codes": [
         "NOTE_REVIEW_DROPPED"
-      ]
+      ],
+      "cause": "cascade"
     },
     {
       "id": "GB1/I3",
       "codes": [
         "NOTE_TARGET_DROPPED"
-      ]
+      ],
+      "cause": "cascade"
     }
   ],
   "advisories": [
@@ -1538,5 +1541,11 @@
       "code": "NOTE_ADVISORY_OX_CONTESTED",
       "id": "S4_B2/Q2"
     }
-  ]
+  ],
+  "stats": {
+    "directBlocks": 1,
+    "cascadeBlocks": 0,
+    "prunedItems": 2,
+    "prunedQuestions": 1
+  }
 }
