@@ -177,8 +177,8 @@
       + (c.mechanism ? dd("작동 원리", h.claim(c.mechanism, { tag: "span" })) : "")
       + arr(c.scope).map(x => dd("범위", h.claim(x, { tag: "span" }))).join("")
       + arr(c.examples).map(x => dd("예시", h.claim(x, { tag: "span" }))).join("");
-    return `<section class="concept"><h3>${h.esc(c.term || "")}${c.original ? ` <small>${h.esc(c.original)}</small>` : ""}</h3>`
-      + `<p class="definition">${h.claim(c.definition, { tag: "span" })}</p>`
+    return `<section class="concept"><div class="heading-bundle"><h3>${h.esc(c.term || "")}${c.original ? ` <small>${h.esc(c.original)}</small>` : ""}</h3>`
+      + `<p class="definition">${h.claim(c.definition, { tag: "span" })}</p></div>`
       + (rows ? `<dl class="slots">${rows}</dl>` : "") + "</section>";
   };
 
@@ -200,9 +200,10 @@
     const c = (b && b.content) || {};
     const li = arr(c.steps).map((s, i) => `<li><strong>${pad2(i + 1)} ${h.esc(ROLE7[s && s.role] || (s && s.role) || "단계")}</strong> ${h.claim(s && s.claim, { tag: "span" })}</li>`);
     for (const m of arr(c.missingLinks)) li.push(`<li class="relation">↓ 연결 설명 확인 필요 · ${h.claim(m, { tag: "span" })}</li>`);
-    return `<section><span class="role">${h.esc(RELTYPE7[c.relationType] || "논증")}</span><h3>${h.esc(c.title || "")}</h3>`
+    // 제목 묶음은 첫 문단(단원 질문)까지 품어야 인쇄에서 제목만 페이지 끝에 남지 않는다.
+    return `<section><div class="heading-bundle"><span class="role">${h.esc(RELTYPE7[c.relationType] || "논증")}</span><h3>${h.esc(c.title || "")}</h3>`
       + (c.question ? `<p class="unit-q">${h.claim(c.question, { tag: "span" })}</p>` : "")
-      + `<ol class="chain">${li.join("")}</ol></section>`;
+      + `</div><ol class="chain">${li.join("")}</ol></section>`;
   };
 
   // B08 사례와 적용 — 사례(흰 면)와 해석(회색 면)을 Point 번호로 짝짓는다. 판단의 pointRefs 는 그 앵커로 링크.
@@ -214,7 +215,7 @@
       + arr(dec.criteria).map(x => dd("기준", h.claim(x, { tag: "span" }))).join("")
       + arr(dec.tradeoffs).map(x => dd("상충", h.claim(x, { tag: "span" }))).join("")
       + arr(dec.missingData).map(x => dd("부족한 자료", h.claim(x, { tag: "span" }))).join("") : "";
-    return `<section><span class="role apply">적용</span><h3>${h.esc(c.caseTitle || "")}</h3>`
+    return `<section><div class="heading-bundle"><span class="role apply">적용</span><h3>${h.esc(c.caseTitle || "")}</h3></div>`
       + `<div class="case-box"><h4>${c.source === "material_case" ? "자료 속 사례" : "강의 사례"}</h4>${h.claim(c.situation)}`
       + pts.map((p, i) => pointClue(h, i, p && p.clue)).join("") + "</div>"
       + `<div class="analysis-box"><h4>단서에 근거한 해석</h4>` + pts.map((p, i) => pointRead(h, b, i, p && p.reading)).join("")
@@ -230,7 +231,7 @@
   const B09 = (b, h) => {
     const c = (b && b.content) || {}, pts = arr(c.points), q = c.quote;
     return `<section class="material-block"><span class="role material">자료 읽기</span><div class="material-inner">`
-      + `<h3>${h.esc(c.sourceTitle || "")}</h3><p class="source">${h.esc(KIND9[c.sourceKind] || "자료")}</p>`
+      + `<div class="heading-bundle"><h3>${h.esc(c.sourceTitle || "")}</h3><p class="source">${h.esc(KIND9[c.sourceKind] || "자료")}</p></div>`
       + (q && typeof q.text === "string" && q.text ? `<blockquote class="quote">${h.esc(q.text)}</blockquote>` : "")
       + `<p><strong>자료 요지</strong> · ${h.claim(c.gist, { tag: "span" })}</p>`
       + pts.map((p, i) => pointClue(h, i, p && p.clue)).join("")
@@ -248,15 +249,17 @@
     arr(c.steps).forEach((x, i) => { vals["c" + (i + 1)] = x; });
     const ref = k => { const v = vals[k]; return v ? fmtN(v.value, v && v.digits) + h.esc(v.unit || "") : h.esc(k); };
     const vars = arr(c.variables).map(v => dd(h.esc(v && v.symbol), h.claim(v && v.meaning, { tag: "span" }) + (v && v.unit ? ` <small>(${h.esc(v.unit)})</small>` : ""))).join("");
-    return `<section><span class="role">${h.esc(KIND10[c.kind] || "자료")}</span><h3>${h.esc(c.title || "")}</h3>`
+    const eqPart = arr(c.formulaIds).map(id => h.equation(id)).join("")
+      + arr(c.derived).map(t => `<div class="equation">${h.math(t, { display: true })}</div>`).join("");
+    const eqBundle = (eqPart || vars) ? `<div class="eq-bundle">${eqPart}${vars ? `<dl class="slots">${vars}</dl>` : ""}</div>` : "";
+    // 제목 묶음은 첫 문단(가정·목표)까지 품는다 — 식+변수 설명은 eq-bundle 이 따로 묶는다.
+    return `<section><div class="heading-bundle"><span class="role">${h.esc(KIND10[c.kind] || "자료")}</span><h3>${h.esc(c.title || "")}</h3>`
       + (arr(c.assumptions).length ? `<p class="source">${arr(c.assumptions).map(x => h.claim(x, { tag: "span" })).join(" · ")}</p>` : "")
-      + h.claim(c.goal)
-      + arr(c.formulaIds).map(id => h.equation(id)).join("")
+      + h.claim(c.goal) + "</div>"
+      + eqBundle
       + (arr(c.inputs).length ? `<table class="note-table"><thead><tr><th scope="col">항목</th><th scope="col">값</th></tr></thead><tbody>`
         + arr(c.inputs).map(x => `<tr><th scope="row">${h.esc(x && x.label)}</th><td data-label="값">${fmtN(x && x.value)}${h.esc((x && x.unit) || "")}</td></tr>`).join("") + "</tbody></table>" : "")
       + arr(c.steps).map(s => `<p>${h.esc(s && s.label)} = ${ref(s && s.a)} ${OPSYM[s && s.op] || h.esc(s && s.op)} ${ref(s && s.b)} = <strong>${fmtN(s && s.value, s && s.digits)}${h.esc((s && s.unit) || "")}</strong></p>`).join("")
-      + arr(c.derived).map(t => `<div class="equation">${h.math(t, { display: true })}</div>`).join("")
-      + (vars ? `<dl class="slots">${vars}</dl>` : "")
       + arr(c.reading).map(x => h.claim(x)).join("")
       + (c.result ? `<div class="common"><strong>결과</strong> · ${h.claim(c.result, { tag: "span" })}</div>` : "")
       + (arr(c.limits).length ? `<p><strong>한계</strong> · ${arr(c.limits).map(x => h.claim(x, { tag: "span" })).join(" · ")}</p>` : "")
@@ -317,6 +320,7 @@
   const question = ({ item, n }, h) => {
     // OX 해설은 짧다 — 카드째로 묶는 표식(answer-compact)을 달아 인쇄에서 나뉘지 않게 한다. 긴 서술 답은 의미 단위로 나뉜다.
     const ac = item && item.kind === "ox" ? " answer-compact" : "";
+    const isInline = h.opts.medium === "web" || h.opts.answers === "inline";
     const answer = h.opts.medium === "web"
       ? `<details class="answer${ac}"><summary>${n}번 해설 보기</summary><div class="answer-body">${templates.B15({ n, item }, h)}</div></details>`
       : h.opts.answers === "inline"
@@ -325,10 +329,13 @@
     const respond = item && item.kind === "ox"
       ? `<p class="ox-mark">O ☐&ensp;X ☐</p>`
       : (h.opts.writing && WRITE_KIND.has(item && item.kind) ? `<div class="answer-space" aria-hidden="true"></div>` : "");
+    const clue = respond + (!isInline ? answer : "");
+    const trailingAnswer = isInline ? answer : "";
     return `<div class="question" id="q-${n}"><span class="qno">${n}</span><div class="qbody">`
-      + `<strong>${h.esc(QKIND[item.kind] || item.kind || "문항")}</strong>${item.level ? ` <small class="qlevel">${h.esc(QLEVEL[item.level] || item.level)}</small>` : ""}<p>${h.claim(item.prompt, { tag: "span" })}</p>`
+      + `<div class="qa-bundle"><strong>${h.esc(QKIND[item.kind] || item.kind || "문항")}</strong>${item.level ? ` <small class="qlevel">${h.esc(QLEVEL[item.level] || item.level)}</small>` : ""}<p>${h.claim(item.prompt, { tag: "span" })}</p>`
       + (item.premise ? `<p class="premise">${h.claim(item.premise, { tag: "span" })}</p>` : "")
-      + respond + answer + `</div></div>`;
+      + clue + `</div>`
+      + trailingAnswer + `</div></div>`;
   };
 
   // §15 문서 순서: B01 → B18 공지 → 전역 블록(B02·B03) → 단원(B04 → 블록[B12는 앞 블록 옆, figureIds는 그 블록 뒤] → B17 확인)
@@ -433,6 +440,7 @@
     `.qlevel{color:var(--muted);font-size:10px}`,
     `.note-table caption{caption-side:bottom;text-align:left;font-size:11px;color:var(--muted);padding-top:6px}`,
     `.note-block{margin:16px 0}`,
+    `.heading-bundle,.eq-bundle,.qa-bundle{display:block}`,
     `.note-head{border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:20px}`,
     `.kicker{color:var(--muted);font-size:11px;letter-spacing:.08em}`,
     `.note-meta{display:flex;flex-wrap:wrap;gap:4px 14px;color:var(--muted);font-size:11px}`,
@@ -455,7 +463,8 @@
     `.note-fig{border:1px solid var(--line);background:var(--surface);padding:12px 14px;margin:14px 0;display:block}`,
     `.note-fig-title{display:block;font-weight:600;color:var(--ink);margin-bottom:6px}`,
     `.note-fig-src{display:block;color:var(--muted);font:11px var(--mono);margin-top:6px}`,
-    `.note-fig-check{color:var(--accentText);margin:0}`,
+    `.note-fig-check,.note-fig-missing{color:var(--accentText);margin:0}`,
+    `.note-fig-explanation{margin-top:8px;font-size:13px}`,
     `.note-table{border-collapse:collapse;width:100%;font-size:13px;line-height:1.55}`,
     `.note-table th,.note-table td{border:1px solid var(--line);padding:7px 8px;text-align:left;vertical-align:top}`,
     `.note-table thead th{background:var(--surfaceSubtle);font-weight:600}`,
@@ -549,7 +558,7 @@
     // .role 은 inline 칩이라 break-after 가 안 먹힌다 — 인쇄에서는 블록 배지로 내려 다음 제목과 묶이게 한다.
     `.note .role{display:block;width:max-content}`,
     `.note p,.note li{orphans:2;widows:2}`,
-    `.note .question,.note .answer-space,.note .map-edge,.note .answer-rubric,.note .answer-alt,.note .slots,.note .memo-row{break-inside:avoid}`,
+    `.note .answer-space,.note .map-edge,.note .answer-rubric,.note .answer-alt,.note .slots,.note .memo-row{break-inside:avoid}`,
     `.note tr{break-inside:avoid}.note thead{display:table-header-group}`,
     `.note .heading-bundle,.note .eq-bundle,.note .qa-bundle{break-inside:avoid}`,
     `.note.print-trim-whitespace .note-block{margin:10px 0}.note.print-trim-whitespace .unit-head{margin:16px 0 6px}.note.print-trim-whitespace .note-checklist,.note.print-trim-whitespace .note-answers{margin-top:16px}`,

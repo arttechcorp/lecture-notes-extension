@@ -265,8 +265,9 @@ Note = {
   concepts: [{ conceptId, name, depth, homeBlockId: blockId? }],
   global:   [Block](0..3),                       # B02 → B03 → B13 순
   sections: [{ sectionId, number: int≥1, title, question: s?, stage, unitIds, range: { t0, t1 }, gist: C?, blocks: [Block](1..12), checks: [Check] }],
-  registry: [{ id: formulaId, latex: s?, text: s?, status, slideId, t0, display: e[latex, crop, check] }],
-  figures:  [{ id: figureId, evidenceId, kind, title: s?, cells: [[s]]?, chartData?, t0, display: e[table, chart, crop, check] }],   # 판정은 lib/figures.js(§14)
+  registry: [{ id: formulaId, latex: s?, text: s?, status, slideId, t0, display: e[latex, crop, check],
+               checks?: { parse: e[ok, failed, unchecked], symbols: e[match, mismatch, unchecked], units: e[ok, mismatch, unchecked] } }],
+  figures:  [{ id: figureId, evidenceId, kind, title: s?, cells: [[s]]?, chartData?, t0, display: e[table, chart, crop, check], explanation?: C? }],   # 판정은 lib/figures.js(§14)
   sources:  [{ id: evidenceId, kind, t0, t1, slideId: s? }],          # 인용된 근거의 위치만. 텍스트 없음
   notices:  [{ code, count: int?, ids: [s]?, ranges: [{ t0, t1 }]? }],
   dropped:  [{ blockId, type, codes: [code](1..8) }],                 # 내용 없음
@@ -458,18 +459,18 @@ Block = { id: blockId, type, sectionId: sectionId?, status, importance, emphasis
 
 | 상황 | 표시 | 고지 |
 |---|---|---|
-| 수식 `verified` + LaTeX 있음 | KaTeX 직접 렌더(검증과 같은 빌드, `throwOnError:true`) | — |
-| 수식 그 외(reread·image·unverified) + 크롭 있음 | 원본 크롭 + "원본 이미지로 표시" | `NOTE_FORMULAS_IMAGE` |
+| 수식 `verified` + LaTeX 있음 + `checks`에 불일치 없음 | KaTeX 직접 렌더(검증과 같은 빌드, `throwOnError:true`) | — |
+| 수식 그 외(reread·image·unverified, 또는 `checks`의 parse 실패·symbols/units 불일치) + 크롭 있음 | 원본 크롭 + "원본 이미지로 표시" | `NOTE_FORMULAS_IMAGE` |
 | 수식 그 외 + 크롭 없음 | "수식 확인 필요" 표식 + 원본 시각. OCR 텍스트가 있으면 "인식 원문(미검증)"으로 작게 표시 | `NOTE_FORMULAS_CHECK` |
 | 새 유도식(`derived`) | 블록 검증에서 KaTeX 실패 시 블록 repair → 제외. 렌더 단계에서 미검증 LaTeX가 노출될 일이 없다 | `NOTE_BLOCKS_DROPPED` |
 | 표 도표 + **간단한 표** | 기존 표 양식(B06과 같은 표 스타일·쪽 넘김 규칙)의 HTML 표 + "화면 표를 옮겨 적음" | — |
 | 표 도표 그 외 + 크롭 | 크롭. 그림의 단일 `conf`는 셀별 검증이 아니다 | — |
 | 그래프 + **간단한 그래프** | 노트 토큰(색·서체·선)만 쓰는 HTML(SVG)로 다시 그림 + "화면 그래프를 옮겨 그림" | — |
-| 그 외 그래프·다이어그램 + 크롭 | 크롭. 설명은 근거가 있는 슬롯(축, 단위, 읽는 법, 해석, 한계)만 쓴다 | — |
-| 도표 + 크롭 없음 | "도표 확인 필요" + 원본 시각 | `NOTE_FIGURES_CHECK` |
+| 그 외 그래프·다이어그램 + 크롭 | 크롭 + 근거 기반 설명(`explanation` 주장이 있을 때만). 설명은 근거가 있는 슬롯(축, 단위, 읽는 법, 해석, 한계)만 쓴다 | — |
+| 도표 + 크롭 없음 | "도표 누락" + 원본 시각(내용 없는 짧은 고지) | `NOTE_FIGURES_CHECK` |
 | Free | 도표 탐지가 없음. 수식은 항상 `unverified`이므로 크롭 또는 확인 필요 | `NOTE_FIGURES_NOT_DETECTED` |
 
-- **KaTeX 통과는 문법 검증이다.** 새 유도식의 수학적 타당성이나 숫자 검산을 대신하지 않는다. 숫자 검산은 §7이 맡는다.
+- **KaTeX 통과는 문법 검증이다.** 새 유도식의 수학적 타당성이나 숫자 검산을 대신하지 않는다. 숫자 검산은 §7이 맡는다. 레지스트리 수식의 `checks`는 `parse`(KaTeX 파싱)·`symbols`(원천 텍스트와 변수·분수·첨자 토큰 대조)·`units`(B10 계산·단위 텍스트의 단위 일관성)를 구분해 기록한다 — 어느 하나라도 `failed`/`mismatch`면 LaTeX으로 나가지 않고 크롭·확인 표시로 내린다. 판정할 원천이 없으면 `unchecked`다.
 - **간단한 표·그래프만 HTML로, 그 외는 크롭**(2026-10-03 결정, §18). θ 기준은 쓰지 않는다. 크기 상한은 초기값이고 테스트하며 조정한다.
 - **판정은 `lib/figures.js`가 레지스트리를 만들 때 한다**(`display` = `table`·`chart`·`crop`·`check`). `displayOf`는 이 결정을 존중하고, 나머지는 크롭 있으면 `crop` 없으면 `check`다.
 - **간단한 표**(`isSimpleTable`):
