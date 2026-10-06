@@ -1,7 +1,9 @@
 // Display and control only. The offscreen document owns all lecture data.
 const $=id=>document.getElementById(id);
-const els=Object.fromEntries(['tabSelect','modeSelect','langSelect','startBtn','stopBtn','pauseBtn','disposeBtn','notesBtn','status','renderFrame','stageReady','stageLive','stageDone','onboard','obLogin','obAccount','obAccountErr','obSummary','obCloud','obCloudRow','obPersonal','obPersonalRow','obAccess','obAccessRow','obFolderBtn','obFolderName','obFolderErr','obError','obWhisper','obCourses','obDone','courseSelect','markCourse','settingsToggle','settingsClose','settingsDrawer','optionsLink','refreshTabsBtn','ocrEnabledToggle','whisperEnabledToggle','whisperField','cntSlides','cntVoice','cntQueue','feedLines','readyAlert','panelAlert','doneSummary','donePill','doneAlert','againBtn','retryNoteBtn','ocrField','popoutBtn','debugDetails','debugLog','markEngine','engineBanner','markVoice','voiceState','markTab','tabState','settingsSummary','legalLine','cropField','cropRow','cropWrap','cropImg','cropBox','cropHint','previewBtn','working','workingText','saveBox','doneNotices','recognitionBox','makeNoteBtn','genBox','genSynthetic','genAugment','genAgainBtn'].map(id=>[id,$(id)]));
+const els=Object.fromEntries(['tabSelect','modeSelect','langSelect','startBtn','stopBtn','pauseBtn','disposeBtn','notesBtn','status','renderFrame','stageReady','stageLive','stageDone','onboard','obLogin','obAccount','obAccountErr','obSummary','obCloud','obCloudRow','obPersonal','obPersonalRow','obAccess','obAccessRow','obFolderBtn','obFolderName','obFolderErr','obError','obWhisper','obCourses','obDone','courseSelect','markCourse','settingsToggle','settingsClose','settingsDrawer','optionsLink','refreshTabsBtn','ocrEnabledToggle','whisperEnabledToggle','whisperField','cntSlides','cntVoice','cntQueue','feedLines','readyAlert','panelAlert','doneSummary','donePill','doneAlert','againBtn','retryNoteBtn','ocrField','popoutBtn','debugDetails','debugLog','markEngine','engineBanner','markVoice','voiceState','markTab','tabState','settingsSummary','legalLine','cropField','cropRow','cropWrap','cropImg','cropBox','cropHint','previewBtn','working','workingText','saveBox','doneNotices','recognitionBox','makeNoteBtn','genBox','genSynthetic','genAugment','genAgainBtn','viewMode','viewPrep','modeTitle','pickBg','pickLive','pickBgTag','prepBack','prepMode','prepCard','bgLocked','lockedLiveBtn','lockedBilling','markWhere','whereState','markSupport','supportState','markNoteOpt','noteOptState','noteOptBtn','siteNotesBtn','liveWhere'].map(id=>[id,$(id)]));
 let settings,state,busy=false,tabs=[],cropRect=null,cropTabId=null;
+// 준비 화면: 방식 선택('mode') 또는 방식별 준비('prep'+readyMode bg|live). 선택값(탭·과목·옵션)은 DOM에 그대로 남아 뒤로 가도 지워지지 않는다.
+let readyView='mode',readyMode='live',prevStage='',bgPaid=false,bgPending=false;
 const active=s=>['preparing','running','paused','draining','summarizing'].includes(s?.status);
 const label={preparing:'준비 중',running:'캡처 중',paused:'일시정지',draining:'마지막 구간 처리 중',summarizing:'요약 중',completed:'노트 준비됨',failed:'처리 중단',disposed:''};
 // 캡처는 끝났는데 노트 만들기가 실패한 상태 — offscreen은 세션을 'completed'로 두고 error만 싣는다.
@@ -16,8 +18,35 @@ const setError=(text,code)=>{if(text&&AUTH_CODES.includes(code))lastAuth={text,c
 const loginStep=(name,ms)=>{try{rpc({type:'DIAG_EVENT',event:{stage:'login',code:'LOGIN_TIMING',ms:Math.max(0,Math.round(ms)),msg:name}}).catch(()=>{});}catch{}};
 const loginClock=()=>{const t0=Date.now(),rec=loginStep;return{rec,total:()=>rec('total',Date.now()-t0),signIn:()=>typeof Auth==='undefined'?Account.signIn():Auth.signIn({onStep:rec})};};
 async function alertLogin(){const{rec,total,signIn}=loginClock();try{await signIn();let s=Date.now();settings=settings||await loadSettings();rec('settings',Date.now()-s);await obCheck(rec);s=Date.now();setError('');updateReadyCard();rec('render',Date.now()-s);bgInit();}catch{}finally{total();}}
-function setStage(name){els.stageReady.hidden=name!=='ready';els.stageLive.hidden=name!=='live';els.stageDone.hidden=name!=='done';els.onboard.hidden=name!=='onboard';for(const [id,on] of [['stepReady',name==='ready'],['stepLive',name==='live'],['stepDone',name==='done']]){const node=$(id);if(node)node.className=on?'active':'';}if(name!=='ready'&&els.settingsDrawer.open)els.settingsDrawer.close();}
-function controls(){const has=!!state&&state.status!=='disposed';els.startBtn.disabled=busy||active(state)||!tabs.some(tab=>String(tab.id)===els.tabSelect.value);els.stopBtn.disabled=busy||!active(state);if(els.pauseBtn){els.pauseBtn.disabled=busy||!['running','paused'].includes(state?.status);els.pauseBtn.textContent=state?.status==='paused'?'다시 시작':'일시정지';}if(els.disposeBtn)els.disposeBtn.disabled=busy||active(state)||!has;els.notesBtn.disabled=busy||regenBusy||!['completed','failed'].includes(state?.status)||!((state?.counts?.visual||0)+(state?.counts?.audio||0)>0);if(els.makeNoteBtn)els.makeNoteBtn.disabled=regenBusy;if(els.genAgainBtn)els.genAgainBtn.disabled=regenBusy;if(els.retryNoteBtn)els.retryNoteBtn.disabled=busy||regenBusy;}
+function setStage(name){if(name==='ready'&&prevStage&&!['ready','onboard'].includes(prevStage))readyView='mode';prevStage=name;els.stageReady.hidden=name!=='ready';els.stageLive.hidden=name!=='live';els.stageDone.hidden=name!=='done';els.onboard.hidden=name!=='onboard';if(name!=='ready'&&els.settingsDrawer.open)els.settingsDrawer.close();if(name==='ready')paintReady();}
+// 준비 화면은 방식 선택(viewMode)과 방식별 준비(viewPrep, data-mode=bg|live) 중 하나만 보인다. 방식 카드는 화면만 옮길 뿐 처리를 시작하지 않는다.
+// 백그라운드 작업이 도는 동안은 다른 방식으로 가는 길(방식 카드·뒤로)을 막아 기존 단일 작업 제약을 화면에서도 지킨다.
+function paintReady(){
+  const prep=readyView==='prep',bgMode=readyMode==='bg',locked=bgMode&&!bgPaid;
+  els.viewMode.hidden=prep;els.viewPrep.hidden=!prep;
+  els.viewPrep.dataset.mode=readyMode;
+  if(bgMode&&bgBusy)els.viewPrep.dataset.run='1';else delete els.viewPrep.dataset.run;
+  els.prepMode.textContent=bgMode?'백그라운드 생성':'실시간 캡처';
+  els.bgLocked.hidden=!locked;els.prepCard.hidden=locked;
+  els.pickBgTag.textContent=bgPaid?(bgPending?'이어 할 작업':'유료'):'유료 전용';
+  els.pickLive.disabled=els.prepBack.disabled=bgBusy;
+  try{els.lockedBilling.href=Account.SITE+'/account/billing';}catch{} // 테스트 VM에는 Account가 없다
+}
+function showPrep(mode){
+  readyView='prep';readyMode=mode;paintReady();
+  if(mode==='bg'&&!bgPaid)bgInit(); // 로그인·요금제가 바뀌었을 수 있다 — 유료로 확인되면 시작 카드가 열린다
+  els.prepMode.focus?.();
+}
+// 준비 화면의 방식 전용 줄: 실시간은 인식 위치(기기/서버), 백그라운드는 지원 여부와 노트 옵션.
+function paintPrepExtra(){
+  if(!settings)return;
+  const cloud=cloudMode(),o=settings.noteOptions||{},on=[o.syntheticExamples&&'가상 사례',o.externalAugmentation&&'강의 밖 보강'].filter(Boolean);
+  setRow(els.markWhere,els.whereState,'ok',cloud?'서버로 전송해 인식 (동의함)':'이 기기 안에서 인식 · 전송 없음');
+  setRow(els.markNoteOpt,els.noteOptState,'ok',on.length?on.join(' · '):'기본');
+  const tab=tabs.find(t=>String(t.id)===els.tabSelect.value);
+  setRow(els.markSupport,els.supportState,bgYt||!tab?'warn':'off',bgYt?'지원 안 함 · 실시간 캡처만':!tab?'강의 탭 없음':'시작할 때 확인');
+}
+function controls(){const has=!!state&&state.status!=='disposed';els.startBtn.disabled=busy||active(state)||!tabs.some(tab=>String(tab.id)===els.tabSelect.value);els.stopBtn.disabled=busy||!active(state);if(els.pauseBtn){els.pauseBtn.disabled=busy||!['running','paused'].includes(state?.status);els.pauseBtn.textContent=state?.status==='paused'?'다시 시작':'일시정지';}if(els.disposeBtn)els.disposeBtn.disabled=busy||active(state)||!has;els.notesBtn.disabled=busy||regenBusy||!['completed','failed'].includes(state?.status)||!(state?.bg||(state?.counts?.visual||0)+(state?.counts?.audio||0)>0);if(els.makeNoteBtn)els.makeNoteBtn.disabled=regenBusy;if(els.genAgainBtn)els.genAgainBtn.disabled=regenBusy;if(els.againBtn)els.againBtn.disabled=regenBusy;if(els.retryNoteBtn)els.retryNoteBtn.disabled=busy||regenBusy;}
 function format(t){return `${Math.floor((t||0)/60)}:${String(Math.floor((t||0)%60)).padStart(2,'0')}`;}
 // 캡처 경과(#elapsed): 이 세션의 'running'을 패널이 처음 본 순간부터 재고, 일시정지 구간은 뺀다. 세션이 바뀌면 다시 잰다.
 let liveElapsed=null; // {sessionId,base,since} — base는 누적 ms, since는 달리는 중일 때만 시작 시각
@@ -66,7 +95,7 @@ async function chooseFolder(){
 if(typeof LibraryFolder!=='undefined')LibraryFolder.watchSettings(()=>PackageStore.indexedDbAdapter(),loadSettings);
 // 저장 상태 상자. 완료 화면과 (이후) 백그라운드 작업 카드가 같은 함수를 쓴다.
 // saved: "file"(폴더에 저장됨) / "no-folder"(폴더 없음·권한 필요) / "no-key"(기기에 계정 키 없음) / "failed"(저장 실패) / null(표시 없음).
-function renderSaved(box,saved,packageId){
+function renderSaved(box,saved,packageId,opt={}){
   if(!box)return;
   const key=`${saved||''}:${packageId||''}`;
   if(box.dataset.savedKey===key)return; // 같은 상태를 다시 그리면 진행 중 클릭과 안내를 지운다
@@ -84,6 +113,7 @@ function renderSaved(box,saved,packageId){
     const b=document.createElement('button');
     b.type='button';
     b.textContent=label;
+    if(opt.primary)b.className='primary';
     b.addEventListener('click',async()=>{
       b.disabled=true;
       try{await work();}
@@ -101,10 +131,12 @@ function renderSaved(box,saved,packageId){
   };
   if(saved==='file'){
     say('노트를 암호화해 보관함 폴더에 저장했습니다. 웹사이트에서 같은 계정으로 로그인하면 열립니다.');
-    const row=document.createElement('div');
-    row.className='btnrow';
-    row.append(button('웹에서 노트 열기',()=>chrome.tabs.create({url:Account.SITE+'/library'})));
-    box.append(row);
+    if(opt.open!==false){
+      const row=document.createElement('div');
+      row.className='btnrow';
+      row.append(button('웹에서 노트 열기',()=>chrome.tabs.create({url:Account.SITE+'/library'})));
+      box.append(row);
+    }
   }else if(saved==='no-folder'){
     say('보관함 폴더에 쓸 수 없어 저장하지 못했습니다. 폴더를 지정하거나 권한을 다시 허용하세요.');
     box.append(button('폴더 지정하고 저장',async()=>{if(await chooseFolder())await exportAll();}));
@@ -141,8 +173,7 @@ async function regenerate(options){
       sum.saved=r.saved??sum.saved;
       if(r.status==='complete'||r.status==='partial'){sum.status=r.status;sum.note=sum.note||{};sum.recognition=null;}
     }
-    state.error=null;
-    render(state);
+    if(state){state.error=null;render(state);} // 다시 만드는 동안 '다른 강의 만들기'로 나갔어도 죽지 않는다
     if(sum?.note)els.donePill.textContent=r.status==='partial'?'일부 완료':'노트 완성';
     setStatus('노트를 만들었습니다.');
   }finally{
@@ -159,7 +190,7 @@ function renderSummary(summary){
   if(recognition)postToFrame({type:'RENDER_RECOGNITION',recognition});
   if(els.recognitionBox)els.recognitionBox.hidden=!(!note&&recognition);
   els.notesBtn.hidden=summary?.status==='recognition-only'||summaryFailed(state); // 인식만 끝난 결과는 인식 상자의 '노트 만들기'가, 실패한 노트는 '다시 시도'가 유일한 경로다
-  renderSaved(els.saveBox,summary?.saved||null,summary?.packageId);
+  renderSaved(els.saveBox,summary?.saved||null,summary?.packageId,{open:false,primary:true});els.siteNotesBtn.hidden=summary?.saved!=='file';
   if(els.genBox)els.genBox.hidden=!(note&&obPlan!=='free');
   const lines=bgNoticeLines(summary?.notices);
   els.doneNotices.textContent='';
@@ -192,7 +223,7 @@ function doneAlertExtras(){
 function setRow(mark,val,kind,text){if(!mark||!val)return;mark.className='mark'+(kind==='off'?' off':kind==='warn'?' warn':'');mark.textContent=kind==='ok'?'✓':kind==='warn'?'!':'';val.textContent=text;}
 // 유료(free가 아닌 모든 플랜)는 화면·음성 모두 서버에서 인식한다 — 클라우드 인식 동의가 있을 때만.
 const cloudMode=()=>obPlan!=='free'&&cloudRecognitionAllowed(settings);
-function updateReadyCard(){if(!settings)return;const cloud=cloudMode();setRow(els.markEngine,els.engineBanner,cloud?'ok':els.ocrEnabledToggle?.checked===false?'off':'ok',cloud?'화면 인식 · 서버 (고화질)':els.ocrEnabledToggle?.checked===false?'꺼짐':settings.ocrEngine==='vision-cloud'?'고화질 화면 인식 (서비스 경유)':'PP-OCRv5 한국어 (WASM)');setRow(els.markVoice,els.voiceState,cloud?'ok':settings.whisperEnabled?'ok':'warn',cloud?'음성 인식 · 서버':settings.whisperEnabled?`Whisper ${settings.whisperModel==='base-wasm'?'Base 저사양 · WASM':'Small q8/q4 · WebGPU'} (로컬)`:'꺼짐 — 음성은 기록되지 않습니다');if(els.ocrField)els.ocrField.hidden=cloud;if(els.whisperField)els.whisperField.hidden=cloud;const tabOpt=els.tabSelect?.selectedOptions?.[0];setRow(els.markTab,els.tabState,tabOpt?'ok':'warn',tabOpt?tabOpt.textContent:'선택된 탭 없음');const isRegion=els.modeSelect.value==='region';if(els.cropRow)els.cropRow.style.display=isRegion?'flex':'none';if(!isRegion&&els.cropWrap)els.cropWrap.style.display='none';if(els.cropField)els.cropField.hidden=els.ocrEnabledToggle?.checked===false;let modeDesc='영상 전체';if(els.modeSelect.value==='caption')modeDesc='하단 자막 띠';else if(isRegion)modeDesc=cropRect?`영역 지정 (${Math.round(cropRect.w*100)}%×${Math.round(cropRect.h*100)}%)`:'영역 지정 (슬라이드)';if(els.settingsSummary)els.settingsSummary.textContent=`${modeDesc} · ${{auto:'자동 감지(한국어 우선)',ko:'한국어',en:'영어'}[settings.whisperLang]||'한국어'}`;if(els.legalLine)els.legalLine.textContent=cloud?'화면·음성은 Summrizei 서비스에서 인식하고 저장하지 않습니다. 노트도 로그인한 계정으로 서비스가 만듭니다.':'화면·음성 인식은 기기 안에서 하고, 노트는 로그인한 계정으로 Summrizei 서비스가 만듭니다.';paintCourses();updateReadyRows();}
+function updateReadyCard(){if(!settings)return;const cloud=cloudMode();setRow(els.markEngine,els.engineBanner,cloud?'ok':els.ocrEnabledToggle?.checked===false?'off':'ok',cloud?'화면 인식 · 서버 (고화질)':els.ocrEnabledToggle?.checked===false?'꺼짐':settings.ocrEngine==='vision-cloud'?'고화질 화면 인식 (서비스 경유)':'PP-OCRv5 한국어 (WASM)');setRow(els.markVoice,els.voiceState,cloud?'ok':settings.whisperEnabled?'ok':'warn',cloud?'음성 인식 · 서버':settings.whisperEnabled?`Whisper ${settings.whisperModel==='base-wasm'?'Base 저사양 · WASM':'Small q8/q4 · WebGPU'} (로컬)`:'꺼짐 — 음성은 기록되지 않습니다');if(els.ocrField)els.ocrField.hidden=cloud;if(els.whisperField)els.whisperField.hidden=cloud;const tabOpt=els.tabSelect?.selectedOptions?.[0];setRow(els.markTab,els.tabState,tabOpt?'ok':'warn',tabOpt?tabOpt.textContent:'선택된 탭 없음');const isRegion=els.modeSelect.value==='region';if(els.cropRow)els.cropRow.style.display=isRegion?'flex':'none';if(!isRegion&&els.cropWrap)els.cropWrap.style.display='none';if(els.cropField)els.cropField.hidden=els.ocrEnabledToggle?.checked===false;let modeDesc='영상 전체';if(els.modeSelect.value==='caption')modeDesc='하단 자막 띠';else if(isRegion)modeDesc=cropRect?`영역 지정 (${Math.round(cropRect.w*100)}%×${Math.round(cropRect.h*100)}%)`:'영역 지정 (슬라이드)';if(els.settingsSummary)els.settingsSummary.textContent=`${modeDesc} · ${{auto:'자동 감지(한국어 우선)',ko:'한국어',en:'영어'}[settings.whisperLang]||'한국어'}`;if(els.legalLine)els.legalLine.textContent=cloud?'화면·음성은 Summrizei 서비스에서 인식하고 저장하지 않습니다. 노트도 로그인한 계정으로 서비스가 만듭니다.':'화면·음성 인식은 기기 안에서 하고, 노트는 로그인한 계정으로 Summrizei 서비스가 만듭니다.';paintCourses();updateReadyRows();paintPrepExtra();}
 // 과목(보관함 안 하위 폴더): 탭 제목에 과목 이름이 들어 있으면 그 과목을 골라 둔다. 사용자가 고른 값은 탭을 바꾸기 전까지 유지한다.
 let coursePick={tab:null,value:''};
 const squash=s=>String(s||'').toLowerCase().replace(/\s+/g,'');
@@ -234,7 +265,7 @@ if(readyEl.storePassBtn)readyEl.storePassBtn.addEventListener('click',async()=>{
 // One indicator for both waits the user actually has to sit through: summarising, and the recognition backlog
 // that has to drain before a note can be made.
 function setWorking(){if(!els.working)return;const s=state?.status,queued=(state?.backlog?.images||0)+(state?.backlog?.audio||0);const making=regenBusy||s==='summarizing';els.working.hidden=!(making||s==='draining'||(active(state)&&queued>0));if(els.workingText)els.workingText.textContent=making?'노트를 만드는 중입니다. 몇 분 걸릴 수 있습니다.':'남은 인식을 마무리하는 중입니다.';}
-function render(next){if(next&&state&&next.generation<state.generation)return;const was=state?.status;state=next||null;const s=state?.status,failed=summaryFailed(state);setStatus(failed?'노트를 만들지 못했습니다.':label[s]||'');trackElapsed();liveClock();setError(state?.error);if(onboardingOpen)setStage('onboard');else if(!state||s==='disposed')setStage('ready');else if(active(state)&&s!=='summarizing')setStage('live');else setStage('done');els.cntSlides.textContent=state?.counts?.visual||0;els.cntVoice.textContent=state?.counts?.audio||0;els.cntQueue.textContent=(state?.backlog?.images||0)+(state?.backlog?.audio||0);els.feedLines.textContent='';const recent=state?.recent||[],gaps=state?.gaps||[];if(recent.length){for(const item of recent){const row=document.createElement('div'),time=document.createElement('span');time.className='t';time.textContent=`${format(item.time)} · ${item.source==='asr'?'음성':'화면'}`;row.append(time,document.createTextNode(item.text));els.feedLines.append(row);}}else if(gaps.length){for(const gap of gaps.slice(-3)){const row=document.createElement('div');row.textContent=`${format(gap.time)} · ${gap.reason}`;els.feedLines.append(row);}}else els.feedLines.textContent=active(state)?'인식 결과를 기다리는 중입니다.':'표시할 처리 구간이 없습니다.';els.debugLog.textContent=state?.debug?.join('\n')||'세션을 시작하면 음성 진단 정보가 표시됩니다.';els.debugLog.scrollTop=els.debugLog.scrollHeight;if(s==='failed'&&state?.error?.includes('음성'))els.debugDetails.open=true;els.donePill.textContent=failed?'노트 실패':s==='summarizing'?'요약 중':s==='failed'?'중단됨':state?.summary?.status==='recognition-only'?'인식만 완료':state?.summary?.status==='partial'?'일부 완료':state?.summary?.note?'노트 완성':'인식 완료';if(els.retryNoteBtn)els.retryNoteBtn.hidden=!failed;els.doneSummary.textContent=state?`화면 ${state.counts.visual} · 음성 ${state.counts.audio}`:'';renderSummary(state?.summary);doneAlertExtras();setWorking();controls();updateReadyCard();if(shouldAutoSummarize(was,state))autoSummarize();}
+function render(next){if(next&&state&&next.generation<state.generation)return;const was=state?.status;state=next||null;const s=state?.status,failed=summaryFailed(state);setStatus(failed?'노트를 만들지 못했습니다.':label[s]||'');trackElapsed();liveClock();setError(state?.error);if(onboardingOpen)setStage('onboard');else if(!state||s==='disposed')setStage('ready');else if(active(state)&&s!=='summarizing')setStage('live');else setStage('done');els.cntSlides.textContent=state?.counts?.visual||0;els.cntVoice.textContent=state?.counts?.audio||0;els.cntQueue.textContent=(state?.backlog?.images||0)+(state?.backlog?.audio||0);els.feedLines.textContent='';const recent=state?.recent||[],gaps=state?.gaps||[];if(recent.length){for(const item of recent){const row=document.createElement('div'),time=document.createElement('span');time.className='t';time.textContent=`${format(item.time)} · ${item.source==='asr'?'음성':'화면'}`;row.append(time,document.createTextNode(item.text));els.feedLines.append(row);}}else if(gaps.length){for(const gap of gaps.slice(-3)){const row=document.createElement('div');row.textContent=`${format(gap.time)} · ${gap.reason}`;els.feedLines.append(row);}}else els.feedLines.textContent=active(state)?'인식 결과를 기다리는 중입니다.':'표시할 처리 구간이 없습니다.';els.debugLog.textContent=state?.debug?.join('\n')||'세션을 시작하면 음성 진단 정보가 표시됩니다.';els.debugLog.scrollTop=els.debugLog.scrollHeight;if(s==='failed'&&state?.error?.includes('음성'))els.debugDetails.open=true;els.donePill.textContent=failed?'노트 실패':s==='summarizing'?'요약 중':s==='failed'?'중단됨':state?.summary?.status==='recognition-only'?'인식만 완료':state?.summary?.status==='partial'?'일부 완료':state?.summary?.note?'노트 완성':'인식 완료';if(els.retryNoteBtn)els.retryNoteBtn.hidden=!failed;els.doneSummary.textContent=state?(state.bg?(state.stats?`슬라이드 ${state.stats.slides??'-'} · 음성 구간 ${state.stats.chunks??'-'}`:''):`화면 ${state.counts.visual} · 음성 ${state.counts.audio}`):'';if(els.liveWhere&&settings)els.liveWhere.textContent=cloudMode()?'서버에서 인식 중 · 화면·음성을 전송하는 데 동의했습니다':'이 기기 안에서 인식 중 · 외부로 전송하지 않습니다';renderSummary(state?.summary);doneAlertExtras();setWorking();controls();updateReadyCard();if(shouldAutoSummarize(was,state))autoSummarize();}
 // 캡처가 끝나면 노트 화면이 비어 있으면 안 된다. 요약을 한 번 자동으로 이어 돌린다 —
 // 중지 버튼뿐 아니라 영상 종료·트랙 종료 같은 자동 종료 경로도 모두 여기(completed 전이)로 모인다.
 // 세션당 1회로 제한한다: 실패한 요약을 무한히 다시 부르지 않기 위해서다.
@@ -245,7 +276,11 @@ async function action(type,extra={}){if(busy&&type!=='STOP_SESSION'&&type!=='CAN
 async function loadTabs(){const selected=els.tabSelect.value,requested=new URLSearchParams(location.search).get('tabId');const [all,[focused]]=await Promise.all([chrome.tabs.query({}),chrome.tabs.query({active:true,currentWindow:true})]);tabs=all.filter(tab=>/^https?:/.test(tab.url||''));els.tabSelect.textContent='';for(const tab of tabs){const opt=document.createElement('option');opt.value=tab.id;opt.textContent=`${new URL(tab.url).hostname} — ${(tab.title||'강의 탭').slice(0,60)}`;els.tabSelect.append(opt);}const target=selected||requested||String(focused?.id??'');if(target)els.tabSelect.value=target;controls();updateReadyCard();bgTabCheck();}
 function rect(){if(els.modeSelect.value==='caption')return{x:0,y:.8,w:1,h:.2};if(els.modeSelect.value==='region'&&cropRect)return cropRect;return{x:0,y:0,w:1,h:1};}
 async function start(){await ensureFolder();settings=await loadSettings();await obCheck();const steps=onboardingSteps(settings,obSession,obPlan,obFolder);if(steps.length){if(await openOnboarding(steps)!==true)return;settings=await loadSettings();}if(!tabs.some(tab=>String(tab.id)===els.tabSelect.value)){setError('선택한 강의 탭이 없습니다. 강의 창에서 확장을 다시 여세요.');return;}const cloud=cloudMode();if(!cloud&&!els.ocrEnabledToggle.checked&&!settings.whisperEnabled){setError('화면 또는 음성 인식 중 하나를 켜세요.');return;}if((cloud||els.ocrEnabledToggle.checked)&&els.modeSelect.value==='region'&&(!cropRect||cropTabId!==els.tabSelect.value)){els.settingsDrawer.showModal();els.cropHint.textContent='현재 강의 화면을 불러오고 인식할 슬라이드 영역을 드래그하세요.';setError('화면을 불러온 뒤 인식할 슬라이드 영역을 드래그하세요.');els.previewBtn.focus();return;}await action('START_SESSION',{settings,options:{tabId:Number(els.tabSelect.value),pageTitle:(tabs.find(tab=>String(tab.id)===els.tabSelect.value)?.title||'').slice(0,200),course:els.courseSelect.value,rect:rect(),recognition:cloud?'cloud':'local',ocrEnabled:cloud?true:els.ocrEnabledToggle.checked,ocrEngine:cloud?'vision-cloud':settings.ocrEngine||'ppocr-v5-wasm',visionConsent:settings.visionConsent===true,whisperEnabled:cloud?true:settings.whisperEnabled,whisperModel:settings.whisperModel,whisperLang:settings.whisperLang,speedCorrection:settings.speedCorrection===true}});}
-els.startBtn.addEventListener('click',start);els.stopBtn.addEventListener('click',()=>action(state?.status==='summarizing'?'CANCEL_SUMMARY':'STOP_SESSION'));els.notesBtn.addEventListener('click',async()=>{const p=state?.summary?.packageId;if(p)regenerate({syntheticExamples:false,externalAugmentation:false});else await action('GENERATE_NOTES',{settings:await loadSettings()})});if(els.retryNoteBtn)els.retryNoteBtn.addEventListener('click',async()=>action('GENERATE_NOTES',{settings:await loadSettings()}));els.againBtn.addEventListener('click',()=>action('DISPOSE_SESSION'));els.settingsToggle.addEventListener('click',()=>els.settingsDrawer.showModal());els.settingsClose.addEventListener('click',()=>els.settingsDrawer.close());els.refreshTabsBtn.addEventListener('click',loadTabs);els.tabSelect.addEventListener('change',()=>{cropRect=null;cropTabId=null;els.cropBox.style.display='none';controls();updateReadyCard();bgTabCheck();});els.ocrEnabledToggle.addEventListener('change',async()=>{settings=await saveSettings({ocrEnabled:els.ocrEnabledToggle.checked});updateReadyCard();});els.whisperEnabledToggle.addEventListener('change',async()=>{settings=await saveSettings({whisperEnabled:els.whisperEnabledToggle.checked});updateReadyCard();});els.modeSelect.addEventListener('change',updateReadyCard);els.langSelect.addEventListener('change',async()=>{settings=await saveSettings({whisperLang:els.langSelect.value});updateReadyCard();});els.optionsLink.addEventListener('click',event=>{event.preventDefault();chrome.runtime.openOptionsPage();});
+els.startBtn.addEventListener('click',start);els.stopBtn.addEventListener('click',()=>action(state?.status==='summarizing'?'CANCEL_SUMMARY':'STOP_SESSION'));els.notesBtn.addEventListener('click',async()=>{const p=state?.summary?.packageId;if(p)regenerate({syntheticExamples:false,externalAugmentation:false});else await action('GENERATE_NOTES',{settings:await loadSettings()})});if(els.retryNoteBtn)els.retryNoteBtn.addEventListener('click',async()=>action('GENERATE_NOTES',{settings:await loadSettings()}));els.againBtn.addEventListener('click',()=>{if(state?.bg){state=null;bgReset();render(null);return;}action('DISPOSE_SESSION');}); // 백그라운드 완료 화면에는 지울 세션이 없다 — 방식 선택으로 돌아갈 뿐
+els.pickBg.addEventListener('click',()=>showPrep('bg'));els.pickLive.addEventListener('click',()=>showPrep('live'));els.lockedLiveBtn.addEventListener('click',()=>showPrep('live'));
+els.prepBack.addEventListener('click',()=>{readyView='mode';paintReady();els.modeTitle.focus?.();});
+els.noteOptBtn.addEventListener('click',()=>chrome.runtime.openOptionsPage());
+els.siteNotesBtn.addEventListener('click',()=>chrome.tabs.create({url:Account.SITE+'/library'}));els.settingsToggle.addEventListener('click',()=>els.settingsDrawer.showModal());els.settingsClose.addEventListener('click',()=>els.settingsDrawer.close());els.refreshTabsBtn.addEventListener('click',loadTabs);els.tabSelect.addEventListener('change',()=>{cropRect=null;cropTabId=null;els.cropBox.style.display='none';controls();updateReadyCard();bgTabCheck();});els.ocrEnabledToggle.addEventListener('change',async()=>{settings=await saveSettings({ocrEnabled:els.ocrEnabledToggle.checked});updateReadyCard();});els.whisperEnabledToggle.addEventListener('change',async()=>{settings=await saveSettings({whisperEnabled:els.whisperEnabledToggle.checked});updateReadyCard();});els.modeSelect.addEventListener('change',updateReadyCard);els.langSelect.addEventListener('change',async()=>{settings=await saveSettings({whisperLang:els.langSelect.value});updateReadyCard();});els.optionsLink.addEventListener('click',event=>{event.preventDefault();chrome.runtime.openOptionsPage();});
 if(els.pauseBtn)els.pauseBtn.addEventListener('click',()=>action(state?.status==='paused'?'RESUME_SESSION':'PAUSE_SESSION'));if(els.disposeBtn)els.disposeBtn.addEventListener('click',()=>action('DISPOSE_SESSION'));
 if(els.popoutBtn)els.popoutBtn.addEventListener('click',()=>chrome.windows?.create?.({url:chrome.runtime.getURL(`sidepanel.html?tabId=${encodeURIComponent(els.tabSelect.value)}`),type:'popup',width:480,height:760}));
 // 노트 만들기·다시 만들기: 보관함 패키지의 인식 자료로 다시 만든다(LIB_REGENERATE). 요약 동의가 없으면 동의 단계부터 연다.
@@ -269,7 +304,7 @@ chrome.runtime.onMessage.addListener((message,sender)=>{try{const url=new URL(se
 window.addEventListener('message',event=>{if(event.source!==els.renderFrame?.contentWindow||!event.data)return;if(event.data.type==='RENDER_HEIGHT'&&typeof event.data.height==='number')els.renderFrame.style.height=Math.max(event.data.height,140)+'px';});
 // ── 백그라운드 처리(유료, docs/architecture-v2.md §6.1): 영상 목록 찾기 → BG_RUN → 진행·결말 표시. 작업은 offscreen이 하고 패널은 누르고 보여 줄 뿐이다.
 // 실시간 모드로는 사용자가 "실시간 모드로 시작"을 눌러야만 넘어간다 — 보호·미지원·실패 어느 경우에도 조용히 바꾸지 않는다.
-const bgEl=Object.fromEntries(['bgBox','bgBtn','bgStatus','bgProgress','bgBar','bgTime','bgSave','bgRetryBtn','bgCancelBtn','bgLiveBtn','bgConsentBtn','bgSummaryLink','bgMakeBtn','bgDiscardBtn','bgBilling'].map(id=>[id,$(id)]));
+const bgEl=Object.fromEntries(['bgBox','bgBtn','bgStatus','bgProgress','bgBar','bgTime','bgSave','bgRetryBtn','bgCancelBtn','bgLiveBtn','bgConsentBtn','bgSummaryLink','bgMakeBtn','bgDiscardBtn','bgBilling','bgLecture'].map(id=>[id,$(id)]));
 const YOUTUBE=/(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com|googlevideo\.com)$/i; // lib/background-job.js와 같은 목록(§19)
 const YT_MSG='이 사이트는 실시간 캡처만 지원합니다.';
 const UNSUP_MSG={dash:'이 강의는 DASH 방식이라 아직 백그라운드 처리를 지원하지 않습니다. 실시간 캡처를 쓰세요.',mp4:'이 강의는 MP4 파일 방식이라 아직 백그라운드 처리를 지원하지 않습니다. 실시간 캡처를 쓰세요.'};
@@ -287,6 +322,7 @@ function bgShow({text='',progress='',busy=false,cancel=false,retry=false,live=fa
   bgEl.bgBtn.disabled=busy||bgYt;bgEl.bgCancelBtn.hidden=!cancel;bgEl.bgRetryBtn.hidden=!retry;bgEl.bgRetryBtn.textContent=retryLabel||'다시 시도';bgEl.bgLiveBtn.hidden=!live;
   bgEl.bgConsentBtn.hidden=!consent;bgEl.bgSummaryLink.hidden=!summary;bgEl.bgMakeBtn.hidden=!make;bgEl.bgBilling.hidden=!billing;bgEl.bgDiscardBtn.hidden=!discard;
   if(billing)try{bgEl.bgBilling.href=Account.SITE+'/account/billing';}catch{} // 테스트 VM에는 Account가 없다
+  paintReady();
 }
 // 진행 표시: created..rendering 9단계(BG_STATE 순서)의 단계 수와 경과 시계. 시계는 결말(BG_DONE)·시작 실패에서 멈춘다.
 function bgTick(){bgEl.bgTime.hidden=!bgSince;if(bgSince){const s=Math.max(0,Math.floor((Date.now()-bgSince)/1000));bgEl.bgTime.textContent=`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;}}
@@ -295,7 +331,7 @@ function bgRunShow(stage,progress=''){
   const n=BG_STAGES.indexOf(stage)+1;
   bgEl.bgBar.hidden=false;bgEl.bgBar.value=n||0;
   bgSince=bgSince||Date.now();bgTick();
-  bgShow({text:`단계 ${n||'-'}/9 · ${BG_STATE[stage]||stage}`,progress,busy:true,cancel:true});
+  bgShow({text:`현재 단계 · ${BG_STATE[stage]||stage}`,progress,busy:true,cancel:true});
 }
 if(typeof setInterval==='function')setInterval(bgTick,1000); // 테스트 VM에는 setInterval이 없어 건너뛴다
 // BG_DONE → 화면. 안내 문구는 offscreen이 파이프라인 CODES의 userMessage로 실어 보낸다. 실시간 모드 버튼은 suggest:"live"일 때만 나온다.
@@ -327,10 +363,13 @@ function bgNoticeLines(notices){
   if(pruned)lines.splice(at,0,`연결된 내용이 빠져 함께 뺀 항목 ${pruned}건`);
   return lines;
 }
+// 보호(암호화)·DRM 영상은 중단만 한다 — 다른 방식으로 돌려 보내지 않는다(AGENTS.md §2). 엔진의 suggest 값만 믿지 않고 코드로도 막는다.
+const NO_DETOUR={SRC_PROTECTED:'보호된(암호화된) 영상이라 처리를 중단했습니다. Summrizei는 보호 장치를 우회하지 않으며, 이 강의는 지원하지 않습니다.',SRC_DRM:'DRM으로 보호된 영상이라 처리를 중단했습니다. Summrizei는 보호 장치를 우회하지 않으며, 이 강의는 지원하지 않습니다.'};
 function bgDoneView(d){
-  if(d.status==='done')return {text:'이미 노트를 만든 강의입니다. 옵션을 변경하여 다시 만들 수 있습니다.',make:!!d.packageId}; // BG_RUN already — 저장된 자료로 다시 만들 수 있다
+  if(d.status==='done')return {text:'이미 노트를 만든 강의입니다.'}; // BG_RUN already — 새로 돌리지 않는다. 다시 만들기는 공용 완료 화면(showBgDone)이 맡는다
   if(['complete','partial'].includes(d.status))return {text:[`노트 준비됨${d.status==='partial'?' (일부 섹션 제외)':''} · 슬라이드 ${d.stats?.slides??'-'} · 음성 구간 ${d.stats?.chunks??'-'}`,...bgNoticeLines(d.notices)].join('\n')}; // 저장 안내는 공용 저장 상자(renderSaved)가 단다
   if(d.status==='cancelled')return {text:'백그라운드 처리를 취소했습니다.'};
+  if(NO_DETOUR[d.code])return {text:NO_DETOUR[d.code]}; // 엔진 문구·suggest 와 무관하게 중단만 알린다
   const text=d.message||`백그라운드 처리를 마치지 못했습니다. 같은 문제가 반복되면 메뉴의 고객지원으로 문의해 주세요.${d.code?` (코드: ${d.code})`:''}`;
   if(d.status==='paused'){
     if(d.code==='CONSENT_SUMMARY_REQUIRED')return {text:'인식을 마쳤습니다. 노트를 만들려면 외부 요약 처리에 동의하세요.',make:!!d.packageId}; // 재시도가 아니라 동의 후 이어 만든다
@@ -371,6 +410,7 @@ async function bgStart(jobId=null,source=null){
   if(source)await ensureFolder();
   const tab=tabs.find(t=>String(t.id)===els.tabSelect.value);
   bg={jobId,source};if(bgEl.bgSave)bgEl.bgSave.hidden=true; // 지난 작업의 저장 안내를 새 작업에 남기지 않는다
+  bgEl.bgLecture.textContent=tab?.title||'';bgEl.bgLecture.hidden=!tab?.title;
   if(!tab){bgShow({text:'선택한 강의 탭이 없습니다. 강의 창에서 확장을 다시 여세요.'});return;}
   if(YOUTUBE.test(new URL(tab.url).hostname)){bgShow({text:YT_MSG});return;}
   if(!bgConsented()){settings=await loadSettings();if(!bgConsented()){bgShow({text:'백그라운드 처리에는 이용 동의 2종과 클라우드 인식(화면·음성 전송) 동의가 필요합니다.',consent:true});return;}}
@@ -393,26 +433,32 @@ async function bgStart(jobId=null,source=null){
   else if(r.already&&r.state==='done'){bgStopClock();bgShow({text:'이미 노트를 만든 강의입니다.'});} // 저장 상자는 곧 오는 BG_DONE이 그린다
   else if(r.already)bgShow({text:'이전에 처리한 강의입니다. 인식 결과를 다시 쓰고 이어서 노트를 만듭니다.',busy:true,cancel:true});
 }
-// 패널을 열 때: 유료 계정이면 카드를 실시간 캡처 블록 위의 주 경로로 옮기고(bgLayout), 끝나지 않은 작업이 있으면 알린다(이어 하기는 같은 jobId로 BG_RUN).
+// 패널을 열 때: 유료 계정이면 백그라운드 생성 카드를 열고(bgPaid), 진행 중인 작업이 있으면 그 화면으로 바로 돌아오며, 멈춘 작업은 방식 카드에 '이어 할 작업'으로 알린다(이어 하기는 같은 jobId로 BG_RUN).
 async function bgInit(){
   if(!settings?.serviceUrl||!(settings.authSession||settings.appSessionToken))return;
   const r=await rpc({type:'BG_LIST'});
   if(!r.ok||!r.background)return;
   bgEl.bgBox.hidden=false;
-  bgLayout(true);
+  bgPaid=true;
   bgTabCheck();
   const open=r.jobs.find(j=>j.running)||r.jobs[0];
+  bgPending=!!open&&!open.running;
+  paintReady();
   if(!open)return;
   bg={jobId:open.jobId,code:open.code};
-  if(open.running){bgRunShow(open.state);return;}
+  if(open.running){readyView='prep';readyMode='bg';bgRunShow(open.state);return;} // 패널을 다시 열면 진행 중인 작업 화면으로 바로 돌아온다
   const reason=bgReason(open.code);
   bgShow({text:`이어서 처리할 작업이 있습니다: ${BG_STATE[open.state]||({paused:'일시정지',failed:'중단'})[open.state]||'처리 중'}${reason?` — ${reason}`:''}`,retry:true,discard:true});
 }
-// 유료는 백그라운드가 주 경로: 카드를 준비 화면 맨 위(실시간 캡처 블록보다 위)로 옮기고 주 버튼으로 만든다. 로그아웃하면 원래 자리(stageReady 맨 끝)로 되돌린다.
-function bgLayout(paid){
-  if(paid){els.stageReady.insertBefore(bgEl.bgBox,els.stageReady.children[0]||null);bgEl.bgBtn.className='primary';els.startBtn.textContent='실시간으로 캡처';els.startBtn.className='';}
-  else{els.stageReady.append(bgEl.bgBox);bgEl.bgBtn.className='';els.startBtn.textContent='캡처 시작';els.startBtn.className='primary';bgEl.bgBox.hidden=true;}
+// 백그라운드 완료는 실시간 캡처와 같은 완료 화면을 쓴다: 세션이 없으니 BG_DONE 의 요약만 담은 상태(bg:true)를 만들어 render 한다.
+// bg 상태는 세션 RPC(DISPOSE_SESSION 등)를 보내지 않는다. generation -1 이라 이후 진짜 세션 상태가 오면 그것이 이긴다.
+function showBgDone(m){
+  state={bg:true,sessionId:null,generation:-1,status:'completed',counts:{visual:0,audio:0},backlog:{images:0,audio:0},recent:[],gaps:[],debug:[],stats:m.stats||null,
+    summary:{version:2,packageId:m.packageId,status:m.status==='done'?'complete':m.status,note:{},recognition:null,saved:m.saved??null,notices:m.notices||[]}};
+  render(state);
 }
+// 완료 화면에서 다른 강의를 만들러 나갈 때: 백그라운드 카드의 지난 결말·저장 안내를 비운다.
+function bgReset(){bg=null;bgStopClock();bgShow({text:''});bgEl.bgLecture.hidden=true;renderSaved(bgEl.bgSave,null,null);}
 // 선택한 탭이 YouTube 계열이면 클릭 전부터 막는다 — 달리는 작업(bgBusy)의 진행 문구는 덮지 않는다.
 function bgTabCheck(){
   const tab=tabs.find(t=>String(t.id)===els.tabSelect.value);
@@ -420,11 +466,12 @@ function bgTabCheck(){
   if(bgYt&&!bgBusy)bgEl.bgStatus.textContent=YT_MSG;
   else if(!bgYt&&bgEl.bgStatus.textContent===YT_MSG)bgEl.bgStatus.textContent='';
   bgEl.bgBtn.disabled=bgYt||bgBusy;
+  paintPrepExtra();
 }
 bgEl.bgBtn.addEventListener('click',()=>bgStart());
 bgEl.bgRetryBtn.addEventListener('click',()=>bgStart(bg?.jobId,bg?.code==='SRC_AUTH_EXPIRED'?null:bg?.source)); // 로그인 세션이 만료됐다면 강의 탭을 다시 연 뒤라 주소가 바뀌었을 수 있다
 bgEl.bgCancelBtn.addEventListener('click',async()=>{bgShow({text:'취소하는 중…',busy:true});await rpc({type:'BG_CANCEL'});});
-bgEl.bgLiveBtn.addEventListener('click',start); // 실시간 모드로 가는 유일한 길: 사용자의 클릭
+bgEl.bgLiveBtn.addEventListener('click',()=>showPrep('live')); // 실시간 캡처 설정 화면으로 옮길 뿐 시작하지 않는다 — 시작은 거기서 사용자가 캡처 시작을 눌러야 한다
 // 필수 동의가 빠졌을 때: 동의 단계를 열고, 동의가 끝났으면 같은 작업으로 이어서 시작한다.
 bgEl.bgConsentBtn.addEventListener('click',async()=>{
   bgEl.bgConsentBtn.disabled=true;
@@ -465,6 +512,7 @@ chrome.runtime.onMessage.addListener((message,sender)=>{try{
     bgStopClock();
     bgShow(bgDoneView(message));
     renderSaved(bgEl.bgSave,['complete','partial','done'].includes(message.status)?message.saved||null:null,message.packageId);
+    if(['complete','partial','done'].includes(message.status)&&message.packageId)showBgDone(message);
   }
 }catch{}});
 (async()=>{rpc({type:'PANEL_OPENED'});settings=await loadSettings();els.ocrEnabledToggle.checked=settings.ocrEnabled!==false;els.whisperEnabledToggle.checked=settings.whisperEnabled!==false;els.langSelect.value=settings.whisperLang||'auto';await loadTabs();const result=await action('GET_STATE');const ob=await obCheck();const steps=onboardingSteps(settings,ob.session,ob.plan,ob.folder);if(steps.length)openOnboarding(steps);els.obWhisper.checked=!!settings.whisperEnabled;els.genSynthetic.checked=settings.noteOptions?.syntheticExamples===true;els.genAugment.checked=settings.noteOptions?.externalAugmentation===true;render(result?.state||null);updateReadyCard();bgInit();})().catch(error=>setError(error.message));
@@ -510,7 +558,7 @@ menuBtn.addEventListener('click',()=>menu.hidden?openMenu():closeMenu(true));
 menu.addEventListener('click',async e=>{
   const b=e.target.closest('[role=menuitem]');if(!b)return;
   const{path,href,act}=b.dataset;
-  if(act==='logout'){try{await Account.signOut();renderHead(null);amErrShow('');menuItems()[0]?.focus();await obCheck();bg=null;bgLayout(false);render(state);}catch{amErrShow('로그아웃하지 못했습니다.');}return;}
+  if(act==='logout'){try{await Account.signOut();renderHead(null);amErrShow('');menuItems()[0]?.focus();await obCheck();bg=null;bgPaid=false;bgPending=false;bgEl.bgBox.hidden=true;paintReady();render(state);}catch{amErrShow('로그아웃하지 못했습니다.');}return;}
   closeMenu(true);
   if(act==='options')chrome.runtime.openOptionsPage();else chrome.tabs.create({url:href||Account.SITE+path});
 });
