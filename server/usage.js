@@ -21,23 +21,51 @@ function fileUsage({state,record,save,month,globalCents}){
       }
       save();
     }};
+  },
+  // 로컬 결과 캐시 hit/miss 의 콘텐츠 없는 run 집계(POST /v1/runs). 청구 정산 근거가 아니다 — jobId 마다 마지막 값만 남긴다.
+  async recordRun({account,report}){
+    const rec=record(account);(rec.runs??={})[report.jobId]={hits:report.cacheHits,misses:report.cacheMisses,rerun:report.rerun};
+    const keys=Object.keys(rec.runs);if(keys.length>500)delete rec.runs[keys[0]];
+    try{save();}catch{throw new Error("usage_store_failed");}
   }};
 }
 // 메타데이터는 usage_events 의 CHECK 와 같은 모양만 보낸다. 클라이언트가 고른 값(x-client-version)이나 설정 문자열이 모양을 어겨도
 // 정산 RPC 전체가 거절되어 예약이 열린 채 남는 일이 없게, 어긋난 값은 null 로 바꾼다. 자유 텍스트는 어떤 칸으로도 나가지 않는다.
 const text=(re,v)=>typeof v==="string"&&re.test(v)?v:null;
 const count=v=>Number.isInteger(v)&&v>=0&&v<=2147483647?v:null;
-const SHAPE={stage:/^[a-z][a-z0-9_.-]{0,31}$/,provider:/^[a-z][a-z0-9_.-]{0,31}$/,model:/^[A-Za-z0-9][A-Za-z0-9_./:@-]{0,95}$/,version:/^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$/,error:/^[a-z][a-z0-9_.-]{0,63}$/,client:/^[0-9A-Za-z][0-9A-Za-z._+-]{0,31}$/,job:/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/,host:/^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/,subject:/^[a-z][a-z0-9_]{0,31}$/};
+const micros=v=>Number.isFinite(v)&&v>=0?Math.ceil(v*1e6):null;
+const SHAPE={stage:/^[a-z][a-z0-9_.-]{0,31}$/,provider:/^[a-z][a-z0-9_.-]{0,31}$/,model:/^[A-Za-z0-9][A-Za-z0-9_./:@-]{0,95}$/,version:/^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$/,error:/^[a-z][a-z0-9_.-]{0,63}$/,client:/^[0-9A-Za-z][0-9A-Za-z._+-]{0,31}$/,job:/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/,host:/^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/,subject:/^[a-z][a-z0-9_]{0,31}$/,attempt:/^a[0-9]{1,4}$/};
+const CACHE_KIND=["local_result","provider_prompt"],CACHE_STATUS=["hit","miss","unknown","not_applicable"],
+  COST_STATUS=["provider_reported","estimated","unreported","not_applicable"],en=(list,v)=>list.includes(v)?v:null;
+// 요청 안 제공자 HTTP 호출 하나의 기록(usage_attempts 행과 같은 칸 이름). 모양을 어긴 시도는 통째로 버린다.
+function attemptRow(promptCache){
+  return a=>{
+    if(a===null||typeof a!=="object"||!SHAPE.attempt.test(a.id))return null;
+    const cached=count(a.cachedInputTokens);
+    return {attempt_id:a.id,status:a.status==="error"?"error":"ok",error_code:text(SHAPE.error,a.error),
+      input_tokens:count(a.inputTokens),output_tokens:count(a.outputTokens),cached_input_tokens:cached,cache_write_tokens:count(a.cacheWriteTokens),
+      provider_reported_cost_micros:micros(a.providerReportedCost),cost_status:en(COST_STATUS,a.costStatus),
+      cache_status:promptCache?(cached===null?"unknown":cached>0?"hit":"miss"):"not_applicable",latency_ms:count(Math.round(a.latencyMs))};
+  };
+}
 function eventFields(status,m){
   const used=status!=="refunded",seconds=Number.isFinite(m.audioSeconds)&&m.audioSeconds>=0&&m.audioSeconds<1e7?Math.round(m.audioSeconds*100)/100:null,
-    lecture=Number.isFinite(m.lectureSeconds)&&m.lectureSeconds>=0&&m.lectureSeconds<1e7?Math.round(m.lectureSeconds*100)/100:null;
+    lecture=Number.isFinite(m.lectureSeconds)&&m.lectureSeconds>=0&&m.lectureSeconds<1e7?Math.round(m.lectureSeconds*100)/100:null,
+    cacheKind=en(CACHE_KIND,m.cacheKind),attempts=Array.isArray(m.attempts)?m.attempts.slice(0,64).map(attemptRow(cacheKind==="provider_prompt")).filter(Boolean):[];
   return {p_stage:text(SHAPE.stage,m.stage)||"unknown",p_provider:text(SHAPE.provider,m.provider),p_model:text(SHAPE.model,m.model),
     p_input_tokens:used?count(m.inputTokens):null,p_output_tokens:used?count(m.outputTokens):null,p_audio_seconds:used?seconds:null,p_images:used?count(m.images):null,
     p_prompt_version:text(SHAPE.version,m.promptVersion),p_schema_version:count(m.schemaVersion),p_error_code:text(SHAPE.error,m.errorCode),
     p_latency_ms:count(Math.round(m.latencyMs)),p_client_version:text(SHAPE.client,m.clientVersion),p_host:text(SHAPE.host,m.host),
     // subject 는 plan 단계의 Jev 분야 분류 결과다 — 못 정하면(실패·건너뜀) 둘 다 null 이다.
     p_job_id:text(SHAPE.job,m.jobId),p_lecture_seconds:lecture,p_slides:count(m.slides),
-    p_subject:text(SHAPE.subject,m.subject),p_subject_conf:Number.isFinite(m.subjectConf)&&m.subjectConf>=0&&m.subjectConf<=1?Math.round(m.subjectConf*1e4)/1e4:null};
+    p_subject:text(SHAPE.subject,m.subject),p_subject_conf:Number.isFinite(m.subjectConf)&&m.subjectConf>=0&&m.subjectConf<=1?Math.round(m.subjectConf*1e4)/1e4:null,
+    // 논리 작업·시도·캐시·비용 보고: logical_task_id 는 클라이언트 재시도(-rN)를 묶는 기준 id, attempt_id 는 이 요청의 마지막 제공자 호출 번호.
+    // 미보고 캐시 토큰은 null 로 보존해 보고된 0(miss)과 구분한다. 시도별 상세는 p_attempts(usage_attempts)에 간다.
+    p_logical_task_id:text(SHAPE.job,m.logicalTaskId),p_attempt_id:text(SHAPE.attempt,m.attemptId),
+    p_cache_kind:cacheKind,p_cache_status:en(CACHE_STATUS,m.cacheStatus),
+    p_cached_input_tokens:used?count(m.cachedInputTokens):null,p_cache_write_tokens:used?count(m.cacheWriteTokens):null,
+    p_provider_reported_cost_micros:used?micros(m.providerReportedCost):null,p_cost_status:en(COST_STATUS,m.costStatus),
+    p_policy_version:text(SHAPE.version,m.policyVersion),p_attempts:attempts};
 }
 // http(url,init,parse=true): 한도 있는 fetch → 파싱한 JSON. HTTP 오류와 시간 초과는 throw 한다.
 function supabaseUsage({url,key,http}){
@@ -66,6 +94,14 @@ function supabaseUsage({url,key,http}){
     // ③ 의 404 는 이미 없다는 뜻이라 성공으로 센다(응답을 잃은 뒤의 재시도). 본문을 읽지 않으므로 다른 404 와는 구별하지 못한다.
     deleteData:user=>rpc("delete_account_data",{p_user:user}),
     async deleteAuthUser(user){try{await http(url+"/auth/v1/admin/users/"+user,{method:"DELETE",headers:auth},false);}catch(e){if(e?.status!==404)throw e;}},
+    // 로컬 결과 캐시 hit/miss 의 콘텐츠 없는 run 집계(POST /v1/runs → run_reports). 청구 정산 근거가 아니다.
+    // 같은 jobId 의 두 번째 보고는 무시한다(재전송·중복 수신에도 한 줄).
+    async recordRun({account,report}){
+      const res=await http(url+"/rest/v1/run_reports?on_conflict=user_id,job_id",{method:"POST",
+        headers:{...auth,"content-type":"application/json",prefer:"resolution=ignore-duplicates,return=minimal"},
+        body:JSON.stringify([{user_id:account,job_id:report.jobId,cache_kind:"local_result",cache_hits:report.cacheHits,cache_misses:report.cacheMisses,rerun:report.rerun,client_version:report.clientVersion??null}])},false);
+      return res?.ok===true;
+    },
     // /v1/me 의 한도 조회. plans·monthly_usage 직접 조회다(schema-v2.sql 의 service_role 권한).
     async quota(user,plan,monthStart){
       const q=name=>http(url+"/rest/v1/"+name,{headers:auth});

@@ -169,6 +169,59 @@ alter table usage_events add column if not exists slides int check (slides >= 0)
 alter table usage_events add column if not exists subject text check (subject ~ '^[a-z][a-z0-9_]{0,31}$');
 alter table usage_events add column if not exists subject_conf numeric(5, 4) check (subject_conf between 0 and 1);
 
+-- 논리 작업·시도·캐시·비용 보고(§7). 이미 만든 DB를 위해 alter로 둔다. 요청 행은 요청 합계만 싣고
+-- 시도별 상세는 usage_attempts 에 간다 — 요청 합계를 두 번 세지 않는다. 미보고는 null 이다(보고된 0 과 구분).
+alter table usage_events add column if not exists logical_task_id text check (logical_task_id ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$');  -- 클라이언트 재시도(-rN)를 묶는 기준 id
+alter table usage_events add column if not exists attempt_id text check (attempt_id ~ '^[a-z][a-z0-9_-]{0,31}$');                  -- 이 요청의 마지막 제공자 호출 번호(a0 첫 호출)
+alter table usage_events add column if not exists cache_kind text check (cache_kind in ('local_result', 'provider_prompt'));
+alter table usage_events add column if not exists cache_status text check (cache_status in ('hit', 'miss', 'unknown', 'not_applicable'));
+alter table usage_events add column if not exists cached_input_tokens int check (cached_input_tokens >= 0);
+alter table usage_events add column if not exists cache_write_tokens int check (cache_write_tokens >= 0);
+alter table usage_events add column if not exists provider_reported_cost_micros bigint check (provider_reported_cost_micros >= 0); -- 제공자가 보고한 비용만(추정 아님). null = 미보고
+alter table usage_events add column if not exists cost_status text check (cost_status in ('provider_reported', 'estimated', 'unreported', 'not_applicable'));
+alter table usage_events add column if not exists policy_version text check (policy_version ~ '^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$');
+
+-- 한 클라이언트 요청 안의 제공자 HTTP 호출을 시도마다 한 줄로 남긴다(HTTP 내부 재시도·판정 청크 포함).
+-- 청구 합계·오류율은 요청 단위 usage_events 만 본다 — 이 표는 시도별 캐시·비용 보고 상세다.
+create table if not exists usage_attempts (
+  id bigint generated always as identity primary key,
+  user_id uuid references auth.users(id) on delete set null,
+  request_id text not null check (request_id ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$'),
+  attempt_id text not null check (attempt_id ~ '^[a-z][a-z0-9_-]{0,31}$'),
+  stage text not null check (stage ~ '^[a-z][a-z0-9_.-]{0,31}$'),
+  provider text check (provider ~ '^[a-z][a-z0-9_.-]{0,31}$'),
+  model text check (model ~ '^[A-Za-z0-9][A-Za-z0-9_./:@-]{0,95}$'),
+  input_tokens int check (input_tokens >= 0),
+  output_tokens int check (output_tokens >= 0),
+  cached_input_tokens int check (cached_input_tokens >= 0),    -- 제공자 미보고는 null, 보고된 0(miss)과 구분
+  cache_write_tokens int check (cache_write_tokens >= 0),
+  provider_reported_cost_micros bigint check (provider_reported_cost_micros >= 0),
+  cost_status text check (cost_status in ('provider_reported', 'estimated', 'unreported', 'not_applicable')),
+  cache_kind text check (cache_kind in ('local_result', 'provider_prompt')),
+  cache_status text not null check (cache_status in ('hit', 'miss', 'unknown', 'not_applicable')),
+  status text not null check (status in ('ok', 'error')),
+  error_code text check (error_code ~ '^[a-z][a-z0-9_.-]{0,63}$'),
+  latency_ms int check (latency_ms >= 0),
+  created_at timestamptz not null default now(),
+  unique (user_id, request_id, attempt_id)
+);
+create index if not exists usage_attempts_request_idx on usage_attempts (request_id);
+
+-- 로컬 결과 캐시 집계(POST /v1/runs): 클라이언트가 run 끝에 한 번 보내는 콘텐츠 없는 수치.
+-- 공급자 호출이 없어 usage_events 에는 안 보이는 로컬 캐시 적중을 관측한다. 청구 정산 근거로는 쓰지 않는다.
+create table if not exists run_reports (
+  id bigint generated always as identity primary key,
+  user_id uuid references auth.users(id) on delete set null,
+  job_id text not null check (job_id ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$'),
+  cache_kind text not null check (cache_kind in ('local_result', 'provider_prompt')),
+  cache_hits int not null check (cache_hits >= 0),
+  cache_misses int not null check (cache_misses >= 0),
+  rerun int not null default 0 check (rerun >= 0),
+  client_version text check (client_version ~ '^[0-9A-Za-z][0-9A-Za-z._+-]{0,31}$'),
+  created_at timestamptz not null default now()
+);
+create unique index if not exists run_reports_job_idx on run_reports (user_id, job_id);
+
 -- 추가 전용 강제. service_role은 RLS를 우회하므로 권한만으로는 UPDATE/DELETE를 막지 못해 트리거로 막는다.
 -- 허용하는 변경은 하나뿐이다: user_id → null(계정 삭제 비식별화, FK의 on delete set null 포함).
 -- 13개월 보존 정리(§9)를 만들 때는 이 가드를 함께 고친다.
@@ -188,6 +241,13 @@ end;
 $$;
 drop trigger if exists usage_events_guard on usage_events;
 create trigger usage_events_guard before update or delete on usage_events
+  for each row execute function usage_events_guard();
+-- 시도·run 집계 표도 같은 추가 전용 규칙이다(user_id → null 비식별화만 허용).
+drop trigger if exists usage_attempts_guard on usage_attempts;
+create trigger usage_attempts_guard before update or delete on usage_attempts
+  for each row execute function usage_events_guard();
+drop trigger if exists run_reports_guard on run_reports;
+create trigger run_reports_guard before update or delete on run_reports
   for each row execute function usage_events_guard();
 
 -- 시험 기간 달력(한국 학기 기준). KST 날짜를 넣으면 midterm/final/vacation/semester 를 돌려준다.
@@ -302,6 +362,8 @@ alter table entitlements enable row level security;
 alter table monthly_usage enable row level security;
 alter table usage_reservations enable row level security;
 alter table usage_events enable row level security;
+alter table usage_attempts enable row level security;
+alter table run_reports enable row level security;
 alter table vault_objects enable row level security;
 alter table library_keys enable row level security;
 alter table feedback enable row level security;
@@ -311,7 +373,7 @@ alter table provider_slots enable row level security;
 -- 서버(service_role)는 RLS를 우회하지만 테이블 권한은 따로 필요하다. 플랫폼의 기본 권한에 기대지 않고 명시한다
 -- (보관함 목록·프로필 upsert·피드백 기록·/v1/me의 한도 조회가 직접 접근이다). anon/authenticated에는 주지 않는다.
 grant select, insert, update, delete on plans, global_caps, global_usage, profiles, entitlements, monthly_usage,
-  usage_reservations, usage_events, vault_objects, library_keys, feedback, provider_slots to service_role;
+  usage_reservations, usage_events, usage_attempts, run_reports, vault_objects, library_keys, feedback, provider_slots to service_role;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 5. 함수
@@ -433,6 +495,7 @@ $$;
 --   p_status = 'refunded'     : 공급자에 아무것도 보내지 않았다. 예약을 풀고(요청 수·분 포함) 예약 행을 지운다.
 -- 같은 요청의 두 번째 정산은 원장에 아무것도 쓰지 않고 already_settled를 돌려준다.
 drop function if exists settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text);
+drop function if exists settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text, numeric, int, text, numeric);
 create or replace function settle_usage(
   p_user uuid,
   p_request_id text,
@@ -455,7 +518,17 @@ create or replace function settle_usage(
   p_lecture_seconds numeric default null,
   p_slides int default null,
   p_subject text default null,
-  p_subject_conf numeric default null
+  p_subject_conf numeric default null,
+  p_logical_task_id text default null,     -- 클라이언트 재시도(-rN)를 묶는 기준 id
+  p_attempt_id text default null,          -- 이 요청의 마지막 제공자 호출 번호
+  p_cache_kind text default null,
+  p_cache_status text default null,
+  p_cached_input_tokens int default null,  -- null = 제공자 미보고(보고된 0 과 구분)
+  p_cache_write_tokens int default null,
+  p_provider_reported_cost_micros bigint default null,
+  p_cost_status text default null,
+  p_policy_version text default null,
+  p_attempts jsonb default '[]'::jsonb     -- 시도별 상세(HTTP 내부 재시도 포함) → usage_attempts
 )
 returns text
 language plpgsql
@@ -519,13 +592,37 @@ begin
   insert into usage_events (
     user_id, job_id, request_id, stage, provider, model, input_tokens, output_tokens, audio_seconds, images,
     cost_micros, cost_reported, prompt_version, schema_version, status, error_code, latency_ms, client_version, host,
-    lecture_seconds, slides, subject, subject_conf
+    lecture_seconds, slides, subject, subject_conf,
+    logical_task_id, attempt_id, cache_kind, cache_status, cached_input_tokens, cache_write_tokens,
+    provider_reported_cost_micros, cost_status, policy_version
   ) values (
     p_user, p_job_id, p_request_id, p_stage, p_provider, p_model, p_input_tokens, p_output_tokens, p_audio_seconds, p_images,
     v_charged, v_refund or p_actual_cost_micros is not null, p_prompt_version, p_schema_version, p_status, p_error_code,
     p_latency_ms, p_client_version, p_host,
-    p_lecture_seconds, p_slides, p_subject, p_subject_conf
+    p_lecture_seconds, p_slides, p_subject, p_subject_conf,
+    p_logical_task_id, p_attempt_id, p_cache_kind, p_cache_status, p_cached_input_tokens, p_cache_write_tokens,
+    p_provider_reported_cost_micros, p_cost_status, p_policy_version
   );
+
+  -- 시도별 상세(HTTP 내부 재시도·판정 청크). 요청 합계는 위 usage_events 행에만 두고 여기는 상세라 중복 집계하지 않는다.
+  -- 같은 정산을 다시 부르면 위에서 already_settled 로 나가므로 여기까지 오지 않는다 — unique + do nothing 은 그래도 둔다.
+  if jsonb_typeof(p_attempts) = 'array' then
+    insert into usage_attempts (
+      user_id, request_id, attempt_id, stage, provider, model,
+      input_tokens, output_tokens, cached_input_tokens, cache_write_tokens,
+      provider_reported_cost_micros, cost_status, cache_kind, cache_status, status, error_code, latency_ms
+    )
+    select p_user, p_request_id, a ->> 'attempt_id', p_stage, p_provider, p_model,
+           (a ->> 'input_tokens')::int, (a ->> 'output_tokens')::int,
+           (a ->> 'cached_input_tokens')::int, (a ->> 'cache_write_tokens')::int,
+           (a ->> 'provider_reported_cost_micros')::bigint,
+           a ->> 'cost_status', p_cache_kind,
+           coalesce(a ->> 'cache_status', 'unknown'), coalesce(a ->> 'status', 'ok'),
+           a ->> 'error_code', (a ->> 'latency_ms')::int
+    from jsonb_array_elements(p_attempts) a
+    where a ->> 'attempt_id' ~ '^a[0-9]{1,4}$'
+    on conflict (user_id, request_id, attempt_id) do nothing;
+  end if;
 
   return case when v_refund then 'refunded' else 'settled' end;
 end;
@@ -561,6 +658,12 @@ begin
                coalesce(sum(cost_micros), 0)::bigint as cost_micros,
                coalesce(sum(input_tokens), 0)::bigint as input_tokens,
                coalesce(sum(output_tokens), 0)::bigint as output_tokens,
+               coalesce(sum(cached_input_tokens), 0)::bigint as cached_input_tokens,
+               coalesce(sum(cache_write_tokens), 0)::bigint as cache_write_tokens,
+               count(*) filter (where cached_input_tokens is null) as cache_unreported,
+               -- 토큰 캐시 hit ratio: 보고 가능한 호출(캐시 수치가 있는 행)만 분모에 둔다 — 미보고는 분모에서 빼고 따로 센다.
+               round(sum(cached_input_tokens)::numeric
+                     / nullif(sum(input_tokens) filter (where cached_input_tokens is not null), 0), 4) as token_cache_hit_ratio,
                count(*) filter (where status = 'error') as errors,
                count(*) filter (where status = 'refunded') as refunds,
                round(count(*) filter (where status = 'error')::numeric
@@ -648,6 +751,8 @@ declare
   n_entitlements int;
   n_profiles int;
   n_events int;
+  n_attempts int;
+  n_runs int;
 begin
   if p_user is null then
     raise exception 'invalid_user' using errcode = '22023';
@@ -673,6 +778,10 @@ begin
   -- 가드 트리거가 허용하는 유일한 변경이다.
   update usage_events set user_id = null where user_id = p_user;
   get diagnostics n_events = row_count;
+  update usage_attempts set user_id = null where user_id = p_user;
+  get diagnostics n_attempts = row_count;
+  update run_reports set user_id = null where user_id = p_user;
+  get diagnostics n_runs = row_count;
 
   return json_build_object(
     'usage_reservations', n_reservations,
@@ -681,7 +790,9 @@ begin
     'vault_objects', n_vault,
     'entitlements', n_entitlements,
     'profiles', n_profiles,
-    'usage_events_deidentified', n_events
+    'usage_events_deidentified', n_events,
+    'usage_attempts_deidentified', n_attempts,
+    'run_reports_deidentified', n_runs
   );
 end;
 $$;
@@ -851,7 +962,7 @@ $$;
 -- 서버 전용 함수는 셋 중 service_role만 남기고, 어드민 함수는 schema.sql과 같이 authenticated(+is_admin 게이트)만 연다.
 revoke all on function effective_plan(uuid, timestamptz) from public, anon, authenticated;
 revoke all on function reserve_usage(uuid, text, text, bigint, date, int) from public, anon, authenticated;
-revoke all on function settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text, numeric, int, text, numeric) from public, anon, authenticated;
+revoke all on function settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text, numeric, int, text, numeric, text, text, text, text, int, int, bigint, text, text, jsonb) from public, anon, authenticated;
 revoke all on function delete_account_data(uuid) from public, anon, authenticated;
 revoke all on function acquire_provider_slot(text, int, int) from public, anon, authenticated;
 revoke all on function release_provider_slot(uuid) from public, anon, authenticated;
@@ -859,7 +970,7 @@ revoke all on function admin_usage(int) from public, anon;
 revoke all on function admin_grant_plan(uuid, text, timestamptz, timestamptz) from public, anon;
 grant execute on function effective_plan(uuid, timestamptz) to service_role;
 grant execute on function reserve_usage(uuid, text, text, bigint, date, int) to service_role;
-grant execute on function settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text, numeric, int, text, numeric) to service_role;
+grant execute on function settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text, numeric, int, text, numeric, text, text, text, text, int, int, bigint, text, text, jsonb) to service_role;
 grant execute on function delete_account_data(uuid) to service_role;
 grant execute on function acquire_provider_slot(text, int, int) to service_role;
 grant execute on function release_provider_slot(uuid) to service_role;
@@ -962,7 +1073,7 @@ declare
   f regprocedure;
 begin
   foreach t in array array['plans', 'global_caps', 'global_usage', 'profiles', 'entitlements', 'monthly_usage',
-                           'usage_reservations', 'usage_events', 'vault_objects', 'feedback', 'billing_events', 'provider_slots'] loop
+                           'usage_reservations', 'usage_events', 'usage_attempts', 'run_reports', 'vault_objects', 'feedback', 'billing_events', 'provider_slots'] loop
     if not (select relrowsecurity from pg_class where oid = ('public.' || t)::regclass) then
       raise exception 'FAIL: % 의 RLS가 꺼져 있다', t;
     end if;
@@ -974,7 +1085,7 @@ begin
   foreach f in array array[
     'effective_plan(uuid, timestamptz)'::regprocedure,
     'reserve_usage(uuid, text, text, bigint, date, int)'::regprocedure,
-    'settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text, numeric, int, text, numeric)'::regprocedure,
+    'settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text, numeric, int, text, numeric, text, text, text, text, int, int, bigint, text, text, jsonb)'::regprocedure,
     'delete_account_data(uuid)'::regprocedure,
     'apply_billing_event(text, text, uuid, text, boolean, text, timestamptz, timestamptz, text, integer, text, integer, timestamptz)'::regprocedure,
     'acquire_provider_slot(text, int, int)'::regprocedure,

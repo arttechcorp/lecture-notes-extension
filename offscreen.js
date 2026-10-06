@@ -69,12 +69,15 @@ async function paintMasks(blob,boxes){
 // writeAlt(대체 작성 모델, 다른 제공자)는 목록에 있을 때만 — 없으면 실패한 부분은 대체 없이 빠진다.
 const noteModels=me=>{const ms=Array.isArray(me?.models)?me.models:[],pick=m=>ms.includes(m)?m:ms[0];return {plan:pick(BG_MODELS.plan),write:pick(BG_MODELS.write),writeAlt:ms.includes(BG_MODELS.writeAlt)?BG_MODELS.writeAlt:null,judge:(me?.features||[]).includes("judge")?BG_MODELS.judge:null};};
 // GENERATE_NOTES·LIB_REGENERATE 가 같은 모양으로 runNote 를 부른다 — /v1/me 와 서비스 묶음을 한 곳에서 만든다. 토큰은 매 서비스 호출마다 새로 받는다.
+// deps(signal, me, stats): /v1/me 의 작업별 서버 프롬프트 버전을 단계·호출 캐시 키에 넣고, 로컬 캐시 적중 수를 stats 에 모아 run 끝에 한 번 보고한다.
 const noteService=settings=>{
   const config=settingsOf(settings),token=()=>tokenProvider(config.appSessionToken,config.serviceUrl);
   const svc=name=>async o=>ServiceClient[name]({baseUrl:config.serviceUrl,token:await token(),...o});
   return {
     me:async signal=>ServiceClient.me({baseUrl:config.serviceUrl,token:await token(),timeoutMs:15000,signal}),
-    deps:signal=>({service:{plan:svc("plan"),write:svc("write"),judge:svc("judge")},katex,events,signal,sleep:ms=>new Promise(r=>setTimeout(r,ms))}),
+    deps:(signal,me,stats)=>({service:{plan:svc("plan"),write:svc("write"),judge:svc("judge")},katex,events,signal,sleep:ms=>new Promise(r=>setTimeout(r,ms)),promptVersions:me?.promptVersions??null,cacheStats:stats??null}),
+    // 로컬 결과 캐시 적중은 서버 원장에 안 보인다 — 내용 없는 수치(jobId·hit/miss·rerun 번호)만 모아 보낸다. 실패해도 노트 흐름을 막지 않는다.
+    report:async(jobId,rerun,stats)=>{try{await ServiceClient.reportRun({baseUrl:config.serviceUrl,token:await token(),jobId,cacheHits:stats?.hits??0,cacheMisses:stats?.misses??0,rerun});}catch{}},
   };
 };
 const hostOf=url=>{try{return new URL(url).hostname;}catch{return null;}};
@@ -238,7 +241,9 @@ async function bgJob(job,source,settings,me,ctl){
       stt:{stt:svc("stt")},settings,features:me,models:{...BG_MODELS,...noteModels(me),judge:BG_MODELS.judge},signal:ctl.signal,crop:cropRegions,options:settingsOf(settings).noteOptions,
       // 끝나면(인식 결과만 있어도) 로컬 보관함에 둔다. 저장 실패는 노트를 잃게 하지 않도록 코드만 남기고 결말은 그대로 알린다.
       runNote:async(j,input,o)=>{
-        const res=await NoteStages.runNote(j,input,{...o,service:{plan:svc("plan"),write:svc("write"),judge:svc("judge")},katex});
+        const stats={hits:0,misses:0};
+        const res=await NoteStages.runNote(j,input,{...o,service:{plan:svc("plan"),write:svc("write"),judge:svc("judge")},katex,promptVersions:me?.promptVersions??null,cacheStats:stats});
+        try{await ServiceClient.reportRun({baseUrl:base,token:await token(),jobId:j.jobId,cacheHits:stats.hits,cacheMisses:stats.misses,rerun:input?.rerun??0});}catch{}
         const saved=["complete","partial","recognition-only"].includes(res.status)?await saveLibrary(j.packageId,input,res,{source:"background",host:hostOf(source.pageUrl)}).catch(()=>events.emit({stage:"library",jobId:j.jobId,level:"warn",code:"LIBRARY_SAVE_FAILED"})):null;
         return {...res,packageId:j.packageId,saved:savedResult(saved)};
       },
@@ -276,9 +281,13 @@ async function libRegenerate(message,settings){
     const svc=noteService(settings),me=await svc.me(),options=message.options||{};
     const paid=(me.features||[]).includes("background");
     if((options.syntheticExamples||options.externalAugmentation)&&!paid)return {ok:false,error:"가상 사례·강의 밖 보강은 유료 기능입니다."};
-    const input={...data.input,models:noteModels(me),consent:{...data.input.consent,summary:true},options:paid?options:{},host:data.meta.host};
+    // '새로 만들기'는 명시적 generation revision(rerun)을 올린다 — 저장 입력의 번호 다음. 계획·판정은 재사용하고
+    // 쓰기 이후 단계 캐시 키가 갈리며, 성공한 호출은 호출 캐시에서, 실패했던 호출만 새 requestId 로 다시 나간다.
+    const input={...data.input,models:noteModels(me),consent:{...data.input.consent,summary:true},options:paid?options:{},host:data.meta.host,rerun:(data.input.rerun||0)+1};
     const job=await Pipeline.createJob({jobId:`regen-${message.packageId}-${Date.now().toString(36)}`.replace(/[^A-Za-z0-9-]/g,"").slice(0,64),packageId:message.packageId,store,events});
-    const res=await NoteStages.runNote(job,input,svc.deps(new AbortController().signal));
+    const stats={hits:0,misses:0};
+    const res=await NoteStages.runNote(job,input,svc.deps(new AbortController().signal,me,stats));
+    await svc.report(job.jobId,input.rerun,stats);
     if(!["complete","partial","recognition-only"].includes(res.status)||data.note&&!res.note) // 노트 없이 끝나면 덮어쓰지 않는다 — 저장하면 기존 노트가 지워진다
       return {ok:false,code:res.code??null,error:Pipeline.CODES[res.code]?.userMessage||"다시 만들지 못했습니다."};
     const saved=await saveLibrary(message.packageId,input,res,{source:data.meta.source,host:data.meta.host});
@@ -457,9 +466,12 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
         const me=await svc.me(summaryController.signal);
         const paid=(me.features||[]).includes("background"),store=await storeP,pkg=current.packageId||=NoteLibrary.packageIdFor({});
         const job=await Pipeline.createJob({jobId:`live-${current.id}-${current.summaryAttempt}`.replace(/[^A-Za-z0-9-]/g,"").slice(0,64),packageId:pkg,store,events});
-        const input=liveInput(current,{tier:paid?"paid":"free",models:noteModels(me),consent:{summary:config.remoteSummaryConsent},options:paid?config.noteOptions:{}});
+        // 요약을 다시 누른 것은 새로 만들기다 — rerun 을 올려 쓰기 이후 단계를 다시 돌리고, 성공한 호출은 호출 캐시가 메운다.
+        const input={...liveInput(current,{tier:paid?"paid":"free",models:noteModels(me),consent:{summary:config.remoteSummaryConsent},options:paid?config.noteOptions:{}}),rerun:current.summaryAttempt-1};
         current.log(`[요약] v2 · ${paid?"유료":"Free"} · 슬라이드 ${input.slides.length} · 발화 ${input.transcript.segments.length} · 동의 ${config.remoteSummaryConsent?"완료":"미확인"}`);
-        const res=await NoteStages.runNote(job,input,svc.deps(summaryController.signal));
+        const stats={hits:0,misses:0};
+        const res=await NoteStages.runNote(job,input,svc.deps(summaryController.signal,me,stats));
+        await svc.report(job.jobId,input.rerun,stats);
         if(!["complete","partial","recognition-only"].includes(res.status))throw Object.assign(new Error(Pipeline.CODES[res.code]?.userMessage||"요약을 마치지 못했습니다."),{code:res.code});
         const saved=await saveLibrary(pkg,input,res,{source:"live",host:hostOf(current.options.pageUrl)});
         current.summary={version:2,packageId:pkg,status:res.status,note:res.note??null,recognition:res.recognition??null,notices:res.notices??[],saved:savedResult(saved)};
