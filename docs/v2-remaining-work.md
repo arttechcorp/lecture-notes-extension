@@ -93,7 +93,7 @@
 
 1. **가상 사례·강의 밖 보강의 허용 위치**(`lib/note-contract.js` `augOk`): 가상 사례는 B08 전체·B05 `examples`·B14 `premise`, 강의 밖 보강은 B05 `explanation`·`mechanism`·`examples`·B12 `note`. 전역 블록·정의·비교·답안·공지·계산에는 둘 다 금지다. 꺼진 옵션의 basis는 출력 스키마에서 빠진다(`restrictBasis`) — 모델이 만들 수 없다.
 2. **T5 지지가 낮은 주장이 있는 블록은 보류(`null`)로 바꾸고 `NOTE_CLAIMS_UNSUPPORTED`로 고지**한다. T5는 `basis:"lecture"` 주장만 본다 — 가상·보강·교육용은 대상이 아니다.
-3. **숫자가 든 표·모든 그래프는 크롭 표시**: 백그라운드는 도표 숫자 대조용 로컬 OCR을 돌리지 않는다(`figureData.ocr`이 항상 비어 `isSimpleChart`가 참이 될 수 없고, `isSimpleTable`은 숫자 없는 표만 통과).
+3. **도표 OCR 실제 환경 검수**: 백그라운드 크롭의 로컬 PP-OCR → `figureData.ocr` 전달을 연결했다. 숫자 대조를 통과한 단순 표·그래프는 재조판하고 저해상도·판독 실패는 crop/check로 둔다. 합성 입력의 배선 검증과 별개로 실제 Chrome의 판독 정확도는 검수해야 한다. 텍스트 근거가 없는 다이어그램의 본문 삽입 계약은 아직 남아 있다.
 4. **노트는 항상 밝은 종이 토큰으로 렌더**한다(`NoteSpec.css`의 `--canvas` 등 고정). 다크 테마 노트는 없다. PDF는 A4·14.3mm 여백만 낸다.
 5. **`product-panel.css`는 분리하지 않는다**: 샌드박스가 그 파일을 아예 읽지 않게 하고 노트 스타일은 `NoteSpec.css`로 둔다(랜딩 데모 화면은 그대로).
 6. **인식 결과 텍스트는 화면에만 보인다**: `RENDER_RECOGNITION`은 textContent로만 넣고 Markdown·PDF 내보내기(`note-export`)는 인식 결과를 다루지 않는다.

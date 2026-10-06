@@ -49,6 +49,7 @@
     concept: "^C[0-9]{1,3}$",
     section: "^S[0-9]{1,3}$",
     block: "^(S[0-9]{1,3}_B[0-9]{1,2}|GB[0-9])$",
+    secBlock: "^S[0-9]{1,3}_B[0-9]{1,2}$",
     ref: "^(U[0-9]{1,4}\\.[stg][0-9]{1,4}|(S[0-9]{1,3}_B[0-9]{1,2}|GB[0-9])\\.[ic][0-9]{1,2})$",
     target: "^(S[0-9]{1,3}|S[0-9]{1,3}_B[0-9]{1,2}|GB[0-9]|C[0-9]{1,3}|S[0-9]{1,3}_B[0-9]{1,2}/P[1-6])$",
     localRef: "^[ic][0-9]{1,2}$",
@@ -165,7 +166,7 @@
           verdict: { type: ["string", "null"], enum: ["O", "X", null] },
           explanation: claim, correction: claimOrNull,
           rubric: arr(claim, 5), alternatives: arr(str(200), 3),
-          reviewIds: arr(pat(IDS.block), 3, 1),
+          reviewIds: arr(pat(IDS.secBlock), 3, 1),
         }),
       }), 8, 1),
     }),
@@ -183,6 +184,36 @@
     claim, targetIds: arr(pat(IDS.block), 4),
     before: claimOrNull, after: claimOrNull, hold: claimOrNull,
   });
+
+  // 출력 스키마용: 확인 항목의 대상은 그 요청의 계획 블록뿐이다(§10 d 의 plannedIds) — 요청이 아는 id 이므로
+  // enum 으로 미리 좁힌다(제공자는 pattern 을 강제하지 않지만 enum 은 강제한다). 빈 enum 은 아무 값도 못 받으므로 내지 않는다.
+  // 블록 안의 targetIds·targetId·reviewIds 는 다른 섹션의 계획 블록도 유효한데 요청은 자기 섹션 계획만
+  // 들고 온다 — 요청이 allowedRefs(계획 전체의 유효 참조 목록)를 싣고 오면 restrictRefs 가 그 목록의 enum 으로 좁히고,
+  // 없으면 패턴 그대로 두고 VAL_REF_UNKNOWN 과 조립 정리가 거른다.
+  const checkSchemaFor = ids => (ids?.length
+    ? obj({ ...checkSchema.properties, targetIds: arr(en([...new Set(ids)]), 4) })
+    : checkSchema);
+
+  // 봉투 스키마의 대상·복습 칸을 요청의 참조 목록 enum 으로 좁힌다. 목록이 빈 칸은 enum 이 아무 값도
+  // 못 받으니 두지 않는다 — 코드 검사(VAL_REF_UNKNOWN)가 그대로 걸러낸다. 원본은 얼려 있어 복사본을 고친다.
+  // ownId 는 이 봉투의 블록 id — B14 복습 위치는 자기 블록을 가리킬 수 없어서 목록에서 뺀다(한 섹션에 B14 가 여럿이면 블록마다 다르다).
+  const restrictRefs = (schema, refs, ownId) => {
+    if (!refs) return schema;
+    const t = [...new Set(refs.targetIds || [])], r = [...new Set(refs.reviewIds || [])].filter(id => id !== ownId);
+    const out = JSON.parse(JSON.stringify(schema));
+    (function walk(v) {
+      if (Array.isArray(v)) return v.forEach(walk);
+      if (!v || typeof v !== "object") return;
+      const p = v.properties;
+      if (p) {
+        if (t.length && p.targetIds?.items?.pattern === IDS.target) p.targetIds = { ...p.targetIds, items: en(t) };
+        if (t.length && p.targetId?.pattern === IDS.target) p.targetId = { ...p.targetId, enum: [...t, null] };
+        if (r.length && p.reviewIds?.items?.pattern === IDS.secBlock) p.reviewIds = { ...p.reviewIds, items: en(r) };
+      }
+      Object.values(v).forEach(walk);
+    })(out);
+    return out;
+  };
 
   // 꺼진 생성 옵션의 basis 값을 스키마에서 지운다. 원본 스키마는 얼려 있으므로 복사본을 고친다.
   function restrictBasis(schema, policy = POLICY) {
@@ -302,12 +333,12 @@
   const schemas = { claim, content, check: checkSchema, plannerOutput, plan: planSchema, note: noteSchema };
 
   // §3.1: 블록 키는 계획의 blockId 와 정확히 같아야 하므로 출력 스키마를 계획에서 요청마다 만든다.
-  const blockProps = (planSection, ids) => {
+  const blockProps = (planSection, ids, refs) => {
     const byId = new Map(planSection.blocks.map(b => [b.blockId, b])), props = {};
     for (const id of ids) {
       const b = byId.get(id);
       if (!b) throw new Error("계획에 없는 블록 id: " + id);
-      props[id] = orNull(envelopeSchema(b.type, { externalAugmentation: true, syntheticExamples: true }));
+      props[id] = orNull(restrictRefs(envelopeSchema(b.type, { externalAugmentation: true, syntheticExamples: true }), refs, id));
     }
     return props;
   };
@@ -315,23 +346,27 @@
   // §8.3: { gist: C?, blocks: { <blockId>: Envelope|null }, checks: [Check](0..6) }.
   // gist 는 반으로 나눠 다시 쓸 때 첫 반쪽에만 넣는다(§12.4) — gist:false 로 키 자체를 뺀다.
   // policy 는 요청의 생성 옵션이다. 확인 항목·요지에는 가상·보강이 올 수 없지만 스키마는 같이 줄이고 코드 검사가 막는다.
-  function sectionOutputSchemaFor(planSection, { blockIds, gist = true, policy = POLICY } = {}) {
+  // checks 대상은 이 요청 섹션의 계획 블록 전부다 — 나눠 쓰는 조각(blockIds)과 allowedRefs 에 무관하게 ids 에서 만든다.
+  function sectionOutputSchemaFor(planSection, { blockIds, gist = true, policy = POLICY, allowedRefs = null } = {}) {
+    const ids = (planSection.blocks || []).map(b => b.blockId);
     return restrictBasis(obj({
       ...(gist !== false ? { gist: claimOrNull } : {}),
-      blocks: obj(blockProps(planSection, blockIds ?? planSection.blocks.map(b => b.blockId))),
-      checks: arr(checkSchema, 6),
+      blocks: obj(blockProps(planSection, blockIds ?? ids, allowedRefs)),
+      checks: arr(checkSchemaFor(ids), 6),
     }), policy);
   }
 
   // §12.1: 실패한 블록만 키로 갖는다.
-  function repairOutputSchemaFor(planSection, blockIds, policy = POLICY) {
+  function repairOutputSchemaFor(planSection, blockIds, policy = POLICY, allowedRefs = null) {
     if (!blockIds?.length) throw new Error("재생성할 블록 id가 없습니다.");
-    return restrictBasis(obj({ blocks: obj(blockProps(planSection, blockIds)) }), policy);
+    return restrictBasis(obj({ blocks: obj(blockProps(planSection, blockIds, allowedRefs)) }), policy);
   }
 
   // §8.4: { blocks: { "GB1": Envelope|null, ... } }. 전역 블록에는 가상·보강이 허용되지 않는다.
-  const globalOutputSchemaFor = planGlobal => obj({
-    blocks: obj(Object.fromEntries(planGlobal.map(g => [g.blockId, orNull(envelopeSchema(g.type))]))),
+  // targetIds·targetId 의 유효 집합은 계획 전체(빠진 블록 포함, §8.4) — 요청이 allowedRefs 를 싣고 오면 그 목록으로
+  // 좁히고, 없으면 패턴 그대로 두고 VAL_REF_UNKNOWN 과 조립 정리가 거른다.
+  const globalOutputSchemaFor = (planGlobal, allowedRefs = null) => obj({
+    blocks: obj(Object.fromEntries(planGlobal.map(g => [g.blockId, orNull(restrictRefs(envelopeSchema(g.type), allowedRefs, g.blockId))]))),
   });
 
   // 유닛의 슬라이드·발화에 나온 숫자 집합 — 단원 제목·질문과 개념 이름은 B04 머리와 개념 색인으로
@@ -710,7 +745,7 @@
   const CALC_RE = /^(S[0-9]{1,3}_B[0-9]{1,2}|GB[0-9])\.[ic][0-9]{1,2}$/;
   const FREF_RE = /\{\{\s*(F\d+)\s*\}\}/g;
   const POINT_RE = /^(S[0-9]{1,3}_B[0-9]{1,2})\/P[1-6]$/;
-  const SEC_BLOCK_RE = /^S[0-9]{1,3}_B[0-9]{1,2}$/;
+  const SEC_BLOCK_RE = new RegExp(IDS.secBlock);
   // 영어 강의의 근거는 영어다 — 같은 뜻의 영어 강조어도 받는다(test 는 "test set" 과 겹쳐 뺀다).
   const EMPHASIS_WORDS = { stress: /중요|핵심|꼭|반드시|기억|\b(important|crucial|essential|remember|key point)/i, exam: /시험|출제|중간고사|기말고사|퀴즈|\b(exams?|midterm|final exam|quiz)/i };
   // 원어·인용·기한의 원문 대조는 NFC + 공백 접기 + 대소문자 무시로 한다(§9).

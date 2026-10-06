@@ -47,7 +47,7 @@
 |---|---|---|
 | `lib/note-spec.js` | 자리표시. 블록 타입은 `text` 하나뿐이고, `NOTE_SPEC_VERSION = "placeholder-0"` | Phase 6-2에서 `NoteContract`를 읽어 슬롯 이름(`planSchema` 등)을 내보내도록 교체 |
 | `server/prompts.js` | 단계별 **정적** 출력 스키마. section 요청은 `Unit` 문자열(slideText·speech)을 그대로 씀 | 섹션·repair 출력 스키마를 계획에서 **요청마다 생성**. 요청에 근거 항목(§5)을 실음 |
-| `server/index.js` | 제공자 스키마를 단계별로 한 번만 계산(`NOTE_PROVIDER_SCHEMA`). 검증 전용 키워드는 제거 | 섹션·repair는 요청마다 `providerSchema(outputSchema(stage, body))` 계산. 나머지 흐름은 그대로 |
+| `server/index.js` | plan/write 요청의 입력 계약·한도·제공자 호출·usage 예약을 한 경로로 처리 | Writer는 요청별 `providerSchema(outputSchema(stage, body))`를 만들고, 검증 전용 키워드는 제거. 참조 목록 enum이 요청마다 달라질 수 있다 |
 | `lib/stages.js` | 블록을 `evidenceIds`를 가진 불투명 객체로 취급. repair는 index 기준. 잘림이 나면 유닛과 블록을 반으로 나눔 | 계획 정규화, 섹션 검증, repair(blockId 기준), 조립·의존 정리를 `NoteContract`에 위임. 잘림이 나면 **블록만** 나눔(§12.4) |
 | `lib/verify.js` | 블록 단위 `evidenceIds`, 숫자, 유도식, 재타이핑, 원문 재현, 커버리지 검사 | 주장 단위 검사는 `NoteContract`로 옮김. `numbersOf`와 원문 재현 창은 재사용(`verbatimIds` 추가 — 완료, `2841ad5`). T5 `checkSupport`는 유지 |
 | `lib/note-render.js` | 수식 표시: 검증됨이면 KaTeX, 아니면 크롭, 둘 다 없으면 OCR 텍스트에 "미검증". 크롭 src는 허용 목록으로 제한 | 표시 결정은 `NoteContract.displayOf`(§14)를 따름. 크롭이 없으면 "확인 필요" |
@@ -186,7 +186,7 @@ LocalRef = ^[ic][0-9]{1,2}$     # i1 = inputs[0], c1 = steps[0]. 단계는 앞�
 | `SECTION_TYPES` / `GLOBAL_TYPES` | 섹션에서 계획 가능: B03, B05–B14, B18. 전역에서 계획 가능: B02, B03, B13 |
 | `IDS` | §4의 정규식 |
 | `schemas`, `envelopeSchema(type)` | `claim`, `content[B02..B18]`, `check`, `plannerOutput`, `plan`, `note`. 근거 항목 스키마는 공용 계약 `Contracts.SCHEMAS.evidenceItem` |
-| `sectionOutputSchemaFor(planSection, {blockIds, gist})`, `globalOutputSchemaFor(planGlobal)`, `repairOutputSchemaFor(planSection, blockIds)` | 요청별 Writer 출력 스키마. 모두 `Contracts.isStrictCompatible`을 만족한다 |
+| `sectionOutputSchemaFor(planSection, {blockIds, gist, allowedRefs})`, `globalOutputSchemaFor(planGlobal, allowedRefs)`, `repairOutputSchemaFor(planSection, blockIds, policy, allowedRefs)` | 요청별 Writer 출력 스키마. 모두 `Contracts.isStrictCompatible`을 만족한다 |
 | `normalizePlan`, `checkCalc`, `validateSection`, `validateGlobal`, `assembleNote`, `displayOf`, `citedRefs` | §10–§14의 코드 검사·조립. `validateSection({plan, sectionId, output, evidence, registry, formulaUnits, figures, katex, superseded})` → `{ok, errors, gist, blocks:[{id, type, envelope, errors}], checks, calc, cited}`. `assembleNote({plan, sections:[{sectionId, output}], global, units, evidence, registry, formulaUnits, figures, crops, meta, tier, systemNotices, promptVersion, katex})` → Note |
 | (권장량) | 전송 상한은 스키마의 `maxLength`·`maxItems`이고, 편집 권장량은 `TYPES[*].advice`에 둔다. 토큰 예산 `LIMITS`(Planner 입력 40k·출력 8k, Writer 입력 16k·출력 8k, 전역 입력 24k·출력 4k)는 `server/prompts.js`가 내보낸다. `lib/note-spec.js`는 렌더 슬롯(`templates`·`layout`·`css`, `RENDER_VERSION`)만 내보낸다 |
 
@@ -241,6 +241,9 @@ Check (B17)   = { kind: e[recognition_uncertain, input_conflict, missing, correc
 - `checks`는 Writer가 작성 중 발견한 확인 필요·정정이다. 계획 단계에서는 충돌을 미리 알 수 없어서, 계획 블록이 아니라 항상 쓸 수 있는 칸으로 둔다.
 - `SectionDraft`(코드 내부 표현)는 `{sectionId, gist, blocks:[{id, type, envelope}], checks}`이다. 블록은 **계획 순서**를 따르며, 병렬 작업이 끝난 순서와는 무관하다.
 - **repair 출력**은 `{ blocks: { "<실패 blockId>": Envelope | null } }`이다. 실패한 블록만 키로 갖는다.
+- 섹션·repair·global 요청은 선택적으로 `allowedRefs: {targetIds, reviewIds}`를 싣는다. 이 목록은 정규화된 전체 계획의 섹션·섹션/전역 블록, `defined` 개념, 계획된 B08/B09의 P1–P6 가능한 단서 앵커와 섹션 블록 복습 ID에서 만든다. Note나 암호화 보관 형식에는 저장하지 않는다.
+- 목록이 있으면 출력 JSON Schema는 대상·복습 ID 칸을 그 목록의 enum으로 좁힌다. B14마다 자기 블록을 복습 목록에서 빼고, 전역 블록 ID와 지도 노드 key는 복습 참조로 허용하지 않는다. `checks.targetIds`는 작성 청크와 무관하게 해당 섹션의 전체 계획 블록을 가리킨다. 목록이 없거나 후보가 비면 기존 패턴과 코드 검증을 유지한다.
+- 구 클라이언트 요청은 필드를 보내지 않아도 된다. 새 클라이언트의 `allowedRefs`는 API 계약이 받아들일 수 있어야 하므로 운영 순서는 API 배포 후 CWS 배포다. 이번 main 병합은 Edge 배포를 수행하지 않는다.
 
 ### 8.4 GlobalDraft — 전역 Writer 출력
 
@@ -476,7 +479,7 @@ Block = { id: blockId, type, sectionId: sectionId?, status, importance, emphasis
   - `chartData.type`이 `bar` 또는 `line`, 계열 ≤ 3, 항목 ≤ 12.
   - 모든 계열의 `values` 길이가 항목 수와 같고 전부 유한수다. `xLabel`이나 `yLabel`이 읽혀야 한다.
   - 모든 값의 절댓값이 로컬 OCR 숫자 다중집합에서 커버돼야 한다 — **OCR이 없으면 그래프는 절대 `chart`가 아니다.** 눈금만 보이는 그래프는 눈대중으로 복원하지 않고 크롭한다(`proposal.md` B10).
-- `chartData`는 SlideDoc 계약에 들어 있다(6-6 완료). 다만 백그라운드 경로는 도표 숫자 대조용 로컬 OCR을 돌리지 않아 `figureData.ocr`이 항상 비어 있다 — 그래서 숫자 없는 간단한 표만 `table`이 되고, 숫자 든 표와 모든 그래프는 `crop`/`check`다.
+- `chartData`는 SlideDoc 계약에 들어 있다. 백그라운드 경로는 실제 도표 크롭에 로컬 PP-OCR을 실행해 `figureData.ocr`로 전달한다. 원본 해상도가 부족하거나 판독이 실패하면 숫자 대조에 쓰지 않는다. 검증된 단순 표·그래프만 `table`/`chart`, 나머지는 `crop`/`check`다. 텍스트 근거가 없는 다이어그램은 크롭 후보로 보존·진단하지만 현재 레지스트리의 근거 조건을 우회하지 않는다.
 - 새 차트 라이브러리는 넣지 않는다. HTML로 옮긴 표·그래프도 원본 크롭은 패키지에 남긴다.
 - 크롭 ID는 패키지 `blobs`의 키이고, 렌더러는 `blob:`이나 래스터 `data:`만 받는다(현행 허용 목록). 외부 URL이나 원본 미디어 경로로 대체하지 않는다.
 - 크롭이 없다고 클라우드로 자동 전환하지 않는다(불변식). 그래프도 임의로 복원하지 않는다.
