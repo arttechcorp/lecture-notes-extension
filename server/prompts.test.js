@@ -32,7 +32,7 @@ const basisOf = (schema, out = new Set()) => {
 };
 
 test("every stage has a versioned system prompt that treats input as untrusted data", () => {
-  assert.equal(Prompts.PROMPT_VERSION, "note-v5");
+  assert.equal(Prompts.PROMPT_VERSION, "note-v6");
   assert.match(Prompts.PROMPT_VERSION, /^[a-z0-9][a-z0-9._-]*$/);
   assert.deepEqual(Prompts.STAGES, ["plan", "section", "global", "repair", "link", "questions", "draft"]);
   for (const stage of Prompts.STAGES) {
