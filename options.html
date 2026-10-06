@@ -601,6 +601,23 @@
     margin: 0;
   }
 
+  @media (min-width: 1000px) {
+    body {
+      max-width: 1040px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      grid-auto-rows: max-content;
+    }
+    .page-header { grid-column: 1 / -1; }
+    .free-banner { grid-column: 1 / -1; }
+    .page-footer { grid-column: 1 / -1; }
+    [aria-labelledby="accountHeading"] { grid-column: 1 / -1; }
+    [aria-labelledby="keyHeading"] { grid-column: 1 / -1; }
+    [aria-labelledby="consentHeading"] { grid-column: 1 / -1; }
+    [aria-labelledby="dataHeading"] { grid-column: 1 / -1; }
+  }
+
   @media (max-width: 480px) {
     body {
       padding: 36px 16px 64px;
