@@ -124,49 +124,6 @@
     letter-spacing: -0.01em;
   }
 
-  /* ── Swiss Connected Stage Steps ───────────────────────────── */
-  .stage-steps {
-    display: flex;
-    align-items: stretch;
-    border: 1px solid var(--rule);
-    border-radius: var(--r-md);
-    background: var(--paper);
-    overflow: hidden;
-    box-shadow: var(--lift-1);
-  }
-  .stage-steps span {
-    flex: 1;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-variant-numeric: tabular-nums;
-    letter-spacing: 0.02em;
-    color: var(--faint);
-    padding: 7px 4px;
-    text-align: center;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 5px;
-    transition: color 140ms ease, background-color 140ms ease;
-  }
-  .stage-steps span.active {
-    color: var(--ink);
-    font-weight: 600;
-    background: var(--sunk);
-  }
-  .stage-steps span.active::before {
-    content: "";
-    width: 4px;
-    height: 4px;
-    border-radius: 50%;
-    background: var(--brand);
-  }
-  .stage-steps i {
-    width: 1px;
-    background: var(--rule);
-    align-self: stretch;
-  }
-
   /* ── Stage Containers & Intros ─────────────────────────────── */
   #stageReady, #stageLive, #stageDone {
     display: flex;

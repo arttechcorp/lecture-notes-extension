@@ -86,10 +86,6 @@
 
   #stageReady, #stageLive, #stageDone { display: flex; flex-direction: column; gap: 18px; }
   .brand-caption { margin: 2px 0 0; color: var(--ash); font-size: 11px; letter-spacing: .035em; }
-  .stage-steps { display: flex; align-items: center; gap: 8px; padding: 12px 0; border-block: 1px solid var(--rule); }
-  .stage-steps span { flex: 1; font-size: 11px; color: var(--ash); }
-  .stage-steps span.active { color: var(--ink); font-weight: 700; }
-  .stage-steps i { width: 16px; height: 1px; background: var(--rule); }
   .intro h2 { font-size: 22px; line-height: 1.4; letter-spacing: -.05em; margin: 0 0 7px; font-weight: 650; }
   .eyebrow { font-size: 10px; font-weight: 650; letter-spacing: .12em; color: var(--ash); margin: 0 0 8px; }
   .result-title { font-size: 15px; font-weight: 650; margin: -5px 0 0; overflow-wrap: anywhere; }
@@ -224,6 +220,28 @@
   .step .why { font-size: 12px; color: var(--ash); }
   .checkline { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; }
   .checkline input { margin-top: 3px; accent-color: var(--ink); }
+
+  /* 방식 선택·준비 화면 */
+  #viewMode, #viewPrep { display: flex; flex-direction: column; gap: 14px; }
+  .modecard {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 6px; width: 100%; min-height: 96px;
+    padding: 18px 16px; text-align: left; border-radius: var(--r-lg);
+  }
+  .mc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; font-size: 15px; }
+  .mc-tag { flex: none; font-size: 11px; font-weight: 650; padding: 1px 8px; border: 1px solid var(--ink); border-radius: 99px; }
+  .mc-desc { font-size: 12.5px; line-height: 1.55; color: var(--ash); }
+  .prephead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .prephead h2 { font-size: 16px; margin: 0; font-weight: 650; }
+  .prephead h2:focus, #modeTitle:focus { outline: none; }
+  .prepact { display: flex; flex-direction: column; gap: 10px; }
+  .btnlink {
+    flex: 1; display: inline-flex; align-items: center; justify-content: center; padding: 9px 6px; font-size: 12.5px;
+    border: 1px solid var(--rule); border-radius: var(--r-md); background: var(--paper); color: var(--ink); text-decoration: none;
+  }
+  .btnlink:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  #viewPrep[data-mode="live"] [data-only="bg"], #viewPrep[data-mode="bg"] [data-only="live"] { display: none !important; }
+  /* 백그라운드 작업이 도는 동안은 준비 줄을 접고 진행 카드만 보인다 */
+  #viewPrep[data-run] #prepCard { display: none; }
 </style>
 </head>
 <body>
@@ -253,8 +271,6 @@
     </div>
   </div>
 </div>
-<nav class="stage-steps" aria-label="노트 만들기 단계"><span id="stepReady" class="active">01 준비</span><i aria-hidden="true"></i><span id="stepLive">02 인식</span><i aria-hidden="true"></i><span id="stepDone">03 노트</span></nav>
-
 <!-- ── 온보딩 (첫 실행·재동의: 필요한 단계만 보인다) ─────────────── -->
 <div id="onboard" hidden>
   <div class="intro"><p class="eyebrow">WELCOME TO YOUR NOTES</p><h2>노트를 만들 준비를 해볼까요?</h2><p class="detail">로그인, 동의, 보관함 폴더만 준비하면 바로 시작할 수 있습니다.</p></div>
@@ -319,76 +335,111 @@
   <button class="primary" id="obDone" type="button" disabled>시작하기</button>
 </div>
 
-<!-- ── 준비 ────────────────────────────────────────────────── -->
+<!-- ── 방식 선택 · 준비 ─────────────────────────────────────── -->
+<!-- 방식 카드는 준비 화면으로 가는 길일 뿐 처리를 시작하지 않는다. 준비 화면은 한 뼈대를 두 방식이 나눠 쓰고, data-mode(bg|live)에 따라 data-only 줄만 보인다. -->
 <div id="stageReady" hidden>
-  <div class="intro"><p class="eyebrow">READY WHEN YOU ARE</p><h2>강의에 집중하세요.<br>기록은 여기서 시작됩니다.</h2><p class="detail">영상을 재생하고 캡처할 화면을 선택하세요.</p></div>
-  <div class="readycard">
-    <div class="checkrow">
-      <span class="mark" id="markEngine">·</span><span class="what">화면 글자 읽기</span>
-      <span class="val" id="engineBanner">확인 중</span>
-    </div>
-    <div class="checkrow">
-      <span class="mark" id="markVoice">·</span><span class="what">말소리 받아쓰기</span>
-      <span class="val" id="voiceState">—</span>
-    </div>
-    <div class="checkrow">
-      <span class="mark" id="markTab">·</span><span class="what">영상 탭</span>
-      <span class="val" id="tabState">—</span>
-    </div>
-    <div class="checkrow">
-      <span class="mark" id="markCourse">·</span><span class="what">과목</span>
-      <span class="tab-select-wrap"><select class="tab-select" id="courseSelect" aria-label="노트를 저장할 과목"></select></span>
-    </div>
-    <div class="checkrow">
-      <span class="mark" id="markAccount">·</span><span class="what">계정</span>
-      <span class="val" id="accountState">—</span>
-      <button class="link" id="accountLoginBtn" type="button" hidden>로그인</button>
-    </div>
-    <div class="checkrow">
-      <span class="mark" id="markStore">·</span><span class="what">노트 저장</span>
-      <span class="val" id="storeState">—</span>
-      <button class="link" id="storePassBtn" type="button" hidden>정하기</button>
-    </div>
-  </div>
-  <div class="settingbar">
-    <span class="summary" id="settingsSummary">—</span>
-    <button class="link" id="settingsToggle" type="button" aria-controls="settingsDrawer">변경</button>
+  <div id="viewMode">
+    <div class="intro"><p class="eyebrow">NEW NOTE</p><h2 id="modeTitle" tabindex="-1">어떻게 노트를 만들까요?</h2></div>
+    <button type="button" class="modecard" id="pickBg" aria-describedby="pickBgDesc">
+      <span class="mc-head"><b>백그라운드 생성</b><span class="mc-tag" id="pickBgTag">유료</span></span>
+      <span class="mc-desc" id="pickBgDesc">지원하는 강의를 불러와 노트까지 만듭니다. 처리하는 동안 브라우저를 켜 두세요.</span>
+    </button>
+    <button type="button" class="modecard" id="pickLive" aria-describedby="pickLiveDesc">
+      <span class="mc-head"><b>실시간 캡처</b></span>
+      <span class="mc-desc" id="pickLiveDesc">지금 재생하는 화면과 음성을, 원하는 구간만 직접 시작하고 끝냅니다.</span>
+    </button>
   </div>
 
-  <div class="alert warn" id="readyAlert" role="alert" hidden></div>
-  <button class="primary" id="startBtn" type="button" aria-describedby="capturePermissionHint" disabled>캡처 시작</button>
-  <p class="detail" id="capturePermissionHint">일반 탭은 확장 아이콘으로 여세요. LearnUs 팝업은 강의 창을 클릭한 뒤 <b>Alt+Shift+S</b>를 누르면 해당 강의를 선택한 캡처 창이 열립니다.</p>
-  <p class="detail" id="legalLine">화면·음성 인식은 기기 안에서 하고, 노트는 로그인한 계정으로 Summrizei 서비스가 만듭니다.</p>
+  <div id="viewPrep" data-mode="live" hidden>
+    <div class="prephead">
+      <button class="link" id="prepBack" type="button">← 생성 방식</button>
+      <h2 id="prepMode" tabindex="-1">실시간 캡처</h2>
+    </div>
 
-  <!-- 백그라운드로 처리: 계정 features에 "background"가 있을 때만 보인다(sidepanel.js bgInit). 작업은 offscreen이 하고 여기는 누르고 보여 줄 뿐이다. -->
-  <div id="bgBox" class="readycard" hidden>
-    <div class="checkrow"><span class="what">백그라운드로 처리</span><span class="val">유료</span></div>
-    <p class="detail">영상을 받아 화면·음성을 서비스로 보내 노트를 만듭니다. 사용 동의가 필요하고, 브라우저는 켜 두세요.</p>
-    <p class="detail" id="bgStatus" role="status" aria-live="polite" style="white-space:pre-wrap;"></p>
-    <div class="statusline"><progress id="bgBar" max="9" value="0" style="flex:1;" hidden></progress><span class="sub" id="bgTime" hidden></span></div>
-    <p class="detail" id="bgProgress"></p>
-    <button class="link" id="bgSummaryLink" type="button" hidden>동의하기</button>
-    <div id="bgSave" hidden></div>
-    <button id="bgBtn" type="button">백그라운드로 처리</button>
-    <div class="btnrow"><button id="bgRetryBtn" type="button" hidden>다시 시도</button><button id="bgCancelBtn" type="button" hidden>취소</button></div>
-    <button id="bgLiveBtn" type="button" hidden>실시간 모드로 시작</button>
-    <button id="bgConsentBtn" type="button" hidden>동의하고 계속</button>
-    <button id="bgMakeBtn" type="button" hidden>노트 만들기</button>
-    <button id="bgDiscardBtn" type="button" hidden>작업 버리기</button>
-    <a href="#" id="bgBilling" target="_blank" rel="noopener" hidden>요금제 보기</a>
+    <!-- 무료 계정: 유료 제한을 그대로 알린다. 시작 버튼(bgBox)은 유료 계정에게만 열린다(sidepanel.js bgInit). -->
+    <div id="bgLocked" class="readycard" data-only="bg" hidden>
+      <div class="checkrow"><span class="mark warn" aria-hidden="true">!</span><span class="what">유료 요금제에서 쓸 수 있습니다</span></div>
+      <p class="detail">백그라운드 생성은 로그인한 계정이 유료 요금제일 때 쓸 수 있습니다. 실시간 캡처는 지금 계정에서도 그대로 쓸 수 있습니다.</p>
+      <div class="btnrow"><a class="btnlink" id="lockedBilling" href="#" target="_blank" rel="noopener">요금제 보기</a><button id="lockedLiveBtn" type="button">실시간 캡처 설정으로 이동</button></div>
+    </div>
+
+    <div class="readycard" id="prepCard">
+      <div class="checkrow" data-only="live">
+        <span class="mark" id="markEngine">·</span><span class="what">화면 글자 읽기</span>
+        <span class="val" id="engineBanner">확인 중</span>
+      </div>
+      <div class="checkrow" data-only="live">
+        <span class="mark" id="markVoice">·</span><span class="what">말소리 받아쓰기</span>
+        <span class="val" id="voiceState">—</span>
+      </div>
+      <div class="checkrow" data-only="live">
+        <span class="mark" id="markWhere">·</span><span class="what">인식 위치</span>
+        <span class="val" id="whereState">—</span>
+      </div>
+      <div class="checkrow">
+        <span class="mark" id="markTab">·</span><span class="what">강의 탭</span>
+        <span class="tab-select-wrap"><select class="tab-select" id="tabSelect" aria-label="강의가 열린 탭"></select><button class="tab-refresh-btn" id="refreshTabsBtn" title="탭 목록 새로고침" aria-label="탭 목록 새로고침" type="button">↻</button></span>
+        <span id="tabState" hidden></span>
+      </div>
+      <div class="checkrow" data-only="bg">
+        <span class="mark" id="markSupport">·</span><span class="what">지원 여부</span>
+        <span class="val" id="supportState">—</span>
+      </div>
+      <div class="checkrow">
+        <span class="mark" id="markCourse">·</span><span class="what">과목</span>
+        <span class="tab-select-wrap"><select class="tab-select" id="courseSelect" aria-label="노트를 저장할 과목"></select></span>
+      </div>
+      <div class="checkrow" data-only="bg">
+        <span class="mark" id="markNoteOpt">·</span><span class="what">노트 옵션</span>
+        <span class="val" id="noteOptState">—</span>
+        <button class="link" id="noteOptBtn" type="button">변경</button>
+      </div>
+      <div class="checkrow">
+        <span class="mark" id="markAccount">·</span><span class="what">계정</span>
+        <span class="val" id="accountState">—</span>
+        <button class="link" id="accountLoginBtn" type="button" hidden>로그인</button>
+      </div>
+      <div class="checkrow">
+        <span class="mark" id="markStore">·</span><span class="what">노트 저장</span>
+        <span class="val" id="storeState">—</span>
+        <button class="link" id="storePassBtn" type="button" hidden>정하기</button>
+      </div>
+    </div>
+    <div class="settingbar" data-only="live">
+      <span class="summary" id="settingsSummary">—</span>
+      <button class="link" id="settingsToggle" type="button" aria-controls="settingsDrawer">변경</button>
+    </div>
+
+    <div class="alert warn" id="readyAlert" role="alert" hidden></div>
+
+    <div class="prepact" data-only="live">
+      <button class="primary" id="startBtn" type="button" aria-describedby="capturePermissionHint" disabled>캡처 시작</button>
+      <p class="detail" id="capturePermissionHint">일반 탭은 확장 아이콘으로 여세요. LearnUs 팝업은 강의 창을 클릭한 뒤 <b>Alt+Shift+S</b>를 누르면 해당 강의를 선택한 캡처 창이 열립니다.</p>
+      <p class="detail" id="legalLine">화면·음성 인식은 기기 안에서 하고, 노트는 로그인한 계정으로 Summrizei 서비스가 만듭니다.</p>
+    </div>
+
+    <!-- 백그라운드 생성: 계정 features에 "background"가 있을 때만 보인다(sidepanel.js bgInit). 작업은 offscreen이 하고 여기는 누르고 보여 줄 뿐이다. -->
+    <div id="bgBox" class="readycard" data-only="bg" hidden>
+      <p class="detail" id="bgLecture" hidden></p>
+      <p class="detail" id="bgIntro">영상 목록을 받아 화면·음성을 서비스로 보내 노트를 만듭니다. 이용 동의가 필요하고, 처리하는 동안 브라우저를 켜 두세요.</p>
+      <p class="detail" id="bgStatus" role="status" aria-live="polite" style="white-space:pre-wrap;"></p>
+      <div class="statusline"><progress id="bgBar" max="9" value="0" style="flex:1;" hidden></progress><span class="sub" id="bgTime" hidden></span></div>
+      <p class="detail" id="bgProgress"></p>
+      <button class="link" id="bgSummaryLink" type="button" hidden>동의하기</button>
+      <div id="bgSave" hidden></div>
+      <button class="primary" id="bgBtn" type="button">노트 생성 시작</button>
+      <div class="btnrow"><button id="bgRetryBtn" type="button" hidden>다시 시도</button><button id="bgCancelBtn" type="button" hidden>취소</button></div>
+      <button id="bgLiveBtn" type="button" hidden>실시간 캡처 설정으로 이동</button>
+      <button id="bgConsentBtn" type="button" hidden>동의하고 계속</button>
+      <button id="bgMakeBtn" type="button" hidden>노트 만들기</button>
+      <button id="bgDiscardBtn" type="button" hidden>작업 버리기</button>
+      <a href="#" id="bgBilling" target="_blank" rel="noopener" hidden>요금제 보기</a>
+    </div>
   </div>
 </div>
 
 <!-- ── 설정 서랍 (준비/완료 양쪽에서 같은 것을 연다) ───────────── -->
 <dialog id="settingsDrawer" aria-label="캡처 설정">
-  <div class="field">
-    <label for="tabSelect">영상이 열린 탭</label>
-    <div style="display:flex; gap:6px;">
-      <select id="tabSelect"></select>
-      <button id="refreshTabsBtn" title="탭 목록 새로고침" aria-label="탭 목록 새로고침" type="button">↻</button>
-    </div>
-  </div>
-
   <div class="field" id="ocrField">
     <label class="checkline" style="cursor: pointer;">
       <input type="checkbox" id="ocrEnabledToggle" />
@@ -440,7 +491,8 @@
     <span class="pill live"><span class="pulse"></span>캡처 중</span>
     <span class="sub" id="elapsed">00:00</span>
   </div>
-  <p class="detail">화면과 음성이 인식되면 아래에 쌓입니다. 원하는 구간까지 캡처한 뒤 노트를 열어보세요.</p>
+  <p class="detail">화면과 음성이 인식되면 아래에 쌓입니다. 원하는 구간까지 캡처한 뒤 노트를 만드세요.</p>
+  <p class="detail" id="liveWhere" role="status"></p>
 
   <div class="counters">
     <div class="counter"><b id="cntSlides">0</b><span>슬라이드</span></div>
@@ -455,7 +507,7 @@
 
   <div class="alert warn" id="panelAlert" hidden></div>
 
-  <button class="danger" id="stopBtn" type="button" disabled>캡처 마치고 노트 보기</button>
+  <button class="danger" id="stopBtn" type="button" disabled>캡처 종료하고 노트 만들기</button>
   <div class="btnrow"><button id="pauseBtn" type="button" disabled>일시정지</button><button id="disposeBtn" type="button" disabled>세션 지우기</button></div>
 </div>
 
@@ -478,6 +530,11 @@
   </div>
   <iframe id="renderFrame" src="sandbox.html" class="preview-frame" title="인식 결과 미리보기" sandbox="allow-scripts allow-forms allow-popups allow-modals" hidden></iframe>
 
+  <button class="primary" id="siteNotesBtn" type="button" hidden>내 노트 열기</button>
+  <div class="btnrow">
+    <button id="notesBtn" type="button" disabled title="재캡처 없이 노트를 다시 만듭니다">노트 다시 만들기</button>
+  </div>
+
   <div id="genBox" class="readycard" hidden>
     <label class="checkline"><input type="checkbox" id="genSynthetic" /><span>가상 사례 포함</span></label>
     <label class="checkline"><input type="checkbox" id="genAugment" /><span>강의 밖 보강 포함</span></label>
@@ -485,12 +542,8 @@
     <p class="detail">시험 모드·답안 위치는 웹에서 노트를 열 때 고릅니다.</p>
   </div>
 
-  <div class="btnrow">
-    <button id="notesBtn" type="button" disabled title="재캡처 없이 노트를 다시 만듭니다">노트 다시 만들기</button>
-  </div>
-
   <button class="primary" id="retryNoteBtn" type="button" hidden>다시 시도</button>
-  <button id="againBtn" type="button" style="width:100%;">새로 캡처하기</button>
+  <button id="againBtn" type="button" style="width:100%;">다른 강의 만들기</button>
 </div>
 
 <!-- ── 공통 ────────────────────────────────────────────────── -->
