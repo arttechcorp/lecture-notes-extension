@@ -310,12 +310,21 @@ const __defs = {
   // "image"로 내려 원본 크롭을 쓴다. 무료 로컬 모드(latex 없이 OCR text만)는
   // 검증할 LaTeX이 없어 "unverified"를 유지한다.
   function verify(entry, opts = {}) {
-    if (typeof entry?.latex !== "string" || !entry.latex.trim()) return { ...entry, status: "unverified" };
+    const Verify = globalThis.Verify || (typeof require !== "undefined" ? require("./verify.js") : null);
+    const checks = Verify?.checkFormula ? Verify.checkFormula(entry, opts) : {
+      parse: typeof entry?.latex === "string" && entry.latex.trim() ? (parseOk(entry.latex, opts.katex) ? "ok" : "failed") : "unchecked",
+      symbols: "unchecked",
+      units: "unchecked",
+    };
+
+    if (typeof entry?.latex !== "string" || !entry.latex.trim()) return { ...entry, status: "unverified", checks };
     const cc = crossCheck(entry.latex, opts.ocrText ?? entry.text);
-    if (!parseOk(entry.latex, opts.katex)) return { ...entry, status: opts.reread ? "image" : "reread" };
+    if (!parseOk(entry.latex, opts.katex) || checks.parse === "failed") return { ...entry, status: opts.reread ? "image" : "reread", checks };
+    // 기호 또는 단위 불일치 시 verified 불가 — 재판독 또는 이미지로 강등
+    if (checks.symbols === "mismatch" || checks.units === "mismatch") return { ...entry, status: opts.reread ? "image" : "reread", checks };
     // 화면 대조 없이는 어떤 수식도 verified로 부를 수 없다 — 크롭 플레이스홀더로 내린다
-    if (cc.skipped) return { ...entry, status: "unverified" };
-    return { ...entry, status: cc.ok ? "verified" : opts.reread ? "image" : "reread" };
+    if (cc.skipped) return { ...entry, status: "unverified", checks };
+    return { ...entry, status: cc.ok ? "verified" : opts.reread ? "image" : "reread", checks };
   }
 
   // 검증된 수식만 LaTeX로 치환한다. 그 외(reread/image/unverified)는 원본 크롭 토큰으로
@@ -743,7 +752,12 @@ const __defs = {
       id: pat(IDS.formula), latex: orNull({ type: "string", maxLength: 4000 }), text: orNull({ type: "string", maxLength: 4000 }),
       status: en(["verified", "reread", "image", "unverified"]), slideId: str(64), t0: nonneg,
       display: en(["latex", "crop", "check"]),
-    }), 1000),
+      checks: obj({
+        parse: en(["ok", "failed", "unchecked"]),
+        symbols: en(["match", "mismatch", "unchecked"]),
+        units: en(["ok", "mismatch", "unchecked"]),
+      }),
+    }, ["id", "latex", "text", "status", "slideId", "t0", "display"]), 1000),
     figures: arr(obj({
       id: pat(IDS.figure), evidenceId: evId, kind: en(["table", "chart", "diagram"]),
       title: orNull(str(300)),
@@ -754,7 +768,8 @@ const __defs = {
         unit: orNull(str(16)), xLabel: orNull(str(40)), yLabel: orNull(str(40)),
       })),
       t0: nonneg, display: en(["table", "chart", "crop", "check"]),
-    }), 200),
+      explanation: orNull(claim),
+    }, ["id", "evidenceId", "kind", "title", "cells", "chartData", "t0", "display"]), 200),
     sources: arr(obj({ id: evId, kind: en(["slide", "speech", "figure"]), t0: nonneg, t1: nonneg, slideId: orNull(str(64)) }), 20000),
     notices: arr(obj({ code: pat(IDS.code), count: orNull({ type: "integer", minimum: 0 }), ids: orNull(arr(s64, 200)), ranges: orNull(arr(t0t1, 200)) }), 50),
     dropped: arr(obj({
@@ -1320,7 +1335,8 @@ const __defs = {
   // §14 표시 결정. KaTeX 통과는 문법 검증일 뿐 수학적 타당성·검산을 대신하지 않는다(§14).
   function displayOf(kind, entry, hasCrop) {
     if (kind === "formula") {
-      if (entry?.status === "verified" && typeof entry.latex === "string" && entry.latex.trim()) return "latex";
+      const hasMismatch = entry?.checks?.symbols === "mismatch" || entry?.checks?.units === "mismatch" || entry?.checks?.parse === "failed";
+      if (!hasMismatch && entry?.status === "verified" && typeof entry.latex === "string" && entry.latex.trim()) return "latex";
       return hasCrop ? "crop" : "check";
     }
     // 간단한 표·그래프 판정(table·chart)은 도표 레지스트리(lib/figures.js)가 하고, 여기서는 그 결정을 존중한다(§14).
@@ -1923,6 +1939,7 @@ const __defs = {
     const reg = registry.map(e => ({
       id: e.id, latex: e.latex ?? null, text: e.text ?? null, status: e.status,
       slideId: String(e.slideId ?? ""), t0: e.t0, display: displayOf("formula", e, cropSet.has(e.id)),
+      ...(e.checks ? { checks: e.checks } : {}),
     }));
     // 비전 출력 스키마는 "" 와 빈 목록을 허용하지만 노트 스키마는 최소 1글자·1개다 — 빈 칸은 null, 그래도 안 맞는 그래프 값은 버린다(크롭·확인 표시로).
     const blank = v => typeof v === "string" && v.trim() ? v : null;
@@ -1936,6 +1953,7 @@ const __defs = {
       return {
         id: f.id, evidenceId: f.evidenceId, kind: f.kind, title: blank(f.title), cells: f.cells ?? null,
         chartData, t0: f.t0, display: displayOf("figure", f.display === "chart" && !chartData ? {} : f, cropSet.has(f.id)),
+        ...(f.explanation ? { explanation: f.explanation } : {}),
       };
     });
     const concepts = (plan.concepts || []).map(c => ({
@@ -2343,7 +2361,215 @@ const __defs = {
     return { ok: !failing.length, blocks: failing, unjudged: blocks.map((_, i) => i).filter(i => !judged.has(i)), scores: byIndex };
   }
 
-  const api = { verifySection, checkSupport, verbatimIds, textOf, numbersOf, evidenceBundles, JUDGE_CHARS, CONTRA_FLOOR };
+  // ── 수식 검증 구분 (§5) ──
+  const GREEK_MAP = {
+    "\\alpha": "α", "\\beta": "β", "\\gamma": "γ", "\\delta": "δ", "\\epsilon": "ε", "\\varepsilon": "ε",
+    "\\zeta": "ζ", "\\eta": "η", "\\theta": "θ", "\\vartheta": "θ", "\\iota": "ι", "\\kappa": "κ",
+    "\\lambda": "λ", "\\mu": "μ", "\\nu": "ν", "\\xi": "ξ", "\\pi": "π", "\\varpi": "π",
+    "\\rho": "ρ", "\\varrho": "ρ", "\\sigma": "σ", "\\varsigma": "σ", "\\tau": "τ", "\\upsilon": "υ",
+    "\\phi": "φ", "\\varphi": "φ", "\\chi": "χ", "\\psi": "ψ", "\\omega": "ω",
+    "\\Gamma": "Γ", "\\Delta": "Δ", "\\Theta": "Θ", "\\Lambda": "Λ", "\\Xi": "Ξ", "\\Pi": "Π",
+    "\\Sigma": "Σ", "\\Upsilon": "Υ", "\\Phi": "Φ", "\\Psi": "Ψ", "\\Omega": "Ω",
+  };
+
+  // 유니코드 첨자 맵
+  const SUB_UNI = { "₀":"0","₁":"1","₂":"2","₃":"3","₄":"4","₅":"5","₆":"6","₇":"7","₈":"8","₉":"9","ₐ":"a","ₑ":"e","ₕ":"h","ᵢ":"i","ⱼ":"j","ₖ":"k","ₗ":"l","ₘ":"m","ₙ":"n","ₒ":"o","ₚ":"p","ᵣ":"r","ₛ":"s","ₜ":"t","ᵤ":"u","ᵥ":"v","ₓ":"x" };
+  const SUP_UNI = { "⁰":"0","¹":"1","²":"2","³":"3","⁴":"4","⁵":"5","⁶":"6","⁷":"7","⁸":"8","⁹":"9","ᵃ":"a","ᵇ":"b","ᶜ":"c","ᵈ":"d","ᵉ":"e","ᶠ":"f","ᵍ":"g","ʰ":"h","ⁱ":"i","ʲ":"j","ᵏ":"k","ˡ":"l","ᵐ":"m","ⁿ":"n","ᵒ":"o","ᵖ":"p","ʳ":"r","ˢ":"s","ᵗ":"t","ᵘ":"u","ᵛ":"v","ʷ":"w","ˣ":"x","ʸ":"y","ᶻ":"z","⁺":"+","⁻":"-" };
+
+  // 가벼운 정규화 토크나이저: 변수 기호, 분수 분모/분자, 첨자 토큰 추출
+  function tokenizeMathSymbols(str) {
+    if (typeof str !== "string" || !str.trim()) return [];
+    // 유니코드 아래첨자/위첨자를 먼저 _ / ^ 표기로 변환한 뒤 정규화 (NFKC 가 첨자를 일반 숫자로 뭉개는 것 방지).
+    // 문자 범위 정규식은 U+1D62 대역의 아래첨자(ᵢᵣᵤᵥ)를 위첨자로 오분류한다 — 맵의 키만 정확히 치환한다.
+    // 주의: ¹, ², ³ 은 Latin-1(U+00B9, U+00B2, U+00B3)에 있어 U+2070 대역(⁰-⁹)에 포함되지 않는다.
+    let s = str.replace(new RegExp(`[${Object.keys(SUB_UNI).join("")}]`, "gu"), c => `_${SUB_UNI[c] || c}`)
+               .replace(new RegExp(`[${Object.keys(SUP_UNI).join("")}]`, "gu"), c => `^${SUP_UNI[c] || c}`)
+               .normalize("NFKC");
+
+    // 바깥쪽 $ 제거 및 LaTeX 서식/간격 명령 제거
+    s = s.replace(/^\$\$?/, "").replace(/\$\$?$/, "")
+         .replace(/\\(?:left|right)(?![a-zA-Z])|\\displaystyle\b|\\q?quad\b|\\[,;:!]/g, " ")
+         .replace(/\\text\s*\{([^}]*)\}/g, " $1 ");
+
+    // 연산자 및 유니코드 기호 표준화
+    s = s.replace(/\\[tc]?times\b|\\cdot\b|\\ast\b|[×·*]/g, "*")
+         .replace(/\\div\b|÷/g, "/")
+         .replace(/[−–]/g, "-");
+
+    // 그리스 문자 치환
+    for (const [cmd, sym] of Object.entries(GREEK_MAP)) {
+      s = s.replaceAll(cmd, sym);
+    }
+
+    const tokens = [];
+
+    // 헬퍼: 하위 문자열에서 변수와 숫자 토큰을 prefix 와 함께 수집
+    const extractSubTokens = (subStr, prefix) => {
+      let sub = subStr.normalize("NFKC");
+      // 천단위 쉼표 제거
+      sub = sub.replace(/(?<=\d)(?:\\,|\{,\}|,)(?=\d{3}(?!\d))/g, "");
+      for (const m of sub.match(/\d+(?:\.\d+)?|\.\d+/g) || []) {
+        tokens.push(`${prefix}_val:${m}`);
+      }
+      sub = sub.replace(/\d+(?:\.\d+)?|\.\d+/g, " ");
+      sub = sub.replace(/\\[a-zA-Z]+/g, " ");
+      for (const m of sub.match(/[a-zA-Zα-ωΑ-Ω]/g) || []) {
+        tokens.push(`${prefix}_var:${m}`);
+      }
+    };
+
+    // 1. 분수 추출 (\frac{a}{b} 및 plain text a/b)
+    s = s.replace(/\\[dt]?frac\s*\{([^}]+)\}\s*\{([^}]+)\}/g, (m, num, den) => {
+      extractSubTokens(num, "num");
+      extractSubTokens(den, "den");
+      return " ";
+    });
+    s = s.replace(/\\[dt]?frac\s*([a-zA-Z0-9α-ωΑ-Ω])\s*([a-zA-Z0-9α-ωΑ-Ω])/g, (m, num, den) => {
+      extractSubTokens(num, "num");
+      extractSubTokens(den, "den");
+      return " ";
+    });
+
+    // 2. plain text 슬래시 분수 형태 (예: 0.09/(3*4), r/CK, a/b)
+    s = s.replace(/(\([^)()]+\)|[a-zA-Z0-9α-ωΑ-Ω.]+)\s*\/\s*(\([^)()]+\)|[a-zA-Z0-9α-ωΑ-Ω.]+)/g, (m, num, den) => {
+      const cleanNum = num.replace(/^[()]+|[()]+$/g, "");
+      const cleanDen = den.replace(/^[()]+|[()]+$/g, "");
+      extractSubTokens(cleanNum, "num");
+      extractSubTokens(cleanDen, "den");
+      return " ";
+    });
+
+    // 3. 첨자 추출
+    s = s.replace(/_\{([^}]+)\}/g, (m, sub) => {
+      extractSubTokens(sub, "sub");
+      return " ";
+    });
+    s = s.replace(/_([a-zA-Z0-9α-ωΑ-Ω])/g, (m, sub) => {
+      extractSubTokens(sub, "sub");
+      return " ";
+    });
+    s = s.replace(/\^\{([^}]+)\}/g, (m, sup) => {
+      extractSubTokens(sup, "sup");
+      return " ";
+    });
+    s = s.replace(/\^([a-zA-Z0-9α-ωΑ-Ω])/g, (m, sup) => {
+      extractSubTokens(sup, "sup");
+      return " ";
+    });
+
+    // 4. 일반 숫자 토큰
+    s = s.replace(/(?<=\d)(?:\\,|\{,\}|,)(?=\d{3}(?!\d))/g, "");
+    for (const m of s.match(/\d+(?:\.\d+)?|\.\d+/g) || []) {
+      tokens.push(`val:${m}`);
+    }
+    s = s.replace(/\d+(?:\.\d+)?|\.\d+/g, " ");
+
+    // 5. 일반 변수 기호 (영문자 및 그리스 문자)
+    s = s.replace(/\\[a-zA-Z]+/g, " ");
+    for (const m of s.match(/[a-zA-Zα-ωΑ-Ω]/g) || []) {
+      tokens.push(`var:${m}`);
+    }
+
+    return tokens.sort();
+  }
+
+  // 원본(OCR/텍스트)과 LaTeX 의 변수 기호·분수 분모/분자·첨자 토큰 비교
+  function checkFormulaSymbols(latex, sourceText) {
+    if (sourceText == null || !String(sourceText).trim()) return "unchecked";
+    if (latex == null || !String(latex).trim()) return "unchecked";
+
+    const tokL = tokenizeMathSymbols(latex);
+    const tokS = tokenizeMathSymbols(sourceText);
+
+    if (!tokL.length || !tokS.length) return "unchecked";
+
+    const left = new Map();
+    for (const t of tokL) left.set(t, (left.get(t) || 0) + 1);
+
+    const missing = [];
+    for (const t of tokS) {
+      if ((left.get(t) || 0) > 0) left.set(t, left.get(t) - 1);
+      else missing.push(t);
+    }
+    const extra = [];
+    for (const [t, c] of left) {
+      for (let i = 0; i < c; i++) extra.push(t);
+    }
+
+    // 토큰은 전부 변수·수치·분수·첨자 류라 하나라도 다르면 기호 불일치다.
+    return missing.length || extra.length ? "mismatch" : "match";
+  }
+
+  // B10 계산 입력·결과의 단위 일관성 (같은 차원끼리만 더하기 등 단순 규칙)
+  function checkFormulaUnits(entry, opts = {}) {
+    const b10 = opts.b10 || opts.calc || entry?.calc || entry?.content || null;
+    if (b10 && (Array.isArray(b10.steps) || Array.isArray(b10.inputs))) {
+      const units = {};
+      (b10.inputs || []).forEach((inp, i) => { units["i" + (i + 1)] = inp.unit ?? null; });
+      let checkedAny = false;
+      for (let j = 0; j < (b10.steps || []).length; j++) {
+        const st = b10.steps[j];
+        const r = "c" + (j + 1);
+        if (st.op === "add" || st.op === "sub") {
+          checkedAny = true;
+          const ua = units[st.a], ub = units[st.b];
+          const want = st.op === "sub" && ua === "%" && ub === "%" ? "%p" : ua;
+          if (ua !== ub || (st.unit ?? null) !== want) return "mismatch";
+        }
+        units[r] = st.unit ?? null;
+      }
+      if (checkedAny) return "ok";
+    }
+
+    // LaTeX 또는 text 안의 단위 붙은 수치 더하기/빼기 — 단위는 \text{...} 또는 한글·%·°로 시작하는
+    // 토큰만 본다. 벌어진 알파벳("5x - 2y")은 변수일 수 있어 단위로 단정하지 않는다(오탐 방지).
+    const targetText = String(entry?.latex || entry?.text || "");
+    const unitPair = /(\d+(?:\.\d+)?)\s*(?:\\text\{\s*([^{}]*?)\s*\}|([가-힣%°][가-힣A-Za-z%°]*))\s*([+-])\s*(\d+(?:\.\d+)?)\s*(?:\\text\{\s*([^{}]*?)\s*\}|([가-힣%°][가-힣A-Za-z%°]*))/g;
+    let matchedUnitOp = false;
+    for (const m of targetText.matchAll(unitPair)) {
+      matchedUnitOp = true;
+      const u1 = (m[2] ?? m[3] ?? "").trim(), u2 = (m[6] ?? m[7] ?? "").trim();
+      if (u1 !== u2) return "mismatch";
+    }
+    if (matchedUnitOp) return "ok";
+
+    return "unchecked";
+  }
+
+  // 레지스트리 항목 단위 검사 종합 계산
+  function checkFormula(entry, opts = {}) {
+    const latex = entry?.latex ?? null;
+    const katex = opts?.katex ?? globalThis.katex ?? null;
+
+    let parse = "unchecked";
+    if (typeof latex === "string" && latex.trim()) {
+      if (katex) {
+        let pOk = false;
+        try {
+          if (Formulas && typeof Formulas.parseOk === "function") {
+            pOk = Formulas.parseOk(latex, katex);
+          } else {
+            katex.renderToString(latex, { throwOnError: true, displayMode: true });
+            pOk = true;
+          }
+        } catch {
+          pOk = false;
+        }
+        parse = pOk ? "ok" : "failed";
+      }
+    }
+
+    const symbols = checkFormulaSymbols(latex, opts.ocrText ?? entry?.text ?? null);
+    const units = checkFormulaUnits(entry, opts);
+
+    return { parse, symbols, units };
+  }
+
+  const api = {
+    verifySection, checkSupport, verbatimIds, textOf, numbersOf, evidenceBundles,
+    JUDGE_CHARS, CONTRA_FLOOR,
+    tokenizeMathSymbols, checkFormulaSymbols, checkFormulaUnits, checkFormula,
+  };
   globalThis.Verify = api;
   if (typeof module !== "undefined") module.exports = api;
 })();

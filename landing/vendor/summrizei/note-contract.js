@@ -396,7 +396,12 @@
       id: pat(IDS.formula), latex: orNull({ type: "string", maxLength: 4000 }), text: orNull({ type: "string", maxLength: 4000 }),
       status: en(["verified", "reread", "image", "unverified"]), slideId: str(64), t0: nonneg,
       display: en(["latex", "crop", "check"]),
-    }), 1000),
+      checks: obj({
+        parse: en(["ok", "failed", "unchecked"]),
+        symbols: en(["match", "mismatch", "unchecked"]),
+        units: en(["ok", "mismatch", "unchecked"]),
+      }),
+    }, ["id", "latex", "text", "status", "slideId", "t0", "display"]), 1000),
     figures: arr(obj({
       id: pat(IDS.figure), evidenceId: evId, kind: en(["table", "chart", "diagram"]),
       title: orNull(str(300)),
@@ -407,7 +412,8 @@
         unit: orNull(str(16)), xLabel: orNull(str(40)), yLabel: orNull(str(40)),
       })),
       t0: nonneg, display: en(["table", "chart", "crop", "check"]),
-    }), 200),
+      explanation: orNull(claim),
+    }, ["id", "evidenceId", "kind", "title", "cells", "chartData", "t0", "display"]), 200),
     sources: arr(obj({ id: evId, kind: en(["slide", "speech", "figure"]), t0: nonneg, t1: nonneg, slideId: orNull(str(64)) }), 20000),
     notices: arr(obj({ code: pat(IDS.code), count: orNull({ type: "integer", minimum: 0 }), ids: orNull(arr(s64, 200)), ranges: orNull(arr(t0t1, 200)) }), 50),
     dropped: arr(obj({
@@ -973,7 +979,8 @@
   // §14 표시 결정. KaTeX 통과는 문법 검증일 뿐 수학적 타당성·검산을 대신하지 않는다(§14).
   function displayOf(kind, entry, hasCrop) {
     if (kind === "formula") {
-      if (entry?.status === "verified" && typeof entry.latex === "string" && entry.latex.trim()) return "latex";
+      const hasMismatch = entry?.checks?.symbols === "mismatch" || entry?.checks?.units === "mismatch" || entry?.checks?.parse === "failed";
+      if (!hasMismatch && entry?.status === "verified" && typeof entry.latex === "string" && entry.latex.trim()) return "latex";
       return hasCrop ? "crop" : "check";
     }
     // 간단한 표·그래프 판정(table·chart)은 도표 레지스트리(lib/figures.js)가 하고, 여기서는 그 결정을 존중한다(§14).
@@ -1576,6 +1583,7 @@
     const reg = registry.map(e => ({
       id: e.id, latex: e.latex ?? null, text: e.text ?? null, status: e.status,
       slideId: String(e.slideId ?? ""), t0: e.t0, display: displayOf("formula", e, cropSet.has(e.id)),
+      ...(e.checks ? { checks: e.checks } : {}),
     }));
     // 비전 출력 스키마는 "" 와 빈 목록을 허용하지만 노트 스키마는 최소 1글자·1개다 — 빈 칸은 null, 그래도 안 맞는 그래프 값은 버린다(크롭·확인 표시로).
     const blank = v => typeof v === "string" && v.trim() ? v : null;
@@ -1589,6 +1597,7 @@
       return {
         id: f.id, evidenceId: f.evidenceId, kind: f.kind, title: blank(f.title), cells: f.cells ?? null,
         chartData, t0: f.t0, display: displayOf("figure", f.display === "chart" && !chartData ? {} : f, cropSet.has(f.id)),
+        ...(f.explanation ? { explanation: f.explanation } : {}),
       };
     });
     const concepts = (plan.concepts || []).map(c => ({
