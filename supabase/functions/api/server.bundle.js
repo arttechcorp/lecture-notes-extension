@@ -2169,6 +2169,27 @@ const costOf=(u,pi,po,empty=false)=>{
   if(empty&&!(i>0)&&!(o>0))return 0;
   return Number.isFinite(i)&&Number.isFinite(o)&&i>=0&&o>=0?(i*pi+o*po)/1e6:null;
 };
+// 제공자 HTTP 호출 한 건의 시도 기록 — 시도별 행은 usage_attempts 로 간다(§7). u 는 공급자 응답의 usage.
+// OpenAI 모양(prompt_tokens)과 Jev 모양(input_tokens)을 둘 다 받는다. 토큰·캐시·비용 미보고는 null 이다(보고된 0 과 구분).
+const attemptOf=(id,latencyMs,u,error)=>{
+  const num=v=>Number.isFinite(v)&&v>=0?v:null,d=u?.cache??cacheOf(u),cost=num(u?.cost),
+    i=num(u?.prompt_tokens)??num(u?.input_tokens),o=num(u?.completion_tokens)??num(u?.output_tokens);
+  return {id,status:error?"error":"ok",error:error??null,latencyMs:Math.max(0,Math.round(latencyMs)),inputTokens:i,outputTokens:o,
+    cachedInputTokens:d.cached_input_tokens,cacheWriteTokens:d.cache_write_tokens,providerReportedCost:cost,
+    costStatus:cost!==null?"provider_reported":i!==null||o!==null?"estimated":"unreported"};
+};
+// 시도 오류 코드: detail 이 있으면 그것, 아니면 코드 모양의 message — 나머지는 invalid_output.
+const errCode=e=>typeof e?.detail==="string"&&e.detail||(/^[a-z][a-z0-9_.-]{0,62}$/.test(e?.message)?e.message:null)||"invalid_output";
+// 요청 안의 시도 목록을 원장 필드로 접는다. logical_task_id 는 클라이언트 재시도(-rN)를 묶는 기준 id, attempt_id 는 마지막 제공자 호출 번호.
+// 미보고는 합계에서도 null 로 보존한다. 청구액은 요청 행에만 두고 시도별 상세는 usage_attempts 로 가므로 요청 합계를 중복 세지 않는다.
+const attemptFields=(requestId,promptCache,attempts,{status,amount,billedCost,policyVersion})=>{
+  const sum=k=>attempts.some(a=>Number.isFinite(a?.[k]))?attempts.reduce((s,a)=>s+(a[k]||0),0):null;
+  const cached=sum("cachedInputTokens"),writes=sum("cacheWriteTokens"),reported=billedCost??sum("providerReportedCost");
+  return {logicalTaskId:String(requestId).replace(/-r\d+$/,""),attemptId:attempts.length?attempts.at(-1).id:null,
+    cacheKind:promptCache?"provider_prompt":null,cacheStatus:promptCache?(cached===null?"unknown":cached>0?"hit":"miss"):"not_applicable",
+    cachedInputTokens:cached,cacheWriteTokens:writes,providerReportedCost:reported,policyVersion,attempts,
+    costStatus:status==="refunded"?"not_applicable":amount===null?"unreported":reported!==null&&Math.abs(reported-amount)<1e-9?"provider_reported":"estimated"};
+};
 const VISION_RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"mistralai/ministral-8b-2512":[.15,.15],"qwen/qwen3-vl-8b-instruct":[.12,.45],"openai/gpt-6-luna":[.1,.5]};
 // 구조화 출력은 상자 좌표까지 JSON으로 나가 순수 텍스트보다 길다.
 const VISION_MAX_TOKENS=8192;
@@ -2223,7 +2244,7 @@ function providerSchema(s,drop){
   return out;
 }
 const VISION_SCHEMA=providerSchema({type:"object",additionalProperties:false,required:["blocks","formulas","figures"],properties:{blocks:Contracts.SCHEMAS.slideDoc.properties.blocks,formulas:Contracts.SCHEMAS.slideDoc.properties.formulas,figures:Contracts.SCHEMAS.slideDoc.properties.figures}},["id","status"]);
-const {cachedSystem,parseNote,reasoningFor,maxTokensFor,noTemperature}=require("./llm.js");
+const {cachedSystem,parseNote,reasoningFor,maxTokensFor,noTemperature,cacheOf}=require("./llm.js");
 const safePart=x=>{if(typeof x!=="string"||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(x))throw new Error("invalid_id");return x;};
 const tokenEqual=(a,b)=>{const x=Buffer.from(String(a)),y=Buffer.from(String(b));return x.length===y.length&&crypto.timingSafeEqual(x,y);};
 const positive=(x,fallback)=>{const n=Number(x??fallback);if(!Number.isFinite(n)||n<=0)throw new Error("invalid_limit");return n;};
@@ -2339,7 +2360,7 @@ function config(env){
     if(!Array.isArray(next.models)||!next.models.length||next.models.some(m=>!allow.includes(m)))throw new Error("invalid_plan_models");
     planFeatures[name]=next;
   }
-  const remoteConfig={concurrency:{download:4,decode:1,stt:2,vision:3,judge:2,write:8},throughputMbps:50,minClientVersion:"0.0.0",promptVersion:"v1",schemaVersion:1};
+  const remoteConfig={concurrency:{download:4,decode:1,stt:2,vision:3,judge:2,write:8},throughputMbps:50,minClientVersion:"0.0.0",promptVersion:"v1",schemaVersion:1,policyVersion:"v1"};
   const remoteIn=JSON.parse(env.REMOTE_CONFIG_JSON||"{}");
   if(!plain(remoteIn)||Object.keys(remoteIn).some(k=>!Object.hasOwn(remoteConfig,k)))throw new Error("invalid_remote_config");
   if(remoteIn.concurrency!==undefined){
@@ -2349,6 +2370,7 @@ function config(env){
   for(const k of ["throughputMbps","schemaVersion"])if(remoteIn[k]!==undefined){if(!Number.isFinite(remoteIn[k])||remoteIn[k]<=0)throw new Error("invalid_remote_config");remoteConfig[k]=remoteIn[k];}
   if(remoteIn.minClientVersion!==undefined){if(typeof remoteIn.minClientVersion!=="string"||!/^\d+\.\d+\.\d+$/.test(remoteIn.minClientVersion))throw new Error("invalid_remote_config");remoteConfig.minClientVersion=remoteIn.minClientVersion;}
   if(remoteIn.promptVersion!==undefined){if(typeof remoteIn.promptVersion!=="string"||!remoteIn.promptVersion)throw new Error("invalid_remote_config");remoteConfig.promptVersion=remoteIn.promptVersion;}
+  if(remoteIn.policyVersion!==undefined){if(typeof remoteIn.policyVersion!=="string"||!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$/.test(remoteIn.policyVersion))throw new Error("invalid_remote_config");remoteConfig.policyVersion=remoteIn.policyVersion;}
   const providerConcurrency=JSON.parse(env.PROVIDER_CONCURRENCY_JSON||"{}");
   if(!plain(providerConcurrency)||Object.values(providerConcurrency).some(v=>!Number.isInteger(v)||v<=0))throw new Error("invalid_provider_concurrency");
   // 요청 수·분당 호출 수는 거친 안전망이다. 진짜 상한은 비용 캡(MAX_COST_CENTS, GLOBAL_COST_CENTS)이다 —
@@ -2556,7 +2578,7 @@ function createServer(env=process.env,deps={}){
       if(held.fail)return fail(res,FAIL_CODE[held.fail]);
       timer=setTimeout(()=>controller.abort(),c.timeout);
       const t0=Date.now();
-      let payload,amount=null,error=null,status="ok";const gens=[];
+      let payload,amount=null,error=null,status="ok",tries=[];const gens=[];
       try{
         // 예약을 기다리는 사이 끊긴 요청은 제공자에 아무것도 보내지 않았으므로 환불이다.
         if(controller.signal.aborted)throw Object.assign(new Error("aborted"),{refund:true,code:"request_cancelled_or_timed_out"});
@@ -2564,10 +2586,10 @@ function createServer(env=process.env,deps={}){
         try{
           const r=await run(controller.signal,store,gens);
           // 비용을 보고하지 않은 요청은 amount 가 null 이다 — 장부는 예약액을 그대로 청구한다. 공짜였다고 가정하지 않는다.
-          payload=r.payload;amount=r.reported?r.amount:null;
+          payload=r.payload;amount=r.reported?r.amount:null;tries=r.attempts??[];
         }finally{release();}
       }catch(e){
-        error=e||{};status=error.refund?"refunded":"error";
+        error=e||{};status=error.refund?"refunded":"error";tries=error.attempts??[];
         // 응답이 와서 비용이 확정된 실패(출력 잘림)는 예약 전액이 아니라 제공자가 보고한 금액만 청구한다. 환불이 아니다 — 돈은 이미 나갔다.
         amount=status==="error"&&error.charged&&error.charged.reported?error.charged.amount:null;
       }
@@ -2575,9 +2597,11 @@ function createServer(env=process.env,deps={}){
       const u=payload?.usage||error?.charged?.usage||{};
       // 실 결제 금액: 이 요청이 만든 생성(gen id)마다 OpenRouter 가 실제로 청구한 금액(관리 키로 /generation 조회)을 장부에 적는다.
       // 하나라도 못 받으면 응답의 보고 비용·토큰 계산으로 둔다. 환불(생성 없음)은 조회하지 않는다.
-      if(c.mgmtKey&&gens.length&&status!=="refunded"){const b=await billedCost(gens);if(b!==null)amount=b;}
+      let billed=null;
+      if(c.mgmtKey&&gens.length&&status!=="refunded"){const b=await billedCost(gens);if(b!==null){amount=b;billed=b;}}
       let stored=true;
-      try{await held.settle({status,amount,meta:{...meta,inputTokens:u.promptTokens,outputTokens:u.completionTokens,audioSeconds:u.audioSec??meta.audioSeconds,promptVersion:payload?.promptVersion,schemaVersion:payload?.schemaVersion,errorCode:(code&&error?.detail)||code,latencyMs:Date.now()-t0,clientVersion:account.client}});}catch{stored=false;}
+      try{await held.settle({status,amount,meta:{...meta,inputTokens:u.promptTokens,outputTokens:u.completionTokens,audioSeconds:u.audioSec??meta.audioSeconds,promptVersion:payload?.promptVersion,schemaVersion:payload?.schemaVersion,errorCode:(code&&error?.detail)||code,latencyMs:Date.now()-t0,clientVersion:account.client,
+        ...attemptFields(requestId,meta.stage!=="stt",tries,{status,amount,billedCost:billed,policyVersion:c.remoteConfig.policyVersion})}});}catch{stored=false;}
       // 정산이 안 닫혀도 이미 만든 결과는 돌려준다 — 예약이 reserved 로 남아 비용이 보수적으로 잡힌다. 환불만은 예약이 안 풀렸으므로 같은 requestId 재시도를 약속할 수 없다.
       if(!error)return send(res,200,payload);
       if(status==="refunded")return stored?fail(res,code,error.retryAfterMs):fail(res,"usage_store_failed");
@@ -2603,25 +2627,29 @@ function createServer(env=process.env,deps={}){
     // 이미지 토큰 수는 사전에 알 수 없다. 최악값에 형식 실패 재시도분까지 잡고 정산에서 되돌린다.
     const reserve=Math.ceil(attempts*(8000*pi+maxTokens*po)/1e6*100*1.2);
     return await withReservation({account,requestId:input.requestId,digest,reserve,model:input.model,res,meta:{stage:"vision."+input.mode,provider:"openrouter",model:input.model,images:1,jobId:input.jobId}},async (signal,store,gens)=>{
-      let usage={promptTokens:0,completionTokens:0},amount=0,reported=true;
-      for(let retry=0;retry<attempts;retry++){
-        const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
-          model:input.model,max_tokens:maxTokens,...(noTemperature(input.model)?{}:{temperature:0}),...(live?{reasoning}:{}),
-          messages:[{role:"system",content:input.mode==="reread"?VISION_REREAD_PROMPT:VISION_PROMPT},{role:"user",content:[{type:"text",text:"이 이미지를 규칙대로 옮겨 적어 JSON으로만 답하세요."},{type:"image_url",image_url:{url:input.image}}]}],
-          response_format:{type:"json_schema",json_schema:{name:"slide_doc",strict:true,schema:VISION_SCHEMA}},
-          provider:{only:c.providers[input.model],order:c.providers[input.model],require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}
-        })});
-        if(!response.ok)throw Object.assign(new Error("provider_failed"),{detail:httpDetail(response)});
-        const raw=await boundedResponse(response,1024*1024),u=raw.usage||{};if(typeof raw.id==="string")gens.push(raw.id);
-        usage={promptTokens:usage.promptTokens+(Number(u.prompt_tokens)||0),completionTokens:usage.completionTokens+(Number(u.completion_tokens)||0)};
-        { const c=costOf(u,pi,po); if(c===null)reported=false;else amount+=c; }
-        // 형식 실패(잘림·파손·계약 불일치)만 같은 제공자로 한 번 더 간다 — 돈은 이미 나갔다.
-        try{
-          if(raw.choices?.[0]?.finish_reason!=="stop")throw new Error("provider_output_incomplete");
-          const slideDoc=Contracts.assertValid(Contracts.SCHEMAS.slideDoc,toSlideDoc(parseNote(raw.choices[0].message.content),{slideId:input.slideId,t0:input.t0,t1:input.t1,model:input.model,mode:input.mode}),"슬라이드 인식 결과");
-          return {amount,reported,payload:{slideDoc,usage:{...usage,costUsd:reported?amount:reserve/100},promptVersion:c.remoteConfig.promptVersion,schemaVersion:c.remoteConfig.schemaVersion}};
-        }catch(error){if(retry===attempts-1)throw error;}
-      }
+      let usage={promptTokens:0,completionTokens:0},amount=0,reported=true;const tries=[];
+      try{
+        for(let retry=0;retry<attempts;retry++){
+          const at=Date.now();
+          const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
+            model:input.model,max_tokens:maxTokens,...(noTemperature(input.model)?{}:{temperature:0}),...(live?{reasoning}:{}),
+            messages:[{role:"system",content:input.mode==="reread"?VISION_REREAD_PROMPT:VISION_PROMPT},{role:"user",content:[{type:"text",text:"이 이미지를 규칙대로 옮겨 적어 JSON으로만 답하세요."},{type:"image_url",image_url:{url:input.image}}]}],
+            response_format:{type:"json_schema",json_schema:{name:"slide_doc",strict:true,schema:VISION_SCHEMA}},
+            provider:{only:c.providers[input.model],order:c.providers[input.model],require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}
+          })});
+          if(!response.ok){tries.push(attemptOf("a"+tries.length,Date.now()-at,null,httpDetail(response)));throw Object.assign(new Error("provider_failed"),{detail:httpDetail(response)});}
+          const raw=await boundedResponse(response,1024*1024),u=raw.usage||{};if(typeof raw.id==="string")gens.push(raw.id);
+          usage={promptTokens:usage.promptTokens+(Number(u.prompt_tokens)||0),completionTokens:usage.completionTokens+(Number(u.completion_tokens)||0)};
+          { const c=costOf(u,pi,po); if(c===null)reported=false;else amount+=c; }
+          tries.push(attemptOf("a"+tries.length,Date.now()-at,u));
+          // 형식 실패(잘림·파손·계약 불일치)만 같은 제공자로 한 번 더 간다 — 돈은 이미 나갔다.
+          try{
+            if(raw.choices?.[0]?.finish_reason!=="stop")throw new Error("provider_output_incomplete");
+            const slideDoc=Contracts.assertValid(Contracts.SCHEMAS.slideDoc,toSlideDoc(parseNote(raw.choices[0].message.content),{slideId:input.slideId,t0:input.t0,t1:input.t1,model:input.model,mode:input.mode}),"슬라이드 인식 결과");
+            return {amount,reported,attempts:tries,payload:{slideDoc,usage:{...usage,costUsd:reported?amount:reserve/100},promptVersion:c.remoteConfig.promptVersion,schemaVersion:c.remoteConfig.schemaVersion}};
+          }catch(error){const t=tries.at(-1);t.status="error";t.error=errCode(error);if(retry===attempts-1)throw error;}
+        }
+      }catch(e){e.attempts??=tries;throw e;}
     });
   }
   async function stt(input,account,res){
@@ -2644,13 +2672,14 @@ function createServer(env=process.env,deps={}){
     const reserve=Math.ceil(STT_RATES[input.model]*Math.max(STT_MIN_BILLED_SEC,input.durationSec)/3600*100*1.2);
     // 월 인식 분량 한도(plans.monthly_minutes_cap)는 선언 길이를 올림한 분으로 센다 — 비용은 따로 제공자가 잰 길이로 정산한다.
     return await withReservation({account,requestId:input.requestId,digest,reserve,minutes:Math.ceil(input.durationSec/60),model:input.model,res,meta:{stage:"stt",provider:"openrouter",model:input.model,audioSeconds:input.durationSec,jobId:input.jobId}},async signal=>{
+      const at=Date.now();
       // lang auto 는 language 힌트를 보내지 않는다 — 제공자가 언어를 감지하게 둔다.
       const response=await fetcher("https://openrouter.ai/api/v1/audio/transcriptions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
         model:input.model,input_audio:{data:b64,format:match[1]==="mp4"?"m4a":"wav"},...(input.lang==="auto"?{}:{language:input.lang}),response_format:"verbose_json",timestamp_granularities:["segment","word"],
         ...(phrases.length?{provider:{options:{azure:{phraseList:{phrases}}}}}:{})
       })});
       // 제공자 HTTP 오류는 요청이 처리되지 않았다고 확정할 수 있으므로 refund — 예약을 정확히 되돌린다.
-      if(!response.ok){const h=response.headers?.get?.("retry-after"),s=Number(h);throw Object.assign(new Error("provider_rejected"),{refund:true,code:response.status===429?"provider_busy":"provider_failed_or_invalid_output",detail:httpDetail(response),retryAfterMs:response.status===429?(h==null||!Number.isFinite(s)?2000:Math.min(Math.max(Math.round(s*1000),1000),30000)):undefined});}
+      if(!response.ok){const h=response.headers?.get?.("retry-after"),s=Number(h);throw Object.assign(new Error("provider_rejected"),{refund:true,code:response.status===429?"provider_busy":"provider_failed_or_invalid_output",detail:httpDetail(response),attempts:[attemptOf("a0",Date.now()-at,null,httpDetail(response))],retryAfterMs:response.status===429?(h==null||!Number.isFinite(s)?2000:Math.min(Math.max(Math.round(s*1000),1000),30000)):undefined});}
       const raw=await boundedResponse(response,2*1024*1024);
       // auto 로 보낸 요청은 제공자가 되돌린 감지 언어를 ko/en으로 접는다 — 못 읽으면 계약이 허용하는 auto로 둔다.
       const detected={ko:"ko",korean:"ko",en:"en",english:"en"}[String(raw.language??"").trim().toLowerCase()];
@@ -2660,7 +2689,7 @@ function createServer(env=process.env,deps={}){
       const billedSec=Math.max(STT_MIN_BILLED_SEC,input.durationSec,Math.ceil(measured)),u=raw.usage||{};
       // 제공자가 비용을 보고하면 그 금액으로 정산하고 없으면 시간 단가로 되돌린다.
       const amount=typeof u.cost==="number"&&Number.isFinite(u.cost)&&u.cost>=0?u.cost:STT_RATES[input.model]*billedSec/3600;
-      return {amount,reported:true,payload:{transcript,usage:{audioSec:billedSec,costUsd:amount},promptVersion:c.remoteConfig.promptVersion,schemaVersion:c.remoteConfig.schemaVersion}};
+      return {amount,reported:true,attempts:[attemptOf("a0",Date.now()-at,u)],payload:{transcript,usage:{audioSec:billedSec,costUsd:amount},promptVersion:c.remoteConfig.promptVersion,schemaVersion:c.remoteConfig.schemaVersion}};
     });
   }
   async function judge(input,account,res){
@@ -2688,16 +2717,21 @@ function createServer(env=process.env,deps={}){
       const ctl=new AbortController(),stop=()=>ctl.abort();
       signal.addEventListener("abort",stop,{once:true});if(signal.aborted)stop();
       const ctx={c,fetcher,signal:ctl.signal,model:input.model,task:input.task},call=JUDGE_VIA[via.via];
-      const results=new Array(units.length);let next=0;
+      const results=new Array(units.length),tries=new Array(units.length).fill(null);let next=0;
       const worker=async()=>{
         // 첫 실패에서 전체를 중단한다 — 나머지 호출은 어차피 버릴 결과에 돈을 쓴다.
         while(next<units.length&&!ctl.signal.aborted){
           const i=next++,release=await acquire(input.model,ctl.signal,true,store);
+          const at=Date.now();
           // abort 직전 큐에 들어간 대기자도 슬롯은 물려받는다 — 슬롯을 얻고도 호출은 나가면 안 된다.
-          try{if(ctl.signal.aborted)throw new Error("aborted");results[i]=await call(ctx,units[i]);}catch(e){ctl.abort();throw e;}finally{release();}
+          try{
+            if(ctl.signal.aborted)throw new Error("aborted");
+            const r=await call(ctx,units[i]);results[i]=r;
+            tries[i]=attemptOf("a"+i,Date.now()-at,{prompt_tokens:r.promptTokens,completion_tokens:r.completionTokens,cost:r.cost,cache:r.cache});
+          }catch(e){tries[i]=attemptOf("a"+i,Date.now()-at,null,errCode(e));ctl.abort();throw e;}finally{release();}
         }
       };
-      try{await Promise.all(Array.from({length:Math.min(units.length,16)},()=>worker()));}finally{signal.removeEventListener("abort",stop);ctl.abort();}
+      try{await Promise.all(Array.from({length:Math.min(units.length,16)},()=>worker()));}catch(e){e.attempts=tries.filter(Boolean);throw e;}finally{signal.removeEventListener("abort",stop);ctl.abort();}
       let amount=0,reported=true,usage={promptTokens:0,completionTokens:0};
       const perItem=new Array(items.length);
       for(const [u,r]of results.entries()){
@@ -2707,7 +2741,7 @@ function createServer(env=process.env,deps={}){
         if(via.chunk)r.results.forEach((o,j)=>{perItem[units[u].itemIndexes[j]]=o;});else perItem[u]=r;
       }
       const payload={results:items.map((e,i)=>Contracts.assertValid(Contracts.SCHEMAS.judgeResult,{itemId:e.itemId,task:input.task,probs:perItem[i].probs,score:perItem[i].score,confidence:perItem[i].confidence??null,model:input.model},"판정 결과")),usage:{...usage,costUsd:reported?amount:reserve/100},promptVersion:c.remoteConfig.promptVersion,schemaVersion:c.remoteConfig.schemaVersion};
-      return {amount,reported,payload};
+      return {amount,reported,attempts:tries.filter(Boolean),payload};
     });
   }
   // plan/write 공용. 순서: 모델·계정 → 필드 화이트리스트 → 양식 버전 → 본문 모양·크기 → 예약. 계획 1회와 섹션별 작성이 같은 경로를 쓴다 —
@@ -2759,27 +2793,30 @@ function createServer(env=process.env,deps={}){
           return response.ok?Jev.parseSubjectAnswer(await boundedResponse(response,256*1024)):null;
         }catch{return null;}finally{clearTimeout(t);signal.removeEventListener("abort",off);}
       })():null;
-      let usage={promptTokens:0,completionTokens:0},amount=0,reported=true;
-      for(let retry=0;retry<attempts;retry++){
-        const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
-          model:input.model,...params,
-          messages:[cachedSystem(input.model,system),{role:"user",content:user}],
-          response_format:{type:"json_schema",json_schema:{name:"lecture_note_"+stage,strict:true,schema:providerOut}},
-          provider:{only:c.providers[input.model],order:c.providers[input.model],require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}
-        })});
-        // detail 은 사용 기록(usage_events.error_code)에만 남는 세부 사유다 — 클라이언트에는 기존 코드만 간다.
-        // 4xx 는 라우팅 단계의 거절(파라미터·제공자 없음)이라 생성 비용이 없다 — 첫 시도면 예약을 환불한다.
-        // 5xx·전송 실패는 제공자 쪽에서 돈이 나갔는지 알 수 없어 예약을 그대로 둔다(보수적).
-        if(!response.ok)throw Object.assign(new Error("provider_failed"),{detail:"provider_http_"+response.status},retry===0&&response.status>=400&&response.status<500?{refund:true,code:"provider_failed_or_invalid_output"}:{});
-        const raw=await boundedResponse(response,1024*1024),u=raw.usage||{},choice=raw.choices?.[0];if(typeof raw.id==="string")gens.push(raw.id);
-        // 200 이어도 본문이 오류이고 생성이 없으면(사용량 없음·선택지 없음) 돈이 나가지 않았다 — 첫 시도면 환불한다.
-        // 필드: OpenRouter 크레딧이 바닥난 순간 이런 응답 3건이 각각 예약금 전액($0.57)으로 정산됐다.
-        if(!choice&&!raw.usage)throw Object.assign(new Error("provider_failed"),{detail:"provider_body_"+String(raw.error?.code??"empty").replace(/[^a-z0-9_]/gi,"_").slice(0,24)},retry===0?{refund:true,code:"provider_failed_or_invalid_output"}:{});
-        usage={promptTokens:usage.promptTokens+(Number(u.prompt_tokens)||0),completionTokens:usage.completionTokens+(Number(u.completion_tokens)||0)};
-        { const c=costOf(u,pi,po,!choice?.message?.content&&choice?.finish_reason!=="length"); if(c===null)reported=false;else amount+=c; }
-        // 잘림은 한도를 키워 재시도하지 않는다 — 클라이언트가 섹션을 나눠 새 요청으로 보낸다(§6.5). 재시도 없이 지금까지 나간 비용만 청구한다.
-        // 잘린 출력이 같은 말을 되풀이했는지(반복 루프) 내용 없이 남긴다: 뒤쪽 4000자의 40자 조각 중 서로 다른 조각 비율. 0.5 미만이면 .rep
-        if(choice?.finish_reason==="length")throw Object.assign(new Error("llm_output_truncated"),{code:"llm_output_truncated",detail:"llm_output_truncated."+(repetitive(choice?.message?.content)?"rep":"long"),charged:{amount,reported,usage}});
+      let usage={promptTokens:0,completionTokens:0},amount=0,reported=true;const tries=[];
+      try{
+        for(let retry=0;retry<attempts;retry++){
+          const at=Date.now();
+          const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
+            model:input.model,...params,
+            messages:[cachedSystem(input.model,system),{role:"user",content:user}],
+            response_format:{type:"json_schema",json_schema:{name:"lecture_note_"+stage,strict:true,schema:providerOut}},
+            provider:{only:c.providers[input.model],order:c.providers[input.model],require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}
+          })});
+          // detail 은 사용 기록(usage_events.error_code)에만 남는 세부 사유다 — 클라이언트에는 기존 코드만 간다.
+          // 4xx 는 라우팅 단계의 거절(파라미터·제공자 없음)이라 생성 비용이 없다 — 첫 시도면 예약을 환불한다.
+          // 5xx·전송 실패는 제공자 쪽에서 돈이 나갔는지 알 수 없어 예약을 그대로 둔다(보수적).
+          if(!response.ok){tries.push(attemptOf("a"+tries.length,Date.now()-at,null,"provider_http_"+response.status));throw Object.assign(new Error("provider_failed"),{detail:"provider_http_"+response.status},retry===0&&response.status>=400&&response.status<500?{refund:true,code:"provider_failed_or_invalid_output"}:{});}
+          const raw=await boundedResponse(response,1024*1024),u=raw.usage||{},choice=raw.choices?.[0];if(typeof raw.id==="string")gens.push(raw.id);
+          // 200 이어도 본문이 오류이고 생성이 없으면(사용량 없음·선택지 없음) 돈이 나가지 않았다 — 첫 시도면 환불한다.
+          // 필드: OpenRouter 크레딧이 바닥난 순간 이런 응답 3건이 각각 예약금 전액($0.57)으로 정산됐다.
+          if(!choice&&!raw.usage){tries.push(attemptOf("a"+tries.length,Date.now()-at,null,"provider_body_"+String(raw.error?.code??"empty").replace(/[^a-z0-9_]/gi,"_").slice(0,24)));throw Object.assign(new Error("provider_failed"),{detail:tries.at(-1).error},retry===0?{refund:true,code:"provider_failed_or_invalid_output"}:{});}
+          usage={promptTokens:usage.promptTokens+(Number(u.prompt_tokens)||0),completionTokens:usage.completionTokens+(Number(u.completion_tokens)||0)};
+          { const c=costOf(u,pi,po,!choice?.message?.content&&choice?.finish_reason!=="length"); if(c===null)reported=false;else amount+=c; }
+          tries.push(attemptOf("a"+tries.length,Date.now()-at,u));
+          // 잘림은 한도를 키워 재시도하지 않는다 — 클라이언트가 섹션을 나눠 새 요청으로 보낸다(§6.5). 재시도 없이 지금까지 나간 비용만 청구한다.
+          // 잘린 출력이 같은 말을 되풀이했는지(반복 루프) 내용 없이 남긴다: 뒤쪽 4000자의 40자 조각 중 서로 다른 조각 비율. 0.5 미만이면 .rep
+          if(choice?.finish_reason==="length"){const t=tries.at(-1);t.status="error";t.error="llm_output_truncated."+(repetitive(choice?.message?.content)?"rep":"long");throw Object.assign(new Error("llm_output_truncated"),{code:"llm_output_truncated",detail:t.error,charged:{amount,reported,usage}});}
         // 형식 실패(파손·계약 불일치·repair 개수 불일치)만 같은 모델·제공자로 한 번 더 간다 — 돈은 이미 나갔다.
         try{
           if(choice?.finish_reason!=="stop")throw Object.assign(new Error("provider_output_incomplete"),{detail:"incomplete."+String(choice?.finish_reason||"none").toLowerCase().replace(/[^a-z0-9_]/g,"").slice(0,30)});
@@ -2806,9 +2843,10 @@ function createServer(env=process.env,deps={}){
           // 계획 호출이 끝난 뒤에만 분류 결과를 기다린다 — 앞서 병렬로 나간 호출이고 이미 끝났거나 5초 안에 끝난다.
           const classified=classifying?await classifying:null;
           if(classified){meta.subject=classified.subject;meta.subjectConf=classified.conf;}
-          return {amount,reported,payload:{...(stage==="plan"?{plan:parsed}:{output:parsed}),...(salvaged?{salvaged,salvagedErrors}:{}),usage:{...usage,costUsd:reported?amount:reserve/100},promptVersion:Prompts.PROMPT_VERSION,schemaVersion:c.remoteConfig.schemaVersion,noteSpecVersion:NoteContract.NOTE_SPEC_VERSION}};
-        }catch(error){if(retry===attempts-1)throw error.charged||error.refund?error:Object.assign(error,{code:error.code||"provider_failed_or_invalid_output",charged:{amount,reported,usage}});} // 형식 실패: 보고된 금액만 청구한다
-      }
+          return {amount,reported,attempts:tries,payload:{...(stage==="plan"?{plan:parsed}:{output:parsed}),...(salvaged?{salvaged,salvagedErrors}:{}),usage:{...usage,costUsd:reported?amount:reserve/100},promptVersion:Prompts.PROMPT_VERSION,schemaVersion:c.remoteConfig.schemaVersion,noteSpecVersion:NoteContract.NOTE_SPEC_VERSION}};
+        }catch(error){const t=tries.at(-1);t.status="error";t.error=errCode(error);if(retry===attempts-1)throw error.charged||error.refund?error:Object.assign(error,{code:error.code||"provider_failed_or_invalid_output",charged:{amount,reported,usage}});} // 형식 실패: 보고된 금액만 청구한다
+        }
+      }catch(e){e.attempts??=tries;throw e;}
     });
   }
   const plan=(input,account,res)=>noteRoute(input,account,res,"plan");
@@ -2832,12 +2870,25 @@ function createServer(env=process.env,deps={}){
       }
       if(isMe){
         // noteSpecVersion·promptVersion 은 plan/write 응답과 같은 값이다 — 클라이언트가 호출 전에 맞는지 미리 본다(config.promptVersion 은 비전·판정용 원격 설정이다).
-        const limits=who.limits,head={accountId:account,...(who.jwt?{plan:limits.plan}:{}),models:limits.models,routeModels:{vision:c.visionModels,stt:c.sttModels,judge:c.judgeModels},features:(limits.features||[]).filter(f=>c.featureFlags[f]!==false),config:c.remoteConfig,noteSpecVersion:NoteContract.NOTE_SPEC_VERSION,promptVersion:Prompts.PROMPT_VERSION};
+        // promptVersions 는 작업별 프롬프트 버전 — 클라이언트가 단계·호출 캐시 키에 섞어 서버 프롬프트 개선 시 낡은 결과를 재사용하지 않게 한다(§7). judge·비전·전사는 원격 설정 버전이다.
+        const limits=who.limits,head={accountId:account,...(who.jwt?{plan:limits.plan}:{}),models:limits.models,routeModels:{vision:c.visionModels,stt:c.sttModels,judge:c.judgeModels},features:(limits.features||[]).filter(f=>c.featureFlags[f]!==false),config:c.remoteConfig,noteSpecVersion:NoteContract.NOTE_SPEC_VERSION,promptVersion:Prompts.PROMPT_VERSION,
+          promptVersions:{plan:Prompts.PROMPT_VERSION,section:Prompts.PROMPT_VERSION,repair:Prompts.PROMPT_VERSION,global:Prompts.PROMPT_VERSION,judge:c.remoteConfig.promptVersion}};
         if(!who.jwt){const r=record(account);return send(res,200,{...head,quota:{month:r.month,requests:r.requests,maxRequests:limits.maxRequests,spentCents:r.spentCents,maxCents:limits.maxCostCents}});}
         // 한도는 DB가 정한다. 상한이 null 이면 무제한이고 maxCents 는 항상 있다(plans 에 없는 등급은 0 — 예약이 닫힌 채 거절한다).
         let q;try{q=await sb.quota(account,limits.plan,month()+"-01");}catch{return fail(res,"usage_store_failed");}
         const u=q.used||{},cap=q.cap||{};
         return send(res,200,{...head,quota:{month:month(),requests:u.requests??0,maxRequests:cap.monthly_request_cap??null,minutes:u.minutes??0,maxMinutes:cap.monthly_minutes_cap??null,spentCents:(u.cost_micros??0)/1e4,maxCents:(cap.monthly_cost_cap_micros??0)/1e4}});
+      }
+      if(req.url==="/v1/runs"){
+        // 로컬 결과 캐시 hit/miss 의 run 집계(§7) — 콘텐츠 없는 수치만 받고 청구 정산 근거로는 쓰지 않는다. 같은 jobId 는 한 줄이다.
+        if(req.method!=="POST")return fail(res,"not_found");
+        const o=await body(req,8192),num=v=>Number.isInteger(v)&&v>=0&&v<=1e6,
+          ok=typeof o.jobId==="string"&&/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(o.jobId)&&num(o.cacheHits)&&num(o.cacheMisses)&&(o.rerun===undefined||num(o.rerun))&&Object.keys(o).every(k=>["jobId","cacheHits","cacheMisses","rerun"].includes(k));
+        if(!ok)return fail(res,"unexpected_field");
+        const store=who.jwt?sb:file;
+        try{const saved=await store.recordRun({account,report:{jobId:o.jobId,cacheHits:o.cacheHits,cacheMisses:o.cacheMisses,rerun:o.rerun??0,clientVersion:who.client}});if(saved===false)return fail(res,"usage_store_failed",1000);}
+        catch{return fail(res,"usage_store_failed",1000);}
+        return send(res,200,{saved:true});
       }
       if(req.url==="/v1/account"&&req.method==="DELETE")return who.jwt?await deleteAccount(res,account):fail(res,"account_not_deletable");
       const match=req.url?.match(/^\/v1\/vault\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/);
@@ -2925,14 +2976,14 @@ const JUDGE_VIA={
     if(!response.ok)throw new Error("provider_failed");
     const raw=await boundedResponse(response,256*1024),{probs,score}=judgeProbs(raw,ctx.task),u=raw.usage||{};
     // logprob 경로는 확신 필드가 없다 — 계약이 confidence 를 요구하므로 null 을 둔다.
-    return {probs,score,confidence:null,cost:u.cost,promptTokens:Number(u.prompt_tokens)||0,completionTokens:Number(u.completion_tokens)||0};
+    return {probs,score,confidence:null,cost:u.cost,promptTokens:Number(u.prompt_tokens)||0,completionTokens:Number(u.completion_tokens)||0,cache:cacheOf(u)};
   },
   // jev 는 buildRequests 의 한 단위(청크)를 통째로 보내고 answers 를 항목 결과 배열로 푼다 — 돌려주는 것은 항목 결과가 아니라 요청 결과다.
   jev:async(ctx,request)=>{
     const response=await ctx.fetcher(Jev.ENDPOINT,{method:"POST",redirect:"error",signal:ctx.signal,headers:{authorization:"Bearer "+ctx.c.key,"content-type":"application/json"},body:JSON.stringify(request.body)});
     if(!response.ok)throw new Error("provider_failed");
     const raw=await boundedResponse(response,1024*1024),u=raw.usage||{};
-    return {results:Jev.parseAnswers(ctx.task,raw,request.itemIndexes.length),cost:u.cost,promptTokens:Number(u.input_tokens)||0,completionTokens:Number(u.output_tokens)||0};
+    return {results:Jev.parseAnswers(ctx.task,raw,request.itemIndexes.length),cost:u.cost,promptTokens:Number(u.input_tokens)||0,completionTokens:Number(u.output_tokens)||0,cache:cacheOf(u)};
   },
 };
 async function boundedResponse(response,max){
@@ -3203,7 +3254,13 @@ const UNMANGLE=[
 ];
 const unmangle=s=>UNMANGLE.reduce((acc,[re,rep])=>acc.replace(re,rep),s);
 const parseNote=text=>JSON.parse(text,(_,v)=>typeof v==="string"?unmangle(v):v);
-module.exports={MODELS,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cachedSystem,parseNote};
+// 공급자가 응답 usage 에 실어 주는 프롬프트 캐시 상세를 한 모양으로 정규화한다.
+// OpenAI·Gemini 계열은 prompt_tokens_details.cached_tokens, Anthropic 은 cache_read_input_tokens·cache_creation_input_tokens,
+// DeepSeek 계열은 prompt_cache_hit_tokens 를 돌려준다. 미보고는 null 이다 — 보고된 0(miss)과 구분해야 hit ratio 분모가 오염되지 않는다.
+const cacheOf=u=>{const num=v=>Number.isFinite(v)&&v>=0?Math.floor(v):null,d=u?.prompt_tokens_details;
+  return {cached_input_tokens:num(d?.cached_tokens)??num(u?.cache_read_input_tokens)??num(u?.prompt_cache_hit_tokens),
+    cache_write_tokens:num(u?.cache_creation_input_tokens)??num(u?.cache_write_tokens)};};
+module.exports={MODELS,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cachedSystem,parseNote,cacheOf};
 
 },
 "server/prompts.js": function (module, exports, require, __filename, __dirname) {
@@ -3374,23 +3431,51 @@ function fileUsage({state,record,save,month,globalCents}){
       }
       save();
     }};
+  },
+  // 로컬 결과 캐시 hit/miss 의 콘텐츠 없는 run 집계(POST /v1/runs). 청구 정산 근거가 아니다 — jobId 마다 마지막 값만 남긴다.
+  async recordRun({account,report}){
+    const rec=record(account);(rec.runs??={})[report.jobId]={hits:report.cacheHits,misses:report.cacheMisses,rerun:report.rerun};
+    const keys=Object.keys(rec.runs);if(keys.length>500)delete rec.runs[keys[0]];
+    try{save();}catch{throw new Error("usage_store_failed");}
   }};
 }
 // 메타데이터는 usage_events 의 CHECK 와 같은 모양만 보낸다. 클라이언트가 고른 값(x-client-version)이나 설정 문자열이 모양을 어겨도
 // 정산 RPC 전체가 거절되어 예약이 열린 채 남는 일이 없게, 어긋난 값은 null 로 바꾼다. 자유 텍스트는 어떤 칸으로도 나가지 않는다.
 const text=(re,v)=>typeof v==="string"&&re.test(v)?v:null;
 const count=v=>Number.isInteger(v)&&v>=0&&v<=2147483647?v:null;
-const SHAPE={stage:/^[a-z][a-z0-9_.-]{0,31}$/,provider:/^[a-z][a-z0-9_.-]{0,31}$/,model:/^[A-Za-z0-9][A-Za-z0-9_./:@-]{0,95}$/,version:/^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$/,error:/^[a-z][a-z0-9_.-]{0,63}$/,client:/^[0-9A-Za-z][0-9A-Za-z._+-]{0,31}$/,job:/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/,host:/^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/,subject:/^[a-z][a-z0-9_]{0,31}$/};
+const micros=v=>Number.isFinite(v)&&v>=0?Math.ceil(v*1e6):null;
+const SHAPE={stage:/^[a-z][a-z0-9_.-]{0,31}$/,provider:/^[a-z][a-z0-9_.-]{0,31}$/,model:/^[A-Za-z0-9][A-Za-z0-9_./:@-]{0,95}$/,version:/^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$/,error:/^[a-z][a-z0-9_.-]{0,63}$/,client:/^[0-9A-Za-z][0-9A-Za-z._+-]{0,31}$/,job:/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/,host:/^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/,subject:/^[a-z][a-z0-9_]{0,31}$/,attempt:/^a[0-9]{1,4}$/};
+const CACHE_KIND=["local_result","provider_prompt"],CACHE_STATUS=["hit","miss","unknown","not_applicable"],
+  COST_STATUS=["provider_reported","estimated","unreported","not_applicable"],en=(list,v)=>list.includes(v)?v:null;
+// 요청 안 제공자 HTTP 호출 하나의 기록(usage_attempts 행과 같은 칸 이름). 모양을 어긴 시도는 통째로 버린다.
+function attemptRow(promptCache){
+  return a=>{
+    if(a===null||typeof a!=="object"||!SHAPE.attempt.test(a.id))return null;
+    const cached=count(a.cachedInputTokens);
+    return {attempt_id:a.id,status:a.status==="error"?"error":"ok",error_code:text(SHAPE.error,a.error),
+      input_tokens:count(a.inputTokens),output_tokens:count(a.outputTokens),cached_input_tokens:cached,cache_write_tokens:count(a.cacheWriteTokens),
+      provider_reported_cost_micros:micros(a.providerReportedCost),cost_status:en(COST_STATUS,a.costStatus),
+      cache_status:promptCache?(cached===null?"unknown":cached>0?"hit":"miss"):"not_applicable",latency_ms:count(Math.round(a.latencyMs))};
+  };
+}
 function eventFields(status,m){
   const used=status!=="refunded",seconds=Number.isFinite(m.audioSeconds)&&m.audioSeconds>=0&&m.audioSeconds<1e7?Math.round(m.audioSeconds*100)/100:null,
-    lecture=Number.isFinite(m.lectureSeconds)&&m.lectureSeconds>=0&&m.lectureSeconds<1e7?Math.round(m.lectureSeconds*100)/100:null;
+    lecture=Number.isFinite(m.lectureSeconds)&&m.lectureSeconds>=0&&m.lectureSeconds<1e7?Math.round(m.lectureSeconds*100)/100:null,
+    cacheKind=en(CACHE_KIND,m.cacheKind),attempts=Array.isArray(m.attempts)?m.attempts.slice(0,64).map(attemptRow(cacheKind==="provider_prompt")).filter(Boolean):[];
   return {p_stage:text(SHAPE.stage,m.stage)||"unknown",p_provider:text(SHAPE.provider,m.provider),p_model:text(SHAPE.model,m.model),
     p_input_tokens:used?count(m.inputTokens):null,p_output_tokens:used?count(m.outputTokens):null,p_audio_seconds:used?seconds:null,p_images:used?count(m.images):null,
     p_prompt_version:text(SHAPE.version,m.promptVersion),p_schema_version:count(m.schemaVersion),p_error_code:text(SHAPE.error,m.errorCode),
     p_latency_ms:count(Math.round(m.latencyMs)),p_client_version:text(SHAPE.client,m.clientVersion),p_host:text(SHAPE.host,m.host),
     // subject 는 plan 단계의 Jev 분야 분류 결과다 — 못 정하면(실패·건너뜀) 둘 다 null 이다.
     p_job_id:text(SHAPE.job,m.jobId),p_lecture_seconds:lecture,p_slides:count(m.slides),
-    p_subject:text(SHAPE.subject,m.subject),p_subject_conf:Number.isFinite(m.subjectConf)&&m.subjectConf>=0&&m.subjectConf<=1?Math.round(m.subjectConf*1e4)/1e4:null};
+    p_subject:text(SHAPE.subject,m.subject),p_subject_conf:Number.isFinite(m.subjectConf)&&m.subjectConf>=0&&m.subjectConf<=1?Math.round(m.subjectConf*1e4)/1e4:null,
+    // 논리 작업·시도·캐시·비용 보고: logical_task_id 는 클라이언트 재시도(-rN)를 묶는 기준 id, attempt_id 는 이 요청의 마지막 제공자 호출 번호.
+    // 미보고 캐시 토큰은 null 로 보존해 보고된 0(miss)과 구분한다. 시도별 상세는 p_attempts(usage_attempts)에 간다.
+    p_logical_task_id:text(SHAPE.job,m.logicalTaskId),p_attempt_id:text(SHAPE.attempt,m.attemptId),
+    p_cache_kind:cacheKind,p_cache_status:en(CACHE_STATUS,m.cacheStatus),
+    p_cached_input_tokens:used?count(m.cachedInputTokens):null,p_cache_write_tokens:used?count(m.cacheWriteTokens):null,
+    p_provider_reported_cost_micros:used?micros(m.providerReportedCost):null,p_cost_status:en(COST_STATUS,m.costStatus),
+    p_policy_version:text(SHAPE.version,m.policyVersion),p_attempts:attempts};
 }
 // http(url,init,parse=true): 한도 있는 fetch → 파싱한 JSON. HTTP 오류와 시간 초과는 throw 한다.
 function supabaseUsage({url,key,http}){
@@ -3419,6 +3504,14 @@ function supabaseUsage({url,key,http}){
     // ③ 의 404 는 이미 없다는 뜻이라 성공으로 센다(응답을 잃은 뒤의 재시도). 본문을 읽지 않으므로 다른 404 와는 구별하지 못한다.
     deleteData:user=>rpc("delete_account_data",{p_user:user}),
     async deleteAuthUser(user){try{await http(url+"/auth/v1/admin/users/"+user,{method:"DELETE",headers:auth},false);}catch(e){if(e?.status!==404)throw e;}},
+    // 로컬 결과 캐시 hit/miss 의 콘텐츠 없는 run 집계(POST /v1/runs → run_reports). 청구 정산 근거가 아니다.
+    // 같은 jobId 의 두 번째 보고는 무시한다(재전송·중복 수신에도 한 줄).
+    async recordRun({account,report}){
+      const res=await http(url+"/rest/v1/run_reports?on_conflict=user_id,job_id",{method:"POST",
+        headers:{...auth,"content-type":"application/json",prefer:"resolution=ignore-duplicates,return=minimal"},
+        body:JSON.stringify([{user_id:account,job_id:report.jobId,cache_kind:"local_result",cache_hits:report.cacheHits,cache_misses:report.cacheMisses,rerun:report.rerun,client_version:report.clientVersion??null}])},false);
+      return res?.ok===true;
+    },
     // /v1/me 의 한도 조회. plans·monthly_usage 직접 조회다(schema-v2.sql 의 service_role 권한).
     async quota(user,plan,monthStart){
       const q=name=>http(url+"/rest/v1/"+name,{headers:auth});

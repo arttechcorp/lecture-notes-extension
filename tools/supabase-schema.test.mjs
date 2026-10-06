@@ -253,7 +253,9 @@ const NEW_TABLES = {
   entitlements: "id user_id plan starts_at ends_at source external_id created_at edu cancel_at_period_end",
   monthly_usage: "user_id month requests minutes cost_micros",
   usage_reservations: "user_id request_id digest month day reserved_cost_micros reserved_minutes status charged_cost_micros created_at settled_at",
-  usage_events: "id user_id job_id request_id stage provider model input_tokens output_tokens audio_seconds images cost_micros cost_reported prompt_version schema_version status error_code latency_ms client_version host created_at lecture_seconds slides subject subject_conf",
+  usage_events: "id user_id job_id request_id stage provider model input_tokens output_tokens audio_seconds images cost_micros cost_reported prompt_version schema_version status error_code latency_ms client_version host created_at lecture_seconds slides subject subject_conf logical_task_id attempt_id cache_kind cache_status cached_input_tokens cache_write_tokens provider_reported_cost_micros cost_status policy_version",
+  usage_attempts: "id user_id request_id attempt_id stage provider model input_tokens output_tokens cached_input_tokens cache_write_tokens provider_reported_cost_micros cost_status cache_kind cache_status status error_code latency_ms created_at",
+  run_reports: "id user_id job_id cache_kind cache_hits cache_misses rerun client_version created_at",
   vault_objects: "user_id object_id size updated_at storage_path",
   library_keys: "user_id key created_at",
   feedback: "user_id job_id rating tags created_at",
@@ -263,7 +265,7 @@ const NEW_TABLES = {
 const SERVICE_FUNCTIONS = [
   "effective_plan(uuid, timestamptz)",
   "reserve_usage(uuid, text, text, bigint, date, int)",
-  "settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text, numeric, int, text, numeric)",
+  "settle_usage(uuid, text, bigint, text, text, text, text, int, int, numeric, int, text, int, text, int, text, text, text, numeric, int, text, numeric, text, text, text, text, int, int, bigint, text, text, jsonb)",
   "delete_account_data(uuid)",
   "acquire_provider_slot(text, int, int)",
   "release_provider_slot(uuid)",
@@ -546,9 +548,10 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
     // 모든 테이블에 행을 만들어 두고 소유자에겐 보이지만 anon/authenticated에겐 0행인지 본다.
     const w = newUser("t_big");
     assert.equal(reserve(w, "rls-1", 100), "reserved");
-    assert.equal(settle(w, "rls-1", 90, "ok", { host: "example.com" }), "settled");
+    assert.equal(settle(w, "rls-1", 90, "ok", { host: "example.com", attempts: JSON.stringify([{ attempt_id: "a0", status: "ok", latency_ms: 3 }]) }), "settled");
     assert.equal(reserve(w, "rls-2", 100), "reserved");
-    q(`insert into entitlements (user_id, plan) values (${lit(w)}, 'essential');
+    q(`insert into run_reports (user_id, job_id, cache_kind, cache_hits, cache_misses, rerun) values (${lit(w)}, 'job-rls', 'local_result', 3, 1, 0);
+       insert into entitlements (user_id, plan) values (${lit(w)}, 'essential');
        insert into vault_objects (user_id, object_id, size, storage_path) values (${lit(w)}, 'o1', 10, '${w}/o1');
        insert into feedback (user_id, job_id, rating) values (${lit(w)}, 'j1', 4)`);
     q("select library_key()", { as: "authenticated", claims: { sub: w } });
@@ -734,6 +737,8 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
       input_tokens: 1200, output_tokens: 300, audio_seconds: 12.5, images: 2, cost_micros: 120_000, cost_reported: true,
       prompt_version: "v1", schema_version: 1, status: "ok", error_code: null, latency_ms: 850, client_version: "0.4.1", host: "learnus.yonsei.ac.kr",
       lecture_seconds: null, slides: null, subject: null, subject_conf: null,
+      logical_task_id: null, attempt_id: null, cache_kind: null, cache_status: null, cached_input_tokens: null, cache_write_tokens: null,
+      provider_reported_cost_micros: null, cost_status: null, policy_version: null,
     });
     assert.equal(q(`select status || ',' || charged_cost_micros from usage_reservations where user_id = ${lit(user)} and request_id = 's-1'`), "settled,120000");
 
@@ -824,16 +829,91 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
   test("원장은 추가 전용: UPDATE/DELETE는 service_role·소유자 모두 거부, user_id→null만 허용", () => {
     const user = newUser("t_big");
     reserve(user, "ao-1", 10);
-    settle(user, "ao-1", 10, "ok");
+    settle(user, "ao-1", 10, "ok", { attempts: JSON.stringify([{ attempt_id: "a0", status: "ok" }]) });
+    q(`insert into run_reports (user_id, job_id, cache_kind, cache_hits, cache_misses) values (${lit(user)}, 'job-ao', 'local_result', 1, 1)`);
     const [{ id }] = ledger(user);
+    const [{ id: attemptId }] = qj(`select json_agg(a) from usage_attempts a where user_id = ${lit(user)}`);
     for (const ctx of [SVC, {}]) {
       fails(`update usage_events set cost_micros = 0 where id = ${id}`, ctx, /usage_events_append_only/);
       fails(`update usage_events set user_id = null, cost_micros = 0 where id = ${id}`, ctx, /usage_events_append_only/);
       fails(`update usage_events set user_id = gen_random_uuid() where id = ${id}`, ctx, /usage_events_append_only|23503/);
       fails(`delete from usage_events where id = ${id}`, ctx, /usage_events_append_only/);
+      // 시도·run 집계 표도 같은 추가 전용 가드를 탄다.
+      fails(`update usage_attempts set latency_ms = 0 where id = ${attemptId}`, ctx, /usage_events_append_only/);
+      fails(`delete from usage_attempts where id = ${attemptId}`, ctx, /usage_events_append_only/);
+      fails(`update run_reports set cache_hits = 0 where user_id = ${lit(user)}`, ctx, /usage_events_append_only/);
+      fails(`delete from run_reports where user_id = ${lit(user)}`, ctx, /usage_events_append_only/);
     }
     assert.equal(q(`update usage_events set user_id = null where id = ${id} returning 1`, SVC), "1");
     assert.equal(q(`select user_id is null from usage_events where id = ${id}`), "t");
+    assert.equal(q(`update usage_attempts set user_id = null where id = ${attemptId} returning 1`, SVC), "1");
+    assert.equal(q(`update run_reports set user_id = null where user_id = ${lit(user)} returning 1`, SVC), "1");
+  });
+
+  test("정산: 시도별 상세·캐시·비용 보고가 usage_attempts와 원장에 남고, 미보고는 null이다", () => {
+    const user = newUser("t_big"), model = "test/attempt-model";
+    assert.equal(reserve(user, "at-1", 5000), "reserved");
+    const attempts = JSON.stringify([
+      { attempt_id: "a0", status: "error", error_code: "provider_output_incomplete", latency_ms: 400, input_tokens: 900, output_tokens: null,
+        cached_input_tokens: 0, cache_write_tokens: 500, provider_reported_cost_micros: 500, cost_status: "provider_reported", cache_status: "miss" },
+      { attempt_id: "a1", status: "ok", latency_ms: 2100, input_tokens: 1400, output_tokens: 700,
+        cached_input_tokens: 1200, cache_write_tokens: 0, provider_reported_cost_micros: 1400, cost_status: "provider_reported", cache_status: "hit" },
+    ]);
+    assert.equal(settle(user, "at-1", 1900, "ok", {
+      stage: "write.section", provider: "openrouter", model, input_tokens: 2300, output_tokens: 700,
+      logical_task_id: "at-1", attempt_id: "a1", cache_kind: "provider_prompt", cache_status: "hit",
+      cached_input_tokens: 1200, cache_write_tokens: 500, provider_reported_cost_micros: 1900,
+      cost_status: "provider_reported", policy_version: "v1", attempts,
+    }), "settled");
+    const [row] = ledger(user);
+    for (const [k, v] of Object.entries({ logical_task_id: "at-1", attempt_id: "a1", cache_kind: "provider_prompt", cache_status: "hit",
+      cached_input_tokens: 1200, cache_write_tokens: 500, provider_reported_cost_micros: 1900, cost_status: "provider_reported", policy_version: "v1" })) {
+      assert.equal(row[k], v, k);
+    }
+    const tries = qj(`select json_agg(a order by attempt_id) from usage_attempts a where user_id = ${lit(user)}`);
+    assert.equal(tries.length, 2);
+    assert.deepEqual([tries[0].attempt_id, tries[0].status, tries[0].error_code, tries[0].cached_input_tokens, tries[0].cache_write_tokens, tries[0].cache_status, tries[0].request_id],
+      ["a0", "error", "provider_output_incomplete", 0, 500, "miss", "at-1"]);
+    assert.deepEqual([tries[1].attempt_id, tries[1].input_tokens, tries[1].cached_input_tokens, tries[1].cache_status], ["a1", 1400, 1200, "hit"]);
+
+    // 미보고는 null — '보고된 0'과 구분된다. 두 번째 정산은 시도 행을 더 만들지 않는다.
+    assert.equal(reserve(user, "at-2", 5000), "reserved");
+    assert.equal(settle(user, "at-2", null, "ok", { stage: "write.section", provider: "openrouter", model, input_tokens: 1000, cache_status: "unknown" }), "settled");
+    const [miss] = qj(`select json_agg(e) from usage_events e where user_id = ${lit(user)} and request_id = 'at-2'`);
+    assert.equal(miss.cached_input_tokens, null);
+    assert.equal(miss.provider_reported_cost_micros, null);
+    assert.equal(miss.cost_status, null);
+    assert.equal(settle(user, "at-2", null, "ok"), "already_settled");
+    assert.equal(q(`select count(*) from usage_attempts where user_id = ${lit(user)}`), "2");
+
+    // enum·id·버전 문자열도 요청 행과 같은 문자 집합 CHECK를 탄다.
+    assert.equal(reserve(user, "at-3", 5000), "reserved");
+    fails(`select settle_usage(p_user => ${lit(user)}, p_request_id => 'at-3', p_actual_cost_micros => 1, p_status => 'ok', p_stage => 'write.section', p_cache_status => '캐시 맞음')`, SVC, /23514/);
+    fails(`select settle_usage(p_user => ${lit(user)}, p_request_id => 'at-3', p_actual_cost_micros => 1, p_status => 'ok', p_stage => 'write.section', p_logical_task_id => '자유 텍스트')`, SVC, /23514/);
+    fails(`select settle_usage(p_user => ${lit(user)}, p_request_id => 'at-3', p_actual_cost_micros => 1, p_status => 'ok', p_stage => 'write.section', p_cost_status => 'free text')`, SVC, /23514/);
+
+    // admin_usage: 캐시 hit ratio는 보고 가능한 행만 분모로 하고 미보고는 따로 센다.
+    const out = qj("select admin_usage(7)::text", { as: "authenticated", claims: { ...ADMIN, role: "authenticated" } });
+    const agg = out.by_stage_model.find((r) => r.model === model);
+    assert.equal(agg.cached_input_tokens, 1200);
+    assert.equal(agg.cache_write_tokens, 500);
+    assert.equal(agg.cache_unreported, 1);
+    assert.equal(Number(agg.token_cache_hit_ratio), 0.5217); // 1200 / 2300 (at-2의 입력 1000토큰은 미보고라 분모에서 뺀다)
+  });
+
+  test("run_reports: 로컬 캐시 run 집계 — 사용자·작업당 한 줄, 잘못된 형식은 거부", () => {
+    const user = newUser("t_big"), other = newUser("t_big");
+    q(`insert into run_reports (user_id, job_id, cache_kind, cache_hits, cache_misses, rerun, client_version) values
+        (${lit(user)}, 'job-1', 'local_result', 3, 2, 1, '0.5.0')`);
+    // 같은 (user, job_id) 는 한 줄 — 서버는 ignore_duplicates 로 중복을 버린다.
+    fails(`insert into run_reports (user_id, job_id, cache_kind, cache_hits, cache_misses) values (${lit(user)}, 'job-1', 'local_result', 9, 9)`, SVC, /23505|duplicate key/);
+    // 다른 사용자의 같은 job_id 는 충돌하지 않는다.
+    q(`insert into run_reports (user_id, job_id, cache_kind, cache_hits, cache_misses) values (${lit(other)}, 'job-1', 'local_result', 1, 0)`);
+    fails(`insert into run_reports (user_id, job_id, cache_kind, cache_hits, cache_misses) values (${lit(user)}, 'job-2', 'local_result', -1, 0)`, SVC, /23514/);
+    fails(`insert into run_reports (user_id, job_id, cache_kind, cache_hits, cache_misses) values (${lit(user)}, 'bad job', 'local_result', 1, 0)`, SVC, /23514/);
+    fails(`insert into run_reports (user_id, job_id, cache_kind, cache_hits, cache_misses, client_version) values (${lit(user)}, 'job-3', 'local_result', 1, 0, '자유 텍스트')`, SVC, /23514/);
+    const [row] = qj(`select json_agg(r) from run_reports r where user_id = ${lit(user)}`);
+    assert.deepEqual([row.job_id, row.cache_kind, row.cache_hits, row.cache_misses, row.rerun, row.client_version], ["job-1", "local_result", 3, 2, 1, "0.5.0"]);
   });
 
   test("admin_usage: 비관리자(anon·일반 사용자)는 거부, 관리자는 단계·모델별 집계를 받는다", () => {
@@ -919,11 +999,13 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
     const seed = (user) => {
       for (const i of [1, 2]) {
         reserve(user, `del-${i}`, 5000);
-        settle(user, `del-${i}`, 4000, "ok", { stage: "judge", provider: "openrouter", model, host: "example.com", latency_ms: 100 * i });
+        settle(user, `del-${i}`, 4000, "ok", { stage: "judge", provider: "openrouter", model, host: "example.com", latency_ms: 100 * i,
+          attempts: JSON.stringify([{ attempt_id: "a0", status: "ok", latency_ms: 10 }]) });
       }
       reserve(user, "del-open", 7000); // 정산 못 한 예약
       q(`insert into vault_objects (user_id, object_id, size, storage_path) values (${lit(user)}, 'o1', 10, '${user}/o1');
          insert into feedback (user_id, job_id, rating, tags) values (${lit(user)}, 'j1', 5, array['good','fast']);
+         insert into run_reports (user_id, job_id, cache_kind, cache_hits, cache_misses, rerun) values (${lit(user)}, 'j1', 'local_result', 2, 5, 0);
          insert into entitlements (user_id, plan) values (${lit(user)}, 'essential')`);
     };
     seed(u);
@@ -935,14 +1017,19 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
 
     const counts = qj(`select delete_account_data(${lit(u)})::text`, SVC);
     assert.deepEqual(counts, {
-      usage_reservations: 3, monthly_usage: 1, feedback: 1, vault_objects: 1, entitlements: 1, profiles: 1, usage_events_deidentified: 2,
+      usage_reservations: 3, monthly_usage: 1, feedback: 1, vault_objects: 1, entitlements: 1, profiles: 1,
+      usage_events_deidentified: 2, usage_attempts_deidentified: 2, run_reports_deidentified: 1,
     });
     for (const table of ["profiles", "entitlements", "monthly_usage", "usage_reservations", "vault_objects", "feedback"]) {
       assert.equal(q(`select count(*) from ${table} where user_id = ${lit(u)}`), "0", table);
     }
     assert.equal(q(`select count(*) from usage_events where user_id = ${lit(u)}`), "0");
+    assert.equal(q(`select count(*) from usage_attempts where user_id = ${lit(u)}`), "0");
+    assert.equal(q(`select count(*) from run_reports where user_id = ${lit(u)}`), "0");
     // 행은 남고 user_id만 null: 집계는 그대로.
     assert.equal(q(`select count(*) from usage_events where user_id is null and model = ${lit(model)} and request_id like 'del-%'`), "2");
+    assert.equal(q(`select count(*) from usage_attempts where user_id is null and model = ${lit(model)}`), "2");
+    assert.equal(q(`select count(*) from run_reports where user_id is null and job_id = 'j1'`), "1");
     assert.deepEqual(agg(), before);
     // 다른 사용자는 그대로.
     assert.equal(q(`select count(*) from vault_objects where user_id = ${lit(v)}`), "1");

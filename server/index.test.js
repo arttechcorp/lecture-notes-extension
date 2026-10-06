@@ -180,6 +180,43 @@ test("/v1/me exposes merged remote config and global flags hide and block featur
   } finally { await close(server); removeTemp(root); }
 });
 
+test("/v1/me exposes per-task promptVersions and the policy version in remote config", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  const { server, url } = await listen(root, async () => provider());
+  try {
+    const me = await (await req(url, "/v1/me")).json();
+    // 클라이언트 캐시 키 계약: plan·section·repair·global 은 노트 프롬프트 버전, judge 는 원격 설정 버전.
+    assert.equal(me.promptVersions.plan, me.promptVersion);
+    assert.equal(me.promptVersions.section, me.promptVersion);
+    assert.equal(me.promptVersions.repair, me.promptVersion);
+    assert.equal(me.promptVersions.global, me.promptVersion);
+    assert.equal(me.promptVersions.judge, me.config.promptVersion);
+    assert.equal(me.config.policyVersion, "v1");
+  } finally { await close(server); removeTemp(root); }
+});
+
+test("/v1/runs stores content-free cache stats per job id and validates the shape", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  const { server, url } = await listen(root, async () => provider());
+  try {
+    assert.equal((await req(url, "/v1/runs", "GET")).status, 404);
+    assert.equal((await req(url, "/v1/runs", "POST", { jobId: "job-1", cacheHits: 3, cacheMisses: 7, rerun: 1 }, "bad")).status, 401);
+    for (const bad of [
+      { jobId: "job-1", cacheHits: 3 }, // misses 필수
+      { jobId: "job 1", cacheHits: 3, cacheMisses: 7 }, // jobId 패턴
+      { jobId: "job-1", cacheHits: -1, cacheMisses: 7 },
+      { jobId: "job-1", cacheHits: 3, cacheMisses: 7, extra: 1 }, // 모르는 칸
+      { jobId: "job-1", cacheHits: 3, cacheMisses: 7, content: "강의 본문" },
+    ]) assert.equal((await req(url, "/v1/runs", "POST", bad)).status, 400, JSON.stringify(bad));
+    assert.equal((await req(url, "/v1/runs", "POST", { jobId: "job-1", cacheHits: 3, cacheMisses: 7 })).status, 200);
+    assert.equal((await req(url, "/v1/runs", "POST", { jobId: "job-2", cacheHits: 0, cacheMisses: 0, rerun: 2 })).status, 200);
+    const state = readState(path.join(root, "usage.json"));
+    assert.deepEqual(state.accounts.A.runs["job-1"], { hits: 3, misses: 7, rerun: 0 });
+    assert.deepEqual(state.accounts.A.runs["job-2"], { hits: 0, misses: 0, rerun: 2 });
+    assert.ok(!fs.readFileSync(path.join(root, "usage.json"), "utf8").includes("강의 본문"));
+  } finally { await close(server); removeTemp(root); }
+});
+
 test("min client version gates requests after auth", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
   const server = createServer({ ...config(root), REMOTE_CONFIG_JSON: JSON.stringify({ minClientVersion: "1.2.0" }) }, { fetch: async () => provider() });
@@ -2144,12 +2181,23 @@ test("a successful write reserves then settles through PostgREST with content-fr
     assert.ok(Number.isInteger(reserve.p_cost_micros) && reserve.p_cost_micros > 0 && reserve.p_cost_micros % 1e4 === 0, "예약은 센트 x 10,000 마이크로달러다: " + reserve.p_cost_micros);
     assert.equal(reserve.p_minutes, 0);
 
-    const { p_latency_ms, ...settled } = settledOf(sb);
+    const { p_latency_ms, p_attempts, ...settled } = settledOf(sb);
     assert.deepEqual(settled, {
       p_user: UID, p_request_id: "request-one", p_actual_cost_micros: Math.ceil(.002 * 1e6), p_status: "ok", p_stage: "write.section", p_provider: "openrouter", p_model: model,
       p_input_tokens: 800, p_output_tokens: 90, p_audio_seconds: null, p_images: null, p_prompt_version: Prompts.PROMPT_VERSION, p_schema_version: 1, p_error_code: null, p_client_version: "1.2.3", p_host: null,
       p_job_id: null, p_lecture_seconds: null, p_slides: null, p_subject: null, p_subject_conf: null,
+      p_logical_task_id: "request-one", p_attempt_id: "a0", p_cache_kind: "provider_prompt", p_cache_status: "unknown",
+      p_cached_input_tokens: null, p_cache_write_tokens: null, p_provider_reported_cost_micros: Math.ceil(.002 * 1e6), p_cost_status: "provider_reported", p_policy_version: "v1",
     });
+    // 시도별 상세는 usage_attempts 로 간다 — 요청 합계와 중복 집계하지 않는다. 미보고 캐시 토큰은 null(보고된 0 과 구분).
+    const [attempt] = p_attempts.map(({ latency_ms, ...a }) => a);
+    assert.deepEqual(attempt, {
+      attempt_id: "a0", status: "ok", error_code: null, input_tokens: 800, output_tokens: 90,
+      cached_input_tokens: null, cache_write_tokens: null, provider_reported_cost_micros: Math.ceil(.002 * 1e6),
+      cost_status: "provider_reported", cache_status: "unknown",
+    });
+    assert.equal(p_attempts.length, 1);
+    assert.ok(p_attempts.every(a => Number.isInteger(a.latency_ms) && a.latency_ms >= 0));
     assert.ok(Number.isInteger(p_latency_ms) && p_latency_ms >= 0 && p_latency_ms < 5000);
     assert.equal(sb.rpcs.at(-1).rpc, "settle_usage");
   });
@@ -2290,12 +2338,20 @@ test("a length cut-off settles as an error carrying the reported charge, not as 
     sb.other = async () => noteReply('{"blocks":[{"type":"te', { finish: "length", cost: .003 });
     const e = await errorOf(await req(url, "/v1/write", "POST", sectionIn({ requestId: "cut-1" }), jwt), 422, "llm_output_truncated");
     assert.equal(e.retryable, false);
-    const { p_latency_ms, ...cut } = settledOf(sb, 0);
+    const { p_latency_ms, p_attempts, ...cut } = settledOf(sb, 0);
     assert.deepEqual(cut, {
       p_user: UID, p_request_id: "cut-1", p_actual_cost_micros: Math.ceil(.003 * 1e6), p_status: "error", p_stage: "write.section", p_provider: "openrouter", p_model: model,
       p_input_tokens: 800, p_output_tokens: 90, p_audio_seconds: null, p_images: null, p_prompt_version: null, p_schema_version: null, p_error_code: "llm_output_truncated.long", p_client_version: null, p_host: null,
       p_job_id: null, p_lecture_seconds: null, p_slides: null, p_subject: null, p_subject_conf: null,
+      p_logical_task_id: "cut-1", p_attempt_id: "a0", p_cache_kind: "provider_prompt", p_cache_status: "unknown",
+      p_cached_input_tokens: null, p_cache_write_tokens: null, p_provider_reported_cost_micros: Math.ceil(.003 * 1e6), p_cost_status: "provider_reported", p_policy_version: "v1",
     });
+    // 잘린 시도는 error 로 남는다 — 비용이 나간 실패라 refunded 가 아니다.
+    assert.deepEqual(p_attempts.map(({ latency_ms, ...a }) => a), [{
+      attempt_id: "a0", status: "error", error_code: "llm_output_truncated.long", input_tokens: 800, output_tokens: 90,
+      cached_input_tokens: null, cache_write_tokens: null, provider_reported_cost_micros: Math.ceil(.003 * 1e6),
+      cost_status: "provider_reported", cache_status: "unknown",
+    }]);
     await errorOf(await req(url, "/v1/write", "POST", sectionIn({ requestId: "cut-1" }), jwt), 409, "request_already_reserved_or_processed");
 
     sb.other = async () => noteReply('{"blocks":[', { finish: "length", usage: {} });
@@ -2337,7 +2393,17 @@ test("refund paths settle as refunded with no cost and no usage, and the same re
       p_input_tokens: null, p_output_tokens: null, p_audio_seconds: null, p_images: null, p_prompt_version: null, p_schema_version: null,
       p_error_code: "provider_http_500", p_latency_ms: settledOf(sb, 0).p_latency_ms, p_client_version: null, p_host: null,
       p_job_id: null, p_lecture_seconds: null, p_slides: null, p_subject: null, p_subject_conf: null,
+      // STT 는 프롬프트 캐시가 없다 — not_applicable. 환불은 비용 칸을 null 로 둔다.
+      // logical_task_id 는 클라이언트 재시도 꼬리(-rN)를 뗀다 — 이 시험 id 가 우연히 그 모양이라 "stt" 로 묶인다.
+      p_logical_task_id: "stt", p_attempt_id: "a0", p_cache_kind: null, p_cache_status: "not_applicable",
+      p_cached_input_tokens: null, p_cache_write_tokens: null, p_provider_reported_cost_micros: null, p_cost_status: "not_applicable", p_policy_version: "v1",
+      p_attempts: settledOf(sb, 0).p_attempts,
     });
+    assert.deepEqual(settledOf(sb, 0).p_attempts.map(({ latency_ms, ...a }) => a), [{
+      attempt_id: "a0", status: "error", error_code: "provider_http_500", input_tokens: null, output_tokens: null,
+      cached_input_tokens: null, cache_write_tokens: null, provider_reported_cost_micros: null,
+      cost_status: "unreported", cache_status: "not_applicable",
+    }]);
     mode = "busy";
     e = await errorOf(await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-r2" }), jwt), 429, "provider_busy");
     assert.equal(e.retryAfterMs, 3000);
@@ -2623,8 +2689,9 @@ test("/v1/me for a JWT user returns plan, features, DB limits, remote config and
     assert.deepEqual(me, {
       accountId: UID, plan: "free", models: [model], features: [],
       routeModels: { vision: ["google/gemini-2.5-flash-lite"], stt: ["microsoft/mai-transcribe-2"], judge: ["openai/gpt-4.1-nano"] },
-      config: { concurrency: { download: 4, decode: 1, stt: 2, vision: 3, judge: 2, write: 8 }, throughputMbps: 50, minClientVersion: "0.0.0", promptVersion: "v1", schemaVersion: 1 },
+      config: { concurrency: { download: 4, decode: 1, stt: 2, vision: 3, judge: 2, write: 8 }, throughputMbps: 50, minClientVersion: "0.0.0", promptVersion: "v1", schemaVersion: 1, policyVersion: "v1" },
       noteSpecVersion: NoteContract.NOTE_SPEC_VERSION, promptVersion: Prompts.PROMPT_VERSION,
+      promptVersions: { plan: Prompts.PROMPT_VERSION, section: Prompts.PROMPT_VERSION, repair: Prompts.PROMPT_VERSION, global: Prompts.PROMPT_VERSION, judge: "v1" },
       quota: { month, requests: 3, maxRequests: 300, minutes: 7, maxMinutes: 600, spentCents: 12.3456, maxCents: 30 },
     });
     assert.notEqual(me.promptVersion, me.config.promptVersion, "plan/write 프롬프트 버전은 비전·판정용 원격 설정과 별개다");
