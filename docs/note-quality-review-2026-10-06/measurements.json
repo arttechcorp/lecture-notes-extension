@@ -1,0 +1,98 @@
+{
+  "measuredOn": "2026-10-06",
+  "source": "Local content-free diagnostic exports; whitelisted counters only",
+  "sample": "5 files; 4 contain SUPPORT_SCORES; 3 distinct lecture package IDs among those 4; mixed client versions; not independent samples",
+  "limitations": [
+    "No pre/post claim bodies, collateral loss or human labels",
+    "Missing T5_REPAIR event means unknown, not zero",
+    "Final dropped blocks include Jev-held blocks; do not add the two counts",
+    "No SUPPORT_SCORES is unavailable, not a 0% result",
+    "Logs are snapshots; no cohort-wide or current-version quality inference"
+  ],
+  "runs": [
+    {
+      "version": "2.2.0.3",
+      "claims": 154,
+      "judged": 154,
+      "low": 9,
+      "lowPct": 5.84,
+      "judgeNulledBlocks": 3,
+      "trimmedClaims": 3,
+      "scoreBins": [
+        1,
+        2,
+        6,
+        10,
+        135
+      ],
+      "finalDroppedBlocks": 5,
+      "finalSections": 5,
+      "t5RepairAccepted": null,
+      "t5RepairAttempted": null,
+      "run": "A"
+    },
+    {
+      "version": "2.2.0.5",
+      "claims": 207,
+      "judged": 207,
+      "low": 22,
+      "lowPct": 10.63,
+      "judgeNulledBlocks": 5,
+      "trimmedClaims": 10,
+      "scoreBins": [
+        0,
+        9,
+        13,
+        13,
+        172
+      ],
+      "finalDroppedBlocks": 8,
+      "finalSections": 6,
+      "t5RepairAccepted": null,
+      "t5RepairAttempted": null,
+      "run": "B"
+    },
+    {
+      "version": "2.2.0.5",
+      "claims": 124,
+      "judged": 124,
+      "low": 13,
+      "lowPct": 10.48,
+      "judgeNulledBlocks": 5,
+      "trimmedClaims": 7,
+      "scoreBins": [
+        2,
+        4,
+        7,
+        8,
+        103
+      ],
+      "finalDroppedBlocks": 8,
+      "finalSections": 6,
+      "t5RepairAccepted": null,
+      "t5RepairAttempted": null,
+      "run": "C"
+    },
+    {
+      "version": "2.3.0.2",
+      "claims": 165,
+      "judged": 165,
+      "low": 11,
+      "lowPct": 6.67,
+      "judgeNulledBlocks": 4,
+      "trimmedClaims": 1,
+      "scoreBins": [
+        0,
+        2,
+        9,
+        20,
+        134
+      ],
+      "finalDroppedBlocks": 5,
+      "finalSections": 5,
+      "t5RepairAccepted": 2,
+      "t5RepairAttempted": 4,
+      "run": "D"
+    }
+  ]
+}
