@@ -330,7 +330,21 @@
   pdfBtn.addEventListener("click", async () => {
     if (!render("print")) return;
     await document.fonts.ready;
-    await Promise.all([...noteContent.querySelectorAll("img")].map(img => img.decode().catch(() => {})));
+    await Promise.all([...noteContent.querySelectorAll("img")].map(img => img.decode().catch(err => {
+      img.dataset.decodeFailed = "true";
+      return null;
+    })));
+    const readyState = (typeof PrintCheck !== "undefined")
+      ? await PrintCheck.waitForPrintReady(noteContent, { document })
+      : { ready: true, failedImages: [] };
+    const checkReport = (typeof PrintCheck !== "undefined")
+      ? await PrintCheck.checkAndRelayout(noteContent, { note: current?.note, crops: current?.crops })
+      : { ok: true, attempts: 0, issues: [] };
+    if (!checkReport.ok || readyState.failedImages.length > 0) {
+      warnCount.hidden = false;
+      const totalWarns = (checkReport.issues?.length || 0) + readyState.failedImages.length;
+      warnCount.textContent = `인쇄 주의: 조판 경고 ${totalWarns}건이 발생하여 안전한 기본 레이아웃을 적용했습니다.`;
+    }
     window.print();
   });
   window.addEventListener("afterprint", () => { if (current && !noteView.hidden) render("web"); });
