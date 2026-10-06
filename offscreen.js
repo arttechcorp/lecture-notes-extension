@@ -127,12 +127,23 @@ async function cropRegions(blob,doc,ctx){
   }finally{bmp.close();}
   return {crops,hashes,formulas,ocr,lowRes};
 }
+// 노트 키. 기기에 있으면 그대로, 없으면(보관함 비우기 뒤·패널에서 키를 못 받은 채 끝난 작업) 지금 로그인한 계정 것을 background(LIBRARY_KEY)에서 받아 둔다.
+// offscreen 은 인증 모듈을 싣지 않아 uid 는 AUTH_TOKEN 의 sub 로 정한다. 로그아웃·오프라인이면 던진다 — 호출자가 "no-key"로 접는다.
+async function libraryKey(adapter){
+  const have=await NoteFile.loadLibraryKey(adapter);
+  if(have)return have;
+  const b=String(await tokenProvider()).split(".")[1].replace(/-/g,"+").replace(/_/g,"/");
+  const uid=JSON.parse(atob(b.padEnd(Math.ceil(b.length/4)*4,"="))).sub; // sub(uuid)는 ASCII라 UTF-8 복원 없이 읽힌다
+  const r=await chrome.runtime.sendMessage({target:"background",type:"LIBRARY_KEY"});
+  if(!r?.ok)throw new Error(r?.error||"보관함 키를 받지 못했습니다.");
+  return NoteFile.saveLibraryKey(adapter,uid,r.hex);
+}
 // 끝난 노트를 로그인 계정 키(NoteFile)로 암호화해 사용자가 온보딩에서 고른 폴더에 바로 쓴다(LibraryFolder) — 저장 때 따로 묻지 않는다.
 // 저장은 이미 끝났으니 결말("file"|"no-folder"|"no-key"|"failed")만 돌려주고, 이벤트에는 코드만 싣는다.
-// no-folder: 폴더를 안 골랐거나 브라우저가 권한을 거둠 / no-key: 이 기기에 계정 키가 아직 없음(패널을 열어 로그인하면 받아 둔다).
+// no-folder: 폴더를 안 골랐거나 브라우저가 권한을 거둠 / no-key: 계정 키를 기기에서도 서버에서도 얻지 못함(로그아웃·오프라인).
 async function exportNote(store,pkg,meta,note){
   try{
-    const lk=await NoteFile.loadLibraryKey(store.adapter).catch(()=>null);
+    const lk=await libraryKey(store.adapter).catch(()=>null);
     if(!lk){events.emit({stage:"library",level:"warn",code:"LIBRARY_NO_KEY"});return "no-key";}
     const text=await NoteFile.encryptFile({meta,note,crops:await NoteLibrary.cropUrls(store,pkg)},lk.key);
     await LibraryFolder.write(store.adapter,NoteFile.fileName(meta),text,NoteFile.courseFolder(meta));
@@ -148,7 +159,7 @@ const bytesB64=b=>{let s="";for(let i=0;i<b.length;i+=0x8000)s+=String.fromCharC
 const b64Bytes=s=>Uint8Array.from(atob(s),ch=>ch.charCodeAt(0));
 async function backupPackage(store,pkg){
   try{
-    const lk=await NoteFile.loadLibraryKey(store.adapter).catch(()=>null),data=lk&&await NoteLibrary.load(store,pkg);
+    const lk=await libraryKey(store.adapter).catch(()=>null),data=lk&&await NoteLibrary.load(store,pkg);
     if(!data)return false;
     const crops=Object.fromEntries(Object.entries(await NoteLibrary.crops(store,pkg)).map(([id,b])=>[id,bytesB64(b)]));
     await LibraryFolder.writeFile(store.adapter,LibraryFolder.dataPath(pkg),await NoteFile.encryptData({meta:data.meta,input:data.input??null,note:data.note??null,recognition:data.recognition??null,crops},lk.key));
@@ -157,7 +168,7 @@ async function backupPackage(store,pkg){
 }
 // 폴더의 백업 중 이 기기에 없는 패키지만 되살린다(있는 것은 기기 쪽이 최신이라 건드리지 않는다). 다른 계정 백업은 열리지 않아 건너뛴다.
 async function restoreMissing(store){
-  const lk=await NoteFile.loadLibraryKey(store.adapter).catch(()=>null);
+  const lk=await libraryKey(store.adapter).catch(()=>null);
   if(!lk)return 0;
   let restored=0;
   for(const path of await LibraryFolder.listData(store.adapter).catch(()=>[])){
@@ -278,7 +289,7 @@ async function libRegenerate(message,settings){
 async function libExportAll(){
   if(starting||archiveBusy||summaryController||bg||session&&!["completed","failed","disposed"].includes(session.status))return {ok:false,busy:true,error:"다른 처리가 진행 중입니다. 끝난 뒤 다시 시도하세요."};
   const store=await storeP;
-  if(!await NoteFile.loadLibraryKey(store.adapter).catch(()=>null))return {ok:false,error:"보관함 키가 없습니다. 로그인한 뒤 다시 시도하세요."};
+  if(!await libraryKey(store.adapter).catch(()=>null))return {ok:false,error:"보관함 키가 없습니다. 로그인한 뒤 다시 시도하세요."};
   let count=0,failed=0,restored=0;archiveBusy=true; // 내보내는 동안 지우기·새 작업이 끼어들지 못하게 한다
   try{
     restored=await restoreMissing(store); // 새로 고른 폴더(재설치·다른 기기)의 백업부터 되살린다

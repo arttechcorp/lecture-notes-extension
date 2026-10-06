@@ -44,7 +44,7 @@ if(typeof setInterval==='function')setInterval(liveClock,1000); // 테스트 VM�
 const postToFrame=message=>els.renderFrame?.contentWindow?.postMessage(message,'*');
 // 이 계정의 노트 키를 기기에 둔다(이미 있으면 그대로, 다른 계정 것이면 새로 받는다). 로그인하지 않았으면 null.
 async function ensureLibraryKey(){
-  const session=obSession||await Account.getSession();
+  const session=await Account.getSession(); // 패널을 연 때의 obSession 토큰은 긴 작업 뒤 만료돼 있다 — 매번 갱신된 토큰을 받는다
   if(!session)throw new Error('로그인이 필요합니다.');
   return NoteFile.ensureLibraryKey(await PackageStore.indexedDbAdapter(),Account.decodeUser(session.access_token).id,()=>Account.fetchLibraryKey(session));
 }
