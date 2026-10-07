@@ -7,14 +7,19 @@ import { createRequire } from "node:module";
 const NEEDED = ["response_format", "structured_outputs", "reasoning", "max_tokens"];
 // Zero Data Retention disables first-party endpoints, and every request we send asks for ZDR.
 const FIRST_PARTY = ["anthropic", "openai", "google-ai-studio", "xai"];
-const { MODELS } = createRequire(import.meta.url)("../server/llm.js");
+const { MODELS, upstreamOf } = createRequire(import.meta.url)("../server/llm.js");
 
 let failures = 0;
+const probed = new Map(); // upstream slug → endpoints (variants share one upstream fetch)
 for (const [model, { tags, reasoning, maxTokens }] of Object.entries(MODELS)) {
-  const response = await fetch(`https://openrouter.ai/api/v1/models/${model}/endpoints`);
-  const endpoints = response.ok ? (await response.json()).data?.endpoints || [] : [];
-  console.log(`\n${model}  (핀: ${tags.join(", ")} | reasoning: ${JSON.stringify(reasoning)} | max_tokens: ${maxTokens})`);
-  if (!endpoints.length) { console.log(`  ✗ 엔드포인트를 조회하지 못했습니다 (${response.status}). 모델 슬러그를 확인하세요.`); failures++; continue; }
+  const upstream = upstreamOf(model);
+  if (!probed.has(upstream)) {
+    const response = await fetch(`https://openrouter.ai/api/v1/models/${upstream}/endpoints`);
+    probed.set(upstream, response.ok ? (await response.json()).data?.endpoints || [] : { status: response.status });
+  }
+  const endpoints = Array.isArray(probed.get(upstream)) ? probed.get(upstream) : [];
+  console.log(`\n${model}${upstream !== model ? `  → ${upstream}` : ""}  (핀: ${tags.join(", ")} | reasoning: ${JSON.stringify(reasoning)} | max_tokens: ${maxTokens})`);
+  if (!endpoints.length) { console.log(`  ✗ 엔드포인트를 조회하지 못했습니다 (${probed.get(upstream).status ?? "?"})`.concat(Array.isArray(probed.get(upstream)) ? "" : ". 모델 슬러그를 확인하세요.")); failures++; continue; }
   for (const tag of tags) {
     const endpoint = endpoints.find(e => e.tag === tag);
     if (!endpoint) { console.log(`  ✗ ${tag} — 이 모델에 없는 태그입니다. 사용 가능: ${endpoints.map(e => e.tag).join(", ")}`); failures++; continue; }

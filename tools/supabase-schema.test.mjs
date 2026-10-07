@@ -254,7 +254,7 @@ const NEW_TABLES = {
   monthly_usage: "user_id month requests minutes cost_micros",
   usage_reservations: "user_id request_id digest month day reserved_cost_micros reserved_minutes status charged_cost_micros created_at settled_at",
   usage_events: "id user_id job_id request_id stage provider model input_tokens output_tokens audio_seconds images cost_micros cost_reported prompt_version schema_version status error_code latency_ms client_version host created_at lecture_seconds slides subject subject_conf logical_task_id attempt_id cache_kind cache_status cached_input_tokens cache_write_tokens provider_reported_cost_micros cost_status policy_version",
-  usage_attempts: "id user_id request_id attempt_id stage provider model input_tokens output_tokens cached_input_tokens cache_write_tokens provider_reported_cost_micros cost_status cache_kind cache_status status error_code latency_ms created_at",
+  usage_attempts: "id user_id request_id attempt_id stage provider model input_tokens output_tokens cached_input_tokens cache_write_tokens provider_reported_cost_micros cost_status cache_kind cache_status status error_code latency_ms created_at reasoning_tokens",
   run_reports: "id user_id job_id cache_kind cache_hits cache_misses rerun client_version created_at",
   vault_objects: "user_id object_id size updated_at storage_path",
   library_keys: "user_id key created_at",
@@ -885,6 +885,24 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
     assert.equal(miss.cost_status, null);
     assert.equal(settle(user, "at-2", null, "ok"), "already_settled");
     assert.equal(q(`select count(*) from usage_attempts where user_id = ${lit(user)}`), "2");
+
+    // 시도별 stage/provider/model: attempts 요소의 값이 우선이고 비어 있으면 요청 부모 값으로 채운다(coalesce).
+    // 혼합 모델 실행(계획 Sol + 작성 Luna)의 시도별 원가가 부모로 덮어씌워지지 않는다. reasoning_tokens 도 시도별로 남는다.
+    const mixUser = newUser("t_big");
+    assert.equal(reserve(mixUser, "mix-1", 5000), "reserved");
+    assert.equal(settle(mixUser, "mix-1", 100, "ok", {
+      stage: "write.global", provider: "openrouter", model: "openai/gpt-6.1-sol",
+      attempts: JSON.stringify([
+        { attempt_id: "a0", status: "ok", latency_ms: 10 },
+        { attempt_id: "a1", status: "ok", latency_ms: 20, stage: "write.section", provider: "azure", model: "openai/gpt-6-luna", reasoning_tokens: 640 },
+      ]),
+    }), "settled");
+    const mixTries = qj(`select json_agg(a order by attempt_id) from usage_attempts a where user_id = ${lit(mixUser)}`);
+    assert.equal(mixTries.length, 2);
+    assert.deepEqual([mixTries[0].stage, mixTries[0].provider, mixTries[0].model, mixTries[0].reasoning_tokens],
+      ["write.global", "openrouter", "openai/gpt-6.1-sol", null], "생략된 시도 필드는 요청 값으로 채운다");
+    assert.deepEqual([mixTries[1].stage, mixTries[1].provider, mixTries[1].model, mixTries[1].reasoning_tokens],
+      ["write.section", "azure", "openai/gpt-6-luna", 640], "시도별 값이 부모를 덮어쓴다");
 
     // enum·id·버전 문자열도 요청 행과 같은 문자 집합 CHECK를 탄다.
     assert.equal(reserve(user, "at-3", 5000), "reserved");

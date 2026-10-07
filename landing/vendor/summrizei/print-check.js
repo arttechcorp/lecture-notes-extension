@@ -24,6 +24,17 @@
   const MAX_RELAYOUT_ATTEMPTS = 2;
   const MIN_BODY_FONT_SIZE_PX = 12; // 본문 최소 글자 크기(약 9pt)
   const MIN_OCCUPANCY_RATIO = 0.12; // 최소 점유율 임계값 (글자+도형)
+  // 단편화 불가(한 쪽을 통째로 넘기거나 잘리는) 요소. 문단·표 본문처럼 쪽 사이에서
+  // 나뉠 수 있는 흐름 블록은 세로 overflow로 세지 않는다.
+  const ATOMIC_OVERFLOW_TAGS = new Set(["img", "svg", "canvas", "pre"]);
+  const ATOMIC_OVERFLOW_SELECTOR = "img, svg, canvas, pre, .equation, .note-fig, .note-chart";
+
+  function safeCssEscape(str) {
+    if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+      return CSS.escape(str);
+    }
+    return String(str || "").replace(/[^\w-]/g, "\\$&");
+  }
 
   // 검수 코드 정의 (콘텐츠 없는 코드)
   const CODES = Object.freeze({
@@ -37,6 +48,7 @@
     TABLE_ROW_CLIPPED: "TABLE_ROW_CLIPPED",
     FONT_SIZE_VIOLATION: "FONT_SIZE_VIOLATION",
     OCCUPANCY_LOW: "OCCUPANCY_LOW",
+    FIGURE_UNIT_SPLIT: "FIGURE_UNIT_SPLIT",
   });
 
   /**
@@ -72,12 +84,21 @@
         const nodes = Array.from(container.querySelectorAll(sel));
         return nodes.map((el, index) => {
           const r = el.getBoundingClientRect();
+          const documentedSplit = el.getAttribute("data-allow-split") === "true" ||
+            el.getAttribute("data-split-documented") === "true" ||
+            el.classList.contains("allow-split") ||
+            el.classList.contains("documented-split");
+          const isAtomic = (typeof el.matches === "function" ? el.matches(ATOMIC_OVERFLOW_SELECTOR) : false) && !documentedSplit;
           return {
             index,
             tag: el.tagName.toLowerCase(),
             blockId: el.getAttribute("id") || el.closest(".note-block")?.getAttribute("id") || null,
             width: r.width,
             height: r.height,
+            top: r.top - cTop,
+            bottom: r.bottom - cTop,
+            atomic: isAtomic,
+            documentedSplit,
             scrollWidth: el.scrollWidth || r.width,
             clientWidth: el.clientWidth || r.width,
             right: r.right - cLeft,
@@ -231,6 +252,91 @@
         }
         return pages;
       },
+
+      // 제목+그림+최소해설 단위 검사용 요소 수집 (spec 8.3, 8.6)
+      getFigureUnits: () => {
+        const sel = ".note-fig, [data-fig], .figure-unit, figure";
+        const nodes = Array.from(container.querySelectorAll(sel));
+        return nodes.map((el, index) => {
+          const r = el.getBoundingClientRect();
+          const figId = el.getAttribute("data-fig") || el.getAttribute("id") || null;
+          const blockId = el.closest(".note-block")?.getAttribute("id") || el.getAttribute("id") || figId;
+          const titleEl = el.querySelector(".note-fig-title, figcaption, caption, .fig-title, h4, h3");
+          const bodyEl = el.querySelector("img, svg, canvas, table, .note-chart, .note-crop, .note-fig-missing");
+          const expEl = el.querySelector(".note-fig-explanation, .note-fig-src, figcaption, caption, .explanation, p");
+
+          const titleRect = titleEl ? titleEl.getBoundingClientRect() : null;
+          const bodyRect = bodyEl ? bodyEl.getBoundingClientRect() : null;
+          const expRect = expEl ? expEl.getBoundingClientRect() : null;
+
+          const documentedSplit = el.getAttribute("data-allow-split") === "true" ||
+            el.getAttribute("data-split-documented") === "true" ||
+            el.classList.contains("allow-split") ||
+            el.classList.contains("documented-split");
+
+          return {
+            index,
+            figId,
+            blockId,
+            top: r.top - cTop,
+            bottom: r.bottom - cTop,
+            height: r.height,
+            titleTop: titleRect ? titleRect.top - cTop : null,
+            titleBottom: titleRect ? titleRect.bottom - cTop : null,
+            bodyTop: bodyRect ? bodyRect.top - cTop : null,
+            bodyBottom: bodyRect ? bodyRect.bottom - cTop : null,
+            expTop: expRect ? expRect.top - cTop : null,
+            expBottom: expRect ? expRect.bottom - cTop : null,
+            documentedSplit,
+          };
+        });
+      },
+
+      // 대표 페이지(표, 수식, 도표, 문항) 추출용 특징 요소 수집 (spec 8.6)
+      getRepresentativeFeatures: () => {
+        const features = [];
+        // 1. 표
+        for (const el of container.querySelectorAll(".note-table, table")) {
+          const r = el.getBoundingClientRect();
+          features.push({
+            reason: "table",
+            blockId: el.closest(".note-block")?.getAttribute("id") || el.getAttribute("id") || null,
+            top: r.top - cTop,
+            bottom: r.bottom - cTop,
+          });
+        }
+        // 2. 수식
+        for (const el of container.querySelectorAll(".equation, .note-f, .katex-display, .katex, math")) {
+          const r = el.getBoundingClientRect();
+          features.push({
+            reason: "formula",
+            blockId: el.closest(".note-block")?.getAttribute("id") || el.getAttribute("id") || null,
+            top: r.top - cTop,
+            bottom: r.bottom - cTop,
+          });
+        }
+        // 3. 도표/그림
+        for (const el of container.querySelectorAll(".note-fig, [data-fig], img, svg, canvas, .note-chart, .note-crop")) {
+          const r = el.getBoundingClientRect();
+          features.push({
+            reason: "figure",
+            blockId: el.closest(".note-block")?.getAttribute("id") || el.getAttribute("id") || el.getAttribute("data-fig") || null,
+            top: r.top - cTop,
+            bottom: r.bottom - cTop,
+          });
+        }
+        // 4. 문항
+        for (const el of container.querySelectorAll(".answer, .answer-compact, .question, [data-type='B14'], .note-block[id*='B14']")) {
+          const r = el.getBoundingClientRect();
+          features.push({
+            reason: "question",
+            blockId: el.closest(".note-block")?.getAttribute("id") || el.getAttribute("id") || null,
+            top: r.top - cTop,
+            bottom: r.bottom - cTop,
+          });
+        }
+        return features;
+      },
     };
   }
 
@@ -267,6 +373,24 @@
           targetTag: item.tag,
           blockId: item.blockId,
           excessPx: Math.round(Math.max(item.scrollWidth - item.clientWidth, item.width - pageWidth)),
+        });
+      }
+
+      // 세로 넘침: 단편화 불가(atomic) 요소가 한 쪽보다 크면 인쇄에서 반드시 잘린다.
+      // 쪽 경계를 걸치기만 하는 단편은 인쇄 엔진이 다음 쪽으로 밀어 넣으므로 잘림이 아니다.
+      // 한 쪽보다 크더라도 설명 가능한 분할/축소가 명시된 경우(documentedSplit)는 예외 허용한다 (spec 8.3).
+      const isAtomic = item.atomic !== undefined ? item.atomic === true : ATOMIC_OVERFLOW_TAGS.has(item.tag);
+      const isDocumentedSplit = item.documentedSplit === true;
+      const itemHeight = Number.isFinite(item.height) ? item.height
+        : (Number.isFinite(item.top) && Number.isFinite(item.bottom) ? item.bottom - item.top : NaN);
+      if (isAtomic && !isDocumentedSplit && Number.isFinite(itemHeight) && itemHeight > pageHeight + 4) {
+        overflowYCount++;
+        issues.push({
+          code: CODES.OVERFLOW_Y,
+          targetTag: item.tag,
+          blockId: item.blockId,
+          pageIndex: Number.isFinite(item.top) ? Math.max(0, Math.floor(item.top / pageHeight)) : null,
+          excessPx: Math.round(itemHeight - pageHeight),
         });
       }
     }
@@ -403,6 +527,45 @@
       }
     }
 
+    // 9. 제목+그림+최소해설 단위 분리 검사 (figure unit keep-together split, spec 8.3)
+    const figureUnits = adapter.getFigureUnits ? adapter.getFigureUnits() : [];
+    let figureUnitSplitCount = 0;
+
+    for (const fig of figureUnits) {
+      const topPage = Math.floor(fig.top / pageHeight);
+      const bottomPage = Math.floor((fig.bottom - 1) / pageHeight);
+      const isTallerThanPage = fig.height > pageHeight;
+
+      // 한 페이지보다 큰 자료는 설명 가능한 분할/크기 조절 허용 (spec 8.3)
+      if (isTallerThanPage || fig.documentedSplit) {
+        continue;
+      }
+
+      let isSplit = false;
+      if (topPage !== bottomPage) {
+        isSplit = true;
+      } else if (fig.titleTop != null && fig.bodyTop != null) {
+        const titlePage = Math.floor(fig.titleTop / pageHeight);
+        const bodyPage = Math.floor(fig.bodyTop / pageHeight);
+        if (titlePage !== bodyPage) isSplit = true;
+      } else if (fig.bodyTop != null && fig.expTop != null) {
+        const bodyPage = Math.floor(fig.bodyTop / pageHeight);
+        const expPage = Math.floor(fig.expTop / pageHeight);
+        if (bodyPage !== expPage) isSplit = true;
+      }
+
+      if (isSplit) {
+        figureUnitSplitCount++;
+        issues.push({
+          code: CODES.FIGURE_UNIT_SPLIT,
+          blockId: fig.blockId,
+          figId: fig.figId,
+          startPage: topPage,
+          endPage: bottomPage,
+        });
+      }
+    }
+
     const ok = issues.length === 0;
 
     return {
@@ -419,6 +582,7 @@
         answerSplitCount,
         tableRowClippedCount,
         minFontSizeViolationCount,
+        figureUnitSplitCount,
         pages: pageMetrics,
       },
     };
@@ -455,11 +619,12 @@
       container.classList.add("print-tighten-leading");
       applied.push("TIGHTEN_LEADING");
 
-      // 5단계: 고아 제목이나 잘린 표 행 앞에 명시적 페이지 추가
+      // 5단계: 고아 제목, 잘린 표 행, 또는 분리된 도표 단위 앞에 명시적 페이지 추가
       if (checkResult?.issues) {
         for (const issue of checkResult.issues) {
-          if ((issue.code === CODES.HEADING_ORPHAN || issue.code === CODES.TABLE_ROW_CLIPPED) && issue.blockId) {
-            const targetEl = container.querySelector(`#${CSS.escape(issue.blockId)}`);
+          if ((issue.code === CODES.HEADING_ORPHAN || issue.code === CODES.TABLE_ROW_CLIPPED || issue.code === CODES.FIGURE_UNIT_SPLIT) && issue.blockId) {
+            const targetEl = container.querySelector(`#${safeCssEscape(issue.blockId)}`) ||
+                             (issue.figId ? container.querySelector(`[data-fig="${safeCssEscape(issue.figId)}"]`) : null);
             if (targetEl && !targetEl.classList.contains("page-break")) {
               targetEl.classList.add("page-break");
               applied.push(`PAGE_BREAK_${issue.blockId}`);
@@ -576,6 +741,59 @@
     };
   }
 
+  /**
+   * DOM 어댑터 데이터를 바탕으로 대표 페이지(표, 수식, 도표, 문항) 확대 목록을 추출한다.
+   * 주의: 비페이지 DOM 모델 기반이므로 DOM 프리플라이트(dom_preflight)로 명확히 라벨링한다 (spec 8.6).
+   */
+  function getRepresentativePages(adapter, options = {}) {
+    if (!adapter) throw new Error("DOM 어댑터가 필요합니다.");
+    const pageHeight = Number(adapter.pageHeight) || A4.CONTENT_HEIGHT_PX;
+    const containerRect = adapter.getContainerRect ? adapter.getContainerRect() : { height: pageHeight };
+    const totalHeight = containerRect.height || pageHeight;
+    const pageCount = Math.max(1, Math.ceil(totalHeight / pageHeight));
+
+    const features = adapter.getRepresentativeFeatures ? adapter.getRepresentativeFeatures() : [];
+    const zoomList = [];
+    const pages = [];
+
+    const foundReasonsByPage = new Map();
+    for (let p = 0; p < pageCount; p++) {
+      foundReasonsByPage.set(p, new Set());
+    }
+
+    for (const feat of features) {
+      if (!Number.isFinite(feat.top)) continue;
+      const pIndex = Math.max(0, Math.min(pageCount - 1, Math.floor(feat.top / pageHeight)));
+      const seen = foundReasonsByPage.get(pIndex);
+      if (seen && !seen.has(feat.reason)) {
+        seen.add(feat.reason);
+        zoomList.push({
+          pageNumber: pIndex + 1,
+          pageIndex: pIndex,
+          reason: feat.reason,
+          blockId: feat.blockId || null,
+        });
+      }
+    }
+
+    for (let p = 0; p < pageCount; p++) {
+      const reasons = Array.from(foundReasonsByPage.get(p) || []);
+      pages.push({
+        pageNumber: p + 1,
+        pageIndex: p,
+        reasons,
+      });
+    }
+
+    return {
+      checkType: "dom_preflight",
+      label: "DOM 프리플라이트 대표 페이지 (비페이지 근사)",
+      pageCount,
+      zoomList,
+      pages,
+    };
+  }
+
   const api = Object.freeze({
     A4,
     MAX_RELAYOUT_ATTEMPTS,
@@ -587,6 +805,7 @@
     applyRelayoutStage,
     checkAndRelayout,
     waitForPrintReady,
+    getRepresentativePages,
   });
 
   globalThis.PrintCheck = api;

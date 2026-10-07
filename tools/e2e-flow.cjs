@@ -8,6 +8,7 @@
 //   node tools/e2e-flow.cjs --url <lecture url> [--url <lecture url> ...] [--headless]
 //                           [--flow live|bg] [--fresh] [--reload] [--mode slide|region|caption]
 //                           [--duration <sec>] [--note-timeout <sec>] [--bg-timeout <min>]
+//                           [--regenerate] [--write-model <id>]
 //                           [--profile <dir>] [--out <dir>]
 const fs = require('node:fs');
 const os = require('node:os');
@@ -29,6 +30,8 @@ function parse(argv) {
     else if (a === '--duration') args.duration = Number(argv[++i]);
     else if (a === '--note-timeout') args.noteTimeout = Number(argv[++i]);
     else if (a === '--bg-timeout') args.bgTimeout = Number(argv[++i]);
+    else if (a === '--regenerate') args.regenerate = true;
+    else if (a === '--write-model') args.writeModel = argv[++i];
     else if (a === '--fresh') args.fresh = true;
     else if (a === '--reload') args.reload = true;
     else if (a === '--profile') args.profile = argv[++i];
@@ -52,6 +55,12 @@ const lmsCreds = () => {
 };
 const isLoginPage = u => /login\.php|\/login\/|infra\.yonsei\.ac\.kr|sso/i.test(u);
 const stripUrl = u => { try { const x = new URL(u); const origin = x.origin === 'null' ? `${x.protocol}//${x.host}` : x.origin; return origin + x.pathname; } catch { return u.split('?')[0].slice(0, 120); } };
+let serviceHost = ''; // read from settings once the SW channel is up (launch/auth)
+// network.ndjson privacy: media manifests/segments and any non-service host are
+// logged origin-only — playlist/segment paths can identify the lecture.
+const MEDIA_PATH = /\.(ts|m3u8|mp4|m4s|aac)$/i;
+const netKeep = h => h === serviceHost || h.endsWith('.supabase.co') || h.startsWith('fonts.');
+const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) || MEDIA_PATH.test(x.pathname)) ? (x.origin === 'null' ? `${x.protocol}//${x.host}` : x.origin) : stripUrl(u); } catch { return stripUrl(u); } };
 
 (async () => {
   const args = parse(process.argv.slice(2));
@@ -160,7 +169,7 @@ const stripUrl = u => { try { const x = new URL(u); const origin = x.origin === 
     else if (m.method === 'Runtime.exceptionThrown')
       emit(consoles, { src: stripUrl(src), type: 'pageerror', text: `${m.params.exceptionDetails.text} ${m.params.exceptionDetails.exception?.description || ''}`.slice(0, 500) });
     else if (m.method === 'Network.requestWillBeSent' && !/^chrome-extension:|^blob:|^data:/.test(m.params.request.url))
-      inflight.set(`${sessionId}:${m.params.requestId}`, { t: Date.now(), method: m.params.request.method, url: stripUrl(m.params.request.url), src: stripUrl(src) });
+      inflight.set(`${sessionId}:${m.params.requestId}`, { t: Date.now(), method: m.params.request.method, url: netUrl(m.params.request.url), src: stripUrl(src) });
     else if (m.method === 'Network.responseReceived') { const r = inflight.get(`${sessionId}:${m.params.requestId}`); if (r) r.status = m.params.response.status; }
     else if (m.method === 'Network.loadingFinished' || m.method === 'Network.loadingFailed') {
       const r = inflight.get(`${sessionId}:${m.params.requestId}`); if (!r) return; inflight.delete(`${sessionId}:${m.params.requestId}`);
@@ -281,6 +290,7 @@ const stripUrl = u => { try { const x = new URL(u); const origin = x.origin === 
       }
       report.extensionId = id;
       await attachAll();
+      try { serviceHost = new URL((await workerEval(() => chrome.storage.local.get('serviceUrl'))).serviceUrl).hostname; } catch {}
     }, true);
 
     // ---- 2 auth -------------------------------------------------------------
@@ -290,14 +300,22 @@ const stripUrl = u => { try { const x = new URL(u); const origin = x.origin === 
       hookPageErrors(options);
       if (!swSession) worker = context.serviceWorkers().find(w => w.url().includes(id)) || await context.waitForEvent('serviceworker', { timeout: 15000 });
       await attachAll();
-      const stored = await workerEval(() => chrome.storage.local.get('authSession'));
+      const stored = await workerEval(() => chrome.storage.local.get(['authSession', 'serviceUrl']));
       const signedIn = !!stored.authSession;
+      try { serviceHost = serviceHost || new URL(stored.serviceUrl).hostname; } catch {}
       await options.waitForTimeout(1500);
       const plan = await options.evaluate(() => !document.getElementById('accountPlanBox')?.hidden && document.getElementById('planState')?.textContent?.trim() || null);
       const s = await snap(options, 'auth-options'); if (s) rec.screenshots.push(s);
       rec.detail = `signedIn=${signedIn}${plan ? ` plan="${plan.slice(0, 80)}"` : ''}`;
       if (!signedIn) rec.status = 'warn';
     }, true);
+
+    // --write-model: point the note writer at a dev model for this run only.
+    // Removed in teardown (finally) no matter how the run ends.
+    if (args.writeModel) {
+      try { await workerEval(m => chrome.storage.local.set({ devWriteModel: m }), args.writeModel); report.writeModel = args.writeModel; ev({ kind: 'write-model', id: args.writeModel }); }
+      catch (e) { ev({ kind: 'write-model-error', error: e.message }); }
+    }
 
     // helpers for panel state (panel is rebound per URL)
     const panelState = () => panel.evaluate(() => ({
@@ -314,7 +332,17 @@ const stripUrl = u => { try { const x = new URL(u); const origin = x.origin === 
 
     const runUrl = async (url, i) => {
       const tag = `#${i + 1}`;
-      let tabId;
+      let tabId, regenActive = false; // set when --regenerate clicked #notesBtn (bg_start or bg_progress)
+      // v2.4 ready screen: mode cards (#viewMode) ↔ prep view (#viewPrep[data-mode]).
+      // Enter the bg prep view like a user: back out of a live prep, then pick the bg card.
+      const toBgPrep = async () => {
+        const v = await panel.evaluate(() => ({
+          prep: !document.getElementById('viewPrep')?.hidden ? document.getElementById('viewPrep').dataset.mode : null,
+          mode: !document.getElementById('viewMode')?.hidden,
+        })).catch(() => ({}));
+        if (v.prep && v.prep !== 'bg') await panel.click('#prepBack').catch(() => {});
+        if (v.mode || (v.prep && v.prep !== 'bg')) { await panel.click('#pickBg').catch(() => {}); await panel.waitForTimeout(800); }
+      };
       try {
         // ---- open_lecture ----------------------------------------------------
         await step('open_lecture' + tag, async rec => {
@@ -406,19 +434,26 @@ const stripUrl = u => { try { const x = new URL(u); const origin = x.origin === 
         if (args.flow === 'bg') {
           // ---- preflight ------------------------------------------------------
           await step('preflight' + tag, async rec => {
-            const pf = await panel.evaluate(async tid => ({
+            const read = () => panel.evaluate(async tid => ({
               webRequest: await chrome.permissions.contains({ permissions: ['webRequest'] }).catch(() => null),
               folder: await LibraryFolder.status(await PackageStore.indexedDbAdapter()).then(s => s.state).catch(e => 'err:' + e.message),
               stage: ['onboard', 'stageReady', 'stageLive', 'stageDone'].find(x => !document.getElementById(x)?.hidden) || '?',
+              view: !document.getElementById('viewMode')?.hidden ? 'mode' : (!document.getElementById('viewPrep')?.hidden ? document.getElementById('viewPrep').dataset.mode : null),
+              bgLocked: !document.getElementById('bgLocked')?.hidden,
               bgBox: !document.getElementById('bgBox')?.hidden,
               bgBtnDisabled: !!document.getElementById('bgBtn')?.disabled,
               bgStatus: document.getElementById('bgStatus')?.textContent?.trim(),
               tabMatch: document.getElementById('tabSelect')?.value === String(tid),
             }), tabId).catch(e => ({ evalError: e.message }));
+            let pf = await read();
+            if (pf.stage === 'onboard') { rec.status = 'blocked'; rec.detail = 'onboarding/consent screen is showing — needs a human'; return; }
+            if (pf.stage === 'stageReady' && pf.view !== 'bg') { await toBgPrep(); pf = await read(); }
             if (!pf.tabMatch) await panel.selectOption('#tabSelect', String(tabId)).catch(() => {});
             rec.detail = JSON.stringify(pf);
-            if (pf.webRequest !== true) { rec.status = 'blocked'; rec.detail += ' | In the warm Chrome window: play the video, open the panel, click 백그라운드로 처리 once and Allow the prompt(s); leave Chrome open.'; return; }
+            if (pf.webRequest !== true && pf.stage !== 'stageDone') { rec.status = 'blocked'; rec.detail += ' | In the warm Chrome window: play the video, open the panel, pick 백그라운드 생성, click 노트 생성 시작 once and Allow the prompt(s); leave Chrome open.'; return; }
             if (pf.folder === 'needs-permission') { rec.status = 'blocked'; rec.detail += ' | In the warm Chrome window: open the panel and re-pick/Allow the library folder; leave Chrome open.'; return; }
+            if (pf.stage === 'stageDone') return; // completion screen of an already-processed lecture — bg_start decides skip/--regenerate
+            if (pf.bgLocked) { rec.status = 'blocked'; rec.detail += ' | bgLocked — background is a paid feature'; return; }
             if (pf.bgBox === false) { rec.status = 'fail'; rec.error = 'bgBox hidden — background mode not offered (login/paid plan?)'; return; }
           }, true);
 
@@ -460,32 +495,80 @@ const stripUrl = u => { try { const x = new URL(u); const origin = x.origin === 
 
           // ---- bg_start --------------------------------------------------------
           await step('bg_start' + tag, async rec => {
+            const st = await panel.evaluate(() => ({
+              stage: ['onboard', 'stageReady', 'stageLive', 'stageDone'].find(x => !document.getElementById(x)?.hidden) || '?',
+              view: !document.getElementById('viewMode')?.hidden ? 'mode' : (!document.getElementById('viewPrep')?.hidden ? document.getElementById('viewPrep').dataset.mode : null),
+              donePill: document.getElementById('donePill')?.textContent?.trim(),
+              notesDisabled: !!document.getElementById('notesBtn')?.disabled,
+              recognition: !!document.getElementById('recognitionBox')?.checkVisibility?.(),
+              retryNote: !!document.getElementById('retryNoteBtn')?.checkVisibility?.(),
+            }));
+            // Shared completion screen for an already-processed lecture.
+            if (st.stage === 'stageDone') {
+              if (!args.regenerate) { rec.status = 'skip'; rec.detail = `already has a note (pill="${st.donePill}")`; return; }
+              if (st.recognition) { rec.status = 'blocked'; rec.detail = 'recognition-only result — 노트 만들기 needs a summary-consent decision by a human'; return; }
+              if (st.retryNote || /노트 실패|중단됨/.test(st.donePill || '')) { rec.status = 'fail'; rec.error = `completion screen shows failure (pill="${st.donePill}")`; return; }
+              if (st.notesDisabled) { rec.status = 'fail'; rec.error = 'notesBtn disabled — no regenerate path'; return; }
+              await panel.click('#notesBtn');
+              regenActive = true;
+              rec.detail = 'clicked 노트 다시 만들기 (#notesBtn, --regenerate)';
+              return;
+            }
+            if (st.stage === 'stageReady' && st.view !== 'bg') await toBgPrep(); // mode cards → bg prep, like a user
             if (await panel.locator('#bgBtn').isDisabled().catch(() => true)) { rec.status = 'fail'; rec.error = 'bgBtn disabled'; return; }
+            const label = (await panel.locator('#bgBtn').textContent().catch(() => '')).trim();
             await panel.click('#bgBtn');
-            rec.detail = 'clicked';
+            rec.detail = `clicked "${label}"`;
           }, true);
 
           // ---- bg_progress -----------------------------------------------------
           await step('bg_progress' + tag, async rec => {
             const deadline = Date.now() + args.bgTimeout * 60000;
-            let lastStage = '';
+            let lastStage = '', sawRun = regenActive, regenBusy = false;
             const read = () => panel.evaluate(() => ({
+              stage: ['onboard', 'stageReady', 'stageLive', 'stageDone'].find(x => !document.getElementById(x)?.hidden) || '?',
               bgStatus: document.getElementById('bgStatus')?.textContent?.trim(),
               bgProgress: document.getElementById('bgProgress')?.textContent?.trim(),
               bgTime: document.getElementById('bgTime')?.hidden ? null : document.getElementById('bgTime')?.textContent,
               bar: document.getElementById('bgBar')?.hidden ? null : document.getElementById('bgBar')?.value,
-              save: document.getElementById('bgSave')?.hidden ? '' : document.getElementById('bgSave')?.textContent?.trim().slice(0, 300),
-              vis: Object.fromEntries(['bgRetryBtn', 'bgCancelBtn', 'bgLiveBtn', 'bgConsentBtn', 'bgMakeBtn', 'bgDiscardBtn', 'bgBilling', 'bgSummaryLink'].map(b => [b, !document.getElementById(b)?.hidden])),
+              save: ['bgSave', 'saveBox'].map(b => document.getElementById(b)?.hidden ? '' : document.getElementById(b)?.textContent?.trim().slice(0, 300)).filter(Boolean).join(' / '),
+              status: document.getElementById('status')?.textContent?.trim().slice(0, 200),
+              working: !document.getElementById('working')?.hidden,
+              donePill: document.getElementById('donePill')?.textContent?.trim(),
+              doneSummary: document.getElementById('doneSummary')?.textContent?.trim(),
+              doneAlert: document.getElementById('doneAlert')?.hidden ? '' : document.getElementById('doneAlert')?.textContent?.trim().slice(0, 300),
+              notesBtnDisabled: !!document.getElementById('notesBtn')?.disabled,
+              vis: Object.fromEntries(['bgRetryBtn', 'bgCancelBtn', 'bgLiveBtn', 'bgConsentBtn', 'bgMakeBtn', 'bgDiscardBtn', 'bgBilling', 'bgSummaryLink', 'notesBtn', 'makeNoteBtn', 'retryNoteBtn', 'siteNotesBtn', 'againBtn'].map(b => [b, !!document.getElementById(b)?.checkVisibility?.()])), // ancestors may be hidden — own .hidden is not enough
             })).catch(() => null);
+            const shot = async name => { const s = await snap(panel, name); if (s) rec.screenshots.push(s); };
             while (Date.now() < deadline) {
               const st = await read();
               if (!st) break;
               ev({ kind: 'bg-sample', ...st });
               const t = st.bgStatus || '';
-              if (/^단계 /.test(t) && t !== lastStage) { lastStage = t; rec.detail = t; writeReport(); }
-              if (t.startsWith('노트 준비됨')) { rec.detail = `${t}${st.save ? ' | save: ' + st.save : ''}`; const s = await snap(panel, 'bg-done'); if (s) rec.screenshots.push(s); return; }
-              if (t.includes('이미 노트를 만든 강의입니다')) { rec.detail = 'already done (no new run): ' + t; return; }
-              if (st.vis.bgConsentBtn || st.vis.bgBilling || st.vis.bgSummaryLink || st.vis.bgLiveBtn || /동의|한도/.test(t)) { rec.status = 'blocked'; rec.detail = 'needs a human: ' + t; return; }
+              if (/^현재 단계 · /.test(t)) { sawRun = true; if (t !== lastStage) { lastStage = t; rec.detail = t; writeReport(); } }
+              if (regenActive && (st.working || /만드는 중/.test(st.status || ''))) regenBusy = true; // regen must show work before its done screen counts
+              // note ready: bg card text and/or the shared completion screen
+              if (t.startsWith('노트 준비됨')) { rec.detail = `${t}${st.save ? ' | save: ' + st.save : ''}`; await shot('bg-done'); return; }
+              if (st.stage === 'stageDone' && sawRun && (!regenActive || regenBusy) && !st.working) {
+                if (st.doneAlert && /동의|한도|로그인/.test(st.doneAlert)) { rec.status = 'blocked'; rec.detail = 'done alert needs a human: ' + st.doneAlert; await shot('bg-done'); return; }
+                if (st.doneAlert || /노트 실패|중단됨/.test(st.donePill || '')) { rec.status = 'fail'; rec.error = `pill="${st.donePill}" alert="${st.doneAlert}"`; await shot('bg-done'); return; }
+                if (st.vis.makeNoteBtn) { rec.status = 'blocked'; rec.detail = 'recognition-only — 노트 만들기 needs a summary-consent decision by a human'; await shot('bg-done'); return; }
+                if (/노트 완성|일부 완료|인식 완료|인식만 완료/.test(st.donePill || '')) { rec.detail = `pill="${st.donePill}" ${st.doneSummary || ''}${st.save ? ' | save: ' + st.save : ''}`; await shot('bg-done'); return; }
+              }
+              // completion screen of an already-processed lecture (no run happened yet)
+              if (st.stage === 'stageDone' && !sawRun) {
+                if (!args.regenerate) { rec.status = 'skip'; rec.detail = `already has a note (pill="${st.donePill}")`; return; }
+                if (st.vis.makeNoteBtn) { rec.status = 'blocked'; rec.detail = 'recognition-only result — 노트 만들기 needs a summary-consent decision by a human'; return; }
+                if (st.vis.retryNoteBtn || /노트 실패|중단됨/.test(st.donePill || '')) { rec.status = 'fail'; rec.error = `prior run failed (pill="${st.donePill}")`; return; }
+                if (st.vis.notesBtn && !st.notesBtnDisabled) { await panel.click('#notesBtn').catch(() => {}); regenActive = sawRun = true; ev({ kind: 'bg-regen-click' }); }
+                // else: done screen still settling — keep sampling
+              }
+              if (t.includes('이미 노트를 만든 강의입니다')) {
+                if (!args.regenerate) { rec.status = 'skip'; rec.detail = 'already has a note: ' + t; return; }
+                // with --regenerate the shared completion screen follows (BG_DONE → showBgDone); the stageDone branch clicks 노트 다시 만들기
+              }
+              if (st.vis.bgConsentBtn || st.vis.bgBilling || st.vis.bgSummaryLink || st.vis.bgLiveBtn || st.vis.bgMakeBtn || /동의|한도/.test(t)) { rec.status = 'blocked'; rec.detail = 'needs a human: ' + t; return; }
               if (st.vis.bgRetryBtn || /마치지 못했습니다|찾지 못했습니다|코드:/.test(t)) { rec.status = 'fail'; rec.error = 'bg: ' + t; return; }
               if (t.includes('취소했습니다')) { rec.status = 'fail'; rec.error = 'cancelled: ' + t; return; }
               await panel.waitForTimeout(10000);
@@ -613,6 +696,8 @@ const stripUrl = u => { try { const x = new URL(u); const origin = x.origin === 
           for (const e of evs) hist[`${e.stage}:${e.code || ''}`] = (hist[`${e.stage}:${e.code || ''}`] || 0) + 1;
           const top = Object.entries(hist).sort((a, z) => z[1] - a[1]).slice(0, 15).map(([k, v]) => `${k}×${v}`).join(', ');
           rec.detail += ` | keys=${Object.keys(b)} env=[${Object.keys(b.env || {})}] settings=[${Object.keys(b.env?.settings || {})}] auth.signedIn=${b.env?.auth?.signedIn} server.ok=${b.env?.server?.ok} server.httpStatus=${b.env?.server?.httpStatus} events=${evs.length} errors=${evs.filter(e => e.level === 'error').length} top=${top}`;
+          const nm = evs.findLast?.(e => e.code === 'NOTE_MODELS') || [...evs].reverse().find(e => e.code === 'NOTE_MODELS');
+          rec.detail += ` | noteModels=${nm ? JSON.stringify(String(nm.msg ?? '').slice(0, 160)) : 'none'} writeTimeout=${evs.filter(e => e.code === 'WRITE_TIMEOUT').length} altModel=${evs.filter(e => e.code === 'ALT_MODEL').length}`;
         } catch (e) { rec.detail += ` | parse failed: ${e.message}`; }
       } else {
         const notice = await options.evaluate(() => document.getElementById('saved')?.textContent || '').catch(() => '');
@@ -624,6 +709,10 @@ const stripUrl = u => { try { const x = new URL(u); const origin = x.origin === 
     if (report.result === 'running') report.result = 'ok';
   } finally {
     if (report.result === 'running') report.result = 'aborted';
+    if (report.writeModel) { // --write-model: never leave the dev key behind
+      try { await workerEval(() => chrome.storage.local.remove('devWriteModel')); ev({ kind: 'write-model-removed' }); }
+      catch (e) { ev({ kind: 'write-model-remove-error', error: e.message }); }
+    }
     writeReport();
     console.log(`REPORT ${outFile('report.json')}`);
     if (args.fresh) { await context?.close().catch(() => {}); }

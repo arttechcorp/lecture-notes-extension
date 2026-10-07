@@ -492,6 +492,118 @@
     }), 40),
   });
 
+  // ── sol-luna-2 / sol-fork-2(docs/note-quality-review-2026-10-06/sol-v2-implementation-handoff.md §4) ──
+  // 두 실험 모드 이름 — 단계별 모델 표·고정 접두 계약은 서버와 클라이언트가 이 목록으로 분기한다.
+  const V2_MODES = ["sol-luna-2", "sol-fork-2"];
+
+  // §4.1 편집 명세: v2 계획 응답의 두 번째 칸. 실행 메모리 전용 — 저장되는 Note 에 들어가지 않는다.
+  // id 는 모두 호스트가 정한 체계다 — 모델이 임의 id·모델명·경로를 지어내 실행을 조종하지 못하게 한다.
+  const EDITORIAL_ROLES = ["definition", "mechanism", "condition", "exception", "example", "comparison", "argument"];
+  const VISUAL_KINDS = ["comparison", "process", "relation", "graph-reading", "formula-steps", "none"];
+  const visualId = pat("^V[0-9]{1,3}$");
+  const editorialPlanSchema = obj({
+    v: { type: "integer", const: 1 },
+    glossary: arr(obj({
+      conceptId: pat(IDS.concept), preferredTerm: str(60), aliases: arr(str(60), 6), evidenceIds: arr(evId, 8),
+    }), 40),
+    sections: arr(obj({
+      sectionId: pat(IDS.section),
+      learningQuestion: orNull(str(160)),
+      learningItemIds: arr(pat(IDS.learningItem), 50),
+      prerequisiteSectionIds: arr(pat(IDS.section), 40),
+      mustExplain: arr(obj({ role: en(EDITORIAL_ROLES), learningItemIds: arr(pat(IDS.learningItem), 20), evidenceIds: arr(evId, 8) }), 20),
+      owns: arr(pat(IDS.concept), 12),
+      referencesOnly: arr(pat(IDS.concept), 12),
+      visuals: arr(obj({
+        visualId, kind: en(VISUAL_KINDS), purpose: str(200),
+        learningItemIds: arr(pat(IDS.learningItem), 20), evidenceIds: arr(evId, 8),
+        assetIds: arr(pat(IDS.figure), 4), comparisonAxes: arr(str(40), 5),
+        relationTypes: arr(en(["includes", "part_of", "example_of", "precedes", "contrasts", "causes", "supports", "complements"]), 8),
+        required: { type: "boolean" },
+      }), 8),
+      targetOutputTokens: { type: "integer", minimum: 1, maximum: 16000 },
+    }), 40, 1),
+  });
+  // v2 계획의 업스트림 출력은 { plan, editorialPlan } — 기존 모드는 plannerOutput 그대로 받는다.
+  const plannerOutputV2 = obj({ plan: plannerOutput, editorialPlan: editorialPlanSchema });
+
+  // §4.1 교차 검증: 스키마를 통과한 뒤 계획·근거·asset 의 실제 id 집합과 대조한다.
+  // plan 은 normalizePlan 결과다(최소 sections[].sectionId·concepts[].conceptId·learningItems[].itemId).
+  // errors 는 코드와 id 만 싣는다(내용 없음, §10). 모르는 id·순환·한 개념의 다중 소유·계획 밖 참조는 거절이다.
+  function validateEditorialPlan(editorialPlan, plan, evidenceIds, assetIds) {
+    const v = Contracts.validate(editorialPlanSchema, editorialPlan);
+    if (!v.ok) return { ok: false, errors: [{ code: "VAL_EDITORIAL_SCHEMA", detail: v.errors.map(e => e.path) }] };
+    const secIds = new Set((plan?.sections ?? []).map(s => s.sectionId));
+    const concepts = new Set((plan?.concepts ?? []).map(c => c.conceptId));
+    const items = new Set((plan?.learningItems ?? []).map(l => l.itemId));
+    const ev = new Set(evidenceIds ?? []), assets = new Set(assetIds ?? []);
+    const errors = [], err = (code, id) => { if (errors.length < 20) errors.push({ code, detail: [String(id)] }); };
+    const noItem = id => { if (!items.has(id)) err("VAL_EDITORIAL_REF", "learningItem:" + id); };
+    const noEv = id => { if (!ev.has(id)) err("VAL_EDITORIAL_REF", "evidence:" + id); };
+    const seen = new Set(), owners = new Map(), visualIds = new Set(), gloss = new Set();
+    for (const s of editorialPlan.sections) {
+      if (!secIds.has(s.sectionId)) { err("VAL_EDITORIAL_REF", "section:" + s.sectionId); continue; }
+      if (seen.has(s.sectionId)) err("VAL_EDITORIAL_DUP", "section:" + s.sectionId);
+      seen.add(s.sectionId);
+      s.learningItemIds.forEach(noItem);
+      for (const p of s.prerequisiteSectionIds) if (!secIds.has(p)) err("VAL_EDITORIAL_REF", "prerequisite:" + p);
+      for (const m of s.mustExplain) { m.learningItemIds.forEach(noItem); m.evidenceIds.forEach(noEv); }
+      const ref = new Set(s.referencesOnly);
+      for (const cid of s.owns) {
+        if (!concepts.has(cid)) { err("VAL_EDITORIAL_REF", "owns:" + cid); continue; }
+        // 소유는 한 섹션뿐 — 같은 섹션에서 소유·참조 겸임도 모순이다.
+        if (ref.has(cid)) err("VAL_EDITORIAL_OWNERSHIP", s.sectionId + ":" + cid);
+        else if (owners.has(cid)) err("VAL_EDITORIAL_OWNERSHIP", cid);
+        else owners.set(cid, s.sectionId);
+      }
+      for (const cid of s.referencesOnly) if (!concepts.has(cid)) err("VAL_EDITORIAL_REF", "referencesOnly:" + cid);
+      for (const w of s.visuals) {
+        if (visualIds.has(w.visualId)) err("VAL_EDITORIAL_DUP", "visual:" + w.visualId);
+        visualIds.add(w.visualId);
+        w.learningItemIds.forEach(noItem); w.evidenceIds.forEach(noEv);
+        for (const a of w.assetIds) if (!assets.has(a)) err("VAL_EDITORIAL_REF", "asset:" + a);
+      }
+    }
+    // editorialPlan 은 계획의 모든 섹션을 덮는다 — 없으면 그 섹션에 내려줄 위임 명세가 없다.
+    for (const sid of secIds) if (!seen.has(sid)) err("VAL_EDITORIAL_COVER", sid);
+    for (const g of editorialPlan.glossary) {
+      if (!concepts.has(g.conceptId)) err("VAL_EDITORIAL_REF", "glossary:" + g.conceptId);
+      if (gloss.has(g.conceptId)) err("VAL_EDITORIAL_DUP", "glossary:" + g.conceptId); else gloss.add(g.conceptId);
+      g.evidenceIds.forEach(noEv);
+    }
+    // 선행 의존 순환 — 남은 선행이 없는 섹션을 지워 나가고, 끝까지 남으면 순환이다(자기 선행 포함).
+    const rest = new Map();
+    for (const s of editorialPlan.sections)
+      if (secIds.has(s.sectionId)) rest.set(s.sectionId, new Set(s.prerequisiteSectionIds.filter(p => secIds.has(p))));
+    for (;;) {
+      const done = [...rest.keys()].filter(k => [...rest.get(k)].every(d => !rest.has(d)));
+      if (!done.length) break;
+      for (const k of done) rest.delete(k);
+    }
+    for (const k of rest.keys()) err("VAL_EDITORIAL_CYCLE", k);
+    return errors.length ? { ok: false, errors } : { ok: true, errors: [] };
+  }
+
+  // §4.3 통합 검수 출력: 본문 재작성이 아니라 제한된 수정 제안 목록이다. 대상은 호스트가 부여한
+  // id(S#·S#_B#·GB#·C#·G#·단서 위치 S#_B#/P#)뿐 — 봉투 안 경로나 임의 JSON-Patch 경로는 받지 않는다.
+  // 한 번에 최대 12개. 적용·재검증은 호스트가 하고, 상한을 넘는 문제는 unresolved 로 보고한다.
+  const REVIEW_OPS = ["term_fix", "claim_edit", "dedupe", "relation_fix", "relink_asset", "request_section_redo"];
+  // 대상은 호스트가 입력에 나열한 id 다. 주장은 블록 id + 입력이 보여 준 경로(기존 link 단계와 같은 형식, 예 S1_B2/content/scope)로 가리킨다 —
+  // 문자 집합을 [A-Za-z0-9_] 와 '/' 로 제한해 점·URL·'..'·JSON-Patch 경로를 거절하고, 존재 여부는 클라이언트가 살아 있는 주장 색인으로 검증한다.
+  const editTarget = pat("^(S[0-9]{1,3}|GB[0-9]|C[0-9]{1,3}|G[0-9]{1,4}|S[0-9]{1,3}_B[0-9]{1,2}(/[A-Za-z0-9_]{1,24}){0,8})$");
+  const reasonCode = pat("^[a-z][a-z0-9_]{0,63}$");
+  const reviewOutputSchema = obj({
+    edits: arr(obj({
+      op: en(REVIEW_OPS), targetId: editTarget, reasonCode, evidenceIds: arr(refId, 8),
+      // 의도한 변경 — op 마다 필요한 칸만 채우고 나머지는 null 이다.
+      change: obj({
+        text: orNull(str(600)), claim: claimOrNull, keepTargetId: orNull(editTarget),
+        assetIds: arr(pat(IDS.figure), 4), note: orNull(str(300)),
+      }),
+    }), 12),
+    unresolved: arr(obj({ targetId: editTarget, reasonCode }), 40),
+  });
+
   // 유닛의 슬라이드·발화에 나온 숫자 집합 — 단원 제목·질문과 개념 이름은 B04 머리와 개념 색인으로
   // 그대로 노출되는데 Writer 검사를 거치지 않으므로 그 섹션(개념은 홈 섹션) 유닛의 숫자만 쓸 수 있다(§8.2).
   // 정규화의 검사와 보정의 제거가 같은 판정을 쓰게 하려고 한 곳에 둔다.
@@ -1490,12 +1602,101 @@
     };
     const deadCalc = r => { const m = CALC_RE.exec(r); return !!m && (!live.has(m[1]) || !calcMap.has(r)); };
     const hasDeadCalc = node => claimsOf(node).some(({ claim }) => claim.evidenceIds.some(deadCalc));
+    // 의미 초안 원장(draft 경로만): 보류(pending)·탈락·배치 누락으로 본문을 떠난 주장에 기대는(dependsOn) 주장은
+    // 확정 본문에 남기지 않는다 — 보류 의존 주장도 본문과 분리해 pending 에 보존한다. 원장은 조각 배열로 올 수 있다
+    // (분할 작성 병합 — 로컬 키 c1.. 는 조각 안에서만 푼다). 위치는 "<blockId>#<봉투 안 경로>"다.
+    const fragOf = new Map(); // sectionId → [ 원장 조각 ]
+    for (const s of sections) {
+      const raw = s.ledger ?? s.output?.ledger;
+      for (const f of Array.isArray(raw) ? raw : [raw])
+        if (s.sectionId && f && typeof f === "object" && f.claims && typeof f.claims === "object")
+          (fragOf.get(s.sectionId) ?? fragOf.set(s.sectionId, []).get(s.sectionId)).push(f);
+    }
+    const nodeAtPath = (o, p) => String(p).split("/").filter(Boolean).reduce((x, k) => x?.[k], o);
+    const livePlace = p => {
+      const i = String(p).indexOf("#");
+      const b = i > 0 ? live.get(p.slice(0, i)) : null;
+      return b && isClaim(nodeAtPath(b.env, p.slice(i + 1))) ? b : null;
+    };
+    const schemaAt = (sch, segs) => segs.reduce((x, k) => x && (x.properties ? x.properties[k] : x.items), sch);
+    // 주장을 뺄 수 있는 가장 깊은 조상 — null 허용 칸이면 그 칸, 목록 항목 안의 주장이면 그 항목(stages 의 T5 절단과 같은 규칙).
+    const cutAt = (type, path) => {
+      const sch = envelopeSchema(type, plan.policy), segs = String(path).split("/").slice(1);
+      for (let d = segs.length; d >= 1; d--) {
+        const pre = segs.slice(0, d), up = pre.slice(0, -1);
+        if (schemaAt(sch, up)?.type === "array" || [].concat(schemaAt(sch, pre)?.type).includes("null")) return { path: "/" + pre.join("/"), segs: pre };
+      }
+      return null;
+    };
+    // 뺄 칸들을 적용한 봉투 — 목록 항목은 뒤에서부터 지운다. 뺄 곳이 없으면 null.
+    const withoutAt = (env, cuts) => {
+      const out = deep(env), rm = [];
+      for (const { segs } of cuts) {
+        const up = segs.slice(0, -1), parent = nodeAtPath(out, "/" + up.join("/"));
+        if (Array.isArray(parent)) rm.push([up, +segs.at(-1)]);
+        else if (parent && typeof parent === "object") parent[segs.at(-1)] = null;
+        else return null;
+      }
+      rm.sort((a, b) => b[1] - a[1]);
+      for (const [up, i] of rm) {
+        const arr = nodeAtPath(out, "/" + up.join("/"));
+        if (!Array.isArray(arr)) return null;
+        arr.splice(i, 1);
+      }
+      return out;
+    };
+    const pushPending = entry => { if (pending.length < 200) pending.push(entry); };
+    // 죽은 주장을 살아 있는 봉투에서 뺀다 — 뺀 주장(절단 노드 아래 주장 전부)은 pending 에 보존한다.
+    // 필수 칸만 건드릴 수 있거나 뺀 뒤 봉투 계약이 깨지면 블록째 보류하되 봉투는 pending 에 남긴다 — 탈락(dropped)으로 세지 않는다.
+    const withholdDeps = (b, paths) => {
+      const cuts = new Map();
+      for (const p of paths) {
+        const cut = cutAt(b.type, p);
+        if (!cut) { cuts.clear(); break; }
+        cuts.set(cut.path, cut);
+      }
+      const env2 = cuts.size ? withoutAt(b.env, [...cuts.values()]) : null;
+      if (env2 && Contracts.validate(envelopeSchema(b.type, plan.policy), env2).ok) {
+        const claims = [...cuts.values()].flatMap(c => claimsOf(nodeAtPath(b.env, c.path)).map(x => x.claim));
+        pushPending({ blockId: b.id, sectionId: b.sectionId, type: b.type, paths: paths.slice(0, 8), claims: claims.map(deep).slice(0, 8), envelope: null });
+        b.env = env2; b.wrapped = null;
+      } else {
+        pushPending({ blockId: b.id, sectionId: b.sectionId, type: b.type, paths: paths.slice(0, 8), claims: claimsOf(b.env).map(x => deep(x.claim)).slice(0, 8), envelope: deep(b.env) });
+        live.delete(b.id); pendingIds.add(b.id);
+      }
+    };
+    // 매 회차 다시 센다 — 아직 살아 있는 봉투에 남은 죽은 주장의 봉투 안 경로(블록별).
+    const depCut = new Map();
+    const scanDeps = () => {
+      depCut.clear();
+      for (const frags of fragOf.values()) for (const f of frags) {
+        const claims = f.claims, dead = new Set();
+        for (const [cid, c] of Object.entries(claims))
+          if (!(Array.isArray(c?.places) ? c.places : []).some(p => livePlace(p))) dead.add(cid);
+        for (let grew = true; grew;) {
+          grew = false;
+          for (const [cid, c] of Object.entries(claims))
+            if (!dead.has(cid) && (Array.isArray(c?.dependsOn) ? c.dependsOn : []).some(d => dead.has(d))) { dead.add(cid); grew = true; }
+        }
+        for (const [cid, c] of Object.entries(claims)) {
+          if (!dead.has(cid)) continue;
+          for (const p of Array.isArray(c?.places) ? c.places : []) {
+            const b = livePlace(p);
+            if (!b) continue;
+            (depCut.get(b.id) ?? depCut.set(b.id, new Set()).get(b.id)).add(String(p).slice(String(p).indexOf("#") + 1));
+          }
+        }
+      }
+    };
     for (;;) {
       let changed = false;
       const liveIds = new Set([...secLive.keys(), ...live.keys(), ...conceptIds]);
       for (const b of live.values()) if (b.type === "B08" || b.type === "B09")
         (b.env.content.points || []).forEach((_, i) => liveIds.add(`${b.id}/P${i + 1}`));
+      scanDeps(); // 원장 상 죽은 주장이 아직 본문에 남은 곳 — 빼고 나면 다음 회차에서 뒤따른 의존이 정리된다
       for (const [id, b] of [...live]) {
+        const depPaths = depCut.get(id);
+        if (depPaths?.size) { withholdDeps(b, [...depPaths]); changed = true; continue; }
         const spec = LIST[b.type];
         if (spec) {
           const [field, prefix] = spec;
@@ -1686,13 +1887,24 @@
     let coverage = null;
     if (Array.isArray(plan?.learningItems) && plan.learningItems.length) {
       const survivingSecIds = new Set(secOut.map(s => s.sectionId));
+      // 항목의 근거 유닛을 실제로 인용하는 살아남은 주장이 있어야 included 다 — 섹션이 살았다는 것만으로는 세지 않는다.
+      // 보류(pending)·탈락된 블록의 주장은 확정 본문이 아니라 연결로 세지 않는다. 확인 항목(checks)도 확정 본문이 아니다.
+      const coveredUnits = new Set();
+      const citeUnit = node => {
+        for (const { claim } of claimsOf(node))
+          for (const r of claim.evidenceIds) { const u = evUnit.get(r); if (u) coveredUnits.add(u); }
+      };
+      for (const b of live.values()) citeUnit(b.env);
+      for (const st of secLive.values()) if (st.gist) citeUnit(st.gist);
       const items = plan.learningItems.map(it => {
         let status = it.status || "deferred";
         let sectionId = it.sectionId ?? null;
         let reason = it.reason ?? null;
-        // 최종 노트에서 그 섹션이 살아남지 못하면 status 를 deferred 로 내리는 정산 포함
+        // 최종 노트에서 그 섹션이 살아남지 못했거나, 항목 유닛을 근거로 삼는 살아남은 주장이 하나도 없으면
+        // status 를 deferred 로 내리는 정산 포함
         if (status === "included") {
-          if (!sectionId || !survivingSecIds.has(sectionId)) {
+          if (!sectionId || !survivingSecIds.has(sectionId)
+            || !(Array.isArray(it.unitIds) && it.unitIds.some(u => coveredUnits.has(u)))) {
             status = "deferred";
             sectionId = null;
           }
@@ -1749,6 +1961,7 @@
     LEARNING_ITEM_KINDS, LEARNING_ITEM_STATUSES, LEARNING_ITEM_REASONS, SECTION_WORKERS, EXPECTED_SIZES, formatCoverageMsg, withPlannerDefaults,
     schemas, envelopeSchema, sectionOutputSchemaFor, repairOutputSchemaFor, globalOutputSchemaFor, linkOutputSchema,
     normalizePlan, repairPlan, canonicalPlanIds, canonicalMapKeys, checkCalc, displayOf, citedRefs, validateSection, validateGlobal, assembleNote, restrictBasis, policyOf, AUG, withSource, measurePlanCaps,
+    V2_MODES, EDITORIAL_ROLES, VISUAL_KINDS, REVIEW_OPS, editorialPlanSchema, plannerOutputV2, reviewOutputSchema, validateEditorialPlan,
   });
   globalThis.NoteContract = api;
   if (typeof module !== "undefined") module.exports = api;

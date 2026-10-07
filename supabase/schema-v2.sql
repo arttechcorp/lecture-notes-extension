@@ -207,6 +207,11 @@ create table if not exists usage_attempts (
 );
 create index if not exists usage_attempts_request_idx on usage_attempts (request_id);
 
+-- 시도별 추론 토큰과 시도별 stage/provider/model. 혼합 모델 실행(계획·작성 모델이 다른 실험)에서
+-- 시도 행이 요청 부모 값으로 덮어씌워져 원가 분석이 오염되지 않게 시도별 값을 받는다.
+-- settle_usage 는 attempts 요소의 값을 우선 쓰고 없으면 요청 값으로 채운다(coalesce, 이전 호환). 미보고는 null.
+alter table usage_attempts add column if not exists reasoning_tokens int check (reasoning_tokens >= 0);
+
 -- 로컬 결과 캐시 집계(POST /v1/runs): 클라이언트가 run 끝에 한 번 보내는 콘텐츠 없는 수치.
 -- 공급자 호출이 없어 usage_events 에는 안 보이는 로컬 캐시 적중을 관측한다. 청구 정산 근거로는 쓰지 않는다.
 create table if not exists run_reports (
@@ -610,15 +615,19 @@ begin
     insert into usage_attempts (
       user_id, request_id, attempt_id, stage, provider, model,
       input_tokens, output_tokens, cached_input_tokens, cache_write_tokens,
-      provider_reported_cost_micros, cost_status, cache_kind, cache_status, status, error_code, latency_ms
+      provider_reported_cost_micros, cost_status, cache_kind, cache_status, status, error_code, latency_ms,
+      reasoning_tokens
     )
-    select p_user, p_request_id, a ->> 'attempt_id', p_stage, p_provider, p_model,
+    -- stage/provider/model 은 시도 요소가 우선이고 비어 있으면 요청 값으로 채운다 — 혼합 모델 실행의
+    -- 시도별 원가가 부모로 덮어씌워지지 않는다(이전 클라이언트의 빈 필드는 이전과 같은 결과).
+    select p_user, p_request_id, a ->> 'attempt_id',
+           coalesce(a ->> 'stage', p_stage), coalesce(a ->> 'provider', p_provider), coalesce(a ->> 'model', p_model),
            (a ->> 'input_tokens')::int, (a ->> 'output_tokens')::int,
            (a ->> 'cached_input_tokens')::int, (a ->> 'cache_write_tokens')::int,
            (a ->> 'provider_reported_cost_micros')::bigint,
            a ->> 'cost_status', p_cache_kind,
            coalesce(a ->> 'cache_status', 'unknown'), coalesce(a ->> 'status', 'ok'),
-           a ->> 'error_code', (a ->> 'latency_ms')::int
+           a ->> 'error_code', (a ->> 'latency_ms')::int, (a ->> 'reasoning_tokens')::int
     from jsonb_array_elements(p_attempts) a
     where a ->> 'attempt_id' ~ '^a[0-9]{1,4}$'
     on conflict (user_id, request_id, attempt_id) do nothing;
@@ -934,7 +943,7 @@ security definer
 stable
 set search_path = public
 as $$
-  select p.plan, p.label, p.price_krw, p.edu_price_krw, p.monthly_minutes_cap from plans p order by p.sort, p.plan;
+  select p.plan, p.label, p.price_krw, p.edu_price_krw, p.monthly_minutes_cap from plans p where p.plan <> 'developer' order by p.sort, p.plan;
 $$;
 
 -- 랜딩 어드민의 구독자 수를 결제 부여에서 센다(schema.sql의 정의를 덮어쓴다).
