@@ -5,9 +5,9 @@ const NoteContract=require("../lib/note-contract.js"),Contracts=require("../lib/
 // 프롬프트 문구나 아래 규칙을 바꾸면 올린다. 응답에 실려 단계 캐시 키에 들어간다.
 const PROMPT_VERSION="note-v6";
 // 단계별 버전: 프롬프트 문구나 아래 규칙을 바꾸면 그 단계만 올린다 — plan 캐시가 section 의 본문 재배치에 휘말려 무효가 되지 않게.
-const PROMPT_VERSIONS={plan:"note-v6",global:"note-v6",link:"note-v6",section:"note-v7",draft:"note-v7",repair:"note-v7",review:"note-v7",questions:"note-v7"};
-const STAGES=["plan","section","global","repair","link","questions","draft","review"];
-// 두 실험 모드 — plan 단계는 이 모드에서만 편집 명세를 붙인 출력({plan, editorialPlan})을 낸다.
+const PROMPT_VERSIONS={plan:"note-v6",global:"note-v6",link:"note-v6",section:"note-v7",draft:"note-v7",repair:"note-v7",review:"note-v7",editorial:"note-v7",questions:"note-v7"};
+const STAGES=["plan","section","global","repair","link","questions","draft","review","editorial"];
+// 두 실험 모드 — plan 직후 editorial 단계(같은 세션의 두 번째 Sol 턴)가 편집 명세(editorialPlan)를 낸다. 한 호출에 합치면 Edge 150초를 넘는다.
 const V2_MODES=NoteContract.V2_MODES;
 // 토큰 예산(§8.1). 서버는 바이트 / bytesPerToken 으로 어림한다 — 정확한 토크나이저가 아니라 입력 상한을 거르는 가드다.
 const LIMITS={bytesPerToken:4,tokens:{plannerInput:40000,plannerOutput:16000,writerInput:16000,writerOutput:14000,globalInput:24000,globalOutput:4000}};
@@ -116,17 +116,22 @@ const STAGE={
 const WRITE_V2={
   draft:[
     "그때는 nullReasons에 그 블록 id의 사유를 적는다 — insufficient_evidence(근거 부족)·duplicate(다른 블록과 중복이라 둘 필요 없음)·unsupported_format(이 형식으로는 담을 수 없음)·policy(정책·권한 문제)·unknown(모름). 다 채웠으면 nullReasons는 null이다.",
+    "입력에 editorialPlan이 있으면 따른다 — glossary의 preferredTerm을 용어의 표준으로 쓰고, section(learningQuestion·mustExplain·owns·referencesOnly·visuals)이 이 섹션이 설명할 것과 맡을 개념이다. prerequisites는 앞 섹션에서 이미 검증된 핵심 주장이니 다시 정의하지 말고 참조만 한다. referencesOnly 개념은 짧게 언급만 한다.",
   ],
   repair:[
     "repair 항목의 mode가 \"regenerate_missing\"이면 그 블록은 작성자가 null로 보류한 것이다 — previous는 null이고, 그 블록이 다룰 근거 항목 id가 evidenceIds에 정확히 담긴다. 계획의 purpose와 그 근거만으로 새로 쓰고, 근거가 부족하면 지어내지 말고 그대로 null로 둔다.",
   ],
+  questions:[
+    "입력에 editorialPlan이 있으면 그 glossary의 preferredTerm을 용어의 표준으로 쓴다 — 문항과 해설의 용어를 그에 맞춘다.",
+  ],
 };
-const PLAN_V2=[
-  "[v2 계획] 이 요청의 출력은 {plan, editorialPlan}이다 — plan은 위의 계획 규칙 그대로이고, editorialPlan은 각 섹션의 작성 워커에게 내려줄 편집 명세다.",
+const EDITORIAL=[
+  "[v2 편집 계획] 이 대화의 앞 턴이 계획(plan)이다. 이 요청의 출력은 editorialPlan 하나다 — 앞 턴 plan의 섹션·개념·학습 항목 id를 그대로 쓰고 plan을 다시 쓰지 않는다. editorialPlan은 각 섹션의 작성 워커에게 내려줄 편집 명세다.",
   "editorialPlan.sections는 plan의 섹션과 같은 sectionId를 갖고 모든 섹션을 덮는다. 섹션마다 learningQuestion(그 단원이 답하는 질문), learningItemIds(배정 학습 항목), prerequisiteSectionIds(먼저 읽어야 할 섹션), mustExplain(설명해야 할 내용: role·learningItemIds·evidenceIds), owns(그 개념의 정의·설명을 책임지는 섹션), referencesOnly(짧게 참조만 할 개념), visuals(시각화 명세), targetOutputTokens(예상 출력량)을 정한다. 한 개념의 owns는 한 섹션뿐이다 — 같은 개념의 정의를 여러 섹션에 반복하지 않는다.",
   "예시·예외·조건은 mustExplain에서 빈칸 채우기보다 먼저 배정한다. 근거에 없는 인과 화살표·비교 축·수치 곡선을 만들지 않는다 — visuals의 comparisonAxes·relationTypes·assetIds는 근거와 실제 asset에서만 고른다.",
   "id는 입력의 id만 쓴다 — conceptId·sectionId·learningItemIds·evidenceIds·assetIds를 지어내지 않는다. visualId는 V1부터 순서대로 붙인다.",
 ];
+STAGE.editorial=EDITORIAL;
 // 조건부 전문 워커(§3): 계획 섹션의 선택 필드 worker(W2-B)가 있으면 draft 지시 끝에 한 문장을 붙인다.
 // 같은 worker 값이면 같은 문자열이어야 한다 — 문장을 바꾸면 그 worker 의 캐시 접두가 갈린다. 없으면 general(추가 없음).
 const WORKER={
@@ -141,9 +146,9 @@ const WORKER={
 const systemFor=(stage,options,sourceLang,worker,mode)=>{
   if(!Object.hasOwn(STAGE,stage))throw new Error("invalid_stage");
   // link·review 는 주장을 새로 쓰지 않으므로 생성 옵션 규칙도 영어 원문 대조(src) 칸도 없다.
-  const aug=stage==="plan"||stage==="global"||stage==="link"||stage==="review"?[]:Object.keys(AUG_RULES).filter(k=>options?.[k]===true).map(k=>AUG_RULES[k]);
-  const en=sourceLang==="en"&&stage!=="plan"?[...EN_RULES,...(stage==="global"||stage==="link"||stage==="review"?[]:[EN_SRC])]:[];
-  return [COMMON,NOTE_RULES,...STAGE[stage],...(stage==="plan"&&V2_MODES.includes(mode)?PLAN_V2:[]),...(V2_MODES.includes(mode)&&WRITE_V2[stage]?WRITE_V2[stage]:[]),...aug,...en,...(stage==="draft"&&WORKER[worker]?[WORKER[worker]]:[])].join("\n");
+  const aug=stage==="plan"||stage==="editorial"||stage==="global"||stage==="link"||stage==="review"?[]:Object.keys(AUG_RULES).filter(k=>options?.[k]===true).map(k=>AUG_RULES[k]);
+  const en=sourceLang==="en"&&stage!=="plan"&&stage!=="editorial"?[...EN_RULES,...(stage==="global"||stage==="link"||stage==="review"?[]:[EN_SRC])]:[];
+  return [COMMON,NOTE_RULES,...STAGE[stage],...(V2_MODES.includes(mode)&&WRITE_V2[stage]?WRITE_V2[stage]:[]),...aug,...en,...(stage==="draft"&&WORKER[worker]?[WORKER[worker]]:[])].join("\n");
 };
 
 // 요청 본문(model·requestId·noteSpecVersion·stage 를 뺀 나머지)의 계약.
@@ -170,6 +175,13 @@ const claimRef=obj({text:{type:"string",maxLength:600},evidenceIds:arr({type:"st
 const claimPos=obj({path:pat("^/[A-Za-z0-9_]{1,24}(/[A-Za-z0-9_]{1,24}){0,7}$"),text:{type:"string",maxLength:600},evidenceIds:arr({type:"string",maxLength:32},8),basis:{type:"string",maxLength:16}});
 const survSections=claimItem=>arr(obj({sectionId:pat(IDS.section),title:{type:"string",maxLength:80},gist:{...claimItem,type:["object","null"]},
   blocks:arr(obj({blockId:pat(IDS.block),type:{type:"string",enum:NoteContract.WRITER_TYPES},claims:arr(claimItem,80)}),12)}),40,1);
+// sol-luna-2 의 Luna 작업 패킷(클라이언트가 섹션마다 만든다): 공통 용어 + 이 섹션의 편집 명세 + 검증된 선행 핵심 주장. 다른 섹션의 명세는 싣지 않는다.
+const lunaPacket=opt({
+  v:{type:"integer",const:1},
+  glossary:NoteContract.editorialPlanSchema.properties.glossary,
+  section:{...NoteContract.editorialPlanSchema.properties.sections.items,type:["object","null"]},
+  prerequisites:arr(obj({sectionId:pat(IDS.section),text:{type:"string",maxLength:600},evidenceIds:arr({type:"string",maxLength:32},8),basis:{type:"string",maxLength:16}}),12),
+},["prerequisites"]);
 const REQUEST={
   plan:opt({
     ir:obj({units:arr(Contracts.SCHEMAS.unit,500,1)}),
@@ -187,7 +199,7 @@ const REQUEST={
   // mode "regenerate_missing"이면 previous는 null이고 evidenceIds에 그 블록이 필요한 근거 id 목록을 정확히 싣는다. 구 항목은 그대로다.
   repair:opt({concepts:planConcepts,options,allowedRefs,...writerBody,repair:arr(opt({blockId:pat(IDS.block),previous:{},errors:arr(obj({code:pat(IDS.code),detail:arr({type:"string",maxLength:64},20)}),20,1),mode:{type:"string",enum:["regenerate_missing"]},evidenceIds:arr(pat(IDS.evidence),200)},["mode","evidenceIds"]),12,1)},["allowedRefs","learningItems"]),
   // 의미 초안 경로(§2 대안 B): 입력은 섹션 작성과 같고, 출력은 블록 봉투 대신 주장·typed 관계다(lib/section-draft.js).
-  draft:opt({concepts:planConcepts,options,allowedRefs,...writerBody,withGist:{type:"boolean"}},["allowedRefs","learningItems"]),
+  draft:opt({concepts:planConcepts,options,allowedRefs,...writerBody,withGist:{type:"boolean"},editorialPlan:lunaPacket},["allowedRefs","learningItems","editorialPlan"]),
   global:opt({
     plan:obj({concepts:planConcepts,global:arr(S.plan.properties.global.items,3,1)}),
     sections:survSections(claimRef),
@@ -209,6 +221,8 @@ const REQUEST={
     options,
     allowedRefs,
   },["allowedRefs"]),
+  // v2 편집 계획: 입력은 옵션뿐이다 — 계획은 noteSession 이력(앞 턴)에 이미 있다. 이력 없이는 서버가 거절한다.
+  editorial:opt({options},[]),
   // 본문 확정 뒤 문항(draft 경로): 채울 B14 는 계획 블록 하나, 참고는 살아남은 본문 주장이다.
   questions:opt({
     concepts:planConcepts,
@@ -217,13 +231,17 @@ const REQUEST={
     allowedRefs,
     section:planSection,
     blockId:pat(IDS.secBlock),
-  },["allowedRefs"]),
+    // sol-luna-2 의 Luna 문항 요청이 싣는 편집 명세 부분집합 — 용어집만 받는다(섹션 명세·선행 주장은 싣지 않는다).
+    // 작업 공유 칸 순서(SHARED_HEAD 캐시 접두)는 건드리지 않으므로 새 칸은 맨 끝이다.
+    editorialPlan:opt({v:{type:"integer",const:1},glossary:NoteContract.editorialPlanSchema.properties.glossary},[]),
+  },["allowedRefs","editorialPlan"]),
 };
 // 요청별 출력 스키마. 계획에 없는 blockId 같은 잘못된 요청은 note-contract 가 던진다 — 라우트가 request_rejected 로 바꾼다.
 // 영어 강의의 섹션·repair 는 주장마다 src 칸이 더해진다(NoteContract.withSource).
 function outputSchema(stage,body,sourceLang,mode){
   const src=sch=>sourceLang==="en"?NoteContract.withSource(sch):sch;
-  if(stage==="plan")return V2_MODES.includes(mode)?NoteContract.plannerOutputV2:S.plannerOutput;
+  if(stage==="plan")return S.plannerOutput;
+  if(stage==="editorial")return NoteContract.editorialPlanSchema;
   if(stage==="section")return src(NoteContract.sectionOutputSchemaFor(body.section,{gist:body.withGist,policy:body.options,allowedRefs:body.allowedRefs}));
   if(stage==="draft")return SectionDraft.outputSchemaFor(body.section,{gist:body.withGist,policy:body.options,allowedRefs:body.allowedRefs,sourceLang,nullReasons:V2_MODES.includes(mode)});
   if(stage==="repair")return src(NoteContract.repairOutputSchemaFor(body.section,[...new Set(body.repair.map(r=>r.blockId))],body.options,body.allowedRefs));
@@ -240,7 +258,7 @@ const inputTokenLimit=stage=>stage==="plan"?T.plannerInput:["global","link","que
 // 생성 파라미터. seed 를 지원하지 않는 모델에 보내면 require_parameters 때문에 요청이 통째로 거절된다(Anthropic).
 const NO_SEED=/^anthropic\//,SEED=7;
 const modelParams=(model,stage)=>({
-  max_tokens:Math.min(LLM.maxTokensFor(model),(stage==="plan"?T.plannerOutput:["global","link","review"].includes(stage)?T.globalOutput:T.writerOutput)+LLM.reasoningBudgetFor(model)),
+  max_tokens:Math.min(LLM.maxTokensFor(model),(stage==="plan"||stage==="editorial"?T.plannerOutput:["global","link","review"].includes(stage)?T.globalOutput:T.writerOutput)+LLM.reasoningBudgetFor(model)),
   reasoning:LLM.reasoningFor(model),...(LLM.noTemperature(model)?{}:{temperature:0}),...(NO_SEED.test(model)?{}:{seed:SEED}), // temperature 를 거절하는 모델(GPT 추론형)에 보내면 require_parameters 로 404 가 난다
 });
 module.exports={PROMPT_VERSION,PROMPT_VERSIONS,STAGES,LIMITS,V2_MODES,systemFor,REQUEST,outputSchema,estimateTokens,inputTokenLimit,modelParams,editorialPlanSchema:NoteContract.editorialPlanSchema,reviewOutputSchema:NoteContract.reviewOutputSchema};

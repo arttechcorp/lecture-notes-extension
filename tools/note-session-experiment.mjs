@@ -160,14 +160,15 @@ export const sessionBody = (s, phase, stage) => {
   if (!s) return null;
   if (isLunaStage(s.mode, stage)) return null; // sol-luna-2 의 draft/questions 는 독립 호출
   const isFork = FORK_MODES.has(s.mode);
-  const history = isFork && phase === "write" ? s.prefix : s.history;
-  if (isFork && phase === "write" && !history?.length) throw expErr("note_session_no_prefix");
+  const history = isFork && phase === "write" && stage !== "editorial" ? s.prefix : s.history; // editorial 은 plan 응답 이력을 이어 쓰는 두 번째 턴
+  if (isFork && phase === "write" && stage !== "editorial" && !history?.length) throw expErr("note_session_no_prefix");
   return { v: 1, id: s.id, mode: s.mode, history };
 };
 
 // 응답의 noteSession 을 검사하고 history 를 갱신한다.
 // fork 계열 모드에서는 계획 응답만 고정 접두 P 로 채택하고, 쓰기 응답은 접두를 변경하지 않는다.
-export function applySessionReply(session, res, { plan = false } = {}) {
+// v2 모드의 접두 P 는 editorial 응답(앵커 포함)이 채택하고, plan 응답은 이어 쓸 이력일 뿐이다. sol-fork 는 plan 응답이 접두다.
+export function applySessionReply(session, res, { plan = false, editorial = false } = {}) {
   const ns = res?.noteSession;
   if (ns === undefined || ns === null) throw expErr("note_session_unsupported", "no noteSession in response");
   if (typeof ns !== "object" || ns.v !== 1 || ns.id !== session.id || ns.mode !== session.mode || !Array.isArray(ns.history))
@@ -175,8 +176,8 @@ export function applySessionReply(session, res, { plan = false } = {}) {
   const bytes = bytesOf(ns.history);
   if (ns.history.length > HISTORY_MAX_ITEMS || bytes > HISTORY_MAX_BYTES) throw expErr("note_session_too_large");
   const isFork = FORK_MODES.has(session.mode);
-  if (isFork ? plan : true) session.history = ns.history;
-  if (isFork && plan) session.prefix = ns.history;
+  if (isFork ? plan || editorial : true) session.history = ns.history;
+  if (isFork && (V2_MODES.has(session.mode) ? editorial : plan)) session.prefix = ns.history;
   return { items: ns.history.length, bytes };
 }
 
@@ -345,13 +346,13 @@ export function makeService({ post, session = null, calls = [], budget = null, c
 
       // 봉투 갱신: plan 및 sol-fork/sol-fork-2/sol-session write 호출
       if (session && (route === "/v1/plan" || (route === "/v1/write" && !isLunaStage(session.mode, stage)))) {
-        m.session = { ...applySessionReply(session, r, { plan: route === "/v1/plan" }), sentItems: m.sessionSentItems };
+        m.session = { ...applySessionReply(session, r, { plan: route === "/v1/plan", editorial: route === "/v1/write" && stage === "editorial" }), sentItems: m.sessionSentItems };
       }
 
       if (route === "/v1/plan" && capture) {
         capture.planRaw = r?.plan ?? null;
-        capture.editorialPlan = r?.editorialPlan ?? null;
       }
+      if (route === "/v1/write" && stage === "editorial" && capture) capture.editorialPlan = r?.editorialPlan ?? null;
       m.ok = true;
       calls.push(m);
       if (o.noteSession?.mode && r?.noteSession && r.noteSession.mode !== o.noteSession.mode) {

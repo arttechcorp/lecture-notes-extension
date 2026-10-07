@@ -119,14 +119,24 @@ function validate(ns,stage){
     if(stage==="plan"){
       if(marks.length)return{error:REJ};
       for(let i=0;i<h.length;i++)if(h[i].role==="user"&&taskStage(h[i])!=="plan")return{error:REJ};
+    }else if(stage==="editorial"){
+      // 편집 계획은 계획 턴을 이어 쓰는 두 번째 Sol 턴이다 — 앵커는 아직 없고, 이력은 계획 작업+계획 출력(+재개 중이면 자기 작업).
+      if(marks.length)return{error:REJ};
+      const users=[];for(let i=0;i<h.length;i++)if(h[i].role==="user")users.push(i);
+      if(users[0]!==0||taskStage(h[0])!=="plan"||users.length>2)return{error:REJ};
+      const ptail=h[(users[1]??h.length)-1];
+      if(ptail.type!=="message"||ptail.role!=="assistant")return{error:REJ};
+      if(users.length>1&&(taskStage(h[users[1]])!=="editorial"||h.at(-1).type==="message"&&h.at(-1).role==="assistant"))return{error:REJ};
     }else{
-      if(marks.length!==1||marks[0]<2)return{error:REJ};
+      // 작성 이력 = P(계획 작업·계획 출력·편집 작업·편집 출력·앵커 하나) + 이 호출 자신의 턴.
+      if(marks.length!==1||marks[0]<4)return{error:REJ};
       const anchor=marks[0],ptail=h[anchor-1];
       if(ptail.type!=="message"||ptail.role!=="assistant")return{error:REJ};
       const users=[];for(let i=0;i<h.length;i++)if(h[i].role==="user"&&!isAnchor(h[i]))users.push(i);
-      if(users[0]!==0||taskStage(h[0])!=="plan"||users.length>2||users.some(i=>i>0&&i<anchor))return{error:REJ};
-      if(users.length>1){
-        if(taskStage(h[users[1]])!==stage)return{error:REJ};
+      const pre=users.filter(i=>i<anchor),post=users.filter(i=>i>anchor);
+      if(pre.length!==2||pre[0]!==0||taskStage(h[0])!=="plan"||taskStage(h[pre[1]])!=="editorial"||post.length>1)return{error:REJ};
+      if(post.length){
+        if(taskStage(h[post[0]])!==stage)return{error:REJ};
         if(h.at(-1).type==="message"&&h.at(-1).role==="assistant")return{error:REJ}; // 완료된 자기 턴의 재전송
       }else if(anchor!==h.length-1)return{error:REJ}; // 작업 없이 앵커 뒤에 잔여 아이템
     }
@@ -230,7 +240,7 @@ async function run(ctx){
   let prefix=null;
   if(mode==="sol-fork"&&stage!=="plan"){const i=session.history.findIndex((it,j)=>j>0&&it.role==="user");prefix=i<0?session.history:session.history.slice(0,i);}
   // v2 작성 호출의 고정 접두 P: 들어온 이력에서 고정 앵커(포함)까지다 — 클라이언트 길이 힌트가 아니라 앵커로 찾는다.
-  if(v2&&stage!=="plan"){const i=history.findIndex(isAnchor);if(i<0)throw Object.assign(new Error("invalid_note_output"),{detail:"prefix_anchor_missing"});prefix=history.slice(0,i+1);}
+  if(v2&&stage!=="plan"&&stage!=="editorial"){const i=history.findIndex(isAnchor);if(i<0)throw Object.assign(new Error("invalid_note_output"),{detail:"prefix_anchor_missing"});prefix=history.slice(0,i+1);}
   // continuation — v2 는 앵커 아래 구간(이 호출의 자기 턴), 그 외는 이력 전체. 꼬리 상태 판정은 이 구간에서 한다.
   const cont=()=>prefix?history.slice(prefix.length):history;
   let amount=0,reported=true;
@@ -299,9 +309,9 @@ async function run(ctx){
     push(items);
     // sol-fork·v2 성공 이력은 들어온 접두 P 다 — 누적 이력의 앞 P 구간이 바이트로 같은지 확인하고 이 단계의 턴은 돌려주지 않는다.
     if(prefix&&JSON.stringify(history.slice(0,prefix.length))!==JSON.stringify(prefix))throw invalid("prefix_changed");
-    // v2 계획 응답 이력의 끝에는 고정 앵커를 붙인다 — 이후 모든 작성 호출이 P=[…,앵커] 를 재사용한다.
-    if(v2&&stage==="plan")history.push(anchorItem());
-    const payload={...(stage==="plan"?(v2?{plan:fin.parsed?.plan,editorialPlan:fin.parsed?.editorialPlan}:{plan:fin.parsed}):{output:fin.parsed}),
+    // v2 편집 계획 응답 이력의 끝에는 고정 앵커를 붙인다 — 이후 모든 작성 호출이 P=[계획 턴, 편집 턴, 앵커] 를 재사용한다.
+    if(v2&&stage==="editorial")history.push(anchorItem());
+    const payload={...(stage==="plan"?{plan:fin.parsed}:stage==="editorial"?{editorialPlan:fin.parsed}:{output:fin.parsed}),
       ...(fin.salvaged?{salvaged:fin.salvaged,salvagedErrors:fin.salvagedErrors}:{}),
       usage:{...usage,costUsd:reported?amount:ctx.reserve/100},...versions(),noteSession:prefix?{v:1,id:session.id,mode,history:prefix}:snap()};
     return{amount,reported,attempts:tries,payload};
@@ -312,7 +322,7 @@ async function run(ctx){
   const task=taskItem(stage,rest,ctx.sourceLang,ctx.providerOut,
     v2?Prompts.systemFor(stage,ctx.options,ctx.sourceLang,rest.section?.worker,mode)
       :rest.section?.worker?Prompts.systemFor(stage,ctx.options,ctx.sourceLang,rest.section.worker):null,
-    v2&&stage!=="plan"?false:undefined),
+    v2&&stage!=="plan"&&stage!=="editorial"?false:undefined),
     left=()=>ctx.deadline-Date.now();
   const choice=stage==="plan"?"none":{type:"function",name:TOOL}; // 위임 턴만 도구 호출을 강제한다
   const unlock=await ctx.lock(session.id,ctx.signal);

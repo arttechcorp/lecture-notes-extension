@@ -399,6 +399,12 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
 
         // ---- invoke_action ---------------------------------------------------
         await step('invoke_action' + tag, async rec => {
+          // offscreen.html 을 탭으로 연 잔여 탐침(스파이크 스크립트)이 있으면 BG 메시지를 가로채 AUTH_TOKEN 이 거부되고 패널이 bgLocked 로 보인다(sender.tab 이 있으면 offscreen 이 아니다). 먼저 닫는다.
+          // 서비스 워커가 자고 있으면 workerEval 이 비어 실패하므로 CDP HTTP 로 직접 닫는다.
+          const strayIds = await fetch('http://127.0.0.1:9333/json/list').then(r => r.json()).then(l => l.filter(t => t.type === 'page' && /\/offscreen\.html$/.test(t.url)).map(t => t.id)).catch(() => []);
+          for (const sid of strayIds) await fetch('http://127.0.0.1:9333/json/close/' + sid).catch(() => {});
+          const stray = strayIds.length;
+          if (stray) ev({ kind: 'stray-offscreen-tabs-closed', n: stray });
           await lecture.bringToFront();
           const { targetInfos } = await cdp.send('Target.getTargets', { filter: [{ type: 'tab', exclude: false }] });
           const tab = targetInfos.find(t => t.url === lecture.url());
@@ -424,7 +430,8 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
           panel = await context.waitForEvent('page', { timeout: 10000 });
           opened.add(panel); hookPageErrors(panel);
           panel.on('dialog', d => { ev({ kind: 'dialog', text: d.message().slice(0, 300) }); d.dismiss(); });
-          await panel.waitForURL(`chrome-extension://${id}/sidepanel.html?tabId=${tabId}`);
+          // load 이벤트는 창이 쌓이면 30초 안에 안 오는 일이 있다 — 패널은 DOMContentLoaded 뒤 이벤트 배선이 끝나므로 그때까지만 기다린다.
+          await panel.waitForURL(`chrome-extension://${id}/sidepanel.html?tabId=${tabId}`, { waitUntil: 'domcontentloaded' });
           await attachAll();
           await panel.waitForTimeout(1500);
           const s = await snap(panel, 'panel'); if (s) rec.screenshots.push(s);
@@ -446,8 +453,11 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
               tabMatch: document.getElementById('tabSelect')?.value === String(tid),
             }), tabId).catch(e => ({ evalError: e.message }));
             let pf = await read();
+            // 패널의 유료 기능 표시(bgLocked)는 BG_LIST·플랜 조회가 끝난 뒤 비동기로 풀린다 — 한 번 읽고 막지 말고 최대 20초 기다린다.
+            const unlock = async () => { for (let i = 0; i < 20 && (pf.bgLocked || pf.stage === '?'); i++) { await panel.waitForTimeout(1000); pf = await read(); } };
+            await unlock();
             if (pf.stage === 'onboard') { rec.status = 'blocked'; rec.detail = 'onboarding/consent screen is showing — needs a human'; return; }
-            if (pf.stage === 'stageReady' && pf.view !== 'bg') { await toBgPrep(); pf = await read(); }
+            if (pf.stage === 'stageReady' && pf.view !== 'bg') { await toBgPrep(); pf = await read(); await unlock(); }
             if (!pf.tabMatch) await panel.selectOption('#tabSelect', String(tabId)).catch(() => {});
             rec.detail = JSON.stringify(pf);
             if (pf.webRequest !== true && pf.stage !== 'stageDone') { rec.status = 'blocked'; rec.detail += ' | In the warm Chrome window: play the video, open the panel, pick 백그라운드 생성, click 노트 생성 시작 once and Allow the prompt(s); leave Chrome open.'; return; }

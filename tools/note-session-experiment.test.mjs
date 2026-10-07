@@ -20,6 +20,7 @@ const {
 
 const loaded = loadInput("tools/note-fixture/input.json");
 
+const ANCHOR_ITEM = { role: "user", content: [{ type: "input_text", text: ANCHOR_TEXT, prompt_cache_breakpoint: { mode: "explicit" } }] };
 // 서비스 API 봉투를 흉내 내는 mock — plan/write 응답에 noteSession 을 되돌린다.
 // sol-fork/sol-fork-2/sol-luna-2: 계획 응답이 고정 접두 P 를 구성하고 anchor item 을 포함한다.
 function fakePost({ sessionSupport = true, mutate = ns => ({ v: 1, id: ns.id, mode: ns.mode, history: [...ns.history, { type: "message" }] }), sessionError = null, writeDelayMs = 0 } = {}) {
@@ -39,15 +40,15 @@ function fakePost({ sessionSupport = true, mutate = ns => ({ v: 1, id: ns.id, mo
       let payload;
       if (route === "/v1/plan") {
         payload = { ...base, plan: plannerOutput };
-        if (body.noteSession && V2_MODES.has(body.noteSession.mode)) {
-          payload.editorialPlan = { v: 1, glossary: [{ conceptId: "C1", preferredTerm: "고정비", aliases: [], evidenceIds: ["U1.s1"] }],
-            sections: plannerOutput.sections.map(sec => ({ sectionId: sec.sectionId, learningQuestion: null, learningItemIds: [], prerequisiteSectionIds: [], mustExplain: [], owns: [], referencesOnly: [], visuals: [], targetOutputTokens: 1200 })) };
-        }
       } else if (route === "/v1/judge") {
         payload = { ...base, results: body.items.map(i => ({ itemId: i.itemId, task: body.task, probs: [{ label: "A", p: .9 }, { label: "B", p: .1 }], score: .9, confidence: .8, model: body.model })) };
       } else if (isWrite) {
         const sec = body.section?.sectionId;
-        if (body.stage === "section") {
+        if (body.stage === "editorial") {
+          // v2 편집 계획은 plan 과 별개 호출(같은 세션의 두 번째 Sol 턴) — 응답 이력 끝에 앵커가 붙는다.
+          payload = { ...base, editorialPlan: { v: 1, glossary: [{ conceptId: "C1", preferredTerm: "고정비", aliases: [], evidenceIds: ["U1.s1"] }],
+            sections: plannerOutput.sections.map(sec => ({ sectionId: sec.sectionId, learningQuestion: null, learningItemIds: [], prerequisiteSectionIds: [], mustExplain: [], owns: [], referencesOnly: [], visuals: [], targetOutputTokens: 1200 })) } };
+        } else if (body.stage === "section") {
           payload = { ...base, output: writer.sections[sec]?.first };
         } else if (body.stage === "draft") {
           payload = { ...base, output: writer.sections[sec]?.first || { claims: [], relations: [] } };
@@ -73,9 +74,11 @@ function fakePost({ sessionSupport = true, mutate = ns => ({ v: 1, id: ns.id, mo
         payload.noteSession = isFork
           ? {
               v: 1, id: body.noteSession.id, mode: body.noteSession.mode,
-              history: body.noteSession.history.length
-                ? body.noteSession.history
-                : [{ type: "task" }, { type: "message" }, { role: "user", content: [{ type: "input_text", text: ANCHOR_TEXT, prompt_cache_breakpoint: { mode: "explicit" } }] }],
+              history: V2_MODES.has(body.noteSession.mode) && route === "/v1/plan" ? [{ type: "task" }, { type: "message" }]
+                : body.stage === "editorial" ? [...body.noteSession.history, { type: "task" }, { type: "message" }, ANCHOR_ITEM]
+                : body.noteSession.history.length
+                  ? body.noteSession.history
+                  : [{ type: "task" }, { type: "message" }, ANCHOR_ITEM],
             }
           : mutate(body.noteSession);
       }
@@ -188,14 +191,17 @@ test("sol-fork-2: all stages Sol, every write carries identical prefix P with an
   const { post, calls } = fakePost();
   const res = await arm("sol-fork-2", { post, budget: new Budget({ maxCostUsd: 3, maxRequests: 400 }) });
   assert.equal(res.session.mode, "sol-fork-2");
-  const writes = calls.filter(c => c.route === "/v1/write");
+  const edit = calls.find(c => c.body.stage === "editorial");
+  assert.ok(edit, "편집 계획은 plan 과 별개 호출이다");
+  assert.deepEqual(edit.body.noteSession.history, [{ type: "task" }, { type: "message" }], "editorial 은 plan 응답 이력(앵커 없음)을 이어 쓴다");
+  const writes = calls.filter(c => c.route === "/v1/write" && c.body.stage !== "editorial");
   assert.ok(writes.length > 0);
   const P = writes[0].body.noteSession?.history;
-  assert.ok(P && P.length > 0, "고정 접두 P 존재");
+  assert.equal(P.at(-1).content[0].text, ANCHOR_TEXT, "고정 접두 P 는 앵커로 끝난다");
 
   for (const c of calls.filter(c => c.route !== "/v1/judge")) {
     assert.equal(c.body.model, SOL, "sol-fork-2 는 모든 단계 Sol");
-    if (c.route === "/v1/write") {
+    if (c.route === "/v1/write" && c.body.stage !== "editorial") {
       assert.deepEqual(c.body.noteSession.history, P, "모든 쓰기 호출에 바이트 동일한 접두 P 전달");
     }
   }

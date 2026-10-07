@@ -657,13 +657,13 @@ function createServer(env=process.env,deps={}){
     //   sol-luna-2: plan·review·global·repair = Sol+세션 계속. draft·questions = noteSession 없는 Luna High 독립 요청.
     //   sol-fork-2: 모든 단계 = Sol+세션. 두 모드 모두 section·link 는 없다 — draft 가 작성, review 가 통합 검수다.
     const v2=input.noteMode??(session&&NoteSession.V2.includes(session.mode)?session.mode:null),
-      v2Sol={"sol-luna-2":["plan","review","global","repair"],"sol-fork-2":["plan","draft","questions","review","global","repair"]}[v2]||[];
+      v2Sol={"sol-luna-2":["plan","editorial","review","global","repair"],"sol-fork-2":["plan","editorial","draft","questions","review","global","repair"]}[v2]||[];
     if(v2){
       const lunaStage=v2==="sol-luna-2"&&(stage==="draft"||stage==="questions");
       if(lunaStage?input.model!==NoteSession.LUNA||session!==null
           :!v2Sol.includes(stage)||input.model!==NoteSession.SOL||!session||session.mode!==v2)
         return fail(res,"invalid_model_or_stage");
-    }else if(stage==="review")return fail(res,"invalid_model_or_stage"); // review 는 v2 모드 전용 단계다
+    }else if(stage==="review"||stage==="editorial")return fail(res,"invalid_model_or_stage"); // review·editorial 은 v2 모드 전용 단계다
     if(session){
       if(input.model!==NoteSession.SOL)return fail(res,stage==="plan"?"invalid_model":"invalid_model_or_stage");
       // 도구가 실행하는 작성 모델도 클라이언트 선택과 같은 게이트를 거친다 — 허용 목록·계정 등급·제공자 핀 모두 필요하다.
@@ -674,18 +674,11 @@ function createServer(env=process.env,deps={}){
       }
     }
     // 출력 스키마는 요청(계획 블록·옵션)마다 만든다. 계획에 없는 blockId 같은 모순은 note-contract 가 던진다.
-    // review 단계와 v2 계획 사이드카(editorialPlan)의 스키마는 편집 계약 모듈(prompts.js)이 제공한다 — 없으면 조용히 넘기지 않고 거절한다.
+    // review 단계의 스키마는 편집 계약 모듈(prompts.js)이 제공한다 — 없으면 조용히 넘기지 않고 거절한다.
     let outSchema;try{
       outSchema=stage==="review"
         ?(typeof Prompts.reviewOutputSchema==="function"?Prompts.reviewOutputSchema(rest,sourceLang):Prompts.reviewOutputSchema)
         :Prompts.outputSchema(stage,rest,sourceLang,v2);
-      // v2 계획의 업스트림 출력은 {plan, editorialPlan} 사이드카 — 응답도 두 칸으로 분리해 돌려준다.
-      // Prompts.outputSchema 가 v2 계획에 대해 이미 {plan, editorialPlan} 을 돌려주면 다시 감싸지 않는다(이중 래핑 → /plan/plan).
-      if(v2&&stage==="plan"&&outSchema?.properties?.editorialPlan===undefined){
-        const ed=typeof Prompts.editorialPlanSchema==="function"?Prompts.editorialPlanSchema(rest):Prompts.editorialPlanSchema;
-        if(!ed||typeof ed!=="object")throw new Error("editorial_plan_schema");
-        outSchema={type:"object",additionalProperties:false,required:["plan","editorialPlan"],properties:{plan:outSchema,editorialPlan:ed}};
-      }
       if(!outSchema||typeof outSchema!=="object")throw new Error("no_output_schema");
     }catch{return fail(res,"request_rejected");}
     // 세션 요청은 지시를 NoteSession.run 이 만든다(v2 는 V2_DEV 고정 지시) — 여기서 만드는 system 은 비세션·도구 Luna 용이다.
@@ -719,14 +712,14 @@ function createServer(env=process.env,deps={}){
     // 분야 분류는 슬라이드 첫 줄을 제목으로 모아 Jev 에 한 번 묻는다 — plan 에서만, 제목이 없으면 건너뛴다.
     const titles=stage==="plan"?[...new Set(us.map(u=>typeof u.slideText==="string"?u.slideText.split("\n")[0].trim():"").filter(Boolean))].slice(0,20):[];
     // v2 계획은 {plan, editorialPlan} 사이드카라 출력이 일반 계획의 약 2배다 — 첫 pilot 에서 120초 상한에 두 번 끊겼다. v2 계획만 145초(무료 Edge 150초 안)로 둔다.
-    return await withReservation({account,requestId:input.requestId,digest,reserve,minutes,model:input.model,res,meta,...(v2&&stage==="plan"?{timeoutMs:145000}:{})},async (signal,store,gens,deadline)=>{
+    return await withReservation({account,requestId:input.requestId,digest,reserve,minutes,model:input.model,res,meta,...(v2&&(stage==="plan"||stage==="editorial")?{timeoutMs:145000}:{})},async (signal,store,gens,deadline)=>{
       // 세션 경로: 분야 분류(Jev)는 대화 이력에 넣지 않는다 — Sol·Luna 호출 전부가 이 예약·deadline 안에서 돌고
       // 시간이 모자라면 200 pending 으로 넘겨 클라이언트가 같은 단계를 다시 보낸다(최대 3요청은 클라이언트 계약).
       if(session)return await NoteSession.run({
         stage,rest,session,sourceLang,options:opts,params,providerOut,outSchema,
         noteSpecVersion:NoteContract.NOTE_SPEC_VERSION,schemaVersion:c.remoteConfig.schemaVersion,
         // sol-fork·v2 작성 호출은 같은 접두 P 만 읽는 독립 호출이라 세션 잠금 없이 병렬로 간다 — 접두를 만드는 계획 호출은 잠금을 유지한다.
-        reserve,deadline,signal,fetcher,key:c.key,gens,lock:["sol-fork","sol-luna-2","sol-fork-2"].includes(session.mode)&&stage!=="plan"?async()=>()=>{}:sessionLock,
+        reserve,deadline,signal,fetcher,key:c.key,gens,lock:["sol-fork","sol-luna-2","sol-fork-2"].includes(session.mode)&&stage!=="plan"&&stage!=="editorial"?async()=>()=>{}:sessionLock,
         solProviders:upProviders,solRates:[pi,po],
         luna:session.mode==="sol-luna-tool"?{model:NoteSession.LUNA,up:upstreamOf(NoteSession.LUNA),params:lunaParams,providers:lunaProviders,
           rates:[lpi,lpo],system,user,
@@ -784,7 +777,7 @@ function createServer(env=process.env,deps={}){
   }
   const plan=(input,account,res)=>noteRoute(input,account,res,"plan");
   // review: v2 모드의 통합 편집 검수 단계(link 를 대체한다 — 두 v2 모드에서는 link 를 돌리지 않는다).
-  const write=(input,account,res)=>["section","global","repair","link","questions","draft","review"].includes(input.stage)?noteRoute(input,account,res,input.stage):fail(res,"invalid_model_or_stage");
+  const write=(input,account,res)=>["section","global","repair","link","questions","draft","review","editorial"].includes(input.stage)?noteRoute(input,account,res,input.stage):fail(res,"invalid_model_or_stage");
   // handle 은 런타임과 무관한 요청 처리기다. 로컬은 http 서버가, 배포는 supabase/functions/api 의 Deno 어댑터가 같은 함수를 부른다.
   const handle=async(req,res)=>{
     try{
@@ -859,35 +852,21 @@ function createServer(env=process.env,deps={}){
 const repetitive=t=>{if(typeof t!=="string"||t.length<2000)return false;const tail=t.slice(-4000),parts=[];for(let i=0;i+40<=tail.length;i+=40)parts.push(tail.slice(i,i+40));return new Set(parts).size/parts.length<0.5;};
 // id 처럼 생긴 짧은 값(영문 1~3자 + 숫자, 기호 _ - / .)은 글자를 그대로 둔다 — 강의 내용이 아니라 어느 형식을 썼는지가 보여야 고칠 수 있다.
 const shapeOf=v=>/^[A-Za-z]{1,3}[0-9]{0,4}([_\-/.][A-Za-z]{0,3}[0-9]{0,4}){0,2}$/.test(v)?v.slice(0,24):v.slice(0,24).replace(/[A-Za-z]/g,"A").replace(/[0-9]/g,"9").replace(/[가-힣]/g,"가").replace(/A+/g,"A").replace(/9+/g,"9").replace(/가+/g,"가");
-// v2 편집 계획(editorialPlan)의 ID 교차 검사 — 계획·근거·asset 에 없는 참조는 거절한다(사이드카 실패는 조용히 떨구지 않는다).
-// glossary·owns·referencesOnly 는 계획 개념, sectionId·prerequisiteSectionIds 는 계획 섹션, learningItemIds 는 계획 학습 항목,
-// evidenceIds 는 입력 유닛(U# 또는 그 유닛의 U#.s#/t#/g# 근거 id), visuals.assetIds 는 입력·계획의 도표 id 에 닫는다.
-const checkEditorialRefs=(plan,ed,rest)=>{
-  if(!ed||typeof ed!=="object")throw Object.assign(new Error("invalid_note_output"),{detail:"editorial_plan_missing"});
-  const secs=new Set((plan?.sections||[]).map(s=>s?.sectionId)),items=new Set((plan?.learningItems||[]).map(i=>i?.itemId)),
-    concepts=new Set((plan?.concepts||[]).map(x=>x?.conceptId)),units=new Set((rest?.ir?.units||[]).map(u=>u?.unitId)),
-    assets=new Set([...(rest?.figures||[]).map(f=>f?.id),...(plan?.sections||[]).flatMap(s=>(s?.blocks||[]).flatMap(b=>b?.figureIds||[]))]);
-  const bad=()=>{throw Object.assign(new Error("invalid_note_output"),{detail:"editorial_plan_refs"});};
-  const all=(a,set)=>{for(const v of a||[])if(typeof v!=="string"||!set.has(v))bad();};
-  const ev=a=>{for(const v of a||[])if(typeof v!=="string"||!(units.has(v)||units.has(v.split(".")[0])))bad();};
-  for(const g of ed.glossary||[]){all([g?.conceptId],concepts);ev(g?.evidenceIds);}
-  for(const s of ed.sections||[]){
-    all([s?.sectionId],secs);all(s?.learningItemIds,items);all(s?.prerequisiteSectionIds,secs);all(s?.owns,concepts);all(s?.referencesOnly,concepts);
-    for(const m of s?.mustExplain||[])all(m?.learningItemIds,items);
-    for(const v of s?.visuals||[]){all(v?.learningItemIds,items);all(v?.assetIds,assets);ev(v?.evidenceIds);}
-  }
-};
 // 모델 응답 문자열 → 계약 출력: 파싱(unmangle)·id 정규화·salvage·strict 검사. 독립 호출 경로와 noteSession
 // 세션 경로가 같은 규칙을 쓴다 — 검증이 서버 로컬이므로 업스트림 strict 강제가 없어도 출력 계약은 같다.
 const finalizeNote=(stage,content,outSchema,rest)=>{
   let parsed;try{parsed=parseNote(content);}catch{throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_json"});}
-  // v2 계획 사이드카: 출력은 {plan, editorialPlan} — plan 부분만 기존 정규화·기본값을 거치고
-  // editorialPlan 은 스키마 검증 뒤 plan·입력 자료와의 ID 교차 검증을 한다.
-  const sidecar=stage==="plan"&&outSchema?.properties?.editorialPlan!==undefined;
-  if(stage==="plan")parsed=sidecar?{plan:NoteContract.canonicalPlanIds(parsed?.plan),editorialPlan:parsed?.editorialPlan}:NoteContract.canonicalPlanIds(parsed); // 제공자가 id pattern 을 강제하지 않는다 — 검사 전에 C1../S1.. 로 다시 매긴다
-  else parsed=NoteContract.canonicalMapKeys(parsed,rest.section?.sectionId??null); // 지도 노드 키는 n1.. 로, 섹션 안 "B3" 참조는 "S2_B3" 로
+  // editorial(v2 편집 계획)은 계획 id 를 그대로 쓰는 별도 출력이다 — id 정규화·지도 키 정리를 거치지 않고 스키마만 본다.
+  // 계획·근거·asset 과의 ID 교차 검증은 입력 자료를 가진 클라이언트가 한다(NoteContract.validateEditorialPlan).
+  if(stage==="plan")parsed=NoteContract.canonicalPlanIds(parsed); // 제공자가 id pattern 을 강제하지 않는다 — 검사 전에 C1../S1.. 로 다시 매긴다
+  else if(stage==="editorial"){
+    // 편집 계획 루트의 형식 흔들림만 바로잡는다 — 칸을 지어내지 않는다: {editorialPlan:{…}}(또는 {plan, editorialPlan}) 로 감싼 응답은 편집 계획만 꺼내고,
+    // 버전 칸 v 는 계약 버전이라 모델의 값이 뜻이 없다 — 빠졌거나 숫자(필드: v:2 로 와 pilot 편집 계획이 네 번 거절됐다)면 1 로 맞춘다(glossary·sections 가 실제로 있을 때만).
+    if(parsed&&typeof parsed==="object"&&!Array.isArray(parsed)&&parsed.editorialPlan&&typeof parsed.editorialPlan==="object"&&!Array.isArray(parsed.sections))parsed=parsed.editorialPlan;
+    if(parsed&&typeof parsed==="object"&&Array.isArray(parsed.glossary)&&Array.isArray(parsed.sections)&&(parsed.v===undefined||Number.isFinite(Number(parsed.v))))parsed={...parsed,v:1};
+  }else parsed=NoteContract.canonicalMapKeys(parsed,rest.section?.sectionId??null); // 지도 노드 키는 n1.. 로, 섹션 안 "B3" 참조는 "S2_B3" 로
   // 계획의 W2 선택 칸 기본값은 검증용 복사본에만 채운다 — 모델이 뺐을 때 응답에 null 을 주입하면 구 클라이언트의 strict 스키마가 깨진다.
-  let checked=sidecar?{...parsed,plan:NoteContract.withPlannerDefaults(parsed.plan)}:stage==="plan"?NoteContract.withPlannerDefaults(parsed):parsed;
+  let checked=stage==="plan"?NoteContract.withPlannerDefaults(parsed):parsed;
   let salvaged=null,salvagedErrors=null;
   const pre=Contracts.validate(outSchema,checked);
   if(!pre.ok){
@@ -905,8 +884,9 @@ const finalizeNote=(stage,content,outSchema,rest)=>{
     }
   }
   const r=Contracts.validate(outSchema,checked);
-  if(!r.ok)throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_schema."+String(r.errors?.[0]?.path||r.errors?.[0]?.keyword||"x").toLowerCase().replace(/[^a-z0-9_.]/g,"_").slice(0,40)});
-  if(sidecar)checkEditorialRefs(checked.plan,checked.editorialPlan,rest);
+  // editorial 은 루트 키 이름(내용 아님)도 detail 에 싣는다 — 어느 칸이 어긋났는지가 보여야 고칠 수 있다.
+  if(!r.ok)throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_schema."+String(r.errors?.[0]?.path||r.errors?.[0]?.keyword||"x").toLowerCase().replace(/[^a-z0-9_.]/g,"_").slice(0,40)
+    +(stage==="editorial"&&checked&&typeof checked==="object"?".k_"+Object.keys(checked).slice(0,5).join("-").toLowerCase().replace(/[^a-z0-9_-]/g,"_").slice(0,40)+".v_"+typeof checked.v:"")});
   return{parsed,salvaged,salvagedErrors};
 };
 // 모델이 빠뜨린 필드를 채우지 않는다 — 없는 값은 없는 대로 두고 계약 검사가 걸러낸다.

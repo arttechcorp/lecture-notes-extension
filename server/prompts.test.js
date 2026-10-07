@@ -34,7 +34,7 @@ const basisOf = (schema, out = new Set()) => {
 test("every stage has a versioned system prompt that treats input as untrusted data", () => {
   assert.equal(Prompts.PROMPT_VERSION, "note-v6");
   assert.match(Prompts.PROMPT_VERSION, /^[a-z0-9][a-z0-9._-]*$/);
-  assert.deepEqual(Prompts.STAGES, ["plan", "section", "global", "repair", "link", "questions", "draft", "review"]);
+  assert.deepEqual(Prompts.STAGES, ["plan", "section", "global", "repair", "link", "questions", "draft", "review", "editorial"]);
   for (const stage of Prompts.STAGES) {
     const text = Prompts.systemFor(stage);
     assert.equal(Prompts.systemFor(stage), text, "단계 안에서는 호출마다 같은 문자열이어야 접두 캐시가 맞는다");
@@ -46,7 +46,7 @@ test("every stage has a versioned system prompt that treats input as untrusted d
     assert.match(text, /그대로 옮기거나 이어 붙이지 않는다/, stage + ": 비대체성");
     assert.ok(!/\$\{|undefined|\[object/.test(text), stage + ": 템플릿 잔재");
   }
-  assert.equal(new Set(Prompts.STAGES.map(s => Prompts.systemFor(s))).size, 8, "단계마다 지시가 다르다");
+  assert.equal(new Set(Prompts.STAGES.map(s => Prompts.systemFor(s))).size, 9, "단계마다 지시가 다르다");
   assert.throws(() => Prompts.systemFor("summary"), /invalid_stage/);
   assert.throws(() => Prompts.outputSchema("summary"), /invalid_stage/);
 });
@@ -135,10 +135,10 @@ test("request contracts are the stage's own field lists", () => {
   assert.deepEqual(Object.keys(Prompts.REQUEST.repair.properties), ["concepts", "options", "allowedRefs", "section", "evidence", "registry", "figures", "learningItems", "repair"]);
   assert.deepEqual(Object.keys(Prompts.REQUEST.global.properties), ["plan", "sections", "options", "allowedRefs"]);
   assert.deepEqual(Object.keys(Prompts.REQUEST.link.properties), ["concepts", "sections", "options", "allowedRefs"]);
-  assert.deepEqual(Object.keys(Prompts.REQUEST.questions.properties), ["concepts", "sections", "options", "allowedRefs", "section", "blockId"]);
+  assert.deepEqual(Object.keys(Prompts.REQUEST.questions.properties), ["concepts", "sections", "options", "allowedRefs", "section", "blockId", "editorialPlan"]);
   // 선택 키: 네 단계 모두 allowedRefs, section·repair 는 섹션에 배정된 learningItems 도 없어도 된다 — 나머지 키는 모두 required 로 strict 규칙을 지킨다.
   for (const stage of Prompts.STAGES) {
-    const optional = ["section", "repair", "draft"].includes(stage) ? ["allowedRefs", "learningItems"] : ["allowedRefs"];
+    const optional = stage === "draft" ? ["allowedRefs", "learningItems", "editorialPlan"] : ["section", "repair"].includes(stage) ? ["allowedRefs", "learningItems"] : stage === "questions" ? ["allowedRefs", "editorialPlan"] : stage === "editorial" ? [] : ["allowedRefs"];
     assert.deepEqual(Object.keys(Prompts.REQUEST[stage].properties).filter(k => !Prompts.REQUEST[stage].required.includes(k)), optional, stage + " 선택 키");
   }
   // plan·global 요청은 strict 모양을 지킨다. section·repair 는 정규화된 Plan 섹션을 싣는데,
@@ -242,6 +242,7 @@ test("modelParams never sends temperature to a model that rejects it (GPT-6.1 So
   const sol = Prompts.modelParams("openai/gpt-6.1-sol", "plan");
   assert.equal("temperature" in sol, false);
   assert.deepEqual({ ...sol.reasoning }, { effort: "medium" });
+  for (const stage of ["plan", "editorial"]) assert.deepEqual({ ...Prompts.modelParams("openai/gpt-6.1-sol", stage).reasoning }, { effort: "medium" }, stage + ": 계획 계열 Sol 은 medium 으로 고정");
   assert.equal(Prompts.modelParams("xiaomi/mimo-v2.6-flash", "plan").temperature, 0);
 });
 
@@ -307,11 +308,22 @@ test("questions stage: request pins the plan's B14 block; output is that one env
   const enSch = Prompts.outputSchema("questions", body, "en");
   assert.ok(JSON.stringify(enSch).includes('"src"'), "영어 강의는 주장에 src 칸");
   assert.ok(Contracts.isStrictCompatible(enSch), "영어 questions 출력 strict");
+  // editorialPlan(선택): sol-luna-2 의 Luna 문항이 싣는 편집 명세 부분집합 — {v:1, glossary} 만 받는다.
+  const gl = [{ conceptId: "C3", preferredTerm: "공헌이익", aliases: ["한계이익"], evidenceIds: ["U2.s2"] }];
+  assert.ok(Contracts.validate(Prompts.REQUEST.questions, { ...body, editorialPlan: { v: 1, glossary: gl } }).ok, "questions + editorialPlan 요청");
+  assert.ok(!Contracts.validate(Prompts.REQUEST.questions, { ...body, editorialPlan: { v: 1 } }).ok, "glossary 없는 editorialPlan 거절");
+  assert.ok(!Contracts.validate(Prompts.REQUEST.questions, { ...body, editorialPlan: { v: 1, glossary: gl, sections: [] } }).ok, "계약 밖 칸(sections) 거절");
+  assert.ok(!Contracts.validate(Prompts.REQUEST.questions, { ...body, editorialPlan: { v: 2, glossary: gl } }).ok, "v!=1 거절");
+  // 비 v2 모드의 questions 지시는 바뀌지 않는다 — 용어 표준 문장은 v2(mode)에서만 붙는다.
+  assert.ok(!t.includes("preferredTerm"), "비 v2 questions 지시는 그대로");
+  assert.equal(Prompts.systemFor("questions", OFF, undefined, undefined, "sol-fork"), t, "구 실험 모드도 기존 지시");
+  assert.match(Prompts.systemFor("questions", OFF, undefined, undefined, "sol-luna-2"), /preferredTerm을 용어의 표준으로/, "v2 에는 용어 표준 지시");
+  assert.match(Prompts.systemFor("questions", OFF, undefined, undefined, "sol-fork-2"), /preferredTerm을 용어의 표준으로/, "sol-fork-2 도 v2 지시");
 });
 
 test("draft stage: semantic-draft prompt, request contract, output schema, specialist worker", () => {
   // 요청 계약은 섹션 작성과 같다 — 출력만 블록 봉투 대신 주장·typed 관계다.
-  assert.deepEqual(Object.keys(Prompts.REQUEST.draft.properties), ["concepts", "options", "allowedRefs", "section", "evidence", "registry", "figures", "learningItems", "withGist"]);
+  assert.deepEqual(Object.keys(Prompts.REQUEST.draft.properties), ["concepts", "options", "allowedRefs", "section", "evidence", "registry", "figures", "learningItems", "withGist", "editorialPlan"]);
   const t = Prompts.systemFor("draft");
   assert.match(t, /의미 초안/, "draft: 단계 이름");
   assert.match(t, /지면\(B01–B18 슬롯·색·번호·HTML\)이 아니라 의미 단위만 쓴다/, "draft: 지면이 아니라 의미");
@@ -383,23 +395,24 @@ test("review stage: integrated editorial review — request contract, prompt rul
   assert.equal(Prompts.outputSchema("review").properties.edits.maxItems, 12);
 });
 
-test("v2 plan: the two mode names switch the plan output to {plan, editorialPlan} and add a fixed editorial instruction", () => {
+test("v2 editorial: a separate second Sol turn carries the editorial instruction; plan output stays the v1 contract", () => {
   assert.deepEqual(Prompts.V2_MODES, ["sol-luna-2", "sol-fork-2"]);
   for (const mode of Prompts.V2_MODES) {
-    const t = Prompts.systemFor("plan", OFF, undefined, undefined, mode);
+    const t = Prompts.systemFor("editorial", OFF, undefined, undefined, mode);
     assert.match(t, /editorialPlan/, mode + ": 편집 명세 칸 안내");
     assert.match(t, /owns\([^)]*책임지는/, mode + ": 소유권");
     assert.match(t, /예시·예외·조건/, mode + ": 예시·예외·조건 우선 배정");
     assert.match(t, /인과 화살표/, mode + ": 근거 없는 인과 금지");
-    const sch = Prompts.outputSchema("plan", undefined, undefined, mode);
-    assert.deepEqual(Object.keys(sch.properties), ["plan", "editorialPlan"], mode);
+    assert.match(t, /앞 턴/, mode + ": 앞 턴 plan 의 id 를 이어 쓴다");
+    const sch = Prompts.outputSchema("editorial", undefined, undefined, mode);
+    assert.equal(sch, NoteContract.editorialPlanSchema, mode);
     assert.equal(Contracts.isStrictCompatible(sch), true, mode + " 출력 strict");
+    // 계획은 모드와 무관하게 구 계약 그대로 — 한 호출에 합치면 Sol 출력이 Edge 150초를 넘는다(2026-10-07 pilot).
+    assert.equal(Prompts.outputSchema("plan", undefined, undefined, mode), NoteContract.schemas.plannerOutput, mode + ": plan 출력");
+    assert.equal(Prompts.systemFor("plan", OFF, undefined, undefined, mode), Prompts.systemFor("plan"), mode + ": plan 지시");
   }
-  // 기존 모드·모드 없음은 구 계약 그대로다.
-  assert.equal(Prompts.systemFor("plan"), Prompts.systemFor("plan", OFF, undefined, undefined, "independent"));
   assert.equal(Prompts.outputSchema("plan"), NoteContract.schemas.plannerOutput);
-  for (const m of ["independent", "sol-session", "sol-fork"])
-    assert.equal(Prompts.outputSchema("plan", undefined, undefined, m), NoteContract.schemas.plannerOutput, m + ": 구 출력");
+  assert.equal(Prompts.modelParams("openai/gpt-6.1-sol", "editorial").max_tokens, Prompts.modelParams("openai/gpt-6.1-sol", "plan").max_tokens);
 });
 
 test("repair request: regenerate_missing entries carry previous:null and the exact evidence list", () => {

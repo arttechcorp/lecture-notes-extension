@@ -383,8 +383,9 @@ test("통합: sol-luna-tool 의 Luna 도 허용·계정·핀 게이트를 거친
 });
 
 // ── sol-luna-2 / sol-fork-2: 고정 앵커가 공유 접두 P 의 끝 ──
-// 서버가 plan 응답 이력 뒤에 붙여 돌려주는 것과 같은 모양: plan 작업 → 공급자 항목 → assistant message → 고정 앵커.
-const P2=()=>[NoteSession.taskItem("plan",{ir:{units:[]}},undefined,{type:"object"}),rs(),msg('{"plan":{},"editorialPlan":{}}'),NoteSession.anchorItem()];
+// 서버가 editorial 응답 이력 뒤에 붙여 돌려주는 것과 같은 모양: plan 작업 → 공급자 항목 → assistant message → editorial 작업 → 공급자 항목 → assistant message → 고정 앵커.
+const PLAN2=()=>[NoteSession.taskItem("plan",{ir:{units:[]}},undefined,{type:"object"}),rs(),msg('{"sections":[]}')];
+const P2=()=>[...PLAN2(),NoteSession.taskItem("editorial",{options:{}},undefined,{type:"object"}),rs(),msg('{"v":1,"glossary":[],"sections":[]}'),NoteSession.anchorItem()];
 test("validate v2: P 의 끝은 고정 앵커 — 누락·중복·변조·외부 턴을 거절한다",()=>{
   const P=P2();
   assert.equal(NoteSession.validate(env("sol-fork-2",P),"draft").error,undefined,"신선한 작성 호출은 P 그대로");
@@ -404,20 +405,42 @@ test("validate v2: P 의 끝은 고정 앵커 — 누락·중복·변조·외부
   assert.equal(NoteSession.validate(env("sol-fork-2",[...P,NoteSession.taskItem("draft",{x:1},undefined,{},null,false),msg()]),"draft").error,"request_rejected","완료된 자기 턴의 재전송");
   assert.equal(NoteSession.validate(env("sol-fork-2",P),"plan").error,"request_rejected","계획 이력에 앵커");
   assert.equal(NoteSession.validate(env("sol-fork-2",[]),"plan").error,undefined,"v2 계획은 빈 이력으로 시작");
+  // 편집 계획 턴이 없는 접두(계획 출력+앵커뿐)는 P 가 아니다 — plan 과 editorial 은 별개 호출이다.
+  assert.equal(NoteSession.validate(env("sol-fork-2",[...PLAN2(),NoteSession.anchorItem()]),"draft").error,"request_rejected","편집 계획 없는 접두");
+  assert.equal(NoteSession.validate(env("sol-fork-2",[...P,NoteSession.taskItem("editorial",{options:{}},undefined,{})]),"draft").error,"request_rejected","P 뒤의 두 번째 editorial 작업");
 });
-test("run sol-fork-2: plan 은 {plan,editorialPlan}+앵커 P, 작성은 V2_DEV+P+작업(breakpoint 없음)",async()=>{
+test("validate v2 editorial: 계획 턴을 이어 쓰는 두 번째 턴 — 앵커·다른 작업·계획 없는 이력은 거절",()=>{
+  const plan=PLAN2();
+  assert.equal(NoteSession.validate(env("sol-fork-2",plan),"editorial").error,undefined,"plan 응답 이력 그대로");
+  assert.equal(NoteSession.validate(env("sol-luna-2",plan),"editorial").error,undefined);
+  assert.equal(NoteSession.validate(env("sol-fork-2",[...plan,NoteSession.taskItem("editorial",{options:{}},undefined,{})]),"editorial").error,undefined,"자기 턴 이어 보내기·재개");
+  assert.equal(NoteSession.validate(env("sol-fork-2",[]),"editorial").error,"request_rejected","계획 없는 이력");
+  assert.equal(NoteSession.validate(env("sol-fork-2",[plan[0],rs()]),"editorial").error,"request_rejected","계획이 완료되지 않았다(꼬리가 reasoning)");
+  assert.equal(NoteSession.validate(env("sol-fork-2",[...plan,NoteSession.anchorItem()]),"editorial").error,"request_rejected","앵커는 editorial 응답 뒤에만 생긴다");
+  assert.equal(NoteSession.validate(env("sol-fork-2",[...plan,NoteSession.taskItem("draft",{x:1},undefined,{},null,false)]),"editorial").error,"request_rejected","다른 단계의 작업");
+  assert.equal(NoteSession.validate(env("sol-fork-2",[...plan,NoteSession.taskItem("editorial",{options:{}},undefined,{}),msg()]),"editorial").error,"request_rejected","완료된 editorial 의 재전송");
+  assert.equal(NoteSession.validate(env("sol-fork-2",plan),"draft").error,"request_rejected","editorial 이전 이력으로 작성 호출 불가");
+});
+test("run sol-fork-2: plan 은 {plan}+이어 쓸 이력, editorial 은 {editorialPlan}+앵커 P, 작성은 V2_DEV+P+작업(breakpoint 없음)",async()=>{
   bodies.length=0;
   const pr=await NoteSession.run(ctxFor({stage:"plan",rest:{ir:{}},mode:"sol-fork-2",
-    session:{v:1,id:"fork2-01ab",mode:"sol-fork-2",history:[]},fetcher:seq(respMsg('{"plan":{"sections":[]},"editorialPlan":{"v":1}}'))}));
-  assert.deepEqual(pr.payload.plan,{sections:[]},"사이드카 응답은 두 칸으로 분리된다");
-  assert.deepEqual(pr.payload.editorialPlan,{v:1});
-  const P=pr.payload.noteSession.history;
+    session:{v:1,id:"fork2-01ab",mode:"sol-fork-2",history:[]},fetcher:seq(respMsg('{"sections":[]}'))}));
+  assert.deepEqual(pr.payload.plan,{sections:[]});assert.ok(!("editorialPlan" in pr.payload),"편집 계획은 별도 호출이다");
+  const PL=pr.payload.noteSession.history;
+  assert.ok(!PL.some(NoteSession.isAnchor),"계획 응답 이력에는 앵커가 없다 — 앵커는 editorial 응답이 붙인다");
+  assert.equal(JSON.parse(PL[0].content[0].text).stage,"plan","첫 user 는 plan 작업");
+  const er=await NoteSession.run(ctxFor({stage:"editorial",rest:{options:{}},mode:"sol-fork-2",
+    session:{v:1,id:"fork2-01ab",mode:"sol-fork-2",history:PL},fetcher:seq(respMsg('{"v":1,"glossary":[],"sections":[]}'))}));
+  assert.deepEqual(er.payload.editorialPlan,{v:1,glossary:[],sections:[]});assert.ok(!("plan" in er.payload));
+  const P=er.payload.noteSession.history;
   assert.equal(P.at(-1).role,"user");assert.equal(P.at(-1).content[0].text,NoteSession.ANCHOR_TEXT,"앵커가 P 의 끝");
-  assert.equal(JSON.parse(P[0].content[0].text).stage,"plan","P 의 첫 user 는 plan 작업");
+  assert.equal(JSON.stringify(P.slice(0,PL.length)),JSON.stringify(PL),"편집 턴은 계획 이력을 이어 쓴다(접두 바이트 동일 — 캐시 적중)");
+  assert.equal(JSON.parse(P[PL.length].content[0].text).stage,"editorial","계획 다음 user 는 editorial 작업");
+  assert.equal(bodies[1].body.input.length,PL.length+2,"editorial 입력 = developer + 계획 이력 + editorial 작업");
   // 같은 P 로 두 작성 호출 — dev+P 구간이 바이트로 같고, 일회성 작업에는 breakpoint 가 없다.
   const mk=()=>ctxFor({mode:"sol-fork-2",stage:"draft",session:{v:1,id:"fork2-01ab",mode:"sol-fork-2",history:P},fetcher:seq(respMsg('{"claims":[]}'))});
   const r1=await NoteSession.run(mk()),r2=await NoteSession.run(mk());
-  const i1=bodies[1].body.input,i2=bodies[2].body.input,js=JSON.stringify;
+  const i1=bodies[2].body.input,i2=bodies[3].body.input,js=JSON.stringify;
   assert.equal(i1.length,P.length+2,"developer + P + 이 호출의 작업");
   assert.equal(js(i1.slice(0,1+P.length)),js(i2.slice(0,1+P.length)),"developer+P 접두는 호출마다 바이트로 같다");
   assert.equal(js(i1.slice(1,1+P.length)),js(P),"입력의 P 구간은 들어온 접두 그대로");
@@ -427,7 +450,7 @@ test("run sol-fork-2: plan 은 {plan,editorialPlan}+앵커 P, 작성은 V2_DEV+P
   assert.ok(tj.outputSchema);assert.equal(task.content[0].prompt_cache_breakpoint,undefined,"일회성 suffix 에 breakpoint 없음");
   assert.equal(js(r1.payload.noteSession.history),js(P),"성공 history 는 P 그대로 — fork 규칙");
   assert.equal(js(r2.payload.noteSession.history),js(P));
-  const wb=bodies[1].body;
+  const wb=bodies[2].body;
   assert.ok(!("tools" in wb)&&!("tool_choice" in wb)&&!("seed" in wb)&&!("parallel_tool_calls" in wb),"v2 Sol 전선은 도구·seed 없음");
   assert.equal(wb.session_id,"fork2-01ab");
 });
@@ -461,8 +484,8 @@ test("run v2 pending·재개: 이어 보내기는 P+자기 작업, 재개는 작
   assert.equal(cont.at(-1).content[0].prompt_cache_breakpoint,undefined);
   await NoteSession.run(ctxFor({mode:"sol-fork-2",stage:"draft",session:{v:1,id:"fork2-02ab",mode:"sol-fork-2",history:cont},fetcher:seq(respMsg('{"claims":[]}'))}));
   const users=bodies.at(-1).body.input.filter(i=>i.role==="user");
-  assert.equal(users.length,3,"plan 작업·앵커·자기 작업뿐 — 중복 삽입 없음");
-  assert.equal(users[1].content[0].text,NoteSession.ANCHOR_TEXT);
+  assert.equal(users.length,4,"plan·editorial 작업·앵커·자기 작업뿐 — 중복 삽입 없음");
+  assert.equal(users[2].content[0].text,NoteSession.ANCHOR_TEXT);
   assert.deepEqual(users.at(-1),cont.at(-1),"돌려받은 자기 작업을 그대로 재사용");
 });
 test("run v2: 앵커 없는 작성 이력은 접두를 못 찾아 거절",async()=>{
