@@ -259,7 +259,7 @@ const NEW_TABLES = {
   vault_objects: "user_id object_id size updated_at storage_path",
   library_keys: "user_id key created_at",
   feedback: "user_id job_id rating tags created_at",
-  billing_events: "id type user_id received_at merchant_uid amount_krw coupon_code coupon_discount_krw external_id occurred_at",
+  billing_events: "id type user_id received_at merchant_uid amount_krw coupon_code coupon_discount_krw external_id occurred_at reason buyer_email_hash product_id option_id",
   provider_slots: "id provider expires_at",
 };
 const SERVICE_FUNCTIONS = [
@@ -418,6 +418,24 @@ describe("파이프라인 v2 DB 스키마", { skip: located.skip }, () => {
     // 해지·환불보다 나중에 일어난 결제(재구독)는 적용한다
     assert.equal(at("o6", "subscription_payment.completed", "2026-10-04T09:00:00Z", "30 days"), "applied");
     assert.equal(row(), "f,t");
+  });
+
+  test("결제 웹훅: 해지·환불의 결제번호 폴백은 같은 계정(p_user)의 부여만 건드린다", () => {
+    const a = newUser("free"), b = newUser("free");
+    const apply = (id, type, user, ext, merchant, occurred, ends) => q(`select apply_billing_event(${lit(id)}, ${lit(type)}, ${lit(user)}, 'essential', false, ${lit(ext)},
+      now(), ${ends ? `now() + interval '${ends}'` : "null"}, ${lit(merchant)}, null, null, null, ${lit(occurred)}::timestamptz)`, SVC);
+    // 같은 주문번호가 두 계정의 완료 이벤트에 기록됐다고 가정(주문번호 충돌·재사용)
+    assert.equal(apply("x1", "subscription_payment.completed", a, `cx:${a}`, "ord-shared", "2026-10-08T10:00:00Z", "30 days"), "applied");
+    assert.equal(apply("x2", "subscription_payment.completed", b, `cx:${b}`, "ord-shared", "2026-10-08T10:30:00Z", "30 days"), "applied");
+    // B의 해지가 다른 external_id로 오고 결제번호는 A와 같다 → B 것만 닫히고 A 구독은 열린 채여야 한다
+    assert.equal(apply("x3", "subscription.cancel_requested", b, `other:${b}`, "ord-shared", "2026-10-08T11:00:00Z", null), "applied");
+    assert.equal(q(`select cancel_at_period_end::text from entitlements where user_id = ${lit(a)}`), "false", "다른 계정의 같은 주문번호 해지에 A 구독이 닫히면 안 된다");
+    assert.equal(q(`select cancel_at_period_end::text from entitlements where user_id = ${lit(b)}`), "true");
+    // B의 환불도 같은 결제번호로 와도 A의 기간은 그대로다
+    assert.equal(apply("x4", "subscription_payment.refunded", b, `other-rf:${b}`, "ord-shared", "2026-10-08T12:00:00Z", null), "applied");
+    assert.equal(q(`select ends_at > now() + interval '1 day' from entitlements where user_id = ${lit(a)}`), "t");
+    // 환불은 기간을 즉시 닫는다(ends_at는 starts_at+1s 바닥까지 당겨진다 — 같은 초 안의 실행이라 now() 비교는 쓰지 않는다)
+    assert.equal(q(`select ends_at <= starts_at + interval '2 seconds' from entitlements where user_id = ${lit(b)}`), "t");
   });
 
   test("결제 웹훅: 지워진 계정의 이벤트는 unknown_user를 돌려주고 아무것도 쓰지 않는다", () => {
