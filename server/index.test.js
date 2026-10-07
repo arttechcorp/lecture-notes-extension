@@ -3463,3 +3463,279 @@ test("write serializes shared job keys first and marks the shared head for cachi
     assert.equal(typeof mm.messages[1].content, "string", "cacheMode 없는 모델은 한 덩어리");
   }, { ALLOWED_MODELS: JSON.stringify([model, variant, claude, mimo]), OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], "openai/gpt-6-luna": ["azure"], [claude]: ["provider-b"], [mimo]: ["io-net/fp8"] }) });
 });
+
+test("noteSession 요청만 이력을 실을 수 있게 본문 상한이 4MB 로 넓다 — 이력 없는 큰 요청은 여전히 413", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  const { server, url } = await listen(root, async () => provider());
+  try {
+    const filler = "x".repeat(300000);
+    const plain = await req(url, "/v1/write", "POST", { ...input, evidence: [{ ...input.evidence[0], text: filler }] });
+    assert.equal(plain.status, 413);
+    // 세션 봉투가 있으면 본문 상한(256KB)에서 걸리지 않고 이후 검증(여기서는 요청 모양·세션 모드)에서 다른 이유로 거절된다.
+    const sess = await req(url, "/v1/write", "POST", { ...input, evidence: [{ ...input.evidence[0], text: filler }], noteSession: { v: 1, id: "ns-test-00000001", mode: "sol-session", history: [] } });
+    assert.notEqual((await sess.json()).error?.code, "request_too_large");
+  } finally { server.close(); }
+});
+
+// ── sol-fork: plan 접두를 고정 공유 컨텍스트로 쓰는 실험 노트 모드 ──
+const NoteSession = require("./note-session.js"), SOL = NoteSession.SOL;
+// OpenRouter /v1/responses 모양의 Sol 응답 — 계획·작성 호출 전부 이 전선을 쓴다.
+const solReply = (text, o = {}) => ({ ok: true, json: async () => ({ id: "resp_sol", status: "completed",
+  output: [{ type: "reasoning", id: "rs_1", summary: [] }, { type: "message", role: "assistant", status: "completed", content: [{ type: "output_text", text }] }],
+  usage: o.usage ?? { input_tokens: 300, output_tokens: 80, cost: .001 }, model: SOL, provider: "Azure" }) });
+const solEnv = { ALLOWED_MODELS: JSON.stringify([model, SOL]), OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], [SOL]: ["azure", "azure/us"] }) };
+const forkTask = (stage, input) => NoteSession.taskItem(stage, input, undefined, { type: "object" });
+// 서버가 계획 호출 뒤 돌려주는 것과 같은 접두 모양: plan 작업 → 공급자 항목 → 마지막 assistant message.
+const forkP = () => [forkTask("plan", { demo: "prefix" }), { type: "reasoning", id: "rs_9", summary: [] }, { type: "message", role: "assistant", status: "completed", content: [{ type: "output_text", text: "{}" }] }];
+
+test("sol-fork: plan 응답이 공유 접두가 되고 작성은 developer+P+자기 작업만 보낸다 — 성공 history 는 P", async () => {
+  const bodies = []; let calls = 0;
+  const replies = [JSON.stringify(notePlanner), JSON.stringify(s1Out), JSON.stringify(s1Out)];
+  await withNoteServer(async (_u, o) => { bodies.push(JSON.parse(o.body)); return solReply(replies[Math.min(calls++, replies.length - 1)]); }, async url => {
+    const plan = await req(url, "/v1/plan", "POST", planIn({ model: SOL, requestId: "fp-1", noteSession: { v: 1, id: "forkit01", mode: "sol-fork", history: [] } }));
+    assert.equal(plan.status, 200);
+    const po = await plan.json();
+    assert.deepEqual(po.plan, notePlanner);
+    const P = po.noteSession.history;
+    assert.ok(P.length >= 2 && P[0].role === "user" && P.at(-1).type === "message", "계획 이력이 곧 공유 접두");
+    for (const requestId of ["fw-1", "fw-2"]) {
+      const w = await req(url, "/v1/write", "POST", sectionIn({ model: SOL, requestId, noteSession: { v: 1, id: "forkit01", mode: "sol-fork", history: P } }));
+      assert.equal(w.status, 200);
+      const wo = await w.json();
+      assert.equal(JSON.stringify(wo.noteSession.history), JSON.stringify(P), "작성 성공은 접두를 그대로 돌려준다 — 이 단계의 턴이 붙지 않는다");
+      assert.deepEqual(wo.output, s1Out);
+    }
+    const [w1, w2] = bodies.slice(1), js = JSON.stringify;
+    assert.equal(w1.input.length, P.length + 2, "developer + P + 이 호출의 작업");
+    assert.equal(js(w1.input.slice(0, 1 + P.length)), js(w2.input.slice(0, 1 + P.length)), "developer+P 구간은 두 작성 호출에서 바이트로 같다");
+    assert.equal(js(w1.input.slice(1, 1 + P.length)), js(P), "입력의 P 구간은 들어온 접두 그대로다");
+    assert.equal(JSON.parse(w1.input.at(-1).content[0].text).stage, "section", "마지막 user 항목은 이 호출의 작업");
+    for (const b of [w1, w2]) {
+      assert.ok(!("tools" in b) && !("tool_choice" in b) && !("seed" in b) && !("parallel_tool_calls" in b), "도구·seed 없는 sol 전선");
+      assert.deepEqual(b.text, { format: { type: "json_object" } });
+      assert.deepEqual(b.provider, { only: ["azure", "azure/us"], require_parameters: true, allow_fallbacks: false, zdr: true, data_collection: "deny" });
+      assert.equal(b.session_id, "forkit01");
+    }
+  }, solEnv);
+});
+
+test("sol-fork: 접두 없는 작성·변조된 접두는 request_rejected", async () => {
+  await withNoteServer(async () => solReply(JSON.stringify(s1Out)), async url => {
+    const w = (history, requestId) => req(url, "/v1/write", "POST", sectionIn({ model: SOL, requestId, noteSession: { v: 1, id: "forkit02", mode: "sol-fork", history } }));
+    const P = forkP();
+    // 계획 실패는 접두를 남기지 않는다 — 독립 호출 폴백 없이 거절한다.
+    await errorOf(await w([], "fe-0"), 400, "request_rejected");
+    await errorOf(await w([{ type: "message", role: "assistant", content: [{ type: "output_text", text: "{}" }] }], "fe-1"), 400, "request_rejected"); // plan 작업 없는 이력
+    await errorOf(await w(P.slice(0, 1), "fe-2"), 400, "request_rejected"); // 미완료 plan — 꼬리가 message 가 아니다
+    await errorOf(await w([...P, forkTask("plan", { x: 1 })], "fe-3"), 400, "request_rejected"); // 두 번째 plan 작업
+    await errorOf(await w([...P, forkTask("global", { x: 1 })], "fe-4"), 400, "request_rejected"); // 다른 단계의 작업 턴
+    await errorOf(await w([...P, forkTask("section", { x: 1 }), { type: "message", role: "assistant", content: [{ type: "output_text", text: "{}" }] }, forkTask("global", { x: 1 })], "fe-5"), 400, "request_rejected"); // 세 번째 user — 다른 단계 턴 혼입
+    // 자기 턴 이어 보내기는 받는다 — 같은 단계의 미응답 작업 하나.
+    assert.equal((await w([...P, forkTask("section", { x: 1 })], "fe-6")).status, 200);
+    // sol-fork 도 계획·작성 모두 Sol 모델로 고정이다 — 다른 모델은 세션 게이트가 거절한다.
+    await errorOf(await req(url, "/v1/write", "POST", sectionIn({ model, requestId: "fe-7", noteSession: { v: 1, id: "forkit02", mode: "sol-fork", history: P } })), 400, "invalid_model_or_stage");
+  }, solEnv);
+});
+
+test("sol-fork: 같은 세션의 작성 호출은 병렬로 나가고 sol-session 은 여전히 직렬이다", async () => {
+  let inflight = 0, peak = 0, gate = null, open = null, waitForTwo = false;
+  await withNoteServer(async () => {
+    inflight++; peak = Math.max(peak, inflight);
+    if (waitForTwo) {
+      // 첫 도착은 둘째가 올 때까지 기다린다 — 겹침을 만들어 peak=2 를 확인한다(직렬이면 5s 뒤 진행 → peak=1 실패).
+      if (inflight >= 2) open?.();
+      else { gate = new Promise(r => open = r); await Promise.race([gate, new Promise(r => setTimeout(r, 5000))]); }
+    } else await new Promise(r => setTimeout(r, 50));
+    inflight--;
+    return solReply(JSON.stringify(s1Out));
+  }, async url => {
+    const w = (mode, requestId) => req(url, "/v1/write", "POST", sectionIn({ model: SOL, requestId, noteSession: { v: 1, id: "forkcc01", mode, history: forkP() } }));
+    waitForTwo = true; peak = 0;
+    const [a, b] = await Promise.all([w("sol-fork", "fc-1"), w("sol-fork", "fc-2")]);
+    assert.equal(a.status, 200); assert.equal(b.status, 200);
+    assert.ok(peak >= 2, "sol-fork 작성 호출은 세션 잠금 없이 겹친다");
+    waitForTwo = false; peak = 0;
+    const [c, d] = await Promise.all([w("sol-session", "sc-1"), w("sol-session", "sc-2")]);
+    assert.equal(c.status, 200); assert.equal(d.status, 200);
+    assert.equal(peak, 1, "sol-session 은 같은 세션 id 에 직렬화된다");
+  }, solEnv);
+});
+
+// ── sol-luna-2 / sol-fork-2: 고정 앵커 P·단계→모델 표·review 단계 ──
+// v2 접두 모양: plan 작업 → 공급자 항목 → assistant message → 고정 앵커(서버가 plan 응답 이력 뒤에 붙인다).
+const fork2P = () => [...forkP(), NoteSession.anchorItem()];
+const LUNA2 = "openai/gpt-6-luna@high";
+const v2Env = { ALLOWED_MODELS: JSON.stringify([model, SOL, LUNA2]), OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], [SOL]: ["azure", "azure/us"], "openai/gpt-6-luna": ["azure", "azure/us"] }) };
+const v2DraftOut = { nullReasons: null, sectionId: "S1", gist: { text: "원가는 생산량에 따라 고정비와 변동비로 나뉜다", evidenceIds: ["U1.s1"], basis: "lecture" },
+  claims: [{ claimId: "c1", role: "definition", text: "고정비는 생산량과 상관없이 드는 비용이다", basis: "lecture", evidenceIds: ["U1.s2"], conceptIds: ["C1"], dependsOn: [], emphasis: null }],
+  relations: { comparisons: [], arguments: [], cases: [], materials: [], calcs: [], pitfalls: [], notes: [{ status: null, importance: null, kind: "term", note: "c1" }], links: [], notices: [], maps: [] },
+  checks: [] };
+
+test("sol-fork-2: plan 은 {plan,editorialPlan}+앵커 history, 작성은 dev+P+작업(breakpoint 없음)", async () => {
+  const bodies = [];
+  // editorialPlan 스키마는 v2-contract(prompts.js)의 산출물 — 여기선 합성 stub. 교차 검증은 계획의 실제 id 만 통과한다.
+  const edOut = { v: 1, glossary: [{ conceptId: "C1", preferredTerm: "고정비", aliases: ["정착비"], evidenceIds: ["U1.s1"] }],
+    sections: [{ sectionId: "S1", learningQuestion: null, learningItemIds: [], prerequisiteSectionIds: [], mustExplain: [], owns: ["C1"], referencesOnly: [], visuals: [], targetOutputTokens: 800 }] };
+  Prompts.editorialPlanSchema = { type: "object", additionalProperties: false, required: ["v", "glossary", "sections"], properties: { v: { const: 1 }, glossary: { type: "array" }, sections: { type: "array" } } };
+  try {
+    await withNoteServer(async (_u, o) => {
+      const b = JSON.parse(o.body); bodies.push(b);
+      const t = JSON.parse(b.input.at(-1).content[0].text);
+      return solReply(JSON.stringify(t.stage === "plan" ? { plan: notePlanner, editorialPlan: edOut } : globalOut));
+    }, async url => {
+      const plan = await req(url, "/v1/plan", "POST", planIn({ model: SOL, requestId: "f2p-1", noteMode: "sol-fork-2", noteSession: { v: 1, id: "fork2it01", mode: "sol-fork-2", history: [] } }));
+      assert.equal(plan.status, 200);
+      const po = await plan.json();
+      assert.deepEqual(po.plan, notePlanner);
+      assert.deepEqual(po.editorialPlan, edOut, "편집 계획은 응답에서 분리된 칸이다");
+      const P = po.noteSession.history;
+      assert.equal(P.at(-1).role, "user");
+      assert.equal(P.at(-1).content[0].text, NoteSession.ANCHOR_TEXT, "이력 끝의 고정 앵커");
+      assert.deepEqual(P.at(-1).content[0].prompt_cache_breakpoint, { mode: "explicit" });
+      const ptask = JSON.parse(bodies[0].input.at(-1).content[0].text);
+      assert.ok(ptask.outputSchema?.properties?.editorialPlan, "계획 작업의 출력 스키마가 사이드카를 요구한다");
+      // 작성 호출 — sol-fork-2 의 global 단계는 Sol+세션.
+      const w = await req(url, "/v1/write", "POST", globalIn({ model: SOL, requestId: "f2w-1", noteMode: "sol-fork-2", noteSession: { v: 1, id: "fork2it01", mode: "sol-fork-2", history: P } }));
+      assert.equal(w.status, 200);
+      const wo = await w.json();
+      const wb = bodies.at(-1), js = JSON.stringify;
+      assert.equal(wb.input[0].content[0].text, NoteSession.V2_DEV, "고정된 짧은 v2 developer 지시");
+      assert.equal(js(wb.input.slice(1, 1 + P.length)), js(P), "P 구간이 계획 응답 이력과 바이트로 같다");
+      const last = wb.input.at(-1), tj = JSON.parse(last.content[0].text);
+      assert.equal(tj.stage, "global"); assert.ok(tj.instruction, "단계 지시는 작업 suffix 에");
+      assert.equal(last.content[0].prompt_cache_breakpoint, undefined, "일회성 작업 suffix 는 breakpoint 없음");
+      assert.deepEqual(wb.provider, { only: ["azure", "azure/us"], require_parameters: true, allow_fallbacks: false, zdr: true, data_collection: "deny" });
+      assert.equal(wb.session_id, "fork2it01");
+      assert.deepEqual(wo.output, globalOut);
+      assert.equal(js(wo.noteSession.history), js(P), "작성 성공 history 는 P 그대로(fork 규칙)");
+    }, v2Env);
+  } finally { delete Prompts.editorialPlanSchema; }
+});
+
+test("v2 모드: 앵커 누락·중복·변조·P 안 혼입은 request_rejected, noteMode 와 봉투 mode 는 일치해야 한다", async () => {
+  await withNoteServer(async () => solReply(JSON.stringify(globalOut)), async url => {
+    const P = fork2P();
+    const w = (history, requestId) => req(url, "/v1/write", "POST", globalIn({ model: SOL, requestId, noteMode: "sol-fork-2", noteSession: { v: 1, id: "v2bad001", mode: "sol-fork-2", history } }));
+    await errorOf(await w([], "v2-0"), 400, "request_rejected"); // 앵커 없음
+    await errorOf(await w(forkP(), "v2-1"), 400, "request_rejected"); // 구 fork 접두는 v2 에서 접두가 아니다
+    await errorOf(await w([...P, NoteSession.anchorItem()], "v2-2"), 400, "request_rejected"); // 중복 앵커
+    const tampered = { role: "user", content: [{ type: "input_text", text: NoteSession.ANCHOR_TEXT + "!", prompt_cache_breakpoint: { mode: "explicit" } }] };
+    await errorOf(await w([P[0], P[1], P[2], tampered], "v2-3"), 400, "request_rejected"); // 변조 앵커
+    await errorOf(await w([P[0], P[1], forkTask("global", { x: 1 }), P[2], NoteSession.anchorItem()], "v2-4"), 400, "request_rejected"); // P 안 외부 턴
+    await errorOf(await w([...P, forkTask("review", { x: 1 })], "v2-5"), 400, "request_rejected"); // 다른 단계의 자기 작업
+    assert.equal((await w([...P, forkTask("global", { x: 1 })], "v2-6")).status, 200, "자기 작업 이어 보내기는 받는다");
+    // noteMode 칸과 봉투 mode 의 불일치·알 수 없는 값은 거절
+    await errorOf(await req(url, "/v1/write", "POST", globalIn({ model: SOL, requestId: "v2-7", noteMode: "sol-fork-2", noteSession: { v: 1, id: "v2bad001", mode: "sol-luna-2", history: P } })), 400, "request_rejected");
+    await errorOf(await req(url, "/v1/write", "POST", globalIn({ model: SOL, requestId: "v2-8", noteMode: "sol-fork", noteSession: { v: 1, id: "v2bad001", mode: "sol-fork", history: forkP() } })), 400, "request_rejected");
+  }, v2Env);
+});
+
+test("v2 단계→모델 표: sol-luna-2 의 draft·questions 는 세션 없는 Luna, 나머지는 Sol+세션 — 어긋나면 invalid_model_or_stage", async () => {
+  const P = fork2P();
+  // REQUEST.review 스키마는 v2-contract 산출물 — 표 검사까지 도달하게 합성 stub 을 둔다.
+  const reviewBody = o => ({ model: SOL, requestId: "rv-x", noteSpecVersion, stage: "review", concepts: notePlan.concepts, sections: [{ sectionId: "S1", title: "t", gist: null, blocks: [] }], editorialPlan: { v: 1 }, options: { ...noteOpts }, ...o });
+  Prompts.REQUEST.review = { type: "object", additionalProperties: false, required: ["concepts", "sections", "options", "editorialPlan"], properties: { concepts: { type: "array" }, sections: { type: "array" }, editorialPlan: { type: "object" }, options: { type: "object" }, allowedRefs: { type: "object" } } };
+  try {
+    await withNoteServer(async () => solReply(JSON.stringify(globalOut)), async url => {
+      // sol-luna-2: Sol 단계에 세션 없음 / Luna 단계에 세션 첨부 / Luna 단계에 다른 모델
+      await errorOf(await req(url, "/v1/write", "POST", globalIn({ model: SOL, requestId: "m2-1", noteMode: "sol-luna-2" })), 400, "invalid_model_or_stage");
+      await errorOf(await req(url, "/v1/write", "POST", sectionIn({ model: LUNA2, requestId: "m2-2", stage: "draft", noteMode: "sol-luna-2", noteSession: { v: 1, id: "v2luna001", mode: "sol-luna-2", history: P } })), 400, "invalid_model_or_stage");
+      await errorOf(await req(url, "/v1/write", "POST", sectionIn({ model: SOL, requestId: "m2-3", stage: "draft", noteMode: "sol-luna-2" })), 400, "invalid_model_or_stage");
+      // sol-fork-2: 세션 없는 Sol 단계 호출·구 단계(section·link)는 계약에 없다
+      await errorOf(await req(url, "/v1/write", "POST", globalIn({ model: SOL, requestId: "m2-4", noteMode: "sol-fork-2" })), 400, "invalid_model_or_stage");
+      await errorOf(await req(url, "/v1/write", "POST", sectionIn({ model: SOL, requestId: "m2-5", noteMode: "sol-fork-2", noteSession: { v: 1, id: "v2bad002", mode: "sol-fork-2", history: P } })), 400, "invalid_model_or_stage");
+      await errorOf(await req(url, "/v1/write", "POST", { model: SOL, requestId: "m2-5b", noteSpecVersion, stage: "link", concepts: notePlan.concepts, sections: reviewBody().sections, options: { ...noteOpts }, noteMode: "sol-fork-2", noteSession: { v: 1, id: "v2bad002", mode: "sol-fork-2", history: P } }), 400, "invalid_model_or_stage");
+      // review 는 v2 모드 표시 없이는 부를 수 없다 — 비v2 세션·무표시 모두 거절
+      await errorOf(await req(url, "/v1/write", "POST", reviewBody({ model, requestId: "m2-6" })), 400, "invalid_model_or_stage");
+      await errorOf(await req(url, "/v1/write", "POST", reviewBody({ requestId: "m2-7", noteSession: { v: 1, id: "v2bad003", mode: "sol-fork", history: forkP() } })), 400, "invalid_model_or_stage");
+    }, v2Env);
+  } finally { delete Prompts.REQUEST.review; }
+});
+
+test("sol-luna-2: draft 는 noteSession 없는 독립 Luna High 요청 — 자체 예약·only 허용 목록·order 없음", async () => {
+  const bodies = [];
+  await withNoteServer(async (_u, o) => { bodies.push(JSON.parse(o.body)); return noteReply(v2DraftOut); }, async url => {
+    const res = await req(url, "/v1/write", "POST", sectionIn({ model: LUNA2, requestId: "l2d-1", stage: "draft", noteMode: "sol-luna-2", jobId: "job-v2-1" }), tokenB);
+    const out = await res.json();
+    assert.equal(res.status, 200, JSON.stringify(out.error || ""));
+    assert.deepEqual(out.output, v2DraftOut);
+    assert.equal(out.noteSession, undefined, "독립 요청은 세션을 돌려주지 않는다");
+    const sent = bodies.at(-1);
+    assert.equal(sent.model, "openai/gpt-6-luna", "변형 id 는 서버 안 식별자 — 업스트림엔 base");
+    assert.deepEqual(sent.reasoning, { effort: "high" }, "Luna 는 high 로 고정");
+    assert.ok(Array.isArray(sent.provider.only) && !("order" in sent.provider), "v2 요청은 only 허용 목록·order 없음");
+    assert.equal(sent.provider.zdr, true); assert.equal(sent.provider.data_collection, "deny");
+    assert.deepEqual(sent.prompt_cache_options, { mode: "explicit", ttl: "30m" });
+  }, v2Env);
+});
+
+test("sol-fork-2: review 단계는 Sol+P 세션 호출이고 {edits,unresolved} 를 돌려준다", async () => {
+  const bodies = [];
+  const P = fork2P();
+  const reviewIn = { concepts: notePlan.concepts, sections: [{ sectionId: "S1", title: "t", gist: null, blocks: [] }], editorialPlan: { v: 1 }, options: { ...noteOpts }, allowedRefs: { targetIds: [], reviewIds: [] } };
+  // REQUEST.review·reviewOutputSchema·review 지시는 v2-contract(prompts.js)의 산출물 — 여기선 합성 stub.
+  Prompts.REQUEST.review = { type: "object", additionalProperties: false, required: ["concepts", "sections", "options", "editorialPlan"], properties: { concepts: { type: "array" }, sections: { type: "array" }, editorialPlan: { type: "object" }, options: { type: "object" }, allowedRefs: { type: "object" } } };
+  Prompts.reviewOutputSchema = { type: "object", additionalProperties: false, required: ["edits", "unresolved"], properties: { edits: { type: "array", maxItems: 12 }, unresolved: { type: "array" } } };
+  const origSF = Prompts.systemFor;
+  Prompts.systemFor = (s, o, l, w) => s === "review" ? "review-instructions" : origSF(s, o, l, w);
+  try {
+    await withNoteServer(async (_u, o) => { bodies.push(JSON.parse(o.body)); return solReply(JSON.stringify({ edits: [], unresolved: [] })); }, async url => {
+      const res = await req(url, "/v1/write", "POST", { model: SOL, requestId: "rv-1", noteSpecVersion, stage: "review", ...reviewIn, noteSession: { v: 1, id: "v2rev001", mode: "sol-fork-2", history: P } });
+      const out = await res.json();
+      assert.equal(res.status, 200, JSON.stringify(out.error || ""));
+      assert.deepEqual(out.output, { edits: [], unresolved: [] });
+      const wb = bodies.at(-1), t = JSON.parse(wb.input.at(-1).content[0].text);
+      assert.equal(wb.model, SOL);
+      assert.equal(t.stage, "review"); assert.equal(t.instruction, "review-instructions");
+      assert.equal(JSON.stringify(out.noteSession.history), JSON.stringify(P), "review 성공 history 도 P 그대로");
+    }, v2Env);
+  } finally { delete Prompts.REQUEST.review; delete Prompts.reviewOutputSchema; Prompts.systemFor = origSF; }
+});
+
+test("v2 계획 사이드카: editorialPlan 이 빠지거나 계획에 없는 id 를 가리키면 명시 오류 — 조용히 떨구지 않는다", async () => {
+  Prompts.editorialPlanSchema = { type: "object", additionalProperties: false, required: ["v", "glossary", "sections"], properties: { v: { const: 1 }, glossary: { type: "array" }, sections: { type: "array" } } };
+  try {
+    // 계획에 없는 섹션 id — 교차 검증 실패는 재시도 뒤 coded 오류로 나간다(침묵 누락 금지).
+    let calls = 0;
+    await withNoteServer(async () => { calls++; return solReply(JSON.stringify({ plan: notePlanner, editorialPlan: { v: 1, glossary: [], sections: [{ sectionId: "S99" }] } })); }, async url => {
+      const res = await req(url, "/v1/plan", "POST", planIn({ model: SOL, requestId: "f2p-bad", noteSession: { v: 1, id: "fork2er01", mode: "sol-fork-2", history: [] } }));
+      const out = await res.json();
+      assert.equal(res.status, 502);
+      assert.equal(out.error.code, "provider_failed_or_invalid_output");
+      assert.equal(calls, 2, "형식·계약 실패는 한 번 재시도하고 끝낸다");
+    }, v2Env);
+    // 사이드카 자체 누락 — {plan} 만 오면 스키마 거절이다.
+    await withNoteServer(async () => solReply(JSON.stringify(notePlanner)), async url => {
+      const res = await req(url, "/v1/plan", "POST", planIn({ model: SOL, requestId: "f2p-miss", noteSession: { v: 1, id: "fork2er02", mode: "sol-fork-2", history: [] } }));
+      assert.equal(res.status, 502);
+      assert.equal((await res.json()).error.code, "provider_failed_or_invalid_output");
+    }, v2Env);
+    // 구 모드의 plan 응답은 그대로다 — 사이드카·앵커 없음.
+    await withNoteServer(async () => solReply(JSON.stringify(notePlanner)), async url => {
+      const res = await req(url, "/v1/plan", "POST", planIn({ model: SOL, requestId: "f1p-ok", noteSession: { v: 1, id: "fork1ok01", mode: "sol-fork", history: [] } }));
+      assert.equal(res.status, 200);
+      const po = await res.json();
+      assert.equal(po.editorialPlan, undefined, "구 모드는 기존 계획 응답 계약 유지");
+      assert.notEqual(po.noteSession.history.at(-1).content?.[0]?.text, NoteSession.ANCHOR_TEXT);
+    }, solEnv);
+  } finally { delete Prompts.editorialPlanSchema; }
+});
+
+test("v2 작성 호출도 sol-fork 처럼 세션 잠금 없이 병렬로 나간다", async () => {
+  let inflight = 0, peak = 0, gate = null, open = null, waitForTwo = false;
+  await withNoteServer(async () => {
+    inflight++; peak = Math.max(peak, inflight);
+    if (waitForTwo) {
+      if (inflight >= 2) open?.();
+      else { gate = new Promise(r => open = r); await Promise.race([gate, new Promise(r => setTimeout(r, 5000))]); }
+    } else await new Promise(r => setTimeout(r, 50));
+    inflight--;
+    return solReply(JSON.stringify(globalOut));
+  }, async url => {
+    const w = (mode, requestId) => req(url, "/v1/write", "POST", globalIn({ model: SOL, requestId, noteMode: mode, noteSession: { v: 1, id: "v2cc0001", mode, history: fork2P() } }));
+    waitForTwo = true; peak = 0;
+    const [a, b] = await Promise.all([w("sol-fork-2", "v2c-1"), w("sol-fork-2", "v2c-2")]);
+    assert.equal(a.status, 200); assert.equal(b.status, 200);
+    assert.ok(peak >= 2, "sol-fork-2 작성 호출은 세션 잠금 없이 겹친다");
+  }, v2Env);
+});

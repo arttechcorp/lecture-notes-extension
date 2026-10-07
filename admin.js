@@ -75,11 +75,14 @@
     for (const e of events || []) {
       if (!e || typeof e !== "object" || !e.jobId) continue;
       let j = jobs.get(e.jobId);
-      if (!j) { j = { jobId: e.jobId, start: Infinity, end: -Infinity, stages: {}, calls: 0, costUsd: 0, models: new Set(), codes: new Map(), errors: 0, lastJob: null, errTs: -Infinity, doneTs: -Infinity }; jobs.set(e.jobId, j); }
+      if (!j) { j = { jobId: e.jobId, start: Infinity, end: -Infinity, stages: {}, calls: 0, costUsd: 0, costObs: 0, costReqs: new Set(), costNoId: 0, models: new Set(), codes: new Map(), errors: 0, lastJob: null, errTs: -Infinity, doneTs: -Infinity }; jobs.set(e.jobId, j); }
       if (Number.isFinite(e.ts)) { if (e.ts < j.start) j.start = e.ts; if (e.ts > j.end) j.end = e.ts; }
       if (e.level === "error") { j.errors++; if (e.code) j.errTs = Math.max(j.errTs, e.ts ?? Infinity); }
       if (e.model) j.models.add(e.model);
-      if (Number.isFinite(e.costUsd)) j.costUsd += e.costUsd;
+      // 외부 호출은 requestId 로만 센다 — 정제·렌더·job 전이 같은 상태 스팬은 비용 분모가 아니다.
+      // 재시도는 requestId 가 달라 별도 호출로 세고, 같은 호출의 여러 이벤트는 Set 이 한 번만 센다.
+      if (e.requestId) j.costReqs.add(e.requestId);
+      if (Number.isFinite(e.costUsd)) { j.costUsd += e.costUsd; j.costObs++; if (!e.requestId) j.costNoId++; }
       if (e.code) j.codes.set(e.code, (j.codes.get(e.code) || 0) + 1);
       if (e.stage === "job") j.lastJob = e;
       if (e.stage && TERMINAL.has(e.status)) {
@@ -102,7 +105,10 @@
         start: Number.isFinite(j.start) ? j.start : null,
         end: Number.isFinite(j.end) ? j.end : null,
         totalMs: Number.isFinite(j.start) && Number.isFinite(j.end) ? j.end - j.start : null,
-        stages: j.stages, calls: j.calls, costUsd: j.costUsd,
+        // 비용은 관측된 보고만 합산한다 — 한 건도 보고되지 않았으면 0이 아니라 null(미측정). 실제 $0 보고는 0으로 남는다.
+        // costCalls 는 requestId 를 가진 실제 외부 호출 수(+requestId 없는 비용 보고)다 — 상태 스팬 수가 아니라서
+        // requestId 계측이 없는 실행에서는 costObs 와 같아 부분 측정으로 오인하지 않는다. costObs < costCalls 면 부분 측정.
+        stages: j.stages, calls: j.calls, costUsd: j.costObs ? j.costUsd : null, costObs: j.costObs, costCalls: j.costReqs.size + j.costNoId,
         models: [...j.models],
         codes: [...j.codes.entries()].map(([code, count]) => ({ code, count })).sort((a, b) => b.count - a.count || (a.code < b.code ? -1 : 1)),
         errors: j.errors, state,
@@ -332,7 +338,9 @@
   }
 
   const api = { summarize, lanes, filterEvents, jobSummary, classifyRecord, redactUrl, pickCandidate, refererVerdict, rangeVerdict, buildReport, diagnoseSource };
-  globalThis.AdminView = api;
+  // 이 페이지의 진단 API는 AdminDiag — AdminView 는 lib/admin-view.js(비교 화면 순수 로직)의 이름이고
+  // 이 파일이 나중에 로드돼 덮어쓰면 비교 탭의 AdminView.* 호출이 전부 깨진다.
+  globalThis.AdminDiag = api;
   if (typeof module !== "undefined") module.exports = api;
   if (typeof document === "undefined") return; // Node 테스트는 DOM이 없으므로 여기서 끝
 
@@ -689,7 +697,7 @@
       cell(tr, fmtTime(j.start));
       cell(tr, fmtDur(j.totalMs));
       cell(tr, j.calls);
-      cell(tr, j.costUsd ? "$" + j.costUsd.toFixed(4) : "");
+      cell(tr, j.costUsd == null ? "" : "$" + j.costUsd.toFixed(4) + (j.costObs < j.costCalls ? ` (보고 ${j.costObs}/${j.costCalls})` : ""));
       cell(tr, j.models.join(", "));
       cell(tr, JOB_STATE[j.state] || j.state);
       cell(tr, j.codes.slice(0, 3).map(c => `${c.code}×${c.count}`).join(" "));
@@ -1109,7 +1117,11 @@
       $("mCollateralRate").textContent = m.collateral_loss_rate != null ? `${(m.collateral_loss_rate * 100).toFixed(1)}% (${m.collateralClaims}/${m.totalDraftClaims})` : "-";
       $("mTotalClaims").textContent = String(m.totalDraftClaims);
       $("mCollateralClaims").textContent = String(m.collateralClaims);
-      $("mRepairs").textContent = `${m.repairStats.accepted}/${m.repairStats.attempted}`;
+      // 복구: 명시 repairs 가 있을 때만 시도 분모가 측정된다. 기록만 불러오면 시도는 미측정(null) —
+      // 수락만 기록에서 복원돼 "수락/-"로 보이고, 둘 다 없으면 "-"다.
+      $("mRepairs").textContent = m.repairStats.attempted != null
+        ? `${m.repairStats.accepted}/${m.repairStats.attempted}`
+        : (m.repairStats.accepted ? `${m.repairStats.accepted}/-` : "-");
 
       renderEvidenceColumn();
       renderDraftColumn();
@@ -1139,7 +1151,7 @@
       packageId: pkg,
       lectureId: $("cmpEvalLecture").value.trim() || null,
       path: sel === "auto" ? null : sel,
-      run: job ? { jobId: job.jobId, costUsd: job.costUsd, ms: job.totalMs } : {},
+      run: job ? { jobId: job.jobId, costUsd: job.costUsd, ms: job.totalMs, costObs: job.costObs, costCalls: job.costCalls } : {},
     });
     const url = URL.createObjectURL(new Blob([JSON.stringify(out, null, 2)], { type: "application/json" }));
     const a = document.createElement("a");

@@ -34,7 +34,7 @@ const basisOf = (schema, out = new Set()) => {
 test("every stage has a versioned system prompt that treats input as untrusted data", () => {
   assert.equal(Prompts.PROMPT_VERSION, "note-v6");
   assert.match(Prompts.PROMPT_VERSION, /^[a-z0-9][a-z0-9._-]*$/);
-  assert.deepEqual(Prompts.STAGES, ["plan", "section", "global", "repair", "link", "questions", "draft"]);
+  assert.deepEqual(Prompts.STAGES, ["plan", "section", "global", "repair", "link", "questions", "draft", "review"]);
   for (const stage of Prompts.STAGES) {
     const text = Prompts.systemFor(stage);
     assert.equal(Prompts.systemFor(stage), text, "단계 안에서는 호출마다 같은 문자열이어야 접두 캐시가 맞는다");
@@ -46,7 +46,7 @@ test("every stage has a versioned system prompt that treats input as untrusted d
     assert.match(text, /그대로 옮기거나 이어 붙이지 않는다/, stage + ": 비대체성");
     assert.ok(!/\$\{|undefined|\[object/.test(text), stage + ": 템플릿 잔재");
   }
-  assert.equal(new Set(Prompts.STAGES.map(s => Prompts.systemFor(s))).size, 7, "단계마다 지시가 다르다");
+  assert.equal(new Set(Prompts.STAGES.map(s => Prompts.systemFor(s))).size, 8, "단계마다 지시가 다르다");
   assert.throws(() => Prompts.systemFor("summary"), /invalid_stage/);
   assert.throws(() => Prompts.outputSchema("summary"), /invalid_stage/);
 });
@@ -233,6 +233,7 @@ test("generation params pin temperature, cap output by the spec and skip seed wh
   assert.deepEqual(flash.reasoning, { enabled: false });
   assert.equal(Prompts.inputTokenLimit("plan"), tokens.plannerInput);
   assert.equal(Prompts.inputTokenLimit("global"), tokens.globalInput);
+  assert.equal(Prompts.inputTokenLimit("review"), tokens.globalInput);
   for (const s of ["section", "repair", "draft"]) assert.equal(Prompts.inputTokenLimit(s), tokens.writerInput);
   assert.equal(Prompts.estimateTokens("a".repeat(Prompts.LIMITS.bytesPerToken * 10)), 10);
 });
@@ -323,7 +324,8 @@ test("draft stage: semantic-draft prompt, request contract, output schema, speci
   const body = { section: s1, withGist: true, options: { ...OFF } };
   const schema = Prompts.outputSchema("draft", body);
   assert.equal(Contracts.isStrictCompatible(schema), true, "draft 출력 strict");
-  assert.deepEqual(Object.keys(schema.properties), ["sectionId", "gist", "claims", "relations", "checks"]);
+  assert.deepEqual(Object.keys(schema.properties), ["sectionId", "gist", "claims", "relations", "checks"], "기존 모드의 초안 계약은 nullReasons 가 없다");
+  assert.deepEqual(Object.keys(Prompts.outputSchema("draft", body, undefined, "sol-fork-2").properties), ["sectionId", "gist", "claims", "relations", "checks", "nullReasons"], "v2 모드만 nullReasons");
   // 확인 항목의 대상은 이 요청의 계획 블록만이다.
   assert.deepEqual(schema.properties.checks.items.properties.targetIds.items.enum, s1.blocks.map(b => b.blockId));
   // 로컬 주장 키는 c1.. — 호스트가 블록에 얹을 때 옮긴다.
@@ -350,4 +352,71 @@ test("draft stage: semantic-draft prompt, request contract, output schema, speci
   }
   assert.equal(Prompts.systemFor("draft", OFF, undefined, "bogus"), gen, "모르는 worker 는 무시");
   assert.equal(Prompts.systemFor("section", OFF, undefined, "formula"), Prompts.systemFor("section", OFF), "다른 단계는 worker 를 무시한다");
+});
+
+// ── sol-luna-2 / sol-fork-2 (위임서 §4): 통합 검수(review) 단계, v2 계획 출력, repair 의 regenerate_missing ──
+const EP_MIN = { v: 1, glossary: [], sections: [{ sectionId: "S1", learningQuestion: null, learningItemIds: [], prerequisiteSectionIds: [], mustExplain: [], owns: [], referencesOnly: [], visuals: [], targetOutputTokens: 4000 }] };
+
+test("review stage: integrated editorial review — request contract, prompt rules, bounded ops output", () => {
+  const t = Prompts.systemFor("review");
+  assert.match(t, /통합 편집 검수/, "review: 단계 이름");
+  assert.match(t, /본문을 새로 쓰지 않는다/, "review: 재작성 금지");
+  assert.match(t, /term_fix.*claim_edit.*dedupe.*relation_fix.*relink_asset.*request_section_redo/s, "review: 6 op 나열");
+  assert.match(t, /최대 12/, "review: 한 번에 12개 상한");
+  assert.match(t, /조건·예외/, "review: 중복 제거 전 조건·예외 보존 확인");
+  assert.match(t, /unresolved/, "review: 미해결 목록");
+  // 본문을 새로 쓰지 않으므로 생성 옵션 규칙·영어 원문 대조 칸은 붙지 않는다(link 와 같다).
+  assert.ok(!Prompts.systemFor("review", { syntheticExamples: true, externalAugmentation: true }).includes("[가상 사례 허용]"), "review: aug 규칙 없음");
+  assert.ok(!Prompts.systemFor("review", OFF, "en").includes("[원문 대조]"), "review: src 칸 없음");
+  assert.ok(Prompts.systemFor("review", OFF, "en").includes("[영어 강의]"), "review: 영어 용어 규칙은 붙는다");
+
+  assert.deepEqual(Object.keys(Prompts.REQUEST.review.properties), ["concepts", "sections", "editorialPlan", "options", "allowedRefs"]);
+  assert.deepEqual(Object.keys(Prompts.REQUEST.review.properties).filter(k => !Prompts.REQUEST.review.required.includes(k)), ["allowedRefs"]);
+  const claims = [{ path: "/content/definition", text: "고정비는 생산량과 무관하다", evidenceIds: ["U1.s1"], basis: "lecture" }];
+  const body = { concepts: plan.concepts, sections: [{ sectionId: "S1", title: "비용", gist: null, blocks: [{ blockId: "S1_B1", type: "B05", claims, figureIds: ["G1"] }] }], editorialPlan: EP_MIN, options: { ...OFF } };
+  assert.ok(Contracts.validate(Prompts.REQUEST.review, body).ok, "review 요청 계약");
+  assert.ok(!Contracts.validate(Prompts.REQUEST.review, { ...body, sections: [{ ...body.sections[0], blocks: [{ blockId: "S1_B1", type: "B05", claims: [{ text: "x", evidenceIds: [], basis: "lecture" }] }] }] }).ok, "path 없는 주장 거절");
+  assert.ok(!Contracts.validate(Prompts.REQUEST.review, { ...body, editorialPlan: { v: 2, glossary: [], sections: [] } }).ok, "editorialPlan 계약 위반 거절");
+  const sch = Prompts.outputSchema("review");
+  assert.equal(sch, Prompts.reviewOutputSchema, "review 출력은 서버·확장 공통 스키마");
+  assert.equal(Contracts.isStrictCompatible(sch), true);
+  assert.equal(Prompts.outputSchema("review").properties.edits.maxItems, 12);
+});
+
+test("v2 plan: the two mode names switch the plan output to {plan, editorialPlan} and add a fixed editorial instruction", () => {
+  assert.deepEqual(Prompts.V2_MODES, ["sol-luna-2", "sol-fork-2"]);
+  for (const mode of Prompts.V2_MODES) {
+    const t = Prompts.systemFor("plan", OFF, undefined, undefined, mode);
+    assert.match(t, /editorialPlan/, mode + ": 편집 명세 칸 안내");
+    assert.match(t, /owns\([^)]*책임지는/, mode + ": 소유권");
+    assert.match(t, /예시·예외·조건/, mode + ": 예시·예외·조건 우선 배정");
+    assert.match(t, /인과 화살표/, mode + ": 근거 없는 인과 금지");
+    const sch = Prompts.outputSchema("plan", undefined, undefined, mode);
+    assert.deepEqual(Object.keys(sch.properties), ["plan", "editorialPlan"], mode);
+    assert.equal(Contracts.isStrictCompatible(sch), true, mode + " 출력 strict");
+  }
+  // 기존 모드·모드 없음은 구 계약 그대로다.
+  assert.equal(Prompts.systemFor("plan"), Prompts.systemFor("plan", OFF, undefined, undefined, "independent"));
+  assert.equal(Prompts.outputSchema("plan"), NoteContract.schemas.plannerOutput);
+  for (const m of ["independent", "sol-session", "sol-fork"])
+    assert.equal(Prompts.outputSchema("plan", undefined, undefined, m), NoteContract.schemas.plannerOutput, m + ": 구 출력");
+});
+
+test("repair request: regenerate_missing entries carry previous:null and the exact evidence list", () => {
+  const base = {
+    section: s1, concepts: plan.concepts,
+    evidence: [{ id: "U1.s1", unitId: "U1", kind: "slide", t0: 0, t1: 150, slideId: "sl-1", sourceId: "b1", role: "title", text: "원가는 생산량에 어떻게 반응하는가" }],
+    registry: [], figures: [], options: { ...OFF },
+  };
+  const entry = { blockId: "S1_B3", mode: "regenerate_missing", previous: null, errors: [{ code: "VAL_BLOCK_DECLINED", detail: [] }], evidenceIds: ["U1.s1"] };
+  assert.ok(Contracts.validate(Prompts.REQUEST.repair, { ...base, repair: [entry] }).ok, "regenerate_missing 항목 통과");
+  // 기존 항목은 그대로다 — mode·evidenceIds 없이 통과.
+  const old = { blockId: "S1_B3", previous: { free: ["form"] }, errors: [{ code: "VAL_EVIDENCE_MISSING", detail: [] }] };
+  assert.ok(Contracts.validate(Prompts.REQUEST.repair, { ...base, repair: [old] }).ok, "구 항목 그대로");
+  for (const [e, why] of [
+    [{ ...entry, mode: "regen" }, "모르는 mode"],
+    [{ ...entry, evidenceIds: ["bogus"] }, "근거 id 패턴 거절"],
+    [{ ...entry, evidenceIds: ["S1_B3.c1"] }, "계산 참조는 근거 항목 id 가 아니다"],
+    [{ ...entry, noteSession: {} }, "추가 속성 거절"],
+  ]) assert.ok(!Contracts.validate(Prompts.REQUEST.repair, { ...base, repair: [e] }).ok, why);
 });

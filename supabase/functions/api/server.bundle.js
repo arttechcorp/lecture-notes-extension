@@ -848,6 +848,118 @@ const __defs = {
     }), 40),
   });
 
+  // ── sol-luna-2 / sol-fork-2(docs/note-quality-review-2026-10-06/sol-v2-implementation-handoff.md §4) ──
+  // 두 실험 모드 이름 — 단계별 모델 표·고정 접두 계약은 서버와 클라이언트가 이 목록으로 분기한다.
+  const V2_MODES = ["sol-luna-2", "sol-fork-2"];
+
+  // §4.1 편집 명세: v2 계획 응답의 두 번째 칸. 실행 메모리 전용 — 저장되는 Note 에 들어가지 않는다.
+  // id 는 모두 호스트가 정한 체계다 — 모델이 임의 id·모델명·경로를 지어내 실행을 조종하지 못하게 한다.
+  const EDITORIAL_ROLES = ["definition", "mechanism", "condition", "exception", "example", "comparison", "argument"];
+  const VISUAL_KINDS = ["comparison", "process", "relation", "graph-reading", "formula-steps", "none"];
+  const visualId = pat("^V[0-9]{1,3}$");
+  const editorialPlanSchema = obj({
+    v: { type: "integer", const: 1 },
+    glossary: arr(obj({
+      conceptId: pat(IDS.concept), preferredTerm: str(60), aliases: arr(str(60), 6), evidenceIds: arr(evId, 8),
+    }), 40),
+    sections: arr(obj({
+      sectionId: pat(IDS.section),
+      learningQuestion: orNull(str(160)),
+      learningItemIds: arr(pat(IDS.learningItem), 50),
+      prerequisiteSectionIds: arr(pat(IDS.section), 40),
+      mustExplain: arr(obj({ role: en(EDITORIAL_ROLES), learningItemIds: arr(pat(IDS.learningItem), 20), evidenceIds: arr(evId, 8) }), 20),
+      owns: arr(pat(IDS.concept), 12),
+      referencesOnly: arr(pat(IDS.concept), 12),
+      visuals: arr(obj({
+        visualId, kind: en(VISUAL_KINDS), purpose: str(200),
+        learningItemIds: arr(pat(IDS.learningItem), 20), evidenceIds: arr(evId, 8),
+        assetIds: arr(pat(IDS.figure), 4), comparisonAxes: arr(str(40), 5),
+        relationTypes: arr(en(["includes", "part_of", "example_of", "precedes", "contrasts", "causes", "supports", "complements"]), 8),
+        required: { type: "boolean" },
+      }), 8),
+      targetOutputTokens: { type: "integer", minimum: 1, maximum: 16000 },
+    }), 40, 1),
+  });
+  // v2 계획의 업스트림 출력은 { plan, editorialPlan } — 기존 모드는 plannerOutput 그대로 받는다.
+  const plannerOutputV2 = obj({ plan: plannerOutput, editorialPlan: editorialPlanSchema });
+
+  // §4.1 교차 검증: 스키마를 통과한 뒤 계획·근거·asset 의 실제 id 집합과 대조한다.
+  // plan 은 normalizePlan 결과다(최소 sections[].sectionId·concepts[].conceptId·learningItems[].itemId).
+  // errors 는 코드와 id 만 싣는다(내용 없음, §10). 모르는 id·순환·한 개념의 다중 소유·계획 밖 참조는 거절이다.
+  function validateEditorialPlan(editorialPlan, plan, evidenceIds, assetIds) {
+    const v = Contracts.validate(editorialPlanSchema, editorialPlan);
+    if (!v.ok) return { ok: false, errors: [{ code: "VAL_EDITORIAL_SCHEMA", detail: v.errors.map(e => e.path) }] };
+    const secIds = new Set((plan?.sections ?? []).map(s => s.sectionId));
+    const concepts = new Set((plan?.concepts ?? []).map(c => c.conceptId));
+    const items = new Set((plan?.learningItems ?? []).map(l => l.itemId));
+    const ev = new Set(evidenceIds ?? []), assets = new Set(assetIds ?? []);
+    const errors = [], err = (code, id) => { if (errors.length < 20) errors.push({ code, detail: [String(id)] }); };
+    const noItem = id => { if (!items.has(id)) err("VAL_EDITORIAL_REF", "learningItem:" + id); };
+    const noEv = id => { if (!ev.has(id)) err("VAL_EDITORIAL_REF", "evidence:" + id); };
+    const seen = new Set(), owners = new Map(), visualIds = new Set(), gloss = new Set();
+    for (const s of editorialPlan.sections) {
+      if (!secIds.has(s.sectionId)) { err("VAL_EDITORIAL_REF", "section:" + s.sectionId); continue; }
+      if (seen.has(s.sectionId)) err("VAL_EDITORIAL_DUP", "section:" + s.sectionId);
+      seen.add(s.sectionId);
+      s.learningItemIds.forEach(noItem);
+      for (const p of s.prerequisiteSectionIds) if (!secIds.has(p)) err("VAL_EDITORIAL_REF", "prerequisite:" + p);
+      for (const m of s.mustExplain) { m.learningItemIds.forEach(noItem); m.evidenceIds.forEach(noEv); }
+      const ref = new Set(s.referencesOnly);
+      for (const cid of s.owns) {
+        if (!concepts.has(cid)) { err("VAL_EDITORIAL_REF", "owns:" + cid); continue; }
+        // 소유는 한 섹션뿐 — 같은 섹션에서 소유·참조 겸임도 모순이다.
+        if (ref.has(cid)) err("VAL_EDITORIAL_OWNERSHIP", s.sectionId + ":" + cid);
+        else if (owners.has(cid)) err("VAL_EDITORIAL_OWNERSHIP", cid);
+        else owners.set(cid, s.sectionId);
+      }
+      for (const cid of s.referencesOnly) if (!concepts.has(cid)) err("VAL_EDITORIAL_REF", "referencesOnly:" + cid);
+      for (const w of s.visuals) {
+        if (visualIds.has(w.visualId)) err("VAL_EDITORIAL_DUP", "visual:" + w.visualId);
+        visualIds.add(w.visualId);
+        w.learningItemIds.forEach(noItem); w.evidenceIds.forEach(noEv);
+        for (const a of w.assetIds) if (!assets.has(a)) err("VAL_EDITORIAL_REF", "asset:" + a);
+      }
+    }
+    // editorialPlan 은 계획의 모든 섹션을 덮는다 — 없으면 그 섹션에 내려줄 위임 명세가 없다.
+    for (const sid of secIds) if (!seen.has(sid)) err("VAL_EDITORIAL_COVER", sid);
+    for (const g of editorialPlan.glossary) {
+      if (!concepts.has(g.conceptId)) err("VAL_EDITORIAL_REF", "glossary:" + g.conceptId);
+      if (gloss.has(g.conceptId)) err("VAL_EDITORIAL_DUP", "glossary:" + g.conceptId); else gloss.add(g.conceptId);
+      g.evidenceIds.forEach(noEv);
+    }
+    // 선행 의존 순환 — 남은 선행이 없는 섹션을 지워 나가고, 끝까지 남으면 순환이다(자기 선행 포함).
+    const rest = new Map();
+    for (const s of editorialPlan.sections)
+      if (secIds.has(s.sectionId)) rest.set(s.sectionId, new Set(s.prerequisiteSectionIds.filter(p => secIds.has(p))));
+    for (;;) {
+      const done = [...rest.keys()].filter(k => [...rest.get(k)].every(d => !rest.has(d)));
+      if (!done.length) break;
+      for (const k of done) rest.delete(k);
+    }
+    for (const k of rest.keys()) err("VAL_EDITORIAL_CYCLE", k);
+    return errors.length ? { ok: false, errors } : { ok: true, errors: [] };
+  }
+
+  // §4.3 통합 검수 출력: 본문 재작성이 아니라 제한된 수정 제안 목록이다. 대상은 호스트가 부여한
+  // id(S#·S#_B#·GB#·C#·G#·단서 위치 S#_B#/P#)뿐 — 봉투 안 경로나 임의 JSON-Patch 경로는 받지 않는다.
+  // 한 번에 최대 12개. 적용·재검증은 호스트가 하고, 상한을 넘는 문제는 unresolved 로 보고한다.
+  const REVIEW_OPS = ["term_fix", "claim_edit", "dedupe", "relation_fix", "relink_asset", "request_section_redo"];
+  // 대상은 호스트가 입력에 나열한 id 다. 주장은 블록 id + 입력이 보여 준 경로(기존 link 단계와 같은 형식, 예 S1_B2/content/scope)로 가리킨다 —
+  // 문자 집합을 [A-Za-z0-9_] 와 '/' 로 제한해 점·URL·'..'·JSON-Patch 경로를 거절하고, 존재 여부는 클라이언트가 살아 있는 주장 색인으로 검증한다.
+  const editTarget = pat("^(S[0-9]{1,3}|GB[0-9]|C[0-9]{1,3}|G[0-9]{1,4}|S[0-9]{1,3}_B[0-9]{1,2}(/[A-Za-z0-9_]{1,24}){0,8})$");
+  const reasonCode = pat("^[a-z][a-z0-9_]{0,63}$");
+  const reviewOutputSchema = obj({
+    edits: arr(obj({
+      op: en(REVIEW_OPS), targetId: editTarget, reasonCode, evidenceIds: arr(refId, 8),
+      // 의도한 변경 — op 마다 필요한 칸만 채우고 나머지는 null 이다.
+      change: obj({
+        text: orNull(str(600)), claim: claimOrNull, keepTargetId: orNull(editTarget),
+        assetIds: arr(pat(IDS.figure), 4), note: orNull(str(300)),
+      }),
+    }), 12),
+    unresolved: arr(obj({ targetId: editTarget, reasonCode }), 40),
+  });
+
   // 유닛의 슬라이드·발화에 나온 숫자 집합 — 단원 제목·질문과 개념 이름은 B04 머리와 개념 색인으로
   // 그대로 노출되는데 Writer 검사를 거치지 않으므로 그 섹션(개념은 홈 섹션) 유닛의 숫자만 쓸 수 있다(§8.2).
   // 정규화의 검사와 보정의 제거가 같은 판정을 쓰게 하려고 한 곳에 둔다.
@@ -1846,12 +1958,101 @@ const __defs = {
     };
     const deadCalc = r => { const m = CALC_RE.exec(r); return !!m && (!live.has(m[1]) || !calcMap.has(r)); };
     const hasDeadCalc = node => claimsOf(node).some(({ claim }) => claim.evidenceIds.some(deadCalc));
+    // 의미 초안 원장(draft 경로만): 보류(pending)·탈락·배치 누락으로 본문을 떠난 주장에 기대는(dependsOn) 주장은
+    // 확정 본문에 남기지 않는다 — 보류 의존 주장도 본문과 분리해 pending 에 보존한다. 원장은 조각 배열로 올 수 있다
+    // (분할 작성 병합 — 로컬 키 c1.. 는 조각 안에서만 푼다). 위치는 "<blockId>#<봉투 안 경로>"다.
+    const fragOf = new Map(); // sectionId → [ 원장 조각 ]
+    for (const s of sections) {
+      const raw = s.ledger ?? s.output?.ledger;
+      for (const f of Array.isArray(raw) ? raw : [raw])
+        if (s.sectionId && f && typeof f === "object" && f.claims && typeof f.claims === "object")
+          (fragOf.get(s.sectionId) ?? fragOf.set(s.sectionId, []).get(s.sectionId)).push(f);
+    }
+    const nodeAtPath = (o, p) => String(p).split("/").filter(Boolean).reduce((x, k) => x?.[k], o);
+    const livePlace = p => {
+      const i = String(p).indexOf("#");
+      const b = i > 0 ? live.get(p.slice(0, i)) : null;
+      return b && isClaim(nodeAtPath(b.env, p.slice(i + 1))) ? b : null;
+    };
+    const schemaAt = (sch, segs) => segs.reduce((x, k) => x && (x.properties ? x.properties[k] : x.items), sch);
+    // 주장을 뺄 수 있는 가장 깊은 조상 — null 허용 칸이면 그 칸, 목록 항목 안의 주장이면 그 항목(stages 의 T5 절단과 같은 규칙).
+    const cutAt = (type, path) => {
+      const sch = envelopeSchema(type, plan.policy), segs = String(path).split("/").slice(1);
+      for (let d = segs.length; d >= 1; d--) {
+        const pre = segs.slice(0, d), up = pre.slice(0, -1);
+        if (schemaAt(sch, up)?.type === "array" || [].concat(schemaAt(sch, pre)?.type).includes("null")) return { path: "/" + pre.join("/"), segs: pre };
+      }
+      return null;
+    };
+    // 뺄 칸들을 적용한 봉투 — 목록 항목은 뒤에서부터 지운다. 뺄 곳이 없으면 null.
+    const withoutAt = (env, cuts) => {
+      const out = deep(env), rm = [];
+      for (const { segs } of cuts) {
+        const up = segs.slice(0, -1), parent = nodeAtPath(out, "/" + up.join("/"));
+        if (Array.isArray(parent)) rm.push([up, +segs.at(-1)]);
+        else if (parent && typeof parent === "object") parent[segs.at(-1)] = null;
+        else return null;
+      }
+      rm.sort((a, b) => b[1] - a[1]);
+      for (const [up, i] of rm) {
+        const arr = nodeAtPath(out, "/" + up.join("/"));
+        if (!Array.isArray(arr)) return null;
+        arr.splice(i, 1);
+      }
+      return out;
+    };
+    const pushPending = entry => { if (pending.length < 200) pending.push(entry); };
+    // 죽은 주장을 살아 있는 봉투에서 뺀다 — 뺀 주장(절단 노드 아래 주장 전부)은 pending 에 보존한다.
+    // 필수 칸만 건드릴 수 있거나 뺀 뒤 봉투 계약이 깨지면 블록째 보류하되 봉투는 pending 에 남긴다 — 탈락(dropped)으로 세지 않는다.
+    const withholdDeps = (b, paths) => {
+      const cuts = new Map();
+      for (const p of paths) {
+        const cut = cutAt(b.type, p);
+        if (!cut) { cuts.clear(); break; }
+        cuts.set(cut.path, cut);
+      }
+      const env2 = cuts.size ? withoutAt(b.env, [...cuts.values()]) : null;
+      if (env2 && Contracts.validate(envelopeSchema(b.type, plan.policy), env2).ok) {
+        const claims = [...cuts.values()].flatMap(c => claimsOf(nodeAtPath(b.env, c.path)).map(x => x.claim));
+        pushPending({ blockId: b.id, sectionId: b.sectionId, type: b.type, paths: paths.slice(0, 8), claims: claims.map(deep).slice(0, 8), envelope: null });
+        b.env = env2; b.wrapped = null;
+      } else {
+        pushPending({ blockId: b.id, sectionId: b.sectionId, type: b.type, paths: paths.slice(0, 8), claims: claimsOf(b.env).map(x => deep(x.claim)).slice(0, 8), envelope: deep(b.env) });
+        live.delete(b.id); pendingIds.add(b.id);
+      }
+    };
+    // 매 회차 다시 센다 — 아직 살아 있는 봉투에 남은 죽은 주장의 봉투 안 경로(블록별).
+    const depCut = new Map();
+    const scanDeps = () => {
+      depCut.clear();
+      for (const frags of fragOf.values()) for (const f of frags) {
+        const claims = f.claims, dead = new Set();
+        for (const [cid, c] of Object.entries(claims))
+          if (!(Array.isArray(c?.places) ? c.places : []).some(p => livePlace(p))) dead.add(cid);
+        for (let grew = true; grew;) {
+          grew = false;
+          for (const [cid, c] of Object.entries(claims))
+            if (!dead.has(cid) && (Array.isArray(c?.dependsOn) ? c.dependsOn : []).some(d => dead.has(d))) { dead.add(cid); grew = true; }
+        }
+        for (const [cid, c] of Object.entries(claims)) {
+          if (!dead.has(cid)) continue;
+          for (const p of Array.isArray(c?.places) ? c.places : []) {
+            const b = livePlace(p);
+            if (!b) continue;
+            (depCut.get(b.id) ?? depCut.set(b.id, new Set()).get(b.id)).add(String(p).slice(String(p).indexOf("#") + 1));
+          }
+        }
+      }
+    };
     for (;;) {
       let changed = false;
       const liveIds = new Set([...secLive.keys(), ...live.keys(), ...conceptIds]);
       for (const b of live.values()) if (b.type === "B08" || b.type === "B09")
         (b.env.content.points || []).forEach((_, i) => liveIds.add(`${b.id}/P${i + 1}`));
+      scanDeps(); // 원장 상 죽은 주장이 아직 본문에 남은 곳 — 빼고 나면 다음 회차에서 뒤따른 의존이 정리된다
       for (const [id, b] of [...live]) {
+        const depPaths = depCut.get(id);
+        if (depPaths?.size) { withholdDeps(b, [...depPaths]); changed = true; continue; }
         const spec = LIST[b.type];
         if (spec) {
           const [field, prefix] = spec;
@@ -2042,13 +2243,24 @@ const __defs = {
     let coverage = null;
     if (Array.isArray(plan?.learningItems) && plan.learningItems.length) {
       const survivingSecIds = new Set(secOut.map(s => s.sectionId));
+      // 항목의 근거 유닛을 실제로 인용하는 살아남은 주장이 있어야 included 다 — 섹션이 살았다는 것만으로는 세지 않는다.
+      // 보류(pending)·탈락된 블록의 주장은 확정 본문이 아니라 연결로 세지 않는다. 확인 항목(checks)도 확정 본문이 아니다.
+      const coveredUnits = new Set();
+      const citeUnit = node => {
+        for (const { claim } of claimsOf(node))
+          for (const r of claim.evidenceIds) { const u = evUnit.get(r); if (u) coveredUnits.add(u); }
+      };
+      for (const b of live.values()) citeUnit(b.env);
+      for (const st of secLive.values()) if (st.gist) citeUnit(st.gist);
       const items = plan.learningItems.map(it => {
         let status = it.status || "deferred";
         let sectionId = it.sectionId ?? null;
         let reason = it.reason ?? null;
-        // 최종 노트에서 그 섹션이 살아남지 못하면 status 를 deferred 로 내리는 정산 포함
+        // 최종 노트에서 그 섹션이 살아남지 못했거나, 항목 유닛을 근거로 삼는 살아남은 주장이 하나도 없으면
+        // status 를 deferred 로 내리는 정산 포함
         if (status === "included") {
-          if (!sectionId || !survivingSecIds.has(sectionId)) {
+          if (!sectionId || !survivingSecIds.has(sectionId)
+            || !(Array.isArray(it.unitIds) && it.unitIds.some(u => coveredUnits.has(u)))) {
             status = "deferred";
             sectionId = null;
           }
@@ -2105,6 +2317,7 @@ const __defs = {
     LEARNING_ITEM_KINDS, LEARNING_ITEM_STATUSES, LEARNING_ITEM_REASONS, SECTION_WORKERS, EXPECTED_SIZES, formatCoverageMsg, withPlannerDefaults,
     schemas, envelopeSchema, sectionOutputSchemaFor, repairOutputSchemaFor, globalOutputSchemaFor, linkOutputSchema,
     normalizePlan, repairPlan, canonicalPlanIds, canonicalMapKeys, checkCalc, displayOf, citedRefs, validateSection, validateGlobal, assembleNote, restrictBasis, policyOf, AUG, withSource, measurePlanCaps,
+    V2_MODES, EDITORIAL_ROLES, VISUAL_KINDS, REVIEW_OPS, editorialPlanSchema, plannerOutputV2, reviewOutputSchema, validateEditorialPlan,
   });
   globalThis.NoteContract = api;
   if (typeof module !== "undefined") module.exports = api;
@@ -2115,8 +2328,10 @@ const __defs = {
 // 의미 초안(SectionDraft) 계약과 코드 컴파일러 — 제안서 §2 대안 B, §3 (docs/note-contract.md §8.3 과 같은 출력 모양).
 // 모델은 지면(B01–B18 슬롯·색·번호·HTML)이 아닌 의미 단위만 쓴다: 평탄한 주장 목록(claims)과
 // 주장을 로컬 키로 엮은 typed 관계(relations). 코드(compileDraft)가 계획 블록의 기존 봉투로 조판한다.
-// 컴파일 결과는 섹션 작성 출력과 같은 모양 {gist, blocks:{blockId: Envelope|null}, checks} — 기존
-// 검증(NoteContract.validateSection)·repair·T5·assembleNote 가 그대로 가고 저장 포맷(Note)은 바뀌지 않는다.
+// 컴파일 결과는 섹션 작성 출력과 같은 모양 {gist, blocks:{blockId: Envelope|null}, checks} 에 실행 중 로컬
+// 원장 ledger 를 얹는다 — claims 원장은 내용 없음(로컬 키·개념·의존·인용 id·봉투 안 위치)이지만,
+// 복구 루프가 원래 초안을 대상으로 재검증해야 해서(위임서 §4.4) draft 칸에 원래 초안을 메모리에 그대로 둔다.
+// 기존 검증(NoteContract.validateSection)·repair·T5·assembleNote 가 그대로 가고 저장 포맷(Note)은 바뀌지 않는다.
 // 출력 스키마(outputSchemaFor)는 strict JSON Schema — 서버(server/prompts.js "draft" 단계)가 응답 형식으로
 // 내리고 클라이언트가 같은 스키마로 다시 검사한다. basis 정책·allowedRefs 좁히기·영어 src 는 note-contract 와 같다.
 (() => {
@@ -2129,6 +2344,8 @@ const __defs = {
   const WORKERS = ["general", "formula", "comparison", "argument", "figure"];
   // 모델이 쓰는 로컬 주장 키 c1.. — 서버 식별자로 문장 해시를 보내지 않는다(§3). 호스트가 섹션 안에서만 해소한다.
   const CLAIM_ID = "^c[0-9]{1,3}$";
+  // 작성자가 블록을 null로 둔 사유(위임서 §4.4) — 선택적 실험 메타데이터다. 없는 항목·모르는 값은 unknown.
+  const NULL_REASONS = ["insufficient_evidence", "duplicate", "unsupported_format", "policy", "unknown"];
   // calcs 관계 안에서 주장이 같은 계산의 입력·단계를 가리킬 때 쓰는 로컬 참조 — 컴파일이 그 블록의 계산 참조(<blockId>.i#/.c#)로 바꾼다.
   const LOCAL_REF = /^[ic][0-9]{1,2}$/;
 
@@ -2169,7 +2386,7 @@ const __defs = {
   // 요청별 초안 출력 스키마. relations 는 타입별 배열 — 같은 타입의 계획 블록에 계획 순서로 하나씩 대응한다
   // (초안은 블록 id 를 모른다). 관계 안의 주장 칸은 모두 로컬 키(claimId)다. strict 라 모든 칸이 필수 —
   // "없음"은 null·빈 배열로 표현한다.
-  function outputSchemaFor(planSection, { gist = true, policy = NoteContract.POLICY, allowedRefs = null, sourceLang } = {}) {
+  function outputSchemaFor(planSection, { gist = true, policy = NoteContract.POLICY, allowedRefs = null, sourceLang, nullReasons = false } = {}) {
     const IDS = NoteContract.IDS;
     const evId = pat(IDS.evidence), conceptId = pat(IDS.concept), target = pat(IDS.target), claimId = pat(CLAIM_ID);
     const src = sourceLang === "en" ? { src: { type: ["string", "null"], maxLength: 600 } } : {};
@@ -2222,6 +2439,8 @@ const __defs = {
       claims: arr(claim, 120),
       relations,
       checks: arr(checkFor(ids), 6),
+      // 작성자 null 의 사유 지도 — 키는 이 요청의 계획 블록, 값은 NULL_REASONS. 안 채운 블록은 null.
+      ...(nullReasons === true ? { nullReasons: orNull(obj(Object.fromEntries(ids.map(id => [id, nullableEnum(NULL_REASONS)])))) } : {}),
     });
     if (sourceLang === "en") out = NoteContract.withSource(out); // gist·checks 안의 인라인 주장에 src — 초안 claims 는 위에서 직접 얹었다
     out = NoteContract.restrictBasis(out, policy);
@@ -2236,11 +2455,13 @@ const __defs = {
   function compileDraft(draft, planSection, ctx = {}) {
     const planBlocks = Array.isArray(planSection?.blocks) ? planSection.blocks : [];
     const blocks = Object.fromEntries(planBlocks.map(b => [b.blockId, null]));
-    const empty = { gist: null, blocks, checks: [] };
+    const empty = { gist: null, blocks, checks: [], ledger: { v: 1, claims: {}, draft: null } };
     if (!draft || typeof draft !== "object" || draft.sectionId !== planSection?.sectionId) return empty;
     const cmap = new Map();
     for (const c of draft.claims ?? [])
       if (c && typeof c.claimId === "string" && typeof c.text === "string" && c.text && !cmap.has(c.claimId)) cmap.set(c.claimId, c);
+    // 블록 단위 작성자 사유 — 코드는 해석하지 않고 그대로 실어 둔다(사유는 사실로 신뢰하지 않고 검증이 교차 확인한다).
+    const nullReasons = nullReasonsOf(draft);
     const conceptName = new Map((ctx?.concepts ?? []).map(c => [c.conceptId, c.name]));
     const rel = draft.relations && typeof draft.relations === "object" ? draft.relations : {};
 
@@ -2384,10 +2605,81 @@ const __defs = {
     const gist = g && typeof g === "object" && typeof g.text === "string" && g.text
       ? { text: g.text, evidenceIds: Array.isArray(g.evidenceIds) ? [...g.evidenceIds] : [], basis: g.basis, ...(Object.hasOwn(g, "src") ? { src: g.src } : {}) }
       : null;
-    return { gist, blocks, checks: (Array.isArray(draft.checks) ? draft.checks : []).slice(0, 6) };
+    // 로컬 원장: 초안 주장의 로컬 키·개념·의존과 실제로 실린 봉투 위치("<blockId>#<봉투 안 경로>")를 남긴다.
+    // claims 원장에는 주장 문장을 싣지 않는다(내용 없는 진단·연결용). 저장되는 Note 에는 들어가지 않는다 — 조립의
+    // 의존 정리가 보류·탈락 주장에 기대는 주장을 확정 본문에서 빼는 데 쓰고, 비교 화면·커버리지 원장이 같은 주장을
+    // 여기서 잇는다. draft 칸에는 원래 초안을 메모리에 보존한다(§4.4 — root 복구 뒤 종속 주장을 추측이 아니라
+    // 원래 초안으로 재검증한다). 로컬 키는 이 컴파일 안에서만 유효하다 — 분할 작성 조각은 mergeLedgers 로 넘긴다.
+    const ledger = { v: 1, claims: {}, draft };
+    for (const c of cmap.values()) ledger.claims[c.claimId] = {
+      role: c.role ?? null,
+      conceptIds: (Array.isArray(c.conceptIds) ? c.conceptIds : []).filter(x => typeof x === "string"),
+      dependsOn: (Array.isArray(c.dependsOn) ? c.dependsOn : []).filter(id => cmap.has(id)), // 초안에 실제 있는 키만 — 끊긴 참조는 뗀다
+      evidenceIds: [], places: [],
+    };
+    // srcOf 에 잡힌 객체가 실제로 실린 주장이다 — 확인 항목·요지는 로컬 키가 없어 원장에 들어가지 않는다.
+    const mark = (node, path, bid) => {
+      const src = srcOf.get(node);
+      if (src) {
+        const e = ledger.claims[src.claimId];
+        e.places.push(`${bid}#${path}`);
+        for (const r of Array.isArray(node.evidenceIds) ? node.evidenceIds : [])
+          if (typeof r === "string" && !e.evidenceIds.includes(r)) e.evidenceIds.push(r);
+        return;
+      }
+      if (Array.isArray(node)) return node.forEach((v, i) => mark(v, `${path}/${i}`, bid));
+      if (node && typeof node === "object") for (const [k, v] of Object.entries(node)) mark(v, `${path}/${k}`, bid);
+    };
+    for (const [bid, env] of Object.entries(blocks)) if (env) mark(env, "", bid);
+    return { gist, blocks, checks: (Array.isArray(draft.checks) ? draft.checks : []).slice(0, 6), ledger,
+      ...(Object.keys(nullReasons).length ? { nullReasons } : {}) };
   }
 
-  const api = { outputSchemaFor, compileDraft, ROLES, WORKERS };
+  // 출력의 선택 실험 칸 nullReasons({<blockId>: 사유})를 읽는다 — 없거나 열거 밖 값은 unknown 으로 둔다.
+  const nullReasonsOf = output => {
+    const m = output && typeof output === "object" ? output.nullReasons : null;
+    const out = {};
+    if (m && typeof m === "object" && !Array.isArray(m))
+      for (const [k, v] of Object.entries(m)) if (typeof k === "string" && k) out[k] = NULL_REASONS.includes(v) ? v : "unknown";
+    return out;
+  };
+
+  // 복구된 root 의 뒤를 잇는다(§4.4): 원장의 의존 그래프에서, 살아난 것으로 확인된 주장·블록 id(recoveredRoots —
+  // 주장 id 는 그 주장을, 블록 id 는 그 안에 실린 주장 전부를 다시 산 것으로 본다)에 기대던 종속 주장을 의존 순서로
+  // 돌려준다. 내용을 새로 추측하지 않고 원장이 보존한 원래 초안의 주장을 실어 보낸다 — 재검증·복귀는 호출자가 한다.
+  // 복구되지 않은 의존이 하나라도 남은 주장은 후보가 아니다. ledger 는 조각 배열(mergeLedgers 결과)도 받는다.
+  function restoreDependents(ledger, recoveredRoots) {
+    const roots = new Set([].concat(recoveredRoots ?? []));
+    const out = [];
+    for (const f of mergeLedgers(ledger)) {
+      const claims = f.claims || {}, live = new Set();
+      for (const r of roots) {
+        if (Object.hasOwn(claims, r)) live.add(r);
+        for (const [cid, c] of Object.entries(claims))
+          if (Array.isArray(c?.places) && c.places.some(p => String(p).split("#")[0] === r)) live.add(cid);
+      }
+      const eligible = new Map();
+      for (let grew = true; grew;) {
+        grew = false;
+        for (const [cid, c] of Object.entries(claims)) {
+          if (live.has(cid) || eligible.has(cid)) continue;
+          const deps = Array.isArray(c?.dependsOn) ? c.dependsOn : [];
+          if (deps.length && deps.every(d => live.has(d) || eligible.has(d))) { eligible.set(cid, c); grew = true; }
+        }
+      }
+      for (const [cid, c] of eligible)
+        out.push({ claimId: cid, claim: (f.draft?.claims ?? []).find(x => x?.claimId === cid) ?? null, dependsOn: c.dependsOn ?? [], places: c.places ?? [] });
+    }
+    return out;
+  }
+
+  // 분할 작성 조각의 원장을 합친다. 조각마다 초안이 따로라 로컬 키(c1..)가 겹친다 — 키를 합치지 않고
+  // 조각 배열로 돌려준다(소비자는 조각 안에서만 키를 푼다).
+  const mergeLedgers = (...frags) =>
+    frags.flatMap(f => f == null ? [] : Array.isArray(f) ? f : [f])
+      .filter(f => f && typeof f === "object" && f.claims && typeof f.claims === "object");
+
+  const api = { outputSchemaFor, compileDraft, mergeLedgers, restoreDependents, nullReasonsOf, ROLES, WORKERS, NULL_REASONS };
   globalThis.SectionDraft = api;
   if (typeof module !== "undefined") module.exports = api;
 })();
@@ -2971,18 +3263,24 @@ const RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1
 // ponytail: 토큰 없이 청구하는 제공자가 생기면 /api/v1/generation?id= 로 실제 비용을 대조한다.
 const costOf=(u,pi,po,empty=false)=>{
   if(typeof u.cost==="number"&&Number.isFinite(u.cost)&&u.cost>=0)return u.cost;
-  const i=Number(u.prompt_tokens),o=Number(u.completion_tokens);
+  const i=Number(u.prompt_tokens??u.input_tokens),o=Number(u.completion_tokens??u.output_tokens);
   if(empty&&!(i>0)&&!(o>0))return 0;
   return Number.isFinite(i)&&Number.isFinite(o)&&i>=0&&o>=0?(i*pi+o*po)/1e6:null;
 };
 // 제공자 HTTP 호출 한 건의 시도 기록 — 시도별 행은 usage_attempts 로 간다(§7). u 는 공급자 응답의 usage.
-// OpenAI 모양(prompt_tokens)과 Jev 모양(input_tokens)을 둘 다 받는다. 토큰·캐시·비용 미보고는 null 이다(보고된 0 과 구분).
-const attemptOf=(id,latencyMs,u,error)=>{
+// OpenAI 모양(prompt_tokens)·Responses 모양(input_tokens)·Jev 모양을 둘 다 받는다. 토큰·캐시·비용 미보고는 null 이다(보고된 0 과 구분).
+// meta 는 시도의 실제 호출 식별이다 — 한 요청이 여러 모델을 부를 수 있어(세션 도구 호출) 요청 모델로 덮어쓰지 않는다.
+const attemptOf=(id,latencyMs,u,error,meta)=>{
   const num=v=>Number.isFinite(v)&&v>=0?v:null,d=u?.cache??cacheOf(u),cost=num(u?.cost),
     i=num(u?.prompt_tokens)??num(u?.input_tokens),o=num(u?.completion_tokens)??num(u?.output_tokens);
+  // spec 11 의 호출별 캐시 분해: 입력 − 캐시 읽기 − 캐시 쓰기. 공급자가 캐시 칸을 입력 토큰 안에 같이 보고할 때만 뺀다 —
+  // 빼면 음수가 되는 제공자(입력 바깥 보고)에서는 입력값을 그대로 둔다. 추론 토큰은 output 안에 포함해 한 번만 센다.
+  const uncached=i===null?null:i-Math.min(i,(d.cached_input_tokens||0)+(d.cache_write_tokens||0));
   return {id,status:error?"error":"ok",error:error??null,latencyMs:Math.max(0,Math.round(latencyMs)),inputTokens:i,outputTokens:o,
+    uncachedInputTokens:uncached,
+    reasoningTokens:num(u?.completion_tokens_details?.reasoning_tokens)??num(u?.output_tokens_details?.reasoning_tokens),
     cachedInputTokens:d.cached_input_tokens,cacheWriteTokens:d.cache_write_tokens,providerReportedCost:cost,
-    costStatus:cost!==null?"provider_reported":i!==null||o!==null?"estimated":"unreported"};
+    costStatus:cost!==null?"provider_reported":i!==null||o!==null?"estimated":"unreported",...(meta||{})};
 };
 // 시도 오류 코드: detail 이 있으면 그것, 아니면 코드 모양의 message — 나머지는 invalid_output.
 const errCode=e=>typeof e?.detail==="string"&&e.detail||(/^[a-z][a-z0-9_.-]{0,62}$/.test(e?.message)?e.message:null)||"invalid_output";
@@ -3051,6 +3349,7 @@ function providerSchema(s,drop){
 }
 const VISION_SCHEMA=providerSchema({type:"object",additionalProperties:false,required:["blocks","formulas","figures"],properties:{blocks:Contracts.SCHEMAS.slideDoc.properties.blocks,formulas:Contracts.SCHEMAS.slideDoc.properties.formulas,figures:Contracts.SCHEMAS.slideDoc.properties.figures}},["id","status"]);
 const {cachedSystem,cachedUser,cacheModeOf,parseNote,reasoningFor,maxTokensFor,noTemperature,cacheOf,upstreamOf}=require("./llm.js");
+const NoteSession=require("./note-session.js");
 const safePart=x=>{if(typeof x!=="string"||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(x))throw new Error("invalid_id");return x;};
 const tokenEqual=(a,b)=>{const x=Buffer.from(String(a)),y=Buffer.from(String(b));return x.length===y.length&&crypto.timingSafeEqual(x,y);};
 const positive=(x,fallback)=>{const n=Number(x??fallback);if(!Number.isFinite(n)||n<=0)throw new Error("invalid_limit");return n;};
@@ -3157,7 +3456,9 @@ function config(env){
     supabase={url:u.origin,key:env.SUPABASE_SERVICE_ROLE_KEY,secret:env.SUPABASE_JWT_SECRET||undefined,digestKey:env.USAGE_DIGEST_KEY,bucket};
   }else if(env.SUPABASE_SERVICE_ROLE_KEY||env.SUPABASE_JWT_SECRET)throw new Error("SUPABASE_URL required");
   // JWT 계정의 기능·모델은 DB 등급(effective_plan)을 이 표로 옮겨 정한다. 모르는 등급과 null 은 free 로 닫는다.
-  const lite="google/gemini-2.5-flash-lite",mimo="xiaomi/mimo-v2.6-flash",planFeatures={free:{features:[],models:[allow.includes(mimo)?mimo:allow.includes(lite)?lite:allow[0]]},essential:{features:["vision","stt","judge","background","augment"],models:allow},professional:{features:["vision","stt","judge","background","augment"],models:allow}},planIn=JSON.parse(env.PLAN_FEATURES_JSON||"{}"),free0=planFeatures.free;
+  const lite="google/gemini-2.5-flash-lite",mimo="xiaomi/mimo-v2.6-flash",planFeatures={free:{features:[],models:[allow.includes(mimo)?mimo:allow.includes(lite)?lite:allow[0]]},essential:{features:["vision","stt","judge","background","augment"],models:allow},professional:{features:["vision","stt","judge","background","augment"],models:allow},
+    // 개발용 계정(DB 의 profiles 로만 부여 — 공개 가격표에 없다). 기능·모델은 professional 과 같고 한도만 plans 의 큰 값이다.
+    developer:{features:["vision","stt","judge","background","augment"],models:allow}},planIn=JSON.parse(env.PLAN_FEATURES_JSON||"{}"),free0=planFeatures.free;
   if(!plain(planIn))throw new Error("invalid_plan_features");
   for(const [name,p]of Object.entries(planIn)){
     if(!/^[a-z][a-z0-9_]{0,31}$/.test(name)||!plain(p)||Object.keys(p).some(k=>!["features","models"].includes(k)))throw new Error("invalid_plan_features");
@@ -3253,11 +3554,15 @@ function createServer(env=process.env,deps={}){
     if(r&&r.reason)console.warn("auth_reject "+r.reason+(r.detail===undefined?"":" "+JSON.stringify(r.detail)));
     return {code:r?.code||"unauthorized",reason:r?.reason,detail:r?.detail};
   }
-  async function body(req,max){
+  const SESSION_BODY=4*1024*1024;
+  // plainMax: noteSession 이력이 없는 본문의 상한(있으면 max 까지 허용) — 이력 실린 세션 요청만 4MB 까지 넓다.
+  async function body(req,max,plainMax){
     const declared=Number(req.headers["content-length"]);if(declared>max)throw new Error("request_too_large");
     const chunks=[];let size=0;
     for await(const chunk of req){size+=chunk.length;if(size>max)throw new Error("request_too_large");chunks.push(chunk);}
-    return JSON.parse(Buffer.concat(chunks).toString("utf8")||"{}");
+    const raw=Buffer.concat(chunks);
+    if(plainMax&&size>plainMax&&!raw.includes('"noteSession"'))throw new Error("request_too_large");
+    return JSON.parse(raw.toString("utf8")||"{}");
   }
   function accountDir(account){
     const parent=path.join(c.root,"vault"),dir=path.join(parent,safePart(account));
@@ -3303,6 +3608,19 @@ function createServer(env=process.env,deps={}){
   // 슬롯을 얻지 못한 요청은 제공자에 아무것도 보내지 않았으므로 예약을 정확히 되돌려야 한다.
   const slot=s=>{s.running++;let used=false;return()=>{if(used)return;used=true;s.running--;const w=s.queue.find(x=>!x.done);if(w){s.queue.splice(s.queue.indexOf(w),1);w.grant();}};};
   const busyErr=()=>Object.assign(new Error("provider_busy"),{refund:true,code:"provider_busy",retryAfterMs:2000,detail:"queue_busy"});
+  // noteSession 직렬화 — 같은 세션 id 의 호출은 한 번에 하나만. 접두 캐시를 노리는 대화는 턴 순서가 어긋나면 안 된다.
+  // sol-fork 작성 호출만 예외다 — 고정 접두를 읽는 독립 호출이라 순서가 없고, noteRoute 에서 이 잠금을 건너뛴다.
+  // 공급자 슬롯과는 별도 잠금 — 잠금 대기 중 연결·시간 초과는 환불로 접는다(아직 제공자 호출이 없다).
+  const sessionLocks=new Map();
+  const sessionLock=async(id,signal)=>{
+    for(;;){
+      const prev=sessionLocks.get(id);
+      if(!prev){let release;const p=new Promise(r=>release=r);sessionLocks.set(id,p);
+        return()=>{if(sessionLocks.get(id)===p)sessionLocks.delete(id);release();};}
+      await new Promise((res,rej)=>{const off=()=>rej(abortErr(false));signal?.addEventListener("abort",off,{once:true});prev.then(res,res).finally(()=>signal?.removeEventListener("abort",off));});
+      if(signal?.aborted)throw abortErr(false);
+    }
+  };
   const httpDetail=res=>{
     const h=res.headers?.get?.("retry-after")??res.headers?.get?.("Retry-After"),s=h!=null&&String(h).trim()!==""?Number(h):NaN;
     return "provider_http_"+res.status+(Number.isFinite(s)&&s>=0?".ra"+Math.min(999,Math.round(s)):"");
@@ -3375,7 +3693,7 @@ function createServer(env=process.env,deps={}){
     const vs=await Promise.all(ids.slice(0,8).map(one));
     return ids.length<=8&&vs.every(v=>v!==null)?vs.reduce((a,b)=>a+b,0):null;
   }
-  async function withReservation({account,requestId,digest,reserve,minutes=0,model,res,meta={}},run){
+  async function withReservation({account,requestId,digest,reserve,minutes=0,model,res,meta={},timeoutMs=c.timeout},run){
     const id=account.id,store=account.jwt?sb:file;
     if((inflight.get(id)||0)>=c.accountConcurrency)return fail(res,"account_concurrency_exceeded",1000);
     inflight.set(id,(inflight.get(id)||0)+1);
@@ -3387,7 +3705,7 @@ function createServer(env=process.env,deps={}){
       // 예약 없이는 제공자를 부르지 않는다. 저장소가 닫혀 있으면 아무것도 나가지 않고 503 이다.
       try{held=await store.reserve({account:id,requestId,digest,cents:reserve,minutes,limits:account.limits});}catch{return fail(res,"usage_store_failed");}
       if(held.fail)return fail(res,FAIL_CODE[held.fail]);
-      timer=setTimeout(()=>controller.abort(),c.timeout);
+      timer=setTimeout(()=>controller.abort(),timeoutMs);
       const t0=Date.now();
       let payload,amount=null,error=null,status="ok",tries=[];const gens=[];
       try{
@@ -3395,7 +3713,7 @@ function createServer(env=process.env,deps={}){
         if(controller.signal.aborted)throw Object.assign(new Error("aborted"),{refund:true,code:"request_cancelled_or_timed_out"});
         const release=await acquire(model,controller.signal,false,store);
         try{
-          const r=await run(controller.signal,store,gens);
+          const r=await run(controller.signal,store,gens,t0+timeoutMs);
           // 비용을 보고하지 않은 요청은 amount 가 null 이다 — 장부는 예약액을 그대로 청구한다. 공짜였다고 가정하지 않는다.
           payload=r.payload;amount=r.reported?r.amount:null;tries=r.attempts??[];
         }finally{release();}
@@ -3416,7 +3734,7 @@ function createServer(env=process.env,deps={}){
       // 정산이 안 닫혀도 이미 만든 결과는 돌려준다 — 예약이 reserved 로 남아 비용이 보수적으로 잡힌다. 환불만은 예약이 안 풀렸으므로 같은 requestId 재시도를 약속할 수 없다.
       if(!error)return send(res,200,payload);
       if(status==="refunded")return stored?fail(res,code,error.retryAfterMs):fail(res,"usage_store_failed");
-      fail(res,code);
+      fail(res,code,undefined,error.session?{noteSession:error.session}:undefined);
     }finally{clearTimeout(timer);res.removeListener("close",disconnect);const n=(inflight.get(id)||1)-1;n>0?inflight.set(id,n):inflight.delete(id);active.delete(controller);}
   }
   async function vision(input,account,res){
@@ -3562,7 +3880,7 @@ function createServer(env=process.env,deps={}){
     if(!account.limits.models.includes(input.model))return fail(res,"model_not_in_account_plan");
     safePart(input.requestId);
     // 필수 키는 봉투 + 계약의 required 다 — 계약의 선택 키(allowedRefs)는 없어도 된다. properties 밖의 키는 여전히 거절.
-    const spec=Prompts.REQUEST[stage],envelope=stage==="plan"?["model","requestId","noteSpecVersion"]:["model","requestId","noteSpecVersion","stage"],fields=[...envelope,...spec.required],optional=["jobId",...(stage==="plan"?["host"]:["sourceLang"]),...Object.keys(spec.properties).filter(k=>!spec.required.includes(k))];
+    const spec=Prompts.REQUEST[stage],envelope=stage==="plan"?["model","requestId","noteSpecVersion"]:["model","requestId","noteSpecVersion","stage"],fields=[...envelope,...spec.required],optional=["jobId","noteSession","noteMode",...(stage==="plan"?["host"]:["sourceLang"]),...Object.keys(spec.properties).filter(k=>!spec.required.includes(k))];
     if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)&&!optional.includes(k)))return fail(res,"unexpected_field");
     // 다른 양식 버전의 입력은 모양부터 다를 수 있다. 본문 검사보다 먼저 버전으로 거절해야 클라이언트가 원인을 안다.
     if(input.noteSpecVersion!==NoteContract.NOTE_SPEC_VERSION)return fail(res,"note_spec_mismatch");
@@ -3572,32 +3890,100 @@ function createServer(env=process.env,deps={}){
     // 모델 입력은 스키마 순서의 본문만이다 — 클라이언트의 키 순서가 달라도 같은 프롬프트가 나가야 재현된다.
     // 안 실은 선택 키는 undefined 로 만들지 않고 아예 뺀다 — undefined 도 hasOwn 이 잡혀 계약 검사가 깨진다.
     const rest=Object.fromEntries(Object.keys(spec.properties).filter(k=>input[k]!==undefined).map(k=>[k,input[k]])),checked=Contracts.validate(spec,rest);
-    if(!checked.ok)return fail(res,checked.errors.some(e=>e.message==="허용되지 않는 속성입니다")?"unexpected_field":"request_rejected");
+    if(!checked.ok)return fail(res,checked.errors.some(e=>e.message==="허용되지 않는 속성입니다")?"unexpected_field":"request_rejected",null,{detail:checked.errors.slice(0,3).map(e=>e.path).join(";").slice(0,200)});
     // 가상 사례·강의 밖 보강(6-8)은 계정 기능 augment 가 있어야 켤 수 있다. 화면의 버튼만으로 막지 않는다(§18).
     const opts=rest.options;
     if((opts.syntheticExamples||opts.externalAugmentation)&&(!(account.limits.features||[]).includes("augment")||c.featureFlags.augment===false))return fail(res,"feature_not_in_account_plan");
+    // noteSession(숨은 실험 경로): Sol 이 OpenRouter Responses API 대화 이력을 이어 붙인다. 이력은 클라이언트가
+    // 들고 서버는 저장하지 않는다(store:false). 세션 공용 지시는 두 언어 공통 — plan 요청엔 sourceLang 이 없어
+    // 언어는 서버가 만든 작업 안의 sourceLang 칸이 알린다(거절하지 않는다). draft 전문 worker 지시는 작업 안
+    // instruction 칸에 실어 보낸다 — 고정 developer 접두는 그대로다.
+    const session=input.noteSession===undefined?null:NoteSession.validate(input.noteSession,stage);
+    if(session?.error)return fail(res,session.error);
+    // v2 실험 모드 칸(noteMode)은 strict allowlist — 세션이 실린 요청은 봉투의 mode 와 반드시 일치해야 한다.
+    if(input.noteMode!==undefined&&!NoteSession.V2.includes(input.noteMode))return fail(res,"request_rejected");
+    if(session&&input.noteMode!==undefined&&input.noteMode!==session.mode)return fail(res,"request_rejected");
+    // v2 단계→모델 표를 서버가 강제한다(클라이언트 설정만 신뢰하지 않는다):
+    //   sol-luna-2: plan·review·global·repair = Sol+세션 계속. draft·questions = noteSession 없는 Luna High 독립 요청.
+    //   sol-fork-2: 모든 단계 = Sol+세션. 두 모드 모두 section·link 는 없다 — draft 가 작성, review 가 통합 검수다.
+    const v2=input.noteMode??(session&&NoteSession.V2.includes(session.mode)?session.mode:null),
+      v2Sol={"sol-luna-2":["plan","review","global","repair"],"sol-fork-2":["plan","draft","questions","review","global","repair"]}[v2]||[];
+    if(v2){
+      const lunaStage=v2==="sol-luna-2"&&(stage==="draft"||stage==="questions");
+      if(lunaStage?input.model!==NoteSession.LUNA||session!==null
+          :!v2Sol.includes(stage)||input.model!==NoteSession.SOL||!session||session.mode!==v2)
+        return fail(res,"invalid_model_or_stage");
+    }else if(stage==="review")return fail(res,"invalid_model_or_stage"); // review 는 v2 모드 전용 단계다
+    if(session){
+      if(input.model!==NoteSession.SOL)return fail(res,stage==="plan"?"invalid_model":"invalid_model_or_stage");
+      // 도구가 실행하는 작성 모델도 클라이언트 선택과 같은 게이트를 거친다 — 허용 목록·계정 등급·제공자 핀 모두 필요하다.
+      if(session.mode==="sol-luna-tool"){
+        if(!c.allow.includes(NoteSession.LUNA))return fail(res,"invalid_model_or_stage");
+        if(!account.limits.models.includes(NoteSession.LUNA))return fail(res,"model_not_in_account_plan");
+        if(!(c.providers[NoteSession.LUNA]??c.providers[upstreamOf(NoteSession.LUNA)]))return fail(res,"invalid_model_or_stage");
+      }
+    }
     // 출력 스키마는 요청(계획 블록·옵션)마다 만든다. 계획에 없는 blockId 같은 모순은 note-contract 가 던진다.
-    let outSchema;try{outSchema=Prompts.outputSchema(stage,rest,sourceLang);}catch{return fail(res,"request_rejected");}
-    const system=Prompts.systemFor(stage,opts,sourceLang,rest.section?.worker),user=JSON.stringify(rest);
+    // review 단계와 v2 계획 사이드카(editorialPlan)의 스키마는 편집 계약 모듈(prompts.js)이 제공한다 — 없으면 조용히 넘기지 않고 거절한다.
+    let outSchema;try{
+      outSchema=stage==="review"
+        ?(typeof Prompts.reviewOutputSchema==="function"?Prompts.reviewOutputSchema(rest,sourceLang):Prompts.reviewOutputSchema)
+        :Prompts.outputSchema(stage,rest,sourceLang,v2);
+      // v2 계획의 업스트림 출력은 {plan, editorialPlan} 사이드카 — 응답도 두 칸으로 분리해 돌려준다.
+      // Prompts.outputSchema 가 v2 계획에 대해 이미 {plan, editorialPlan} 을 돌려주면 다시 감싸지 않는다(이중 래핑 → /plan/plan).
+      if(v2&&stage==="plan"&&outSchema?.properties?.editorialPlan===undefined){
+        const ed=typeof Prompts.editorialPlanSchema==="function"?Prompts.editorialPlanSchema(rest):Prompts.editorialPlanSchema;
+        if(!ed||typeof ed!=="object")throw new Error("editorial_plan_schema");
+        outSchema={type:"object",additionalProperties:false,required:["plan","editorialPlan"],properties:{plan:outSchema,editorialPlan:ed}};
+      }
+      if(!outSchema||typeof outSchema!=="object")throw new Error("no_output_schema");
+    }catch{return fail(res,"request_rejected");}
+    // 세션 요청은 지시를 NoteSession.run 이 만든다(v2 는 V2_DEV 고정 지시) — 여기서 만드는 system 은 비세션·도구 Luna 용이다.
+    let system=null;try{system=Prompts.systemFor(stage,opts,sourceLang,rest.section?.worker,v2);}catch{}
+    if(!session&&!system)return fail(res,"request_rejected");
+    const user=JSON.stringify(rest);
     if(Prompts.estimateTokens(user)>Prompts.inputTokenLimit(stage))return fail(res,"request_too_large");
     // Free 월 분 한도: 로컬 인식은 STT 를 거치지 않으므로 계획 요청에서 강의 길이(유닛 시각 범위)를 분으로 센다.
     // 클라우드 STT 를 쓴 작업은 STT 가 이미 셌다. ponytail: recognition 은 클라이언트 신고다 — STT 기능이 없는 계정은 신고와 무관하게 센다.
     const us=stage==="plan"?rest.ir.units:[],span=us.length?Math.max(...us.map(u=>u.t1))-Math.min(...us.map(u=>u.t0)):0;
     const minutes=stage==="plan"&&(rest.recognition==="local"||!(account.limits.features||[]).includes("stt"))?Math.max(1,Math.ceil(span/60)):0;
-    const digest=digestOf(account,JSON.stringify({route:stage==="plan"?"plan":"write",stage,model:input.model,noteSpecVersion:input.noteSpecVersion,rest,...(sourceLang?{sourceLang}:{})}));
+    // noteSession 이력은 내용을 저장하지 않고 해시만 digest 에 둔다 — 같은 이력·본문·계정은 같은 요청이다.
+    const digest=digestOf(account,JSON.stringify({route:stage==="plan"?"plan":"write",stage,model:input.model,noteSpecVersion:input.noteSpecVersion,rest,...(sourceLang?{sourceLang}:{}),...(v2?{noteMode:v2}:{}),
+      ...(session?{ns:{id:session.id,mode:session.mode,h:crypto.createHash("sha256").update(JSON.stringify(session.history)).digest("hex")}}:{})}));
     const [pi,po]=RATES[input.model]||RATES[upstreamOf(input.model)],params=Prompts.modelParams(input.model,stage),attempts=2;
     const upModel=upstreamOf(input.model),upProviders=c.providers[input.model]??c.providers[upModel];
     // openai-explicit: 고정 시스템 접두만 캐시에 쓴다. key 는 작업 라우팅 친화용 — provider.order 를 쓰면 sticky 라우팅이 꺼져
     // 없으면 같은 작업도 매번 다른 엔드포인트에 캐시를 쓴다. 내용 없이 단계와 jobId 해시만 넣는다.
     const cacheMode=cacheModeOf(input.model),cacheFields=cacheMode==="openai-explicit"?{prompt_cache_options:{mode:"explicit",ttl:"30m"},...(input.jobId?{prompt_cache_key:`${stage}:${crypto.createHash("sha256").update(String(input.jobId)).digest("hex").slice(0,32)}`}:{})}:{};
-    // 형식 실패 재시도분까지 예약하고 정산에서 되돌린다. 시스템 본문과 스키마도 입력 토큰이다.
-    const reserve=Math.ceil((Prompts.estimateTokens(system+JSON.stringify(outSchema)+user)*pi+params.max_tokens*po)/1e6*100*1.2*attempts);
     const providerOut=providerSchema(outSchema,[]);
+    // 형식 실패 재시도분까지 예약하고 정산에서 되돌린다. 시스템 본문과 스키마도 입력 토큰이다.
+    // 세션 모드는 요청 안에서 Sol·Luna 여러 호출이 돈다 — 도구 호출(Luna)과 Sol 이 도구 결과를 다시 읽는 입력까지 예약에 넣는다.
+    const lunaProviders=c.providers[NoteSession.LUNA]??c.providers[upstreamOf(NoteSession.LUNA)],
+      [lpi,lpo]=RATES[NoteSession.LUNA]||RATES[upstreamOf(NoteSession.LUNA)],lunaParams=session?.mode==="sol-luna-tool"?Prompts.modelParams(NoteSession.LUNA,stage):null,
+      solIn=session?Prompts.estimateTokens(NoteSession.systemFor(opts)+JSON.stringify(session.history)+JSON.stringify(rest)+JSON.stringify(providerOut)):0;
+    const reserve=session?Math.ceil((2*(solIn*pi+params.max_tokens*po)/1e6
+      +(lunaParams?(Prompts.estimateTokens(system+user+JSON.stringify(providerOut))*lpi+lunaParams.max_tokens*lpo+lunaParams.max_tokens*pi)/1e6:0))*100*1.2)
+      :Math.ceil((Prompts.estimateTokens(system+JSON.stringify(outSchema)+user)*pi+params.max_tokens*po)/1e6*100*1.2*attempts);
     // 정산에 실을 메타 — plan 의 분야 분류 결과(subject·subjectConf)는 run 안에서 더한다.
-    const meta={stage:stage==="plan"?"plan":"write."+stage,provider:"openrouter",model:input.model,jobId:input.jobId,host:input.host,...(stage==="plan"?{lectureSeconds:span,slides:new Set(us.map(u=>u&&u.slideId).filter(Boolean)).size}:{})};
+    const meta={stage:stage==="plan"?"plan":"write."+stage,provider:"openrouter",model:input.model,jobId:input.jobId,host:input.host,...(session?{sessionMode:session.mode}:{}),...(stage==="plan"?{lectureSeconds:span,slides:new Set(us.map(u=>u&&u.slideId).filter(Boolean)).size}:{})};
     // 분야 분류는 슬라이드 첫 줄을 제목으로 모아 Jev 에 한 번 묻는다 — plan 에서만, 제목이 없으면 건너뛴다.
     const titles=stage==="plan"?[...new Set(us.map(u=>typeof u.slideText==="string"?u.slideText.split("\n")[0].trim():"").filter(Boolean))].slice(0,20):[];
-    return await withReservation({account,requestId:input.requestId,digest,reserve,minutes,model:input.model,res,meta},async (signal,store,gens)=>{
+    // v2 계획은 {plan, editorialPlan} 사이드카라 출력이 일반 계획의 약 2배다 — 첫 pilot 에서 120초 상한에 두 번 끊겼다. v2 계획만 145초(무료 Edge 150초 안)로 둔다.
+    return await withReservation({account,requestId:input.requestId,digest,reserve,minutes,model:input.model,res,meta,...(v2&&stage==="plan"?{timeoutMs:145000}:{})},async (signal,store,gens,deadline)=>{
+      // 세션 경로: 분야 분류(Jev)는 대화 이력에 넣지 않는다 — Sol·Luna 호출 전부가 이 예약·deadline 안에서 돌고
+      // 시간이 모자라면 200 pending 으로 넘겨 클라이언트가 같은 단계를 다시 보낸다(최대 3요청은 클라이언트 계약).
+      if(session)return await NoteSession.run({
+        stage,rest,session,sourceLang,options:opts,params,providerOut,outSchema,
+        noteSpecVersion:NoteContract.NOTE_SPEC_VERSION,schemaVersion:c.remoteConfig.schemaVersion,
+        // sol-fork·v2 작성 호출은 같은 접두 P 만 읽는 독립 호출이라 세션 잠금 없이 병렬로 간다 — 접두를 만드는 계획 호출은 잠금을 유지한다.
+        reserve,deadline,signal,fetcher,key:c.key,gens,lock:["sol-fork","sol-luna-2","sol-fork-2"].includes(session.mode)&&stage!=="plan"?async()=>()=>{}:sessionLock,
+        solProviders:upProviders,solRates:[pi,po],
+        luna:session.mode==="sol-luna-tool"?{model:NoteSession.LUNA,up:upstreamOf(NoteSession.LUNA),params:lunaParams,providers:lunaProviders,
+          rates:[lpi,lpo],system,user,
+          cacheFields:cacheModeOf(NoteSession.LUNA)==="openai-explicit"?{prompt_cache_options:{mode:"explicit",ttl:"30m"},prompt_cache_key:`ns:${stage}:${crypto.createHash("sha256").update(session.id).digest("hex").slice(0,32)}`}:{}}:null,
+        store,
+        deps:{boundedResponse,costOf,attemptOf,errCode,finalizeNote,httpDetail,acquire},
+      });
       // 분류는 계획 호출과 병렬로 시작해 계획이 끝난 뒤에만 기다린다 — 지연(자체 5초)·실패는 meta 를 비워 두고
       // 응답·상태·청구액은 그대로다. Jev 비용은 사용자 청구에 더하지 않는다.
       const classifying=titles.length&&c.judgeModels.includes(JEV_MODEL)?(async()=>{
@@ -3616,7 +4002,8 @@ function createServer(env=process.env,deps={}){
             model:upModel,...params,...cacheFields,
             messages:[cachedSystem(input.model,system),cachedUser(input.model,user,stage)],
             response_format:{type:"json_schema",json_schema:{name:"lecture_note_"+stage,strict:true,schema:providerOut}},
-            provider:{only:upProviders,order:upProviders,require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}
+            // v2 표시 요청(sol-luna-2 의 Luna 독립 호출)은 sticky 라우팅을 끄는 order 를 빼고 only 만 둔다(spec 5.2·6).
+            provider:{only:upProviders,...(v2?{}:{order:upProviders}),require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}
           })});
           // detail 은 사용 기록(usage_events.error_code)에만 남는 세부 사유다 — 클라이언트에는 기존 코드만 간다.
           // 4xx 는 라우팅 단계의 거절(파라미터·제공자 없음)이라 생성 비용이 없다 — 첫 시도면 예약을 환불한다.
@@ -3635,40 +4022,19 @@ function createServer(env=process.env,deps={}){
         // 형식 실패(파손·계약 불일치·repair 개수 불일치)만 같은 모델·제공자로 한 번 더 간다 — 돈은 이미 나갔다.
         try{
           if(choice?.finish_reason!=="stop")throw Object.assign(new Error("provider_output_incomplete"),{detail:"incomplete."+String(choice?.finish_reason||"none").toLowerCase().replace(/[^a-z0-9_]/g,"").slice(0,30)});
-          let parsed;try{parsed=parseNote(choice.message.content);}catch{throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_json"});}
-          if(stage==="plan")parsed=NoteContract.canonicalPlanIds(parsed); // 제공자가 id pattern 을 강제하지 않는다 — 검사 전에 C1../S1.. 로 다시 매긴다
-          else parsed=NoteContract.canonicalMapKeys(parsed,rest.section?.sectionId??null); // 지도 노드 키는 n1.. 로, 섹션 안 "B3" 참조는 "S2_B3" 로
-          // 어긋난 블록만 null 로 — 섹션 전체를 버리지 않는다. 비운 블록의 원래 봉투는 salvaged 로 돌려줘 클라이언트가 repair 로 고치게 한다.
-          // salvagedErrors: 비운 블록마다 스키마 오류의 위치와 사유(블록 안 경로 + 메시지, 내용 없음) — 클라이언트가 repair 지시에 그대로 싣는다.
-          // 계획의 W2 선택 칸 기본값은 검증용 복사본에만 채운다 — 모델이 뺐을 때 응답에 null 을 주입하면 구 클라이언트의 strict 스키마가 깨진다.
-          let checked=stage==="plan"?NoteContract.withPlannerDefaults(parsed):parsed;
-          let salvaged=null,salvagedErrors=null;
-          const pre=Contracts.validate(outSchema,checked);
-          if(!pre.ok){
-            const raw=checked;checked=Contracts.salvage(outSchema,checked).value;
-            parsed=checked; // salvage 가 고친 결과를 돌린다 — 계획은 기본값이 채워진 모양이다
-            if(stage==="section"||stage==="repair")for(const [k,v] of Object.entries(raw?.blocks||{}))if(v&&typeof v==="object"&&!Array.isArray(v)&&checked?.blocks?.[k]===null){
-              (salvaged??={})[k]=v;
-              // 패턴 위반은 받은 값의 모양(영문 A·숫자 9·한글 가, 나머지 기호 그대로)을 붙인다 — 내용은 싣지 않고 형식만 보여 준다.
-              (salvagedErrors??={})[k]=pre.errors.filter(e=>e.path.startsWith("/blocks/"+k+"/")).map(e=>{
-                const got=e.message==="패턴과 다릅니다"?e.path.split("/").slice(1).reduce((o,p)=>o?.[p],raw):undefined;
-                return (e.path.slice(k.length+8)+" "+e.message+(typeof got==="string"?" got="+shapeOf(got):"")).slice(0,64);
-              }).slice(0,20);
-            }
-          }
-          const r=Contracts.validate(outSchema,checked);
-          if(!r.ok)throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_schema."+String(r.errors?.[0]?.path||r.errors?.[0]?.keyword||"x").toLowerCase().replace(/[^a-z0-9_.]/g,"_").slice(0,40)});
+          const fin=finalizeNote(stage,choice.message.content,outSchema,rest);
           // 계획 호출이 끝난 뒤에만 분류 결과를 기다린다 — 앞서 병렬로 나간 호출이고 이미 끝났거나 5초 안에 끝난다.
           const classified=classifying?await classifying:null;
           if(classified){meta.subject=classified.subject;meta.subjectConf=classified.conf;}
-          return {amount,reported,attempts:tries,payload:{...(stage==="plan"?{plan:parsed}:{output:parsed}),...(salvaged?{salvaged,salvagedErrors}:{}),usage:{...usage,costUsd:reported?amount:reserve/100},promptVersion:Prompts.PROMPT_VERSIONS[stage]||Prompts.PROMPT_VERSION,schemaVersion:c.remoteConfig.schemaVersion,noteSpecVersion:NoteContract.NOTE_SPEC_VERSION}};
+          return {amount,reported,attempts:tries,payload:{...(stage==="plan"?{plan:fin.parsed}:{output:fin.parsed}),...(fin.salvaged?{salvaged:fin.salvaged,salvagedErrors:fin.salvagedErrors}:{}),usage:{...usage,costUsd:reported?amount:reserve/100},promptVersion:Prompts.PROMPT_VERSIONS[stage]||Prompts.PROMPT_VERSION,schemaVersion:c.remoteConfig.schemaVersion,noteSpecVersion:NoteContract.NOTE_SPEC_VERSION}};
         }catch(error){const t=tries.at(-1);t.status="error";t.error=errCode(error);if(retry===attempts-1)throw error.charged||error.refund?error:Object.assign(error,{code:error.code||"provider_failed_or_invalid_output",charged:{amount,reported,usage}});} // 형식 실패: 보고된 금액만 청구한다
         }
       }catch(e){e.attempts??=tries;throw e;}
     });
   }
   const plan=(input,account,res)=>noteRoute(input,account,res,"plan");
-  const write=(input,account,res)=>["section","global","repair","link","questions","draft"].includes(input.stage)?noteRoute(input,account,res,input.stage):fail(res,"invalid_model_or_stage");
+  // review: v2 모드의 통합 편집 검수 단계(link 를 대체한다 — 두 v2 모드에서는 link 를 돌리지 않는다).
+  const write=(input,account,res)=>["section","global","repair","link","questions","draft","review"].includes(input.stage)?noteRoute(input,account,res,input.stage):fail(res,"invalid_model_or_stage");
   // handle 은 런타임과 무관한 요청 처리기다. 로컬은 http 서버가, 배포는 supabase/functions/api 의 Deno 어댑터가 같은 함수를 부른다.
   const handle=async(req,res)=>{
     try{
@@ -3729,8 +4095,8 @@ function createServer(env=process.env,deps={}){
       if(req.url==="/v1/vision"&&req.method==="POST")return await vision(await body(req,2200000),who,res);
       if(req.url==="/v1/stt"&&req.method==="POST")return await stt(await body(req,17000000),who,res);
       if(req.url==="/v1/judge"&&req.method==="POST")return await judge(await body(req,70000),who,res);
-      if(req.url==="/v1/plan"&&req.method==="POST")return await plan(await body(req,512*1024),who,res);
-      if(req.url==="/v1/write"&&req.method==="POST")return await write(await body(req,256*1024),who,res);
+      if(req.url==="/v1/plan"&&req.method==="POST")return await plan(await body(req,SESSION_BODY,512*1024),who,res);
+      if(req.url==="/v1/write"&&req.method==="POST")return await write(await body(req,SESSION_BODY,256*1024),who,res);
       fail(res,"not_found");
     }catch(e){fail(res,e&&e.message==="request_too_large"?"request_too_large":"request_rejected");}
   };
@@ -3743,6 +4109,56 @@ function createServer(env=process.env,deps={}){
 const repetitive=t=>{if(typeof t!=="string"||t.length<2000)return false;const tail=t.slice(-4000),parts=[];for(let i=0;i+40<=tail.length;i+=40)parts.push(tail.slice(i,i+40));return new Set(parts).size/parts.length<0.5;};
 // id 처럼 생긴 짧은 값(영문 1~3자 + 숫자, 기호 _ - / .)은 글자를 그대로 둔다 — 강의 내용이 아니라 어느 형식을 썼는지가 보여야 고칠 수 있다.
 const shapeOf=v=>/^[A-Za-z]{1,3}[0-9]{0,4}([_\-/.][A-Za-z]{0,3}[0-9]{0,4}){0,2}$/.test(v)?v.slice(0,24):v.slice(0,24).replace(/[A-Za-z]/g,"A").replace(/[0-9]/g,"9").replace(/[가-힣]/g,"가").replace(/A+/g,"A").replace(/9+/g,"9").replace(/가+/g,"가");
+// v2 편집 계획(editorialPlan)의 ID 교차 검사 — 계획·근거·asset 에 없는 참조는 거절한다(사이드카 실패는 조용히 떨구지 않는다).
+// glossary·owns·referencesOnly 는 계획 개념, sectionId·prerequisiteSectionIds 는 계획 섹션, learningItemIds 는 계획 학습 항목,
+// evidenceIds 는 입력 유닛(U# 또는 그 유닛의 U#.s#/t#/g# 근거 id), visuals.assetIds 는 입력·계획의 도표 id 에 닫는다.
+const checkEditorialRefs=(plan,ed,rest)=>{
+  if(!ed||typeof ed!=="object")throw Object.assign(new Error("invalid_note_output"),{detail:"editorial_plan_missing"});
+  const secs=new Set((plan?.sections||[]).map(s=>s?.sectionId)),items=new Set((plan?.learningItems||[]).map(i=>i?.itemId)),
+    concepts=new Set((plan?.concepts||[]).map(x=>x?.conceptId)),units=new Set((rest?.ir?.units||[]).map(u=>u?.unitId)),
+    assets=new Set([...(rest?.figures||[]).map(f=>f?.id),...(plan?.sections||[]).flatMap(s=>(s?.blocks||[]).flatMap(b=>b?.figureIds||[]))]);
+  const bad=()=>{throw Object.assign(new Error("invalid_note_output"),{detail:"editorial_plan_refs"});};
+  const all=(a,set)=>{for(const v of a||[])if(typeof v!=="string"||!set.has(v))bad();};
+  const ev=a=>{for(const v of a||[])if(typeof v!=="string"||!(units.has(v)||units.has(v.split(".")[0])))bad();};
+  for(const g of ed.glossary||[]){all([g?.conceptId],concepts);ev(g?.evidenceIds);}
+  for(const s of ed.sections||[]){
+    all([s?.sectionId],secs);all(s?.learningItemIds,items);all(s?.prerequisiteSectionIds,secs);all(s?.owns,concepts);all(s?.referencesOnly,concepts);
+    for(const m of s?.mustExplain||[])all(m?.learningItemIds,items);
+    for(const v of s?.visuals||[]){all(v?.learningItemIds,items);all(v?.assetIds,assets);ev(v?.evidenceIds);}
+  }
+};
+// 모델 응답 문자열 → 계약 출력: 파싱(unmangle)·id 정규화·salvage·strict 검사. 독립 호출 경로와 noteSession
+// 세션 경로가 같은 규칙을 쓴다 — 검증이 서버 로컬이므로 업스트림 strict 강제가 없어도 출력 계약은 같다.
+const finalizeNote=(stage,content,outSchema,rest)=>{
+  let parsed;try{parsed=parseNote(content);}catch{throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_json"});}
+  // v2 계획 사이드카: 출력은 {plan, editorialPlan} — plan 부분만 기존 정규화·기본값을 거치고
+  // editorialPlan 은 스키마 검증 뒤 plan·입력 자료와의 ID 교차 검증을 한다.
+  const sidecar=stage==="plan"&&outSchema?.properties?.editorialPlan!==undefined;
+  if(stage==="plan")parsed=sidecar?{plan:NoteContract.canonicalPlanIds(parsed?.plan),editorialPlan:parsed?.editorialPlan}:NoteContract.canonicalPlanIds(parsed); // 제공자가 id pattern 을 강제하지 않는다 — 검사 전에 C1../S1.. 로 다시 매긴다
+  else parsed=NoteContract.canonicalMapKeys(parsed,rest.section?.sectionId??null); // 지도 노드 키는 n1.. 로, 섹션 안 "B3" 참조는 "S2_B3" 로
+  // 계획의 W2 선택 칸 기본값은 검증용 복사본에만 채운다 — 모델이 뺐을 때 응답에 null 을 주입하면 구 클라이언트의 strict 스키마가 깨진다.
+  let checked=sidecar?{...parsed,plan:NoteContract.withPlannerDefaults(parsed.plan)}:stage==="plan"?NoteContract.withPlannerDefaults(parsed):parsed;
+  let salvaged=null,salvagedErrors=null;
+  const pre=Contracts.validate(outSchema,checked);
+  if(!pre.ok){
+    const raw=checked;checked=Contracts.salvage(outSchema,checked).value;
+    parsed=checked; // salvage 가 고친 결과를 돌린다 — 계획은 기본값이 채워진 모양이다
+    // 어긋난 블록만 null 로 — 섹션 전체를 버리지 않는다. 비운 블록의 원래 봉투는 salvaged 로 돌려줘 클라이언트가 repair 로 고치게 한다.
+    // salvagedErrors: 비운 블록마다 스키마 오류의 위치와 사유(블록 안 경로 + 메시지, 내용 없음) — 클라이언트가 repair 지시에 그대로 싣는다.
+    if(stage==="section"||stage==="repair")for(const [k,v]of Object.entries(raw?.blocks||{}))if(v&&typeof v==="object"&&!Array.isArray(v)&&checked?.blocks?.[k]===null){
+      (salvaged??={})[k]=v;
+      // 패턴 위반은 받은 값의 모양(영문 A·숫자 9·한글 가, 나머지 기호 그대로)을 붙인다 — 내용은 싣지 않고 형식만 보여 준다.
+      (salvagedErrors??={})[k]=pre.errors.filter(e=>e.path.startsWith("/blocks/"+k+"/")).map(e=>{
+        const got=e.message==="패턴과 다릅니다"?e.path.split("/").slice(1).reduce((o,p)=>o?.[p],raw):undefined;
+        return (e.path.slice(k.length+8)+" "+e.message+(typeof got==="string"?" got="+shapeOf(got):"")).slice(0,64);
+      }).slice(0,20);
+    }
+  }
+  const r=Contracts.validate(outSchema,checked);
+  if(!r.ok)throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_schema."+String(r.errors?.[0]?.path||r.errors?.[0]?.keyword||"x").toLowerCase().replace(/[^a-z0-9_.]/g,"_").slice(0,40)});
+  if(sidecar)checkEditorialRefs(checked.plan,checked.editorialPlan,rest);
+  return{parsed,salvaged,salvagedErrors};
+};
 // 모델이 빠뜨린 필드를 채우지 않는다 — 없는 값은 없는 대로 두고 계약 검사가 걸러낸다.
 const clamp01=x=>Number.isFinite(x)?Math.min(1,Math.max(0,x)):x;
 const box=b=>b!==null&&typeof b==="object"&&!Array.isArray(b)?{x:clamp01(b.x),y:clamp01(b.y),w:clamp01(b.w),h:clamp01(b.h)}:b;
@@ -4093,12 +4509,386 @@ const UNMANGLE=[
 const unmangle=s=>UNMANGLE.reduce((acc,[re,rep])=>acc.replace(re,rep),s);
 const parseNote=text=>JSON.parse(text,(_,v)=>typeof v==="string"?unmangle(v):v);
 // 공급자가 응답 usage 에 실어 주는 프롬프트 캐시 상세를 한 모양으로 정규화한다.
-// OpenAI·Gemini 계열은 prompt_tokens_details.cached_tokens, Anthropic 은 cache_read_input_tokens·cache_creation_input_tokens,
+// OpenAI·Gemini 계열은 prompt_tokens_details.cached_tokens(Chat)·input_tokens_details.cached_tokens(Responses)와
+// 같은 칸 안의 cache_write_tokens, Anthropic 은 cache_read_input_tokens·cache_creation_input_tokens,
 // DeepSeek 계열은 prompt_cache_hit_tokens 를 돌려준다. 미보고는 null 이다 — 보고된 0(miss)과 구분해야 hit ratio 분모가 오염되지 않는다.
-const cacheOf=u=>{const num=v=>Number.isFinite(v)&&v>=0?Math.floor(v):null,d=u?.prompt_tokens_details;
-  return {cached_input_tokens:num(d?.cached_tokens)??num(u?.cache_read_input_tokens)??num(u?.prompt_cache_hit_tokens),
-    cache_write_tokens:num(u?.cache_creation_input_tokens)??num(u?.cache_write_tokens)};};
+const cacheOf=u=>{const num=v=>Number.isFinite(v)&&v>=0?Math.floor(v):null,
+  ds=[u?.prompt_tokens_details,u?.input_tokens_details],pick=k=>{for(const d of ds){const v=num(d?.[k]);if(v!==null)return v;}return null;};
+  return {cached_input_tokens:pick("cached_tokens")??num(u?.cache_read_input_tokens)??num(u?.prompt_cache_hit_tokens),
+    cache_write_tokens:pick("cache_write_tokens")??num(u?.cache_creation_input_tokens)??num(u?.cache_write_tokens)};};
 module.exports={MODELS,upstreamOf,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cachedSystem,cachedUser,cacheModeOf,parseNote,cacheOf};
+
+},
+"server/note-session.js": function (module, exports, require, __filename, __dirname) {
+// noteSession 실험 경로 — /v1/plan·/v1/write 봉투의 선택 칸 noteSession={v:1,id,mode,history}.
+// 클라이언트(확장 작업 메모리)가 대화 이력을 들고 다니고 서버는 무상태다:
+// OpenRouter /v1/responses 는 store:false 가 고정이라 previous_response_id 를 거절하고 input 전체를 다시 받는다.
+// GPT-6.1 Sol 은 tool calling 에 Responses API 만 지원한다(공식 function-calling) — 세션 호출은 전부 /v1/responses.
+//   sol-session   : Sol 이 계획+모든 작성 단계를 직접 쓴다.
+//   sol-luna-tool : 계획은 Sol, 작성 단계는 write_note 함수 호출로 Luna High 에 위임한다.
+//                   서버는 도구 호출을 '현재 검증된 요청'에 묶어 실행하고 Luna 결과를 function_call_output 으로
+//                   돌려준 뒤 Sol 의 최종 출력을 받는다. Sol 의 arguments 로는 라우팅하지 않는다.
+//   sol-fork      : 계획은 sol-session 과 같다. plan 응답 이력이 고정 공유 접두 P 가 되고, 작성 단계는
+//                   developer+P+그 호출의 작업만 input 으로 보내는 독립 호출이다 — 성공 응답의 history 는 P 그대로
+//                   (이 단계의 턴을 붙이지 않는다)라 입력이 단계 수와 무관하게 일정하고, 같은 P 의 작성 호출은
+//                   세션 잠금 없이 병렬로 간다. 이어 보내기(pending·실패 재개)만 P+자기 턴을 그 호출에 다시 쓴다.
+// 이력은 [user task(서버 생성·단계마다 정확히 한 번), 공급자 출력 아이템(reasoning·message·function_call),
+// function_call_output]의 append-only 열이다 — 다음 요청의 input 은 앞 요청 input 의 정확한 접두 확장이어야
+// 프롬프트 캐시가 붙는다(공식: 대화 이력 append-only 보존). 꼬리가 단계 연속 상태를 담는다:
+//   user 꼬리=작업 턴 미응답 → Sol 호출 재개. function_call 꼬리=도구 실행 대기. function_call_output 꼬리=최종 답 대기.
+// 요청 시간 예산(공유 c.timeout)에 남은 단계를 못 마치면 200 {pending:true,noteSession,...} 을 돌려주고
+// 클라이언트는 같은 stage·본문을 최신 history·새 requestId(-sN, 최대 3회)로 이어 보낸다 — Sol→Luna→Sol
+// 3회 완료를 가정하지 않고, pending 응답은 output/plan 으로 검증·캐시하지 않는다.
+const LLM=require("./llm.js"),Prompts=require("./prompts.js");
+const SOL="openai/gpt-6.1-sol",LUNA="openai/gpt-6-luna@high",TOOL="write_note";
+//   sol-luna-2    : 계획·통합 검수(review)·전역·선택 수정은 Sol 이 고정 접두 P 를 이어 쓰고, draft·questions 는
+//                   noteSession 없는 독립 Luna High 요청이다(서버가 단계→모델 표를 강제한다).
+//   sol-fork-2    : 모든 단계가 Sol. 계획 응답 이력 끝의 고정 앵커가 P 의 끝 — 작성 호출은 P+자기 작업만 보낸다.
+const MODES=["sol-session","sol-luna-tool","sol-fork","sol-luna-2","sol-fork-2"];
+const V2=["sol-luna-2","sol-fork-2"];
+const RESPONSES_ENDPOINT="https://openrouter.ai/api/v1/responses",CHAT_ENDPOINT="https://openrouter.ai/api/v1/chat/completions";
+const ID_RE=/^[A-Za-z0-9][A-Za-z0-9_-]{7,63}$/;
+// v2 공유 접두 P 의 끝을 표시하는 고정 user/input_text 앵커 — 텍스트가 모든 호출에서 바이트로 같아야 캐시 경계가 일정하다.
+// 텍스트·breakpoint 를 건드린 변조 앵커는 앵커가 아니라 외부 user 턴으로 읽혀 validate 가 거절한다.
+const ANCHOR_TEXT="v2-prefix-anchor — 이 메시지까지가 공유 접두이고 그 아래가 이 호출의 작업이다";
+const anchorItem=()=>({role:"user",content:[{type:"input_text",text:ANCHOR_TEXT,prompt_cache_breakpoint:{mode:"explicit"}}]});
+const isAnchor=it=>!!it&&it.role==="user"&&Array.isArray(it.content)&&it.content.length===1
+  &&it.content[0].type==="input_text"&&it.content[0].text===ANCHOR_TEXT&&it.content[0].prompt_cache_breakpoint?.mode==="explicit";
+// 이력 상한: 항목 수·항목별 문자열·직렬화 총량 모두 제한한다 — 경계 없는 이력은 요청 본문 상한으로도 못 막는 누적이 된다.
+// 이력은 단계마다 작업(근거 전부 포함)과 출력이 쌓여 단계 수에 비례해 커진다 — 첫 실측(2026-10-07)에서 384KB 상한이 3~5번째 섹션에서 걸려
+// 노트가 413 으로 얇아졌다. 클라이언트 상한(512 항목)과 맞추고 바이트는 본문 상한(index.js 세션 요청 4MB) 아래로 둔다.
+const MAX_ITEMS=512,ITEM_STR=200000,MAX_BYTES=3*1024*1024;
+// 한 요청 안에서 다음 제공자 호출을 시작하는 최소 남은 시간 — 못 미치면 그 단계는 pending 으로 다음 요청에 넘긴다.
+const MIN_LEFT_MS=12000;
+const REJ="request_rejected",TOOL_STAGES=["section","global","repair","link","questions","draft"];
+const plain=x=>x!==null&&typeof x==="object"&&!Array.isArray(x);
+const str=(v,n)=>typeof v==="string"&&v.length<=n;
+const textArr=(a,types,n)=>Array.isArray(a)&&a.length<=n&&a.every(p=>plain(p)&&typeof p.text==="string"&&p.text.length<=ITEM_STR&&types.includes(p.type));
+// 이력에는 서버가 만든 user 작업(우리가 붙여 돌려준 것을 클라이언트가 그대로 돌려보낸다)과 공급자 출력
+// 아이템만 온다 — 클라이언트가 넣은 system·developer 지시는 주입이라 받지 않는다.
+// 모양 검사는 경계(키 화이트리스트·길이)에만 두고 내용은 읽지 않는다 — 서버는 이력을 저장하지도 해석하지도 않는다.
+function itemOk(it,mode){
+  if(!plain(it)||typeof it.type!=="string"&&typeof it.role!=="string")return false;
+  // 서버 생성 작업 메시지 — role 이 user 면 공급자 출력이 아니라 우리 task 다. 본문은 input_text 블록(들)과
+  // 그 블록의 prompt_cache_breakpoint 를 허용한다 — 재생될 때 그대로 돌아가야 이전 턴 캐시 경계가 유지된다.
+  if(it.role==="user")return (typeof it.content==="string"?it.content.length<=ITEM_STR:
+      Array.isArray(it.content)&&it.content.length<=4&&it.content.every(p=>plain(p)&&p.type==="input_text"&&str(p.text,ITEM_STR)
+        &&(p.prompt_cache_breakpoint===undefined||plain(p.prompt_cache_breakpoint)&&p.prompt_cache_breakpoint.mode==="explicit")
+        &&Object.keys(p).every(k=>["type","text","prompt_cache_breakpoint"].includes(k))))
+    &&(it.type===undefined||it.type==="message")&&Object.keys(it).every(k=>["role","content","type"].includes(k));
+  if(it.role!==undefined&&it.type===undefined)return false; // type 없는 role 전용 아이템은 우리 형식이 아니다
+  switch(it.type){
+    case "reasoning":
+      return str(it.id,256)&&Object.keys(it).every(k=>["type","id","summary","content","encrypted_content","format","status","signature"].includes(k))
+        &&(it.summary==null||textArr(it.summary,["summary_text"],8))
+        &&(it.content==null||textArr(it.content,["reasoning_text"],40))
+        &&(it.encrypted_content==null||str(it.encrypted_content,ITEM_STR))
+        &&(it.status==null||["completed","incomplete","in_progress"].includes(it.status))
+        &&(it.format==null||str(it.format,64))&&(it.signature==null||str(it.signature,ITEM_STR));
+    case "message":
+      return it.role==="assistant"&&Object.keys(it).every(k=>["type","id","role","status","content","phase"].includes(k))
+        &&(it.id==null||str(it.id,256))&&(it.status==null||str(it.status,32))
+        &&(it.phase==null||["commentary","final_answer"].includes(it.phase))
+        &&(typeof it.content==="string"?it.content.length<=ITEM_STR:textArr(it.content,["output_text","refusal"],40));
+    case "function_call":
+      return mode==="sol-luna-tool"&&it.name===TOOL&&str(it.call_id,128)&&str(it.arguments,ITEM_STR)
+        &&Object.keys(it).every(k=>["type","id","call_id","name","arguments","status"].includes(k))
+        &&(it.id==null||str(it.id,256))&&(it.status==null||str(it.status,32));
+    case "function_call_output":
+      return mode==="sol-luna-tool"&&str(it.call_id,128)&&typeof it.output==="string"&&it.output.length<=ITEM_STR
+        &&Object.keys(it).every(k=>["type","id","call_id","output","status"].includes(k))
+        &&(it.id==null||str(it.id,256))&&(it.status==null||str(it.status,32));
+    default:return false;
+  }
+}
+// 서버 작업 아이템의 stage 칸만 읽는다(input·outputSchema 같은 작업 본문은 읽지 않는다) — sol-fork 접두 검사용.
+const taskStage=it=>{try{
+  const p=Array.isArray(it.content)?it.content[0]:null,t=p?p.text:typeof it.content==="string"?it.content:null,j=t&&JSON.parse(t);
+  return j&&typeof j.stage==="string"?j.stage:null;}catch{return null;}};
+// 봉투 검증 — 실패는 오류를 던지지 않고 {error:"<code>"} 를 돌려 라우트가 fail() 로 접는다.
+// function_call_output 은 앞선 function_call 의 call_id 와 짝이어야 한다(미답 도구 호출 위조 방지).
+function validate(ns,stage){
+  if(!plain(ns)||ns.v!==1||!ID_RE.test(ns.id)||!MODES.includes(ns.mode)||!Array.isArray(ns.history))return{error:REJ};
+  const h=ns.history;
+  if(h.length>MAX_ITEMS||Buffer.byteLength(JSON.stringify(h))>MAX_BYTES)return{error:"request_too_large"};
+  const ids=new Set;
+  for(const it of h){
+    if(!itemOk(it,ns.mode))return{error:REJ};
+    if(it.type==="function_call")ids.add(it.call_id);
+    if(it.type==="function_call_output"&&!ids.has(it.call_id))return{error:REJ};
+  }
+  const tail=h[h.length-1],tailKind=!tail?"":tail.role==="user"?"user":tail.type;
+  if(tailKind==="reasoning")return{error:REJ}; // 턴 중간 절단 — 이어 붙일 상태가 아니다
+  if(!h.length&&stage!=="plan")return{error:REJ}; // 세션은 계획 호출로 시작한다
+  if(stage==="plan"&&h.length&&!["message","user"].includes(tailKind))return{error:REJ}; // 계획은 도구 단계를 다시 열지 않는다
+  // sol-fork 작성 단계의 history 는 고정 접두 P 이거나 P+이 호출 자신의 턴(미응답 작업·부분 항목)이다.
+  // P: 첫 user 아이템(index 0)이 유일한 서버 생성 plan 작업이고 꼬리가 plan 의 마지막 assistant message 다 —
+  // 실패한 계획(꼬리가 작업), 다른 단계의 턴, 두 번째 plan 작업이 섞인 이력은 접두가 아니다.
+  // 두 번째 user 아이템부터가 자기 턴이다 — 이 단계의 작업 하나만 온다(그 호출에만 다시 쓰는 이어 보내기).
+  if(ns.mode==="sol-fork"&&stage!=="plan"){
+    const users=[];for(let i=0;i<h.length;i++)if(h[i].role==="user")users.push(i);
+    if(users[0]!==0||taskStage(h[0])!=="plan"||users.length>2)return{error:REJ};
+    const own=users.length>1?users[1]:h.length,ptail=h[own-1];
+    if(ptail.type!=="message"||ptail.role!=="assistant")return{error:REJ};
+    if(own<h.length&&taskStage(h[own])!==stage)return{error:REJ};
+  }
+  // v2 모드는 구 sol-fork 의 '두 번째 user' 휴리스틱을 쓰지 않는다 — P 의 끝은 고정 앵커 하나다.
+  // 계획 이력에 앵커가 있으면 안 되고(앵커는 계획 응답에서만 생긴다), 작성 이력은 P+자기 턴:
+  //   P = plan 작업(0번) + plan 의 공급자 출력(앵커 앞은 assistant message 로 끝나는 완료 턴) + 앵커 정확히 하나.
+  //   앵커 누락·중복·변조(=isAnchor 불일치), P 안의 다른 user 턴, 앵커 뒤의 두 번째 작업·이미 끝난 턴은 거절.
+  if(V2.includes(ns.mode)){
+    const marks=[];for(let i=0;i<h.length;i++)if(isAnchor(h[i]))marks.push(i);
+    if(stage==="plan"){
+      if(marks.length)return{error:REJ};
+      for(let i=0;i<h.length;i++)if(h[i].role==="user"&&taskStage(h[i])!=="plan")return{error:REJ};
+    }else{
+      if(marks.length!==1||marks[0]<2)return{error:REJ};
+      const anchor=marks[0],ptail=h[anchor-1];
+      if(ptail.type!=="message"||ptail.role!=="assistant")return{error:REJ};
+      const users=[];for(let i=0;i<h.length;i++)if(h[i].role==="user"&&!isAnchor(h[i]))users.push(i);
+      if(users[0]!==0||taskStage(h[0])!=="plan"||users.length>2||users.some(i=>i>0&&i<anchor))return{error:REJ};
+      if(users.length>1){
+        if(taskStage(h[users[1]])!==stage)return{error:REJ};
+        if(h.at(-1).type==="message"&&h.at(-1).role==="assistant")return{error:REJ}; // 완료된 자기 턴의 재전송
+      }else if(anchor!==h.length-1)return{error:REJ}; // 작업 없이 앵커 뒤에 잔여 아이템
+    }
+  }
+  return{v:1,id:ns.id,mode:ns.mode,history:h};
+}
+// 꼬리 상태가 다음 동작을 정한다 — 명시적 단계 연속 상태다.
+const tailState=h=>{const t=h[h.length-1];
+  if(!t||t.type==="message")return{kind:"new"}; // 첫 턴이거나 앞 턴 완료 — 새 작업을 이력에 한 번 추가한다
+  if(t.role==="user")return{kind:"task"}; // 작업 턴 미응답 — 이력 그대로 Sol 호출을 재개한다
+  if(t.type==="function_call"&&t.name===TOOL)return{kind:"tool",call:t};
+  if(t.type==="function_call_output")return{kind:"final"};
+  return{kind:"bad"};};
+// 세션 공용 안정 지시 — 모든 호출이 같은 developer 블록으로 시작해 접두 캐시가 붙는다.
+// 단계 지시는 계약 순서로 한 번만 나열하고, 영어 강의 규칙(근거가 영어일 때만 의미가 있다)은 두 언어 공통으로
+// 얹는다 — plan 요청에는 sourceLang 이 없으므로 요청마다 지시가 갈리면 접두가 깨진다. 언어는 작업 안 sourceLang 칸이 알린다.
+const STAGE_ORDER=["plan","section","draft","repair","global","link","questions"];
+const PREAMBLE=[
+  "이 대화는 강의 노트 생성 작업 하나를 정해진 단계 순서로 진행한다. 각 사용자 메시지는 한 단계의 작업이고 {stage, sourceLang?, input, outputSchema} 모양의 JSON이다 — 아래 규칙 중 해당 단계(stage)의 지시를 따르고, 응답은 작업의 outputSchema 를 만족하는 JSON 객체 하나로 답한다.",
+  "write_note 도구가 보이면 그 단계 본문 작성을 그 도구로 위임한다.",
+].join("\n");
+const systemFor=options=>[PREAMBLE,...STAGE_ORDER.map(s=>Prompts.systemFor(s,options,"en"))].join("\n\n---\n\n");
+// v2 모드의 고정 developer 지시 — 짧게 고정하고 단계별 지시·스키마는 일회성 작업(suffix)에 싣는다(spec 5.1).
+// 앵커가 P 의 끝이다 — 앵커 아래 작업이 이 호출의 유일한 작업이고 일회성 suffix 에는 breakpoint 를 두지 않는다.
+const V2_DEV=[
+  "이 대화는 강의 노트 생성의 고정 계획 접두다. 마지막 사용자 메시지의 고정 앵커(v2-prefix-anchor)가 접두의 끝을 표시한다.",
+  "앵커 아래의 사용자 메시지가 이번 호출의 작업이다 — {stage, instruction, input, outputSchema} 모양의 JSON 이다. 작업의 instruction 지시를 따르고 outputSchema 를 만족하는 JSON 객체 하나로 답한다.",
+].join("\n");
+// 서버 생성 작업 — 단계 입력과 그 단계의 출력 스키마(제공자용 슬림판)를 함께 싣는다. text.format 은 모든 턴
+// json_object 로 고정하므로 단계마다 스키마가 갈리는 엄격 강제는 클라이언트 측 로컬 검증이 그대로 담당한다.
+// 작업은 native input_text 블록 + explicit breakpoint — developer 단독 중단점으로는 대화가 캐시되지 않는다.
+// 이 아이템은 이력에 그대로 보존·재생된다(이전 턴 메타데이터·본문 재작성 금지) — 다음 턴 input 의 캐시 경계다.
+// bp=false 면 breakpoint 를 싣지 않는다 — v2 의 일회성 작업 suffix 는 캐시 경계가 아니다(앵커가 P 의 경계).
+const taskItem=(stage,rest,sourceLang,providerOut,instruction,bp)=>({role:"user",content:[{type:"input_text",
+  text:JSON.stringify({stage,...(sourceLang?{sourceLang}:{}) ,input:rest,...(instruction?{instruction}:{}) ,outputSchema:providerOut}),
+  ...(bp===false?{}:{prompt_cache_breakpoint:{mode:"explicit"}})}]});
+const toolOutput=(callId,output)=>({type:"function_call_output",call_id:callId,output});
+const TOOL_DEF={type:"function",name:TOOL,strict:true,
+  description:"현재 단계의 노트 본문 작성을 작성 모델에 위임하고 결과 JSON 을 받는다. 입력 자료는 이미 이 대화와 작업의 outputSchema 에 있다 — stage 만 확인하고 호출한다.",
+  parameters:{type:"object",properties:{stage:{type:"string",enum:TOOL_STAGES,description:"위임할 작성 단계"}},required:["stage"],additionalProperties:false}};
+// 응답에서 공급자 아이템·도구 호출·본문을 꺼낸다 — 알 수 없는 유형의 function_call 은 우리 도구가 아니다.
+function extract(raw){
+  const items=(raw.output||[]).filter(plain);
+  const calls=items.filter(i=>i.type==="function_call"&&i.name===TOOL);
+  const alien=items.filter(i=>i.type==="function_call"&&i.name!==TOOL);
+  const text=typeof raw.output_text==="string"&&raw.output_text?raw.output_text:
+    items.filter(i=>i.type==="message").map(i=>typeof i.content==="string"?i.content:(Array.isArray(i.content)?i.content:[]).map(p=>p&&p.type==="output_text"?p.text||"":"").join("")).join("\n");
+  return{items,calls,alien,text,status:raw.status||"completed",reason:raw.incomplete_details?.reason||null};
+}
+// 이력에 싣는 건 공급자 출력 아이템 그대로다 — 알려진 키만 투사해 부가 필드가 다음 요청을 깨지 않게 한다.
+const KEEP={reasoning:["type","id","summary","content","encrypted_content","format","status","signature"],message:["type","id","role","status","content","phase"],function_call:["type","id","call_id","name","arguments","status"]};
+const keepItem=i=>{const ks=KEEP[i?.type];if(!ks)return null;const o={};for(const k of ks)if(i[k]!==undefined)o[k]=i[k];return o;};
+// Sol(Responses) 요청 본문 — 공식 확인된 유일한 tool calling 경로다. provider.order 는 sticky 라우팅을 꺼서 쓰지 않고
+// session_id 로 같은 세션을 같은 제공자에 붙인다. zdr·data_collection:"deny" 는 둘 다 유지한다(서로 대체가 아니다).
+// text.format 은 모든 턴 json_object — 단계 스키마는 작업 안에 있어 호출 사이 접두가 갈리지 않는다.
+// tools 정의는 모드 안에서 모든 턴 동일하고, 호출 강제(tool_choice)만 단계 위치마다 바꾼다:
+// 위임 턴=write_note 강제, 계획·최종 답 턴=none — 최종 호출에 강제를 두면 도구 호출이 무한 반복된다.
+// seed·parallel_tool_calls 는 싣지 않는다 — seed 는 OpenRouter Responses 요청 스키마에 없는 chat 전용 칸이라
+// 업스트림이 400 으로 거절하고, parallel_tool_calls 는 Sol 엔드포인트의 supported_parameters 에 없어
+// require_parameters 가 전부 걸러 404(no_endpoints)가 된다(2026-10-07 실 라이브 측정). 호출 강제는 tool_choice
+// 하나로 충분하고 도구 응답이 하나뿐이라 병렬 허용 칸은 의미가 없다.
+function solBody({stage,system,items,params,providers,session,mode,choice}){
+  const body={model:SOL,store:false,
+    input:[{role:"developer",content:[{type:"input_text",text:system,prompt_cache_breakpoint:{mode:"explicit"}}]},...items],
+    reasoning:{...(params.reasoning||{}),context:"all_turns"},
+    include:["reasoning.encrypted_content"],
+    prompt_cache_options:{mode:"explicit",ttl:"30m"},
+    max_output_tokens:params.max_tokens,
+    text:{format:{type:"json_object"}},
+    session_id:session.id,
+    provider:{only:providers,require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}};
+  if(mode==="sol-luna-tool"){body.tools=[TOOL_DEF];body.tool_choice=choice;}
+  return body;
+}
+// 세션 경로의 제공자 4xx — 업스트림 오류 봉투의 code·type·param 칸만 살균해 detail 에 붙인다.
+// message·요청 에코·본문은 절대 싣지 않는다: 각 칸은 [a-z0-9_.-] ≤24자로 자르고, HTTP 상태 숫자와
+// 같은 값(code:404 같은)은 중복이라 뺀다. 4xx 본문은 작으니 8KiB 안에 읽는다.
+const cleanPart=(v,status)=>{
+  if(typeof v!=="string"&&typeof v!=="number")return"";
+  const s=String(v).toLowerCase().replace(/[^a-z0-9_.-]+/g,"_").replace(/^[^a-z0-9]+|[^a-z0-9]+$/g,"").slice(0,24);
+  return s&&s!==String(status)?s:"";
+};
+const upstreamDetail=async(h,response)=>{
+  const base=h.httpDetail(response),st=response.status;
+  if(!(st>=400&&st<500))return base;
+  let env=null;try{env=await h.boundedResponse(response,8192);}catch{}
+  const e=env&&env.error;
+  if(!e||typeof e!=="object")return base;
+  const extra=[e.code,e.type,e.param].map(v=>cleanPart(v,st)).filter(Boolean).join(".").slice(0,72);
+  return extra?base+"."+extra:base;
+};
+// 한 요청의 단계 오케스트레이션 — Sol·Luna 호출 전부가 같은 예약·타임아웃·시도 기록 안에서 돈다.
+// ctx: {stage,rest,session,sourceLang,options,params,providerOut,outSchema,noteSpecVersion,schemaVersion,reserve,deadline,signal,fetcher,key,gens,lock,
+//       solProviders,solRates,luna:{model,up,params,providers,rates,system,user,cacheFields},deps:{boundedResponse,costOf,attemptOf,errCode,finalizeNote,httpDetail}}
+async function run(ctx){
+  const {stage,rest,session}=ctx,h=ctx.deps,mode=session.mode,v2=V2.includes(mode);
+  // v2 모드는 고정된 짧은 지시(V2_DEV)가 developer 접두다 — 전 단계 지시를 이어붙인 systemFor 는 쓰지 않는다.
+  const system=v2?V2_DEV:systemFor(ctx.options),history=[...session.history],tries=[],usage={promptTokens:0,completionTokens:0};
+  // sol-fork 작성 호출의 고정 접두 P: 들어온 history 의 두 번째 user(이 호출 자신의 작업) 앞까지다.
+  // 성공 응답의 history 는 이 P 를 그대로 돌려준다 — 이 단계의 턴은 접두에 붙지 않아 입력 크기가 단계 수와 무관하게 일정하다.
+  let prefix=null;
+  if(mode==="sol-fork"&&stage!=="plan"){const i=session.history.findIndex((it,j)=>j>0&&it.role==="user");prefix=i<0?session.history:session.history.slice(0,i);}
+  // v2 작성 호출의 고정 접두 P: 들어온 이력에서 고정 앵커(포함)까지다 — 클라이언트 길이 힌트가 아니라 앵커로 찾는다.
+  if(v2&&stage!=="plan"){const i=history.findIndex(isAnchor);if(i<0)throw Object.assign(new Error("invalid_note_output"),{detail:"prefix_anchor_missing"});prefix=history.slice(0,i+1);}
+  // continuation — v2 는 앵커 아래 구간(이 호출의 자기 턴), 그 외는 이력 전체. 꼬리 상태 판정은 이 구간에서 한다.
+  const cont=()=>prefix?history.slice(prefix.length):history;
+  let amount=0,reported=true;
+  // 시도별 행의 실제 호출 식별 — 응답이 provider·model 을 싣지 않으면 미보고 null(추정하지 않는다).
+  const tag=(raw,m)=>({model:typeof raw?.model==="string"?raw.model:m,provider:typeof raw?.provider==="string"?raw.provider.slice(0,64):null,stage:stage==="plan"?"plan":"write."+stage});
+  const snap=()=>({v:1,id:session.id,mode,history});
+  // 과금 확정·세션 첨부 — 중간 실패도 이력을 돌려줘야 클라이언트가 같은 단계로 이어서 마칠 수 있다.
+  // 코드 없는 세션 실패(출력 계약 위반·사이드카 거절 등)는 독립 경로와 같은 provider_failed_or_invalid_output 으로 접는다.
+  const failed=e=>{e.charged??={amount,reported,usage};e.session??=snap();e.code??="provider_failed_or_invalid_output";return e;};
+  const charge=e=>{throw failed(e);};
+  // 단계 오류 — detail(세부 사유)만 싣는다. 과금 확정은 재시도 판정 뒤에 한다.
+  const invalid=detail=>Object.assign(new Error("invalid_note_output"),{detail});
+  const acc=u=>{usage.promptTokens+=Number(u.prompt_tokens??u.input_tokens)||0;usage.completionTokens+=Number(u.completion_tokens??u.output_tokens)||0;};
+  const versions=()=>({promptVersion:Prompts.PROMPT_VERSIONS[stage]||Prompts.PROMPT_VERSION,schemaVersion:ctx.schemaVersion,noteSpecVersion:ctx.noteSpecVersion});
+  // 시간 예산에 남은 단계를 못 마칠 때의 명시적 연속 응답 — 계약상 200 성공이고 output/plan 은 없다.
+  const pendingResult=kind=>({amount,reported,attempts:tries,payload:{pending:true,stage,kind,noteSession:snap(),usage:{...usage,costUsd:reported?amount:ctx.reserve/100},...versions()}});
+  // 도구 실행(Luna) — 현재 검증된 요청의 시스템·본문·스키마를 그대로 쓴다. 도구 결과를 무료로 두지 않는다:
+  // 이 호출도 usage·시도·비용에 그대로 센다. chat/completions 경로는 운영 작성 호출과 같은 모양이다.
+  const lunaCall=async()=>{
+    // Luna 전용 제공자 슬롯을 별도로 잡는다 — 부모 Sol 슬롯만 쓰면 Luna 의 전역 동시성 상한을 우회한다.
+    // 슬롯 대기가 거절되면 이미 나간 Sol 호출이 있을 수 있어 환불로 접지 않고 과금 확정으로 둔다.
+    const release=await h.acquire(ctx.luna.model,ctx.signal,false,ctx.store).catch(e=>{
+      throw failed(Object.assign(new Error("provider_busy"),{code:e.code||"provider_busy",detail:e.detail||"queue_busy"}));});
+    const at=Date.now();
+    try{
+    const response=await ctx.fetcher(CHAT_ENDPOINT,{method:"POST",redirect:"error",signal:ctx.signal,headers:{authorization:"Bearer "+ctx.key,"content-type":"application/json"},body:JSON.stringify({
+      model:ctx.luna.up,...ctx.luna.params,...ctx.luna.cacheFields,
+      messages:[LLM.cachedSystem(ctx.luna.model,ctx.luna.system),LLM.cachedUser(ctx.luna.model,ctx.luna.user,stage)],
+      response_format:{type:"json_schema",json_schema:{name:"lecture_note_"+stage,strict:true,schema:ctx.providerOut}},
+      provider:{only:ctx.luna.providers,order:ctx.luna.providers,require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}})});
+    if(!response.ok){const detail=await upstreamDetail(h,response);tries.push(h.attemptOf("a"+tries.length,Date.now()-at,null,detail,tag(null,ctx.luna.model)));charge(Object.assign(new Error("provider_failed"),{detail}));}
+    const raw=await h.boundedResponse(response,1024*1024),u=raw.usage||{},choice=raw.choices?.[0];if(typeof raw.id==="string")ctx.gens.push(raw.id);
+    if(!choice&&!raw.usage){tries.push(h.attemptOf("a"+tries.length,Date.now()-at,null,"provider_body_"+String(raw.error?.code??"empty").replace(/[^a-z0-9_]/gi,"_").slice(0,24),tag(raw,ctx.luna.model)));charge(Object.assign(new Error("provider_failed"),{detail:tries.at(-1).error}));}
+    acc(u);{const c=h.costOf(u,...ctx.luna.rates,!choice?.message?.content&&choice?.finish_reason!=="length");if(c===null)reported=false;else amount+=c;}
+    tries.push(h.attemptOf("a"+tries.length,Date.now()-at,u,null,tag(raw,ctx.luna.model)));
+    if(choice?.finish_reason==="length"){const t=tries.at(-1);t.status="error";t.error="llm_output_truncated.long";charge(Object.assign(new Error("llm_output_truncated"),{code:"llm_output_truncated",detail:t.error}));}
+    if(choice?.finish_reason!=="stop"||typeof choice?.message?.content!=="string")throw invalid("incomplete."+String(choice?.finish_reason||"none").toLowerCase().replace(/[^a-z0-9_]/g,"").slice(0,30));
+    return choice.message.content;
+    }finally{release();}
+  };
+  // Sol(Responses) 호출 — 입력은 developer 블록 + 이력 전체(서버 작업·공급자 아이템·도구 결과).
+  const solCall=async choice=>{
+    const at=Date.now();
+    const response=await ctx.fetcher(RESPONSES_ENDPOINT,{method:"POST",redirect:"error",signal:ctx.signal,headers:{authorization:"Bearer "+ctx.key,"content-type":"application/json"},body:JSON.stringify(
+      solBody({stage,system,items:history,params:ctx.params,providers:ctx.solProviders,session,mode,choice}))});
+    // HTTP 거절: 4xx 는 라우팅 단계의 거절이라 생성 비용이 없다 — 이 요청의 첫 시도면 예약을 환불한다.
+    // 5xx·전송 실패는 제공자 쪽에서 돈이 나갔는지 알 수 없어 예약을 그대로 둔다(보수적). 두 번째 이후 호출의 거절은 항상 과금 확정.
+    if(!response.ok){const detail=await upstreamDetail(h,response);tries.push(h.attemptOf("a"+tries.length,Date.now()-at,null,detail,tag(null,SOL)));
+      const e=Object.assign(new Error("provider_failed"),{detail});
+      throw tries.length===1&&response.status>=400&&response.status<500?Object.assign(e,{refund:true,code:"provider_failed_or_invalid_output"}):failed(e);}
+    const raw=await h.boundedResponse(response,1024*1024),u=raw.usage||{};if(typeof raw.id==="string")ctx.gens.push(raw.id);
+    if(!raw.output?.length&&!raw.usage){tries.push(h.attemptOf("a"+tries.length,Date.now()-at,null,"provider_body_"+String(raw.error?.code??"empty").replace(/[^a-z0-9_]/gi,"_").slice(0,24),tag(raw,SOL)));
+      const e=Object.assign(new Error("provider_failed"),{detail:tries.at(-1).error});
+      throw tries.length===1?Object.assign(e,{refund:true,code:"provider_failed_or_invalid_output"}):failed(e);}
+    acc(u);{const c=h.costOf(u,...ctx.solRates,!raw.output?.length);if(c===null)reported=false;else amount+=c;}
+    tries.push(h.attemptOf("a"+tries.length,Date.now()-at,u,null,tag(raw,SOL)));
+    const out=extract(raw);
+    if(out.status==="incomplete"&&out.reason==="max_output_tokens"){const t=tries.at(-1);t.status="error";t.error="llm_output_truncated.long";charge(Object.assign(new Error("llm_output_truncated"),{code:"llm_output_truncated",detail:t.error}));}
+    if(out.status!=="completed")throw invalid("incomplete."+String(out.status+"."+(out.reason||"")).toLowerCase().replace(/[^a-z0-9_.]/g,"").slice(0,40));
+    return out;
+  };
+  const push=items=>{for(const i of items){const k=keepItem(i);if(k)history.push(k);}};
+  // 최종 출력: 파싱·id 정규화·salvage·strict 검사는 독립 경로와 같다 — 검증을 통과한 턴만 이력에 남긴다.
+  const finish=(text,items)=>{
+    const fin=h.finalizeNote(stage,text,ctx.outSchema,rest);
+    push(items);
+    // sol-fork·v2 성공 이력은 들어온 접두 P 다 — 누적 이력의 앞 P 구간이 바이트로 같은지 확인하고 이 단계의 턴은 돌려주지 않는다.
+    if(prefix&&JSON.stringify(history.slice(0,prefix.length))!==JSON.stringify(prefix))throw invalid("prefix_changed");
+    // v2 계획 응답 이력의 끝에는 고정 앵커를 붙인다 — 이후 모든 작성 호출이 P=[…,앵커] 를 재사용한다.
+    if(v2&&stage==="plan")history.push(anchorItem());
+    const payload={...(stage==="plan"?(v2?{plan:fin.parsed?.plan,editorialPlan:fin.parsed?.editorialPlan}:{plan:fin.parsed}):{output:fin.parsed}),
+      ...(fin.salvaged?{salvaged:fin.salvaged,salvagedErrors:fin.salvagedErrors}:{}),
+      usage:{...usage,costUsd:reported?amount:ctx.reserve/100},...versions(),noteSession:prefix?{v:1,id:session.id,mode,history:prefix}:snap()};
+    return{amount,reported,attempts:tries,payload};
+  };
+  // 전문 worker 초안(그 밖의 단계는 세션 지시가 이미 덮는다)은 그 단계의 systemFor 지시를 작업 안에 싣는다 —
+  // 고정 developer 접두는 그대로고 draft 전문 행이 빠지지 않는다.
+  // v2 모드는 단계별 지시 전부를 작업 suffix 에 싣고, 일회성 작업에는 breakpoint 를 두지 않는다(계획 작업은 P 안이라 유지).
+  const task=taskItem(stage,rest,ctx.sourceLang,ctx.providerOut,
+    v2?Prompts.systemFor(stage,ctx.options,ctx.sourceLang,rest.section?.worker,mode)
+      :rest.section?.worker?Prompts.systemFor(stage,ctx.options,ctx.sourceLang,rest.section.worker):null,
+    v2&&stage!=="plan"?false:undefined),
+    left=()=>ctx.deadline-Date.now();
+  const choice=stage==="plan"?"none":{type:"function",name:TOOL}; // 위임 턴만 도구 호출을 강제한다
+  const unlock=await ctx.lock(session.id,ctx.signal);
+  try{
+    for(let round=0;round<2;round++){ // 형식 실패 재시도는 한 번 — 제공자 호출 상한은 요청당 sol-session 2회·sol-luna-tool 4회다
+      try{
+        let tail=tailState(cont());
+        if(tail.kind==="bad")throw invalid("bad_history");
+        if(mode==="sol-luna-tool"){
+          // 도구 단계 재개(재제출): 꼬리의 도구 호출을 현재 검증된 요청으로 실행한다 — Sol 작업을 다시 묻지 않는다.
+          if(tail.kind==="tool"){
+            if(left()<MIN_LEFT_MS)return pendingResult("tool");
+            history.push(toolOutput(tail.call.call_id,await lunaCall()));
+            tail={kind:"final"};
+          }
+          // 최종 답 단계: 이력(…작업, 도구 호출, 도구 결과) 그대로 Sol 의 최종 출력을 받는다.
+          if(tail.kind==="final"){
+            if(left()<MIN_LEFT_MS)return pendingResult("final");
+            const r=await solCall("none");
+            if(r.calls.length||r.alien.length)throw invalid("tool_loop");
+            return finish(r.text,r.items);
+          }
+        }
+        // kind==="new": 단계의 첫 작업을 이력에 정확히 한 번 추가한다(재개 시 중복 삽입 금지).
+        if(tail.kind==="new")history.push(task);
+        // kind==="task": 미응답 작업 턴 — 이력 그대로 Sol 호출을 재개한다.
+        if(left()<MIN_LEFT_MS)return pendingResult("task");
+        const r=await solCall(choice);
+        if(r.alien.length||r.calls.length>1)throw invalid("unexpected_tool_call");
+        if(!r.calls.length){
+          if(mode==="sol-luna-tool"&&stage!=="plan")throw invalid("no_tool_call");
+          return finish(r.text,r.items);
+        }
+        // sol-luna-tool 작성 단계의 도구 호출 — 계획 단계의 자발적 호출은 계약에 없다.
+        if(stage==="plan")throw invalid("plan_tool_call");
+        try{const a=JSON.parse(r.calls[0].arguments||"{}");if(a.stage!==undefined&&a.stage!==stage)throw invalid("tool_arg_mismatch");}
+        catch(e){if(e.detail)throw e;throw invalid("tool_arg_bad");}
+        push(r.items); // 도구 단계는 같은 요청에서 이어간다 — 시간이 모자라면 pending 으로 다음 요청에 넘긴다
+        if(left()<MIN_LEFT_MS)return pendingResult("tool");
+        history.push(toolOutput(r.calls[0].call_id,await lunaCall()));
+        if(left()<MIN_LEFT_MS)return pendingResult("final");
+        const r2=await solCall("none");
+        if(r2.calls.length||r2.alien.length)throw invalid("tool_loop");
+        return finish(r2.text,r2.items);
+      }catch(e){
+        if(e.session||e.refund||e.charged)throw e; // 환불·과금 확정·세션 첨부 오류는 그대로 나간다
+        const t=tries.at(-1);if(t&&t.status==="ok"){t.status="error";t.error=h.errCode(e);}
+        // detail 을 단 단계·형식 오류만 한 번 더 간다 — 그 외와 마지막 라운드는 과금을 확정하고 끝낸다.
+        if(round>=1||!e.detail)throw failed(e);
+      }
+    }
+  }finally{unlock();}
+}
+module.exports={SOL,LUNA,TOOL,MODES,V2,ANCHOR_TEXT,anchorItem,isAnchor,V2_DEV,RESPONSES_ENDPOINT,MAX_ITEMS,MAX_BYTES,MIN_LEFT_MS,validate,tailState,systemFor,taskItem,toolOutput,TOOL_DEF,solBody,extract,run};
 
 },
 "server/prompts.js": function (module, exports, require, __filename, __dirname) {
@@ -4109,8 +4899,10 @@ const NoteContract=require("../lib/note-contract.js"),Contracts=require("../lib/
 // 프롬프트 문구나 아래 규칙을 바꾸면 올린다. 응답에 실려 단계 캐시 키에 들어간다.
 const PROMPT_VERSION="note-v6";
 // 단계별 버전: 프롬프트 문구나 아래 규칙을 바꾸면 그 단계만 올린다 — plan 캐시가 section 의 본문 재배치에 휘말려 무효가 되지 않게.
-const PROMPT_VERSIONS={plan:"note-v6",global:"note-v6",link:"note-v6",section:"note-v7",draft:"note-v7",repair:"note-v7",questions:"note-v7"};
-const STAGES=["plan","section","global","repair","link","questions","draft"];
+const PROMPT_VERSIONS={plan:"note-v6",global:"note-v6",link:"note-v6",section:"note-v7",draft:"note-v7",repair:"note-v7",review:"note-v7",questions:"note-v7"};
+const STAGES=["plan","section","global","repair","link","questions","draft","review"];
+// 두 실험 모드 — plan 단계는 이 모드에서만 편집 명세를 붙인 출력({plan, editorialPlan})을 낸다.
+const V2_MODES=NoteContract.V2_MODES;
 // 토큰 예산(§8.1). 서버는 바이트 / bytesPerToken 으로 어림한다 — 정확한 토크나이저가 아니라 입력 상한을 거르는 가드다.
 const LIMITS={bytesPerToken:4,tokens:{plannerInput:40000,plannerOutput:16000,writerInput:16000,writerOutput:14000,globalInput:24000,globalOutput:4000}};
 const T=LIMITS.tokens;
@@ -4204,7 +4996,31 @@ const STAGE={
     "calcs 관계의 주장이 같은 계산의 입력·단계 값을 가리킬 때는 evidenceIds에 그 계산 안의 참조(\"i1\" 입력, \"c2\" 단계)를 적는다 — 코드가 블록 id를 붙인다.",
     "참조 id는 칸마다 허용 범위가 다르다 — 요청 본문의 allowedRefs 배열이 그 목록이다(섹션 작성과 같다). links 명제와 maps 노드의 targetIds·targetId에는 allowedRefs.targetIds의 id만 쓴다. 확인 항목(checks)의 targetIds에는 이 요청에 계획된 블록 id만 쓴다. 섹션 유닛의 절반 이상이 어떤 주장의 근거로 인용되어야 한다. 잡담, 출석, 인사는 다루지 않는다.",
   ],
+  review:[
+    "단계: 통합 편집 검수. 입력은 노트의 개념 목록(concepts), 편집 계획(editorialPlan), 검증을 통과한 섹션들(sections: 섹션별 블록과 그 주장, 각 주장의 evidenceIds와 봉투 안 경로 path, 블록의 figureIds)이다 — 근거 원문은 없고, 본문을 새로 쓰지 않는다.",
+    "용어 불일치(glossary의 preferredTerm 기준), 사실 모순, 같은 내용의 중복, 계획의 mustExplain이 요구한 설명(정의·조건·예외·예시·비교·논증)의 누락, 관계의 잘못된 유형·방향, 그림의 잘못된 연결만 찾아 edits에 수정 제안을 담는다. 한 번에 최대 12개다.",
+    "op: term_fix(용어를 표준 용어로 고침), claim_edit(주장 문장 수정), dedupe(중복 주장 통합), relation_fix(관계 유형·방향·대상 수정), relink_asset(기존 asset을 올바른 블록에 다시 연결), request_section_redo(그 섹션만 재작성 요청).",
+    "각 수정에는 대상 id(targetId), 이유 코드(reasonCode), 관련 근거 id(evidenceIds), 의도한 변경(change)이 필요하다. targetId는 호스트가 부여한 id(S#·S#_B#·GB#·C#·G#·단서 위치 S#_B#/P#)만 쓴다 — 봉투 안 경로나 임의 경로는 안 된다. 수정된 주장은 다시 근거·수식·숫자·참조 검사를 통과해야 하므로 근거 없는 수정은 제안하지 않는다.",
+    "dedupe로 뺄 주장에만 있는 고유한 조건·예외·근거가 다른 위치에 보존되는지 먼저 확인한다 — 남지 않으면 dedupe가 아니라 claim_edit으로 보존하거나 unresolved에 올린다.",
+    "확실한 것만 제안한다. 상한을 넘거나 근거가 모자라 바로 고칠 수 없는 문제는 unresolved에 {targetId, reasonCode}로 보고하고 조용히 승인하지 않는다. 제안이 없으면 edits는 빈 배열이다.",
+  ],
 };
+// v2 계획(§4.1): 두 실험 모드의 plan 요청에만 붙는 고정 지시 — 기존 모드의 plan 지시·출력은 바뀌지 않는다.
+// v2 실험 모드 전용 초안·재작성 지시 — 기존 모드의 프롬프트·스키마는 그대로다(기존 계약 유지).
+const WRITE_V2={
+  draft:[
+    "그때는 nullReasons에 그 블록 id의 사유를 적는다 — insufficient_evidence(근거 부족)·duplicate(다른 블록과 중복이라 둘 필요 없음)·unsupported_format(이 형식으로는 담을 수 없음)·policy(정책·권한 문제)·unknown(모름). 다 채웠으면 nullReasons는 null이다.",
+  ],
+  repair:[
+    "repair 항목의 mode가 \"regenerate_missing\"이면 그 블록은 작성자가 null로 보류한 것이다 — previous는 null이고, 그 블록이 다룰 근거 항목 id가 evidenceIds에 정확히 담긴다. 계획의 purpose와 그 근거만으로 새로 쓰고, 근거가 부족하면 지어내지 말고 그대로 null로 둔다.",
+  ],
+};
+const PLAN_V2=[
+  "[v2 계획] 이 요청의 출력은 {plan, editorialPlan}이다 — plan은 위의 계획 규칙 그대로이고, editorialPlan은 각 섹션의 작성 워커에게 내려줄 편집 명세다.",
+  "editorialPlan.sections는 plan의 섹션과 같은 sectionId를 갖고 모든 섹션을 덮는다. 섹션마다 learningQuestion(그 단원이 답하는 질문), learningItemIds(배정 학습 항목), prerequisiteSectionIds(먼저 읽어야 할 섹션), mustExplain(설명해야 할 내용: role·learningItemIds·evidenceIds), owns(그 개념의 정의·설명을 책임지는 섹션), referencesOnly(짧게 참조만 할 개념), visuals(시각화 명세), targetOutputTokens(예상 출력량)을 정한다. 한 개념의 owns는 한 섹션뿐이다 — 같은 개념의 정의를 여러 섹션에 반복하지 않는다.",
+  "예시·예외·조건은 mustExplain에서 빈칸 채우기보다 먼저 배정한다. 근거에 없는 인과 화살표·비교 축·수치 곡선을 만들지 않는다 — visuals의 comparisonAxes·relationTypes·assetIds는 근거와 실제 asset에서만 고른다.",
+  "id는 입력의 id만 쓴다 — conceptId·sectionId·learningItemIds·evidenceIds·assetIds를 지어내지 않는다. visualId는 V1부터 순서대로 붙인다.",
+];
 // 조건부 전문 워커(§3): 계획 섹션의 선택 필드 worker(W2-B)가 있으면 draft 지시 끝에 한 문장을 붙인다.
 // 같은 worker 값이면 같은 문자열이어야 한다 — 문장을 바꾸면 그 worker 의 캐시 접두가 갈린다. 없으면 general(추가 없음).
 const WORKER={
@@ -4215,12 +5031,13 @@ const WORKER={
   figure:"[전문 초점: 도표·자료 해석] 자료가 말하는 것과 말하지 못하는 것을 나누어 쓰고, 표·그래프의 값은 근거 항목과 calcs의 figureIds로만 가리킨다.",
 };
 // 시스템 본문 = 공용 + 노트 규칙 + 단계 규칙 (+ 켠 생성 옵션 + 영어 규칙 + 전문 워커 지시). 같은 단계·옵션·worker 면 모든 호출이 같은 문자열이다.
-const systemFor=(stage,options,sourceLang,worker)=>{
+// mode(v2 실험 모드 이름)는 plan 단계의 편집 명세 지시를 켤 뿐 — 나머지 단계·모드는 같은 문자열이다.
+const systemFor=(stage,options,sourceLang,worker,mode)=>{
   if(!Object.hasOwn(STAGE,stage))throw new Error("invalid_stage");
-  // link 는 주장을 새로 쓰지 않으므로 생성 옵션 규칙도 영어 원문 대조(src) 칸도 없다.
-  const aug=stage==="plan"||stage==="global"||stage==="link"?[]:Object.keys(AUG_RULES).filter(k=>options?.[k]===true).map(k=>AUG_RULES[k]);
-  const en=sourceLang==="en"&&stage!=="plan"?[...EN_RULES,...(stage==="global"||stage==="link"?[]:[EN_SRC])]:[];
-  return [COMMON,NOTE_RULES,...STAGE[stage],...aug,...en,...(stage==="draft"&&WORKER[worker]?[WORKER[worker]]:[])].join("\n");
+  // link·review 는 주장을 새로 쓰지 않으므로 생성 옵션 규칙도 영어 원문 대조(src) 칸도 없다.
+  const aug=stage==="plan"||stage==="global"||stage==="link"||stage==="review"?[]:Object.keys(AUG_RULES).filter(k=>options?.[k]===true).map(k=>AUG_RULES[k]);
+  const en=sourceLang==="en"&&stage!=="plan"?[...EN_RULES,...(stage==="global"||stage==="link"||stage==="review"?[]:[EN_SRC])]:[];
+  return [COMMON,NOTE_RULES,...STAGE[stage],...(stage==="plan"&&V2_MODES.includes(mode)?PLAN_V2:[]),...(V2_MODES.includes(mode)&&WRITE_V2[stage]?WRITE_V2[stage]:[]),...aug,...en,...(stage==="draft"&&WORKER[worker]?[WORKER[worker]]:[])].join("\n");
 };
 
 // 요청 본문(model·requestId·noteSpecVersion·stage 를 뺀 나머지)의 계약.
@@ -4260,7 +5077,9 @@ const REQUEST={
   // 섹션 계열은 작업 공유 칸(concepts·options·allowedRefs)이 먼저 온다 — 직렬화가 스키마 순서라 공유 접두가 같으면
   // 앞서 찍은 두 번째 캐시 중단점(llm.js cachedUser)까지 재사용된다. 재배치는 키 순서뿐, 스키마는 그대로다.
   section:opt({concepts:planConcepts,options,allowedRefs,...writerBody,withGist:{type:"boolean"}},["allowedRefs","learningItems"]),
-  repair:opt({concepts:planConcepts,options,allowedRefs,...writerBody,repair:arr(obj({blockId:pat(IDS.block),previous:{},errors:arr(obj({code:pat(IDS.code),detail:arr({type:"string",maxLength:64},20)}),20,1)}),12,1)},["allowedRefs","learningItems"]),
+  // repair 항목의 선택 키 mode·evidenceIds: 작성자가 null로 둔 블록의 실험용 재작성 계약(§4.4) —
+  // mode "regenerate_missing"이면 previous는 null이고 evidenceIds에 그 블록이 필요한 근거 id 목록을 정확히 싣는다. 구 항목은 그대로다.
+  repair:opt({concepts:planConcepts,options,allowedRefs,...writerBody,repair:arr(opt({blockId:pat(IDS.block),previous:{},errors:arr(obj({code:pat(IDS.code),detail:arr({type:"string",maxLength:64},20)}),20,1),mode:{type:"string",enum:["regenerate_missing"]},evidenceIds:arr(pat(IDS.evidence),200)},["mode","evidenceIds"]),12,1)},["allowedRefs","learningItems"]),
   // 의미 초안 경로(§2 대안 B): 입력은 섹션 작성과 같고, 출력은 블록 봉투 대신 주장·typed 관계다(lib/section-draft.js).
   draft:opt({concepts:planConcepts,options,allowedRefs,...writerBody,withGist:{type:"boolean"}},["allowedRefs","learningItems"]),
   global:opt({
@@ -4272,6 +5091,15 @@ const REQUEST={
   link:opt({
     concepts:planConcepts,
     sections:survSections(claimPos),
+    options,
+    allowedRefs,
+  },["allowedRefs"]),
+  // v2 통합 편집 검수(§4.3): link 입력 축약에 편집 계획을 얹고, 블록에 figureIds(연결된 asset)를 선택 칸으로 둔다.
+  review:opt({
+    concepts:planConcepts,
+    sections:arr(obj({sectionId:pat(IDS.section),title:{type:"string",maxLength:80},gist:{...claimPos,type:["object","null"]},
+      blocks:arr(opt({blockId:pat(IDS.block),type:{type:"string",enum:NoteContract.WRITER_TYPES},claims:arr(claimPos,80),figureIds:arr(pat(IDS.figure),4)},["figureIds"]),12)}),40,1),
+    editorialPlan:NoteContract.editorialPlanSchema,
     options,
     allowedRefs,
   },["allowedRefs"]),
@@ -4287,28 +5115,29 @@ const REQUEST={
 };
 // 요청별 출력 스키마. 계획에 없는 blockId 같은 잘못된 요청은 note-contract 가 던진다 — 라우트가 request_rejected 로 바꾼다.
 // 영어 강의의 섹션·repair 는 주장마다 src 칸이 더해진다(NoteContract.withSource).
-function outputSchema(stage,body,sourceLang){
+function outputSchema(stage,body,sourceLang,mode){
   const src=sch=>sourceLang==="en"?NoteContract.withSource(sch):sch;
-  if(stage==="plan")return S.plannerOutput;
+  if(stage==="plan")return V2_MODES.includes(mode)?NoteContract.plannerOutputV2:S.plannerOutput;
   if(stage==="section")return src(NoteContract.sectionOutputSchemaFor(body.section,{gist:body.withGist,policy:body.options,allowedRefs:body.allowedRefs}));
-  if(stage==="draft")return SectionDraft.outputSchemaFor(body.section,{gist:body.withGist,policy:body.options,allowedRefs:body.allowedRefs,sourceLang});
+  if(stage==="draft")return SectionDraft.outputSchemaFor(body.section,{gist:body.withGist,policy:body.options,allowedRefs:body.allowedRefs,sourceLang,nullReasons:V2_MODES.includes(mode)});
   if(stage==="repair")return src(NoteContract.repairOutputSchemaFor(body.section,[...new Set(body.repair.map(r=>r.blockId))],body.options,body.allowedRefs));
   if(stage==="global")return NoteContract.globalOutputSchemaFor(body.plan.global,body.allowedRefs);
   if(stage==="link")return NoteContract.linkOutputSchema;
+  if(stage==="review")return NoteContract.reviewOutputSchema;
   // questions 는 계획된 B14 블록 하나만 채운다 — 다른 타입이나 계획 밖 id 는 거절이다.
   if(stage==="questions"){const pb=(body.section?.blocks||[]).find(b=>b.blockId===body.blockId);if(pb?.type!=="B14")throw new Error("invalid_stage");return src(NoteContract.repairOutputSchemaFor(body.section,[body.blockId],body.options,body.allowedRefs));}
   throw new Error("invalid_stage");
 }
 
 const estimateTokens=text=>Math.ceil(Buffer.byteLength(text)/LIMITS.bytesPerToken);
-const inputTokenLimit=stage=>stage==="plan"?T.plannerInput:["global","link","questions"].includes(stage)?T.globalInput:T.writerInput;
+const inputTokenLimit=stage=>stage==="plan"?T.plannerInput:["global","link","questions","review"].includes(stage)?T.globalInput:T.writerInput;
 // 생성 파라미터. seed 를 지원하지 않는 모델에 보내면 require_parameters 때문에 요청이 통째로 거절된다(Anthropic).
 const NO_SEED=/^anthropic\//,SEED=7;
 const modelParams=(model,stage)=>({
-  max_tokens:Math.min(LLM.maxTokensFor(model),(stage==="plan"?T.plannerOutput:["global","link"].includes(stage)?T.globalOutput:T.writerOutput)+LLM.reasoningBudgetFor(model)),
+  max_tokens:Math.min(LLM.maxTokensFor(model),(stage==="plan"?T.plannerOutput:["global","link","review"].includes(stage)?T.globalOutput:T.writerOutput)+LLM.reasoningBudgetFor(model)),
   reasoning:LLM.reasoningFor(model),...(LLM.noTemperature(model)?{}:{temperature:0}),...(NO_SEED.test(model)?{}:{seed:SEED}), // temperature 를 거절하는 모델(GPT 추론형)에 보내면 require_parameters 로 404 가 난다
 });
-module.exports={PROMPT_VERSION,PROMPT_VERSIONS,STAGES,LIMITS,systemFor,REQUEST,outputSchema,estimateTokens,inputTokenLimit,modelParams};
+module.exports={PROMPT_VERSION,PROMPT_VERSIONS,STAGES,LIMITS,V2_MODES,systemFor,REQUEST,outputSchema,estimateTokens,inputTokenLimit,modelParams,editorialPlanSchema:NoteContract.editorialPlanSchema,reviewOutputSchema:NoteContract.reviewOutputSchema};
 
 },
 "server/usage.js": function (module, exports, require, __filename, __dirname) {
@@ -4356,10 +5185,17 @@ function attemptRow(promptCache){
   return a=>{
     if(a===null||typeof a!=="object"||!SHAPE.attempt.test(a.id))return null;
     const cached=count(a.cachedInputTokens);
-    return {attempt_id:a.id,status:a.status==="error"?"error":"ok",error_code:text(SHAPE.error,a.error),
+    const row={attempt_id:a.id,status:a.status==="error"?"error":"ok",error_code:text(SHAPE.error,a.error),
       input_tokens:count(a.inputTokens),output_tokens:count(a.outputTokens),cached_input_tokens:cached,cache_write_tokens:count(a.cacheWriteTokens),
       provider_reported_cost_micros:micros(a.providerReportedCost),cost_status:en(COST_STATUS,a.costStatus),
       cache_status:promptCache?(cached===null?"unknown":cached>0?"hit":"miss"):"not_applicable",latency_ms:count(Math.round(a.latencyMs))};
+    // 선택 필드: 혼합 모델 실행(계획 Sol·작성 Luna 등)의 시도별 모델·공급자·단계와 추론 토큰.
+    // 유효한 값이 올 때만 키를 싣는다 — 없거나 모양이 어긋나면 빼서 SQL이 요청 부모 값으로 채운다(coalesce, 이전 호환).
+    const model=text(SHAPE.model,a.model);if(model!==null)row.model=model;
+    const provider=text(SHAPE.provider,a.provider);if(provider!==null)row.provider=provider;
+    const stage=text(SHAPE.stage,a.stage);if(stage!==null)row.stage=stage;
+    const reasoning=count(a.reasoningTokens);if(reasoning!==null)row.reasoning_tokens=reasoning;
+    return row;
   };
 }
 function eventFields(status,m){

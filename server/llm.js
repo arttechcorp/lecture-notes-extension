@@ -55,9 +55,11 @@ const UNMANGLE=[
 const unmangle=s=>UNMANGLE.reduce((acc,[re,rep])=>acc.replace(re,rep),s);
 const parseNote=text=>JSON.parse(text,(_,v)=>typeof v==="string"?unmangle(v):v);
 // 공급자가 응답 usage 에 실어 주는 프롬프트 캐시 상세를 한 모양으로 정규화한다.
-// OpenAI·Gemini 계열은 prompt_tokens_details.cached_tokens, Anthropic 은 cache_read_input_tokens·cache_creation_input_tokens,
+// OpenAI·Gemini 계열은 prompt_tokens_details.cached_tokens(Chat)·input_tokens_details.cached_tokens(Responses)와
+// 같은 칸 안의 cache_write_tokens, Anthropic 은 cache_read_input_tokens·cache_creation_input_tokens,
 // DeepSeek 계열은 prompt_cache_hit_tokens 를 돌려준다. 미보고는 null 이다 — 보고된 0(miss)과 구분해야 hit ratio 분모가 오염되지 않는다.
-const cacheOf=u=>{const num=v=>Number.isFinite(v)&&v>=0?Math.floor(v):null,d=u?.prompt_tokens_details;
-  return {cached_input_tokens:num(d?.cached_tokens)??num(u?.cache_read_input_tokens)??num(u?.prompt_cache_hit_tokens),
-    cache_write_tokens:num(u?.cache_creation_input_tokens)??num(u?.cache_write_tokens)};};
+const cacheOf=u=>{const num=v=>Number.isFinite(v)&&v>=0?Math.floor(v):null,
+  ds=[u?.prompt_tokens_details,u?.input_tokens_details],pick=k=>{for(const d of ds){const v=num(d?.[k]);if(v!==null)return v;}return null;};
+  return {cached_input_tokens:pick("cached_tokens")??num(u?.cache_read_input_tokens)??num(u?.prompt_cache_hit_tokens),
+    cache_write_tokens:pick("cache_write_tokens")??num(u?.cache_creation_input_tokens)??num(u?.cache_write_tokens)};};
 module.exports={MODELS,upstreamOf,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cachedSystem,cachedUser,cacheModeOf,parseNote,cacheOf};

@@ -42,10 +42,17 @@ function attemptRow(promptCache){
   return a=>{
     if(a===null||typeof a!=="object"||!SHAPE.attempt.test(a.id))return null;
     const cached=count(a.cachedInputTokens);
-    return {attempt_id:a.id,status:a.status==="error"?"error":"ok",error_code:text(SHAPE.error,a.error),
+    const row={attempt_id:a.id,status:a.status==="error"?"error":"ok",error_code:text(SHAPE.error,a.error),
       input_tokens:count(a.inputTokens),output_tokens:count(a.outputTokens),cached_input_tokens:cached,cache_write_tokens:count(a.cacheWriteTokens),
       provider_reported_cost_micros:micros(a.providerReportedCost),cost_status:en(COST_STATUS,a.costStatus),
       cache_status:promptCache?(cached===null?"unknown":cached>0?"hit":"miss"):"not_applicable",latency_ms:count(Math.round(a.latencyMs))};
+    // 선택 필드: 혼합 모델 실행(계획 Sol·작성 Luna 등)의 시도별 모델·공급자·단계와 추론 토큰.
+    // 유효한 값이 올 때만 키를 싣는다 — 없거나 모양이 어긋나면 빼서 SQL이 요청 부모 값으로 채운다(coalesce, 이전 호환).
+    const model=text(SHAPE.model,a.model);if(model!==null)row.model=model;
+    const provider=text(SHAPE.provider,a.provider);if(provider!==null)row.provider=provider;
+    const stage=text(SHAPE.stage,a.stage);if(stage!==null)row.stage=stage;
+    const reasoning=count(a.reasoningTokens);if(reasoning!==null)row.reasoning_tokens=reasoning;
+    return row;
   };
 }
 function eventFields(status,m){
