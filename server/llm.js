@@ -31,18 +31,41 @@ const cacheModeOf=model=>MODELS[model]?.cacheMode||null;
 // 캐시를 안 쓰는 모델에는 문자열을 그대로 보낸다. 배열 본문은 공급자마다 정규화 경로가 달라 얻는 게 없는 쪽까지 바꾸지 않는다.
 // openai-explicit 도 같은 모양이다 — OpenRouter 가 Anthropic 식 cache_control 블록을 OpenAI prompt_cache_breakpoint 로 번역한다.
 const cachedSystem=(model,text)=>({role:"system",content:(MODELS[model]?.cache||MODELS[model]?.cacheMode==="openai-explicit")?[{type:"text",text,cache_control:{type:"ephemeral"}}]:text});
+let NoteV3;try{NoteV3=require("../lib/note-v3.js");}catch{NoteV3=globalThis.NoteV3;}
+// 두 문자열 또는 버퍼의 앞에서부터 일치하는 바이트/문자 길이를 잰다.
+const commonPrefixLength=(a,b)=>{
+  if(typeof a!=="string"||typeof b!=="string")return 0;
+  const len=Math.min(a.length,b.length);
+  let i=0;
+  while(i<len&&a.charCodeAt(i)===b.charCodeAt(i))i++;
+  return i;
+};
 // 두 번째 중단점: 작업 공유 칸만 담은 user 접두다. 요청 스키마 순서가 공유 칸을 앞에 놓으므로(prompts.js REQUEST)
 // head 를 따로 직렬화해 본문 앞부분과 바이트가 같으면 잘라 둘로 나누고, 아니면 한 덩어리로 둔다(안전 장치).
 const SHARED_HEAD={section:["concepts","options","allowedRefs"],draft:["concepts","options","allowedRefs"],repair:["concepts","options","allowedRefs"],questions:["concepts","sections","options","allowedRefs"]};
-const cachedUser=(model,user,stage)=>{
+// v3 표시(isV3)가 있을 때만 공통 키가 앞에 오도록 재정렬한다 — independent 및 기존 모드는 원본 그대로 유지.
+const orderUserPayload=(user,stage,isV3=false)=>{
+  if(!isV3)return user;
+  const keys=SHARED_HEAD[stage];
+  if(!keys)return user;
+  let parsed;try{parsed=typeof user==="string"?JSON.parse(user):user;}catch{return user;}
+  if(!parsed||typeof parsed!=="object"||Array.isArray(parsed))return user;
+  const ordered={};
+  for(const k of keys)if(parsed[k]!==undefined)ordered[k]=parsed[k];
+  for(const k of Object.keys(parsed))if(!keys.includes(k))ordered[k]=parsed[k];
+  return JSON.stringify(ordered);
+};
+const cachedUser=(model,user,stage,opts={})=>{
   const keys=SHARED_HEAD[stage];
   if(!(MODELS[model]?.cache||MODELS[model]?.cacheMode==="openai-explicit")||!keys)return {role:"user",content:user};
   let parsed;try{parsed=JSON.parse(user);}catch{return {role:"user",content:user};}
+  const isV3=opts===true||opts?.isV3===true||(Boolean(NoteV3?.isV3)&&NoteV3.isV3(opts?.noteMode))||parsed?.isV3===true||parsed?.noteMode==="sol-luna-3";
+  const targetUser=isV3?orderUserPayload(user,stage,true):user;
   const head={};for(const k of keys)if(parsed[k]!==undefined)head[k]=parsed[k];
-  if(!Object.keys(head).length)return {role:"user",content:user};
-  const cut=JSON.stringify(head).length,headText=user.slice(0,cut-1)+",";
-  if(!user.startsWith(headText))return {role:"user",content:user};
-  return {role:"user",content:[{type:"text",text:headText,cache_control:{type:"ephemeral"}},{type:"text",text:user.slice(cut)}]};
+  if(!Object.keys(head).length)return {role:"user",content:targetUser};
+  const cut=JSON.stringify(head).length,headText=targetUser.slice(0,cut-1)+",";
+  if(!targetUser.startsWith(headText))return {role:"user",content:targetUser};
+  return {role:"user",content:[{type:"text",text:headText,cache_control:{type:"ephemeral"}},{type:"text",text:targetUser.slice(cut)}]};
 };
 // 모델이 JSON 안에 LaTeX 백슬래시를 한 번만 쓰면 JSON.parse 가 \t \f \b \r 제어문자로 읽는다. 알려진 명령만 되살린다.
 // ponytail: \n 으로 시작하는 명령(\neq 등)과 \to·\rm 은 되살리지 않는다 — 정상 줄바꿈·들여쓰기와 부딪히고 실측 손상 0건이었다.
@@ -62,4 +85,4 @@ const cacheOf=u=>{const num=v=>Number.isFinite(v)&&v>=0?Math.floor(v):null,
   ds=[u?.prompt_tokens_details,u?.input_tokens_details],pick=k=>{for(const d of ds){const v=num(d?.[k]);if(v!==null)return v;}return null;};
   return {cached_input_tokens:pick("cached_tokens")??num(u?.cache_read_input_tokens)??num(u?.prompt_cache_hit_tokens),
     cache_write_tokens:pick("cache_write_tokens")??num(u?.cache_creation_input_tokens)??num(u?.cache_write_tokens)};};
-module.exports={MODELS,upstreamOf,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cachedSystem,cachedUser,cacheModeOf,parseNote,cacheOf};
+module.exports={MODELS,upstreamOf,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cachedSystem,cachedUser,cacheModeOf,parseNote,cacheOf,commonPrefixLength,orderUserPayload,SHARED_HEAD};

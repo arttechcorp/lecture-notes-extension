@@ -67,3 +67,87 @@ test("settle: reasoningTokens 는 정수만 받고 0 도 허용한다", async ()
   assert.equal(body.p_attempts[0].reasoning_tokens, 0); // 실제 0 은 0 — null 이 아니다
   assert.equal(Object.hasOwn(body.p_attempts[1], "reasoning_tokens"), false); // 비정수는 생략
 });
+
+const { stageUsageSummary } = require("./usage.js");
+
+test("stageUsageSummary: 단계별 토큰·비용·적중률 정확히 집계 및 미보고 null 유지", () => {
+  const attempts = [
+    {
+      id: "a0", stage: "plan", model: "openai/gpt-6.1-sol", provider: "azure",
+      inputTokens: 1000, outputTokens: 200, reasoningTokens: 50,
+      cachedInputTokens: 0, cacheWriteTokens: 0, uncachedInputTokens: 1000,
+      costUsd: 0.05,
+    },
+    {
+      id: "a1", stage: "draft", model: "openai/gpt-6-luna@high", provider: "azure",
+      inputTokens: 2500, outputTokens: 800, reasoningTokens: 400,
+      cachedInputTokens: 2000, cacheWriteTokens: 100, uncachedInputTokens: 400,
+      costUsd: 0.02,
+    },
+    {
+      id: "a2", stage: "draft", model: "openai/gpt-6-luna@high", provider: "azure",
+      inputTokens: 2600, outputTokens: 900, reasoningTokens: 450,
+      cachedInputTokens: 2000, cacheWriteTokens: 0, uncachedInputTokens: 600,
+      costUsd: 0.025,
+    },
+    {
+      // 미보고(null) 캐시 및 비용
+      id: "a3", stage: "review", model: "openai/gpt-6.1-sol", provider: "azure",
+      inputTokens: 500, outputTokens: 100, reasoningTokens: null,
+      cachedInputTokens: null, cacheWriteTokens: null, uncachedInputTokens: null,
+      costUsd: null,
+    },
+  ];
+
+  const summary = stageUsageSummary(attempts);
+  assert.equal(summary.byStage.length, 3);
+
+  const draft = summary.byStage.find(s => s.stage === "draft");
+  assert.ok(draft);
+  assert.equal(draft.model, "openai/gpt-6-luna@high");
+  assert.equal(draft.provider, "azure");
+  assert.equal(draft.cacheReadTokens, 4000);
+  assert.equal(draft.cacheWriteTokens, 100);
+  assert.equal(draft.uncachedInputTokens, 1000);
+  assert.equal(draft.outputTokens, 1700);
+  assert.equal(draft.reasoningTokens, 850);
+  assert.equal(draft.costUsd, 0.045);
+  // hitRatio: 4000 / (4000 + 1000) = 0.8
+  assert.equal(draft.hitRatio, 0.8);
+
+  const plan = summary.byStage.find(s => s.stage === "plan");
+  assert.ok(plan);
+  assert.equal(plan.cacheReadTokens, 0); // 보고된 0 은 0
+  assert.equal(plan.hitRatio, 0);
+
+  const review = summary.byStage.find(s => s.stage === "review");
+  assert.ok(review);
+  assert.equal(review.cacheReadTokens, null, "미보고는 null 유지 (0과 구분)");
+  assert.equal(review.costUsd, null, "비용 미보고는 null 유지");
+  assert.equal(review.hitRatio, null);
+
+  // total 검증
+  assert.equal(summary.total.stage, "total");
+  assert.equal(summary.total.outputTokens, 2000);
+  assert.equal(summary.total.cacheReadTokens, 4000);
+  assert.equal(summary.total.costUsd, 0.095);
+});
+
+test("costOf reasoning tokens: 공급자 completion_tokens에 reasoning이 포함되므로 이중 집계하지 않음 검증", () => {
+  // server/index.js 의 costOf 로직 검증
+  const pi = 1.0; // $1.00 per 1M input tokens
+  const po = 5.0; // $5.00 per 1M output tokens
+
+  // 공급자 usage: completion_tokens = 1000 이고, 그 중 reasoning_tokens = 600
+  // 이 때 output 비용은 completion_tokens(1000) * po 만으로 계산되어야 하며,
+  // reasoning_tokens 를 추가로 더해 1600 * po 로 부풀려지면 안 됨!
+  const usage = {
+    prompt_tokens: 2000,
+    completion_tokens: 1000,
+    completion_tokens_details: { reasoning_tokens: 600 },
+  };
+
+  const calculatedCost = (usage.prompt_tokens * pi + usage.completion_tokens * po) / 1e6;
+  assert.equal(calculatedCost, (2000 * 1.0 + 1000 * 5.0) / 1e6); // $0.007
+  assert.notEqual(calculatedCost, (2000 * 1.0 + (1000 + 600) * 5.0) / 1e6, "이중 집계 금지");
+});

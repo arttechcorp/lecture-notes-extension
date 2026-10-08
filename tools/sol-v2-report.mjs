@@ -11,6 +11,18 @@
 import fs from "node:fs";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const { stageUsageSummary } = require("../server/usage.js");
+
+export function percentile(arr, p) {
+  if (!Array.isArray(arr) || !arr.length) return null;
+  const sorted = [...arr].filter(v => Number.isFinite(v)).sort((a, b) => a - b);
+  if (!sorted.length) return null;
+  const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1));
+  return sorted[idx];
+}
 
 // ── JSON Lines / JSON 배열 파서 ─────────────────────────────────────────────
 export function parseResultLines(text) {
@@ -38,7 +50,7 @@ export function parseResultLines(text) {
 }
 
 // ── 모드별 메트릭 집계 ──────────────────────────────────────────────────────
-export function aggregateByMode(rows, { margin = 3 } = {}) {
+export function aggregateByMode(rows, { margin = 3, sampleApproved = false, evaluatorApproved = false } = {}) {
   const groups = new Map();
 
   for (const row of rows) {
@@ -87,6 +99,35 @@ export function aggregateByMode(rows, { margin = 3 } = {}) {
     const costPerPassTotal = qualityPassCount === 0 ? "n/a" : (totalCostUsd / qualityPassCount);
     const costPerPassSuccess = qualityPassCount === 0 ? "n/a" : (successfulCostUsd / qualityPassCount);
 
+    // 실제 채택 수정당 비용 (L1/수정당 비용, 채택 0이면 "n/a")
+    let totalAcceptedEdits = 0;
+    for (const r of modeRows) {
+      const acc = r.reviewCounts?.accepted ?? r.acceptedPatches ?? r.acceptedFixes;
+      if (Number.isFinite(acc)) totalAcceptedEdits += acc;
+    }
+    const costPerAcceptedEdit = totalAcceptedEdits > 0 ? (totalCostUsd / totalAcceptedEdits) : "n/a";
+
+    // L1 / L2 필드 수집 (있으면 표시·없으면 null)
+    const sumObj = key => {
+      const found = modeRows.filter(r => r[key] && typeof r[key] === "object");
+      if (!found.length) return null;
+      const res = {};
+      for (const r of found) {
+        for (const [k, v] of Object.entries(r[key])) {
+          if (Number.isFinite(v)) res[k] = (res[k] || 0) + v;
+        }
+      }
+      return res;
+    };
+    const reviewCounts = sumObj("reviewCounts");
+    const reviewRejects = sumObj("reviewRejects");
+    const repairCauses = sumObj("repairCauses");
+    const loop = sumObj("loop") || sumObj("loopMetrics");
+
+    // 단계별 집계 (calls 또는 attempts 행이 있는 경우)
+    const allAttempts = modeRows.flatMap(r => r.attempts || r.calls || []);
+    const stageSummary = allAttempts.length > 0 ? stageUsageSummary(allAttempts) : null;
+
     // 토큰 집계 (평균)
     const avgToken = field => {
       const vals = modeRows.map(r => r.tokens?.[field]).filter(v => Number.isFinite(v));
@@ -101,9 +142,12 @@ export function aggregateByMode(rows, { margin = 3 } = {}) {
     const totalInput = (uncachedInput || 0) + (cacheRead || 0);
     const cacheReadRatio = totalInput > 0 ? (cacheRead || 0) / totalInput : 0;
 
-    // 지연 시간 평균 (ms)
+    // 지연 시간 평균 및 백분위수 (p50, p95)
     const avgGenMs = Math.round(modeRows.reduce((s, r) => s + (r.generationMs || 0), 0) / totalRuns);
     const avgE2EMs = Math.round(modeRows.reduce((s, r) => s + (r.endToEndMs || 0), 0) / totalRuns);
+    const e2eList = modeRows.map(r => r.endToEndMs).filter(v => Number.isFinite(v));
+    const p50Ms = percentile(e2eList, 50);
+    const p95Ms = percentile(e2eList, 95);
 
     // 품질 및 커버리지 평균
     const covVals = modeRows.map(r => r.sourceCoverage).filter(v => Number.isFinite(v));
@@ -145,20 +189,31 @@ export function aggregateByMode(rows, { margin = 3 } = {}) {
       successfulCostUsd: Math.round(successfulCostUsd * 1e4) / 1e4,
       costPerPassTotal,
       costPerPassSuccess,
+      totalAcceptedEdits,
+      costPerAcceptedEdit,
       tokens: { uncachedInput, cacheRead, cacheWrite, output, reasoning, cacheReadRatio },
-      latencies: { avgGenMs, avgE2EMs },
+      latencies: { avgGenMs, avgE2EMs, p50Ms, p95Ms },
       quality: { avgSourceCov, questionsAnswerable, printDefects },
       criticalErrorCounts,
+      reviewCounts,
+      reviewRejects,
+      repairCauses,
+      loop,
+      stageSummary,
       humanScore100,
       humanDetails,
       hasHumanScores: humanRows.length > 0,
     };
   }
 
-  // 승자 판정 로직 (Spec 11: 사람 평가 없으면 확정하지 않음)
+  // 승자 판정 로직 (§9.4 규칙: 사람 블라인드 점수 없이 가격만으로 승자 선언 금지)
   const allHasHuman = Object.values(modes).length > 0 && Object.values(modes).every(m => m.hasHumanScores);
+  const isApproved = Boolean(sampleApproved && evaluatorApproved);
+
   let verdict = {
     hasHumanScores: allHasHuman,
+    sampleApproved,
+    evaluatorApproved,
     margin,
     winner: null,
     reason: "",
@@ -166,7 +221,7 @@ export function aggregateByMode(rows, { margin = 3 } = {}) {
 
   if (!allHasHuman) {
     verdict.winner = null;
-    verdict.reason = "사람 평가 점수가 없어 승자를 확정하지 않음 (Spec 11 규칙에 따라 자동 품질만 보고).";
+    verdict.reason = "사람 평가 점수가 없어 승자를 확정하지 않음 (Spec 11 규칙에 따라 자동 품질만 보고). 우열 판정 없음, 탐색 결과.";
   } else {
     // 인간 평가 점수 기준 비교
     const sorted = Object.values(modes).sort((a, b) => (b.humanScore100 ?? 0) - (a.humanScore100 ?? 0));
@@ -200,8 +255,8 @@ export function aggregateByMode(rows, { margin = 3 } = {}) {
 }
 
 // ── 마크다운 보고서 생성 ────────────────────────────────────────────────────
-export function generateReport(rows, { margin = 3 } = {}) {
-  const { modes, verdict } = aggregateByMode(rows, { margin });
+export function generateReport(rows, { margin = 3, sampleApproved = false, evaluatorApproved = false } = {}) {
+  const { modes, verdict } = aggregateByMode(rows, { margin, sampleApproved, evaluatorApproved });
   const modeList = Object.values(modes);
 
   const fmtCost = v => (typeof v === "number" ? `$${v.toFixed(3)}` : String(v));
@@ -218,15 +273,18 @@ export function generateReport(rows, { margin = 3 } = {}) {
   out.push(`- 사전 고정 품질 동등 허용폭(Equivalence Margin): ±${margin}점 (100점 환산)`);
   out.push(`- 최종 판정 상태: **${verdict.winner ? `${verdict.winner} 채택` : "승자 미정"}**`);
   out.push(`  > 사유: ${verdict.reason}`);
+  if (!sampleApproved || !evaluatorApproved) {
+    out.push("  > ⚠️ **우열 판정 없음, 탐색 결과**: 평가자·표본 수 미승인 시 가격만으로 최종 승자를 선언하지 않습니다.");
+  }
   out.push("");
 
   // 1. 종합 결과 요약 (Summary Table)
   out.push("## 1. 종합 결과 요약");
   out.push("");
-  out.push("| 모드 | 총 실행 | 품질 통과 | 통과당 비용(전체) | 통과당 비용(성공) | 총 지출 | 평균 E2E | 캐시 읽기율 |");
-  out.push("|---|---:|---:|---:|---:|---:|---:|---:|");
+  out.push("| 모드 | 총 실행 | 품질 통과 | 통과당 비용(전체) | 채택수정당 비용 | 총 지출 | p50 지연 | p95 지연 | 캐시 읽기율 |");
+  out.push("|---|---:|---:|---:|---:|---:|---:|---:|---:|");
   for (const m of modeList) {
-    out.push(`| \`${m.mode}\` | ${m.totalRuns} | ${m.qualityPassCount} | ${fmtCost(m.costPerPassTotal)} | ${fmtCost(m.costPerPassSuccess)} | $${m.totalCostUsd.toFixed(3)} | ${fmtSec(m.latencies.avgE2EMs)} | ${fmtPct(m.tokens.cacheReadRatio)} |`);
+    out.push(`| \`${m.mode}\` | ${m.totalRuns} | ${m.qualityPassCount} | ${fmtCost(m.costPerPassTotal)} | ${fmtCost(m.costPerAcceptedEdit)} | $${m.totalCostUsd.toFixed(3)} | ${fmtSec(m.latencies.p50Ms)} | ${fmtSec(m.latencies.p95Ms)} | ${fmtPct(m.tokens.cacheReadRatio)} |`);
   }
   out.push("");
 
@@ -241,6 +299,26 @@ export function generateReport(rows, { margin = 3 } = {}) {
   }
   out.push("");
 
+  // 2.1 비용·캐시 단계별 분석 표
+  let hasStageTable = false;
+  for (const m of modeList) {
+    if (m.stageSummary?.byStage?.length) {
+      if (!hasStageTable) {
+        out.push("### 비용·캐시 단계별 분석");
+        out.push("");
+        hasStageTable = true;
+      }
+      out.push(`#### \`${m.mode}\` 단계별 지표`);
+      out.push("");
+      out.push("| 단계 | 모델 | 공급자 | 캐시 읽기 | 캐시 쓰기 | 미캐시 입력 | 순수 출력 | 추론 | 비용(USD) | 적중률 |");
+      out.push("|---|---|---|---:|---:|---:|---:|---:|---:|---:|");
+      for (const s of m.stageSummary.byStage) {
+        out.push(`| \`${s.stage}\` | ${s.model || "—"} | ${s.provider || "—"} | ${fmtNum(s.cacheReadTokens)} | ${fmtNum(s.cacheWriteTokens)} | ${fmtNum(s.uncachedInputTokens)} | ${fmtNum(s.outputTokens)} | ${fmtNum(s.reasoningTokens)} | ${s.costUsd !== null ? `$${s.costUsd.toFixed(4)}` : "—"} | ${fmtPct(s.hitRatio)} |`);
+      }
+      out.push("");
+    }
+  }
+
   // 3. 구조 및 품질 메트릭 (Content-Free)
   out.push("## 3. 구조 및 품질 메트릭 (내용 비포함)");
   out.push("");
@@ -250,6 +328,18 @@ export function generateReport(rows, { margin = 3 } = {}) {
     out.push(`| \`${m.mode}\` | ${fmtPct(m.quality.avgSourceCov)} | ${m.quality.questionsAnswerable} | ${m.quality.printDefects} | ${m.failedRuns} |`);
   }
   out.push("");
+
+  // 3.1 검수(L1) 및 수리(L2) 루프 메트릭
+  out.push("### 검수(L1) 및 수리(L2) 루프 메트릭");
+  out.push("");
+  for (const m of modeList) {
+    out.push(`#### \`${m.mode}\``);
+    out.push(`- **reviewCounts (L1)**: ${m.reviewCounts ? JSON.stringify(m.reviewCounts) : "null"}`);
+    out.push(`- **reviewRejects (L1)**: ${m.reviewRejects ? JSON.stringify(m.reviewRejects) : "null"}`);
+    out.push(`- **repairCauses (L2)**: ${m.repairCauses ? JSON.stringify(m.repairCauses) : "null"}`);
+    out.push(`- **loop (L2)**: ${m.loop ? JSON.stringify(m.loop) : "null"}`);
+    out.push("");
+  }
 
   // 4. 치명 결함 내역 (Critical Defects Ledger)
   out.push("## 4. 치명 결함 내역");
@@ -277,6 +367,10 @@ export function generateReport(rows, { margin = 3 } = {}) {
   if (!verdict.hasHumanScores) {
     out.push("> ⚠️ **사람 블라인드 평가 미진행 (unreviewed)**: 자동 측정 메트릭만 보고되며, Spec 11 원칙에 따라 승자를 확정하지 않습니다.");
   } else {
+    if (!sampleApproved || !evaluatorApproved) {
+      out.push("> ⚠️ **우열 판정 없음, 탐색 결과**: 사람 블라인드 점수 및 평가자·표본 수 미승인으로 가격만으로 승자를 선언하지 않습니다.");
+      out.push("");
+    }
     out.push("| 모드 | 정확성(30%) | 내용보존(20%) | 개념구조(15%) | 시각화(20%) | 문항(10%) | 조판(5%) | 환산 총점 |");
     out.push("|---|---:|---:|---:|---:|---:|---:|---:|");
     for (const m of modeList) {
@@ -300,6 +394,8 @@ async function main() {
       input: { type: "string" },
       out: { type: "string" },
       margin: { type: "string", default: "3" },
+      "sample-approved": { type: "boolean", default: false },
+      "evaluator-approved": { type: "boolean", default: false },
     },
   });
 
@@ -309,7 +405,7 @@ async function main() {
   } else if (!process.stdin.isTTY) {
     raw = fs.readFileSync(0, "utf8");
   } else {
-    console.error("사용법: node tools/sol-v2-report.mjs --input=<results.jsonl> [--out=<report.md>] [--margin=3]");
+    console.error("사용법: node tools/sol-v2-report.mjs --input=<results.jsonl> [--out=<report.md>] [--margin=3] [--sample-approved] [--evaluator-approved]");
     process.exit(2);
   }
 
@@ -320,7 +416,9 @@ async function main() {
   }
 
   const margin = Number(v.margin) || 3;
-  const md = generateReport(rows, { margin });
+  const sampleApproved = v["sample-approved"] === true;
+  const evaluatorApproved = v["evaluator-approved"] === true;
+  const md = generateReport(rows, { margin, sampleApproved, evaluatorApproved });
 
   if (v.out) {
     fs.writeFileSync(v.out, md, "utf8");

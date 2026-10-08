@@ -16,6 +16,7 @@ const {
   Budget, newSession, applySessionReply, planBody, writeBody, judgeBody,
   makeService, makePost, loadInput, normalizePlan, learningCoverage, noteMetrics,
   kvPairs, memStore, runArm, planArms, estCostUsd, preflightV2Server, toSpec11ResultRow,
+  DEFAULT_MAX_USD, PROBE_MAX_USD, armConfigHash,
 } = await import("./note-session-experiment.mjs");
 
 const loaded = loadInput("tools/note-fixture/input.json");
@@ -406,4 +407,67 @@ test("noteMetrics on the golden note", () => {
   const cov = learningCoverage(normalizePlan(plannerOutput, loaded.scope, undefined), expected);
   assert.equal(cov.total, 0, "fixture 계획에는 학습 항목이 없다");
   assert.equal(cov.claimLinked, "not_evaluated");
+});
+
+test("§9.4 하네스 규칙: 기본 예산 상수와 armConfigHash", () => {
+  assert.equal(DEFAULT_MAX_USD, 1.50);
+  assert.equal(PROBE_MAX_USD, 0.05);
+
+  const h1 = armConfigHash({ mode: "sol-luna-3", noteV3: { repair: "packet", resume: false } });
+  const h2 = armConfigHash({ mode: "sol-luna-3", noteV3: { repair: "full-p", resume: false } });
+  const h3 = armConfigHash({ mode: "sol-luna-3", noteV3: { repair: "packet", resume: false } });
+  assert.equal(h1, h3, "동일 설정은 동일 해시");
+  assert.notEqual(h1, h2, "옵션 변경 시 다른 해시");
+});
+
+test("planArms: sol-luna-3 에 v3 옵션 전달", () => {
+  const arms = planArms({ repair: "full-p", resume: "on" });
+  const v3Arm = arms.find(a => a.mode === "sol-luna-3");
+  assert.ok(v3Arm);
+  assert.deepEqual(v3Arm.noteV3, { repair: "full-p", resume: true });
+
+  const armsDefault = planArms();
+  const v3Default = armsDefault.find(a => a.mode === "sol-luna-3");
+  assert.deepEqual(v3Default.noteV3, { repair: "packet", resume: false });
+});
+
+test("makeService (§9.4 규칙): plan/editorial 실패 1회 시 즉시 plan_editorial_failed 로 중단", async () => {
+  const failPost = async (route) => {
+    if (route === "/v1/plan") throw new Error("plan error");
+    return {};
+  };
+  const calls = [];
+  const srv = makeService({ post: failPost, calls });
+  await assert.rejects(
+    () => srv.plan({ model: "openai/gpt-6.1-sol", requestId: "r1" }),
+    err => err.retryable === false && err.code === "plan_editorial_failed"
+  );
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].ok, false);
+});
+
+test("makeService (§9.4 규칙): 연속 429 2회 발생 시 consecutive_upstream_429 로 즉시 중단", async () => {
+  let callCount = 0;
+  const rateLimitPost = async () => {
+    callCount++;
+    throw Object.assign(new Error("rate limit"), { status: 429, code: "provider_busy" });
+  };
+  const calls = [];
+  const srv = makeService({ post: rateLimitPost, calls });
+
+  // 1회차 429: 일반 에러 throw
+  await assert.rejects(
+    () => srv.write({ model: "openai/gpt-6-luna", requestId: "r1", stage: "draft" }),
+    err => err.code === "provider_busy"
+  );
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].ok, false);
+
+  // 2회차 연속 429: consecutive_upstream_429 로 즉시 중단
+  await assert.rejects(
+    () => srv.write({ model: "openai/gpt-6-luna", requestId: "r2", stage: "draft" }),
+    err => err.code === "consecutive_upstream_429"
+  );
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].ok, false);
 });

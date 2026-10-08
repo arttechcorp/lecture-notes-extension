@@ -67,11 +67,27 @@ const USAGE_FIELDS = ["promptTokens", "completionTokens", "reasoningTokens", "ca
 export const expErr = (code, detail) => Object.assign(new Error(detail ? `${code}:${detail}` : code), { code, retryable: false });
 const bytesOf = v => Buffer.byteLength(JSON.stringify(v));
 
+// §9.4 예산 규칙: run당 기본 $1.50, 합성 probe 총 $0.05
+export const DEFAULT_MAX_USD = 1.50;
+export const PROBE_MAX_USD = 0.05;
+
+// arm 설정 해시 계산: 동일 설정의 실패 arm 변경 없는 재실행 가드용
+export function armConfigHash(arm = {}) {
+  const str = JSON.stringify({
+    mode: arm.mode,
+    noteV3: arm.noteV3 ?? null,
+    writer: arm.writer ?? null,
+    planComparison: arm.planComparison ?? null,
+    fixtureAlias: arm.fixtureAlias ?? null,
+  });
+  return crypto.createHash("sha256").update(str).digest("hex").slice(0, 16);
+}
+
 // ── 비용·요청 상한: 모든 군·재실행이 하나의 예산을 나눈다 ──────────────────────
-// 명시적 maxCostUsd 필수: 미제공 시 실행 거부.
+// 명시적 maxCostUsd 필수: 미제공 시 기본 $1.50 적용.
 // 호출 전 예약액(in-flight reserved) + 이미 보고된 비용(reported)을 함께 검사해 초과 호출을 차단한다.
 export class Budget {
-  constructor({ maxCostUsd = 3, maxRequests = 400 } = {}) {
+  constructor({ maxCostUsd = DEFAULT_MAX_USD, maxRequests = 400 } = {}) {
     const cost = Number(maxCostUsd);
     if (!Number.isFinite(cost) || cost <= 0) {
       throw expErr("experiment_budget", "explicit_max_cost_usd_required");
@@ -278,6 +294,8 @@ export function makePost({ baseUrl, token, fetchImpl = fetch }) {
 export function makeService({ post, session = null, calls = [], budget = null, capture = null }) {
   // 고정 접두 캐시 웜업 게이트: 첫 쓰기 호출이 고정 접두를 쓸 때까지 나머지를 잡는다.
   let forkGate = null;
+  // §9.4 규칙: 연속 상류 429 2회 추적
+  let consecutive429 = 0;
   const send = (route, body, o) => {
     const isForkSession = session?.mode === "sol-fork" || session?.mode === "sol-fork-2";
     if (!isForkSession || route !== "/v1/write") return post(route, body, { signal: o.signal, timeoutMs: o.timeoutMs });
@@ -315,6 +333,7 @@ export function makeService({ post, session = null, calls = [], budget = null, c
     const at = Date.now();
     try {
       const r = await send(route, body, o);
+      consecutive429 = 0; // 성공 시 429 카운터 리셋
       m.latencyMs = Date.now() - at;
       const u = r?.usage || {};
       for (const k of USAGE_FIELDS) if (u[k] !== undefined) m.usage[k] = u[k];
@@ -371,6 +390,28 @@ export function makeService({ post, session = null, calls = [], budget = null, c
       };
       reservation?.commit(null); // 실패 호출도 예산 요청 수 및 추정액에 계상
       calls.push(m);
+
+      // §9.4 규칙: 연속 상류 429 2회 → 중단
+      const is429 = e?.status === 429 || e?.code === "provider_busy" || e?.code === "rate_limited" || m.error.status === 429;
+      if (is429) {
+        consecutive429++;
+        if (consecutive429 >= 2) {
+          throw expErr("consecutive_upstream_429", "upstream 429 received twice consecutively");
+        }
+      } else {
+        consecutive429 = 0;
+      }
+
+      // §9.4 규칙: plan/editorial 실패 1회 → 중단 (재시도 없이 즉시 중단)
+      if (route === "/v1/plan" || stage === "editorial") {
+        if (e && typeof e === "object") {
+          e.retryable = false;
+          if (!e.code) e.code = "plan_editorial_failed";
+          throw e;
+        }
+        throw expErr("plan_editorial_failed", `${stage || "plan"}_failed: ${e?.message || "error"}`);
+      }
+
       throw e;
     }
   };
@@ -695,6 +736,7 @@ export function toSpec11ResultRow({
 
 // ── dry-run: 네트워크 없이 군별 설정과 입력 요약만 만든다 ──────────────────────
 export function planArms(cfg = {}) {
+  const noteV3 = cfg.noteV3 ?? NoteV3.v3Options({ repair: cfg.repair, resume: cfg.resume === "on" || cfg.resume === true });
   return MODES.map(mode => ({
     mode,
     models: {
@@ -711,6 +753,7 @@ export function planArms(cfg = {}) {
     writer: V2_MODES.has(mode) ? "draft" : (cfg.writer ?? "blocks"),
     writeLane: CHAINED_MODES.has(mode) ? 1 : "default(8)",
     localOutputCache: "disabled", altModelFallback: "disabled",
+    ...(NoteV3.isV3(mode) ? { noteV3 } : {}),
   }));
 }
 
@@ -721,9 +764,13 @@ async function main() {
       mode: { type: "string", default: "all" },                    // independent | sol-session | sol-luna-tool | sol-fork | sol-luna-2 | sol-luna-3 | sol-fork-2 | all
       input: { type: "string", default: "tools/note-fixture/input.json" },
       repeat: { type: "string", default: "1" },
-      "max-cost-usd": { type: "string" },                          // 명시적 예산 상한 USD (필수)
+      "max-cost-usd": { type: "string" },                          // 명시적 예산 상한 USD (기본 $1.50)
       "max-cost": { type: "string" },                              // 레거시 호환 별칭
+      "max-usd": { type: "string" },                               // §9.4 예산 별칭
       "max-requests": { type: "string", default: "400" },
+      repair: { type: "string", default: "packet" },               // packet | full-p
+      resume: { type: "string", default: "off" },                  // on | off
+      force: { type: "boolean", default: false },                  // 실패한 동일 arm 재실행 허용 플래그
       judge: { type: "string" },
       "no-judge": { type: "boolean", default: false },
       writer: { type: "string", default: "blocks" },               // blocks | draft (v2 모드는 자동으로 draft 강제)
@@ -742,14 +789,18 @@ async function main() {
     process.exit(2);
   }
 
-  // 명시적 --max-cost-usd 검증 (dry-run 이 아닌 경우 필수)
-  const rawCost = v["max-cost-usd"] ?? v["max-cost"];
-  if (!v["dry-run"] && (rawCost === undefined || rawCost === null)) {
-    console.error("오류: 명시적 --max-cost-usd 가 필요합니다 (예산 없는 실행 거부).");
+  if (!["packet", "full-p"].includes(v.repair)) {
+    console.error("--repair must be packet|full-p");
     process.exit(2);
   }
+  if (!["on", "off"].includes(v.resume)) {
+    console.error("--resume must be on|off");
+    process.exit(2);
+  }
+  const noteV3 = NoteV3.v3Options({ repair: v.repair, resume: v.resume === "on" });
 
-  const maxCostUsd = Number(rawCost ?? "3");
+  const rawCost = v["max-cost-usd"] ?? v["max-cost"] ?? v["max-usd"];
+  const maxCostUsd = Number(rawCost ?? DEFAULT_MAX_USD);
   const repeat = Number(v.repeat), maxRequests = Number(v["max-requests"]);
   if (!Number.isInteger(repeat) || repeat < 1 || !Number.isFinite(maxCostUsd) || maxCostUsd <= 0 || !Number.isInteger(maxRequests) || maxRequests <= 0) {
     console.error("--repeat/--max-requests need positive integers, --max-cost-usd a positive number");
@@ -775,7 +826,7 @@ async function main() {
   };
 
   if (v["dry-run"]) {
-    report.arms = planArms({ judge: v["no-judge"] ? null : (v.judge ?? "<auto: me.routeModels.judge[0]>"), writer: v.writer });
+    report.arms = planArms({ judge: v["no-judge"] ? null : (v.judge ?? "<auto: me.routeModels.judge[0]>"), writer: v.writer, repair: v.repair, resume: v.resume, noteV3 });
     console.log(JSON.stringify(report, null, 2));
     return;
   }
@@ -810,16 +861,37 @@ async function main() {
     for (const m of need) if (!accountModels.includes(m)) console.error(`warning: ${mode} needs ${m} not in account models`);
   }
 
+  // 이전 실패 arm 해시 수집 (동일 설정 변경 없는 재실행 가드)
+  const failedHashes = new Set();
+  if (v.out && fs.existsSync(v.out)) {
+    try {
+      const prior = JSON.parse(fs.readFileSync(v.out, "utf8"));
+      for (const a of prior.arms ?? []) {
+        if (a.status === "failed") {
+          failedHashes.add(armConfigHash({ mode: a.mode, noteV3: a.cfg?.noteV3, writer: v.writer, planComparison: v["plan-comparison"], fixtureAlias: v["fixture-alias"] }));
+        }
+      }
+    } catch {}
+  }
+
   const budget = new Budget({ maxCostUsd, maxRequests });
 
   for (const mode of modes) for (let run = 0; run < repeat; run++) {
     if (budget.exhausted) { report.arms.push({ mode, run, status: "skipped_budget" }); continue; }
-    const jobId = `nsx-${mode}-${run}-${crypto.randomBytes(4).toString("hex")}`;
+    const armCfg = { jobId: `nsx-${mode}-${run}-${crypto.randomBytes(4).toString("hex")}`, judge, writer: v.writer, linkEditor: v["link-editor"], run, promptVersions: me.promptVersions, noteV3 };
+    const cfgHash = armConfigHash({ mode, noteV3: mode === "sol-luna-3" ? noteV3 : null, writer: v.writer, planComparison: v["plan-comparison"], fixtureAlias: v["fixture-alias"] });
+    if (failedHashes.has(cfgHash) && !v.force) {
+      console.warn(`[가드] 실패한 동일 arm(${mode}, hash=${cfgHash}) 변경 없는 재실행 거부 (--force 필요)`);
+      report.arms.push({ mode, run, status: "skipped_guard", reason: "duplicate_failed_arm_without_changes" });
+      continue;
+    }
+
     const arm = await runArm({
       mode, loaded,
-      cfg: { jobId, judge, writer: v.writer, linkEditor: v["link-editor"], run, promptVersions: me.promptVersions },
+      cfg: armCfg,
       budget, post,
     });
+    if (arm.status === "failed") failedHashes.add(cfgHash);
     report.arms.push(arm);
     const row = toSpec11ResultRow({
       armResult: arm,

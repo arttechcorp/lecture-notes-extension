@@ -104,3 +104,68 @@ test("generateReport formats markdown tables with spec 11 sections", () => {
   assert.match(md, /## 5\. 사람 블라인드 평가/);
   assert.match(md, /`sol-luna-2`/);
 });
+
+test("sol-v2-report 신규 지표: 채택 수정당 비용, p50/p95 지연, L1/L2 지표 표시/null", () => {
+  const rows = [
+    {
+      mode: "sol-luna-3", repeat: 0, verdict: "complete", status: "complete",
+      reportedCostUsd: 0.30, endToEndMs: 10000,
+      reviewCounts: { proposed: 10, queued: 8, executed: 6, accepted: 5 },
+      reviewRejects: { target_missing: 1, no_change: 1 },
+      repairCauses: { writer_null: 2, schema: 1 },
+      loop: { attempts: 3, spentUsd: 0.05, successfulTargets: 2 },
+      attempts: [
+        { stage: "plan", model: "openai/gpt-6.1-sol", inputTokens: 1000, outputTokens: 200, costUsd: 0.02 },
+        { stage: "draft", model: "openai/gpt-6-luna@high", inputTokens: 2000, outputTokens: 500, cachedInputTokens: 1500, costUsd: 0.01 },
+      ],
+    },
+    {
+      mode: "sol-luna-3", repeat: 1, verdict: "complete", status: "complete",
+      reportedCostUsd: 0.20, endToEndMs: 20000,
+      reviewCounts: { proposed: 5, queued: 5, executed: 5, accepted: 5 },
+      // L2 필드 생략 (null 검증용)
+    },
+  ];
+
+  const { modes } = aggregateByMode(rows);
+  const m = modes["sol-luna-3"];
+
+  // 총 비용: 0.50, 총 채택 수정: 10 -> 수정당 비용: 0.05
+  assert.equal(m.totalAcceptedEdits, 10);
+  assert.equal(m.costPerAcceptedEdit, 0.05);
+
+  // 지연 시간: 10000ms, 20000ms -> p50=10000, p95=20000
+  assert.equal(m.latencies.p50Ms, 10000);
+  assert.equal(m.latencies.p95Ms, 20000);
+
+  // L1 지표 합산 확인
+  assert.deepEqual(m.reviewCounts, { proposed: 15, queued: 13, executed: 11, accepted: 10 });
+  assert.deepEqual(m.reviewRejects, { target_missing: 1, no_change: 1 });
+
+  // L2 지표: 있는 필드는 표시
+  assert.deepEqual(m.repairCauses, { writer_null: 2, schema: 1 });
+  assert.deepEqual(m.loop, { attempts: 3, spentUsd: 0.05, successfulTargets: 2 });
+
+  // generateReport 포맷팅 검증
+  const md = generateReport(rows, { margin: 3 });
+  assert.match(md, /채택수정당 비용/);
+  assert.match(md, /p50 지연/);
+  assert.match(md, /p95 지연/);
+  assert.match(md, /### 비용·캐시 단계별 분석/);
+  assert.match(md, /reviewCounts \(L1\)/);
+  assert.match(md, /repairCauses \(L2\)/);
+  assert.match(md, /우열 판정 없음, 탐색 결과/);
+});
+
+test("sol-v2-report 신규 지표: 채택 수정이 0건이면 채택수정당 비용은 'n/a'", () => {
+  const rows = [
+    { mode: "sol-luna-3", repeat: 0, verdict: "complete", reportedCostUsd: 0.15, endToEndMs: 5000 },
+  ];
+  const { modes } = aggregateByMode(rows);
+  const m = modes["sol-luna-3"];
+  assert.equal(m.totalAcceptedEdits, 0);
+  assert.equal(m.costPerAcceptedEdit, "n/a");
+  assert.equal(m.reviewCounts, null);
+  assert.equal(m.repairCauses, null);
+  assert.equal(m.loop, null);
+});
