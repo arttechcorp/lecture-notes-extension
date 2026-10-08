@@ -1017,9 +1017,17 @@ alter table billing_events add column if not exists external_id text check (exte
 alter table billing_events add column if not exists occurred_at timestamptz;
 create index if not exists billing_events_external_idx on billing_events (external_id, occurred_at) where external_id is not null;
 create index if not exists billing_events_merchant_idx on billing_events (merchant_uid) where merchant_uid is not null;
+-- 매칭 실패(unknown_plan/unknown_user)도 원장에 남긴다 — 서명 검증된 결제가 무기록으로 증발하지 않게.
+-- 이메일은 평문 대신 trim+소문자한 값의 SHA-256 hex만 둔다(같은 이메일 가입자와의 수동 매칭용). 상품 키도 수동 부여 때 필요하다.
+alter table billing_events add column if not exists reason text check (reason in ('unknown_plan','unknown_user'));
+alter table billing_events add column if not exists buyer_email_hash text check (buyer_email_hash ~ '^[0-9a-f]{64}$');
+alter table billing_events add column if not exists product_id text check (char_length(product_id) between 1 and 128);
+alter table billing_events add column if not exists option_id text check (char_length(option_id) between 1 and 128);
+create index if not exists billing_events_buyer_email_idx on billing_events (buyer_email_hash) where buyer_email_hash is not null;
 
 -- 구독 이벤트 하나를 entitlements 에 반영한다. 같은 이벤트 id 는 한 번만 적용한다('duplicate').
 -- 결제 완료: (payment, external_id) 줄을 만들거나 기간을 늘린다. 해지 요청: ends_at 까지 쓰고 끝나도록 표시. 해지 완료·환불: 기간을 닫는다.
+-- 해지·환불이 external_id 로 행을 못 찾으면 같은 결제번호(merchant_uid)의 완료 이벤트 계정으로 한 번 더 찾고, 그래도 없으면 'applied' 가 아니라 'no_target' 을 돌려준다.
 drop function if exists apply_billing_event(text, text, uuid, text, boolean, text, timestamptz, timestamptz);
 drop function if exists apply_billing_event(text, text, uuid, text, boolean, text, timestamptz, timestamptz, text);
 drop function if exists apply_billing_event(text, text, uuid, text, boolean, text, timestamptz, timestamptz, text, integer, text, integer);
@@ -1029,6 +1037,8 @@ create or replace function apply_billing_event(
   p_amount integer default null, p_coupon text default null, p_coupon_discount integer default null, p_occurred timestamptz default null
 ) returns text
 language plpgsql security definer set search_path = public as $$
+declare
+  v_cancelled boolean := false;
 begin
   if p_type not in ('subscription_payment.completed', 'subscription.cancel_requested', 'subscription.terminated', 'subscription_payment.refunded') then
     return 'ignored';
@@ -1040,26 +1050,38 @@ begin
   insert into billing_events (id, type, user_id, merchant_uid, amount_krw, coupon_code, coupon_discount_krw, external_id, occurred_at)
     values (p_event_id, p_type, p_user, p_merchant, p_amount, p_coupon, p_coupon_discount, p_external_id, p_occurred) on conflict (id) do nothing;
   if not found then return 'duplicate'; end if;
-  -- 순서 역전: 이 결제 완료보다 나중에 일어난 해지·환불이 이미 반영됐으면 기록만 하고 적용하지 않는다.
-  if p_type = 'subscription_payment.completed' and p_occurred is not null and exists (
-       select 1 from billing_events b where b.external_id = p_external_id and b.id <> p_event_id and b.occurred_at > p_occurred
-          and b.type in ('subscription.cancel_requested', 'subscription.terminated', 'subscription_payment.refunded')) then
-    return 'stale';
+  -- 순서 역전: 이 결제 완료보다 나중에 일어난 해지·환불이 이미 반영됐으면 기록만 하고 적용하지 않는다('stale').
+  -- 단 부여 행이 한 번도 없었으면 돈 낸 기간이 0일이 되지 않게 기간을 만들고 해지 예약 상태로 둔다('applied_cancelled').
+  -- 환불이 먼저 왔으면 돈은 돌아간 것이니 행이 없어도 기간을 만들지 않는다.
+  if p_type = 'subscription_payment.completed' and p_occurred is not null then
+    if exists (select 1 from billing_events b where b.external_id = p_external_id and b.id <> p_event_id and b.occurred_at > p_occurred
+                  and b.type = 'subscription_payment.refunded') then
+      return 'stale';
+    end if;
+    v_cancelled := exists (select 1 from billing_events b where b.external_id = p_external_id and b.id <> p_event_id and b.occurred_at > p_occurred
+                              and b.type in ('subscription.cancel_requested', 'subscription.terminated'));
+    if v_cancelled and exists (select 1 from entitlements e where e.source = 'payment' and e.external_id = p_external_id) then
+      return 'stale';
+    end if;
   end if;
   if p_type = 'subscription_payment.completed' then
     if p_user is null or p_plan is null or p_ends is null then raise exception 'invalid_billing_event' using errcode = '22023'; end if;
     insert into entitlements (user_id, plan, starts_at, ends_at, source, external_id, edu, cancel_at_period_end)
-    values (p_user, p_plan, coalesce(p_starts, now()), p_ends, 'payment', p_external_id, coalesce(p_edu, false), false)
+    values (p_user, p_plan, coalesce(p_starts, now()), p_ends, 'payment', p_external_id, coalesce(p_edu, false), v_cancelled)
     on conflict (source, external_id) where external_id is not null
     do update set plan = excluded.plan, ends_at = greatest(entitlements.ends_at, excluded.ends_at), edu = excluded.edu, cancel_at_period_end = false;
-  elsif p_type = 'subscription.cancel_requested' then
-    update entitlements set cancel_at_period_end = true, ends_at = coalesce(p_ends, ends_at)
-     where source = 'payment' and external_id = p_external_id;
-  else
-    update entitlements set cancel_at_period_end = true,
-           ends_at = greatest(starts_at + interval '1 second', least(coalesce(ends_at, 'infinity'), coalesce(p_ends, now())))
-     where source = 'payment' and external_id = p_external_id;
+    return case when v_cancelled then 'applied_cancelled' else 'applied' end;
   end if;
+  -- 해지·환불: external_id 로 못 찾으면 같은 결제번호(merchant_uid)를 남긴 앞선 이벤트의 external_id(=완료 때 부여 키)로 찾는다.
+  -- 두 갈래 모두 이벤트의 계정(p_user, 웹훅이 항상 채워 보낸다)에 한정한다 — 주문번호가 겹쳐도 다른 계정 구독은 건드리지 않는다.
+  update entitlements e
+     set cancel_at_period_end = true,
+         ends_at = case when p_type = 'subscription.cancel_requested' then coalesce(p_ends, e.ends_at)
+                        else greatest(e.starts_at + interval '1 second', least(coalesce(e.ends_at, 'infinity'), coalesce(p_ends, now()))) end
+   where e.source = 'payment' and e.user_id = p_user and (e.external_id = p_external_id
+        or (p_merchant is not null and e.external_id in (select b.external_id from billing_events b
+              where b.merchant_uid = p_merchant and b.user_id = p_user and b.external_id is not null)));
+  if not found then return 'no_target'; end if;
   return 'applied';
 end $$;
 

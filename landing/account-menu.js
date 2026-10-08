@@ -5,7 +5,7 @@
   if (!btn) return;
   const SDK = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js";
   const PLAN = { free: "Free", essential: "Essential", professional: "Pro" };
-  const support = (window.SUMMRIZEI_BILLING && window.SUMMRIZEI_BILLING.support) || "jihwanbu26@gmail.com";
+  const support = (window.SUMMRIZEI_BILLING && window.SUMMRIZEI_BILLING.support) || "summrizei.support@gmail.com";
 
   let clientP;
   const getClient = () => clientP || (clientP = new Promise((resolve) => {

@@ -30,7 +30,7 @@ function paintReady(){
   els.bgLocked.hidden=!locked;els.prepCard.hidden=locked;
   els.pickBgTag.textContent=bgPaid?(bgPending?'이어 할 작업':'유료'):'유료 전용';
   els.pickLive.disabled=els.prepBack.disabled=bgBusy;
-  try{els.lockedBilling.href=Account.SITE+'/account/billing';}catch{} // 테스트 VM에는 Account가 없다
+  try{els.lockedBilling.href=Account.SITE+'/account/subscription';}catch{} // 테스트 VM에는 Account가 없다
 }
 function showPrep(mode){
   readyView='prep';readyMode=mode;paintReady();
@@ -213,7 +213,7 @@ function doneAlertExtras(){
   }
   if(state?.error?.includes('한도')){
     const a=document.createElement('a');
-    a.href=Account.SITE+'/account/billing';
+    a.href=Account.SITE+'/account/subscription';
     a.target='_blank';
     a.rel='noopener';
     a.textContent='요금제 보기';
@@ -321,7 +321,7 @@ function bgShow({text='',progress='',busy=false,cancel=false,retry=false,live=fa
   bgEl.bgStatus.textContent=text;bgEl.bgProgress.textContent=progress;
   bgEl.bgBtn.disabled=busy||bgYt;bgEl.bgCancelBtn.hidden=!cancel;bgEl.bgRetryBtn.hidden=!retry;bgEl.bgRetryBtn.textContent=retryLabel||'다시 시도';bgEl.bgLiveBtn.hidden=!live;
   bgEl.bgConsentBtn.hidden=!consent;bgEl.bgSummaryLink.hidden=!summary;bgEl.bgMakeBtn.hidden=!make;bgEl.bgBilling.hidden=!billing;bgEl.bgDiscardBtn.hidden=!discard;
-  if(billing)try{bgEl.bgBilling.href=Account.SITE+'/account/billing';}catch{} // 테스트 VM에는 Account가 없다
+  if(billing)try{bgEl.bgBilling.href=Account.SITE+'/account/subscription';}catch{} // 테스트 VM에는 Account가 없다
   paintReady();
 }
 // 진행 표시: created..rendering 9단계(BG_STATE 순서)의 단계 수와 경과 시계. 시계는 결말(BG_DONE)·시작 실패에서 멈춘다.

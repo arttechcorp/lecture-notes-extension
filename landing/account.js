@@ -2,13 +2,13 @@
 (function () {
   const view = document.getElementById("view");
   const page = document.body.dataset.page;
-  const cfg = window.SUMMRIZEI_BILLING || { checkout: {}, portal: "", support: "jihwanbu26@gmail.com" };
+  const cfg = window.SUMMRIZEI_BILLING || { checkout: {}, portal: "", support: "summrizei.support@gmail.com" };
   const STATUS = { active: "이용 중", trialing: "체험 중", past_due: "결제 실패", canceled: "해지됨" };
   // 이름·가격·학생가·월 분량은 DB의 plans 표(plan_catalog RPC)가 원본이다. 여기엔 소개 문구만 둔다.
   const COPY = {
     free: { forWho: "다시 볼 장면을 찾고 싶다면", perks: ["로컬 화면·음성 인식", "개념별 핵심 요약"] },
-    essential: { forWho: "많은 강의를 빠르게 훑고 싶다면", perks: ["Free의 모든 기능", "PDF로 변환해 노트앱에서 이어서 사용"] },
-    professional: { forWho: "중요한 강의를 깊이 이해한다면", perks: ["Essential의 모든 기능", "더 많은 사용량"] },
+    essential: { forWho: "많은 강의를 빠르게 훑고 싶다면", perks: ["Free의 모든 기능", "탭을 켜 두지 않아도 되는 백그라운드 처리", "서버 화면·음성 인식"] },
+    professional: { forWho: "중요한 강의를 깊이 이해한다면", perks: ["Essential의 모든 기능", "개념의 연결과 판단 근거를 풀어낸 상세 노트"] },
   };
   const won = (n) => (n ? n.toLocaleString("ko-KR") + "원" : "무료");
 
@@ -208,7 +208,7 @@
     for (const row of catalog) {
       const copy = COPY[row.plan];
       if (!copy) continue;
-      const perks = row.plan === "free" && row.monthly_minutes_cap != null ? [...copy.perks, "월 " + row.monthly_minutes_cap + "분 제한"] : copy.perks;
+      const perks = row.monthly_minutes_cap != null ? [...copy.perks, "월 " + row.monthly_minutes_cap.toLocaleString("ko-KR") + "분" + (row.plan === "free" ? " 제한" : "")] : copy.perks;
       const p = { id: row.plan, name: row.label, price: won(row.price_krw), edu: row.edu_price_krw ? won(row.edu_price_krw) : null, forWho: copy.forWho, perks };
       const card = h("article", "plan" + (p.id === acct.plan ? " current" : ""));
       const head = h("div", "plan-heading");
@@ -280,7 +280,7 @@
     if (!client) return errorCard("계정 서비스를 불러오지 못했습니다. 연결을 확인하고 다시 시도해 주세요.");
     const { data } = await client.auth.getSession();
     const user = data.session && data.session.user;
-    if (!user) return loginCard(client, ...titles[page]);
+    if (!user) return loginCard(client, titles[page][0], "로그인이 필요합니다.");
     const [{ data: acct, error }, cat] = await Promise.all([client.rpc("my_account"), page === "subscription" ? client.rpc("plan_catalog") : { data: [] }]);
     if (error || !acct || cat.error || !Array.isArray(cat.data)) return errorCard("계정 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
     await ({ account: accountView, billing: billingView, subscription: subscriptionView })[page](client, user, acct, cat.data);

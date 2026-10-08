@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createHmac } from "node:crypto";
+import { createHmac, createHash } from "node:crypto";
 import { handle } from "../supabase/functions/billing-webhook/index.js";
 
 const URL0 = "https://supa.example";
@@ -26,11 +26,12 @@ function post(body, { secret = SECRET, ts = TS, headers = {}, sigBody } = {}) {
 const res = (status, body = "null") => new Response(body, { status });
 
 // 호출을 [method, url, 파싱한 body, headers]로 기록한다. pages는 이메일 폴백의 admin users 응답(페이지 번호 → users 배열).
-function fakeFetch({ rpcStatus = 200, rpcResult = "applied", pages = {}, merchants = {} } = {}) {
+function fakeFetch({ rpcStatus = 200, rpcResult = "applied", pages = {}, merchants = {}, eventsStatus = 201 } = {}) {
   const calls = [];
   const fetch = async (url, init = {}) => {
     calls.push([init.method || "GET", url, init.body ? JSON.parse(init.body) : null, init.headers || null]);
     if (url === URL0 + "/rest/v1/rpc/apply_billing_event") return res(rpcStatus, JSON.stringify(rpcResult));
+    if (url === URL0 + "/rest/v1/billing_events?on_conflict=id") return res(eventsStatus); // 매칭 실패 원장 적재(ignore-duplicates)
     const mu = /\/rest\/v1\/billing_events\?select=user_id&merchant_uid=eq\.([^&]+)&user_id=not\.is\.null&limit=1$/.exec(url);
     if (mu) return res(200, JSON.stringify(merchants[decodeURIComponent(mu[1])] ? [{ user_id: merchants[decodeURIComponent(mu[1])] }] : []));
     const m = /\/auth\/v1\/admin\/users\?per_page=1000&page=(\d+)$/.exec(url);
@@ -85,6 +86,14 @@ test("stale timestamp -> 401 stale_timestamp", async () => {
   assert.deepEqual(await r.json(), { error: "stale_timestamp" });
 });
 
+test("타임스탬프가 밀리초여도 같은 5분 창으로 본다(서명 입력은 원문 문자열)", async () => {
+  // ts=NOW는 밀리초 epoch — 서명은 헤더 원문 그대로 만들고 창 비교만 초로 환산한다.
+  const { fetch, calls } = fakeFetch();
+  const r = await handle(post(ev("subscription_payment.completed", OBJ()), { ts: NOW }), ENV, fetch);
+  assert.equal(r.status, 200);
+  assert.equal(calls.length, 1);
+});
+
 test("다른 바디로 만든 서명 -> 401", async () => {
   const good = JSON.stringify(ev("subscription_payment.completed", OBJ()));
   const r = await handle(post(good, { sigBody: good.replace("evt_1", "evt_9") }), ENV, fakeFetch().fetch);
@@ -108,12 +117,29 @@ test("subscription_payment.failed도 호출 없이 ignored", async () => {
   assert.equal(calls.length, 0);
 });
 
-test("completed인데 플랜이 맵에 없으면 ignored unknown_plan", async () => {
+test("completed인데 플랜이 맵에 없으면 원장에 unknown_plan으로 남기고 200", async () => {
   const { fetch, calls } = fakeFetch();
-  const r = await handle(post(ev("subscription_payment.completed", OBJ({ content: { id: "ctn-x" }, options: [{ optionId: "opt-x" }] }))), ENV, fetch);
+  const o = OBJ({ content: { id: "ctn-x" }, options: [{ optionId: "opt-x" }], merchantUid: "ord-9", buyer: { email: "  Buyer@Example.com " }, pricing: { finalAmount: 2400 } });
+  const r = await handle(post(ev("subscription_payment.completed", o)), ENV, fetch);
   assert.equal(r.status, 200);
   assert.deepEqual(await r.json(), { ignored: "unknown_plan" });
-  assert.equal(calls.length, 0);
+  assert.equal(calls.length, 1); // RPC 없이 원장 적재만
+  const [m, u, b, h] = calls[0];
+  assert.equal(m, "POST");
+  assert.equal(u, URL0 + "/rest/v1/billing_events?on_conflict=id");
+  assert.equal(h.prefer, "resolution=ignore-duplicates");
+  assert.equal(b.id, "evt_1");
+  assert.equal(b.type, "subscription_payment.completed");
+  assert.equal(b.user_id, null);
+  assert.equal(b.reason, "unknown_plan");
+  assert.equal(b.merchant_uid, "ord-9");
+  assert.equal(b.amount_krw, 2400);
+  assert.equal(b.product_id, "ctn-x");
+  assert.equal(b.option_id, "opt-x");
+  assert.equal(b.occurred_at, "2026-10-03T11:59:00.000Z");
+  // 이메일은 trim+소문자한 값의 SHA-256만 — 평문은 본문 어디에도 없다
+  assert.equal(b.buyer_email_hash, createHash("sha256").update("buyer@example.com").digest("hex"));
+  assert.ok(!JSON.stringify(b).toLowerCase().includes("buyer@example.com"));
 });
 
 test("optionId 매칭이 content.id보다 우선", async () => {
@@ -122,6 +148,13 @@ test("optionId 매칭이 content.id보다 우선", async () => {
   assert.equal(r.status, 200);
   assert.equal(calls[0][2].p_plan, "essential");
   assert.equal(calls[0][2].p_edu, true);
+});
+
+test("이메일 매칭은 양쪽 다 trim().toLowerCase()로 비교한다", async () => {
+  const { fetch, calls } = fakeFetch({ pages: { 1: [{ id: UID, email: " Buyer@Example.com " }] } });
+  const r = await handle(post(ev("subscription_payment.completed", OBJ({ sellerReference: "x", buyer: { email: "BUYER@EXAMPLE.COM  " } }))), ENV, fetch);
+  assert.equal(r.status, 200);
+  assert.equal(calls.at(-1)[2].p_user, UID); // 공백·대소문자가 달라도 같은 계정으로 매칭
 });
 
 test("sellerReference가 UUID가 아니면 이메일로 페이지를 넘겨 찾는다", async () => {
@@ -137,12 +170,20 @@ test("sellerReference가 UUID가 아니면 이메일로 페이지를 넘겨 찾�
   assert.equal(calls[2][2].p_user, UID2); // 대소문자 무시 이메일 매치
 });
 
-test("이메일로도 못 찾으면 ignored unknown_user", async () => {
+test("이메일로도 못 찾으면 원장에 unknown_user로 남기고 200", async () => {
   const { fetch, calls } = fakeFetch({ pages: { 1: [{ id: UID, email: "other@x.example" }] } });
-  const r = await handle(post(ev("subscription_payment.completed", OBJ({ sellerReference: "nope" }))), ENV, fetch);
+  const r = await handle(post(ev("subscription_payment.completed", OBJ({ sellerReference: "nope", merchantUid: "ord-7" }))), ENV, fetch);
   assert.equal(r.status, 200);
   assert.deepEqual(await r.json(), { ignored: "unknown_user" });
-  assert.equal(calls.length, 1); // 어드민 조회만 하고 RPC는 안 부른다
+  assert.equal(calls.length, 3); // 결제번호 조회 → 어드민 조회 → 원장 적재(RPC는 안 부른다)
+  assert.equal(calls[0][1], URL0 + "/rest/v1/billing_events?select=user_id&merchant_uid=eq.ord-7&user_id=not.is.null&limit=1");
+  const [m, u, b] = calls[2];
+  assert.equal(m, "POST");
+  assert.equal(u, URL0 + "/rest/v1/billing_events?on_conflict=id");
+  assert.equal(b.reason, "unknown_user");
+  assert.equal(b.user_id, null);
+  assert.equal(b.merchant_uid, "ord-7");
+  assert.equal(b.buyer_email_hash, createHash("sha256").update(EMAIL).digest("hex"));
 });
 
 test("idempotency key 헤더가 envelope.id보다 우선", async () => {
@@ -208,6 +249,21 @@ test("nextBillingDate가 전체 ISO 시각이어도 앞 날짜만 쓰고, 날짜
   const o2 = OBJ({ subscription: { status: "active", nextBillingDate: "11/10/2026", activatedAt: "2026-10-03T11:00:00Z", billingCycleMonths: 1 } });
   await handle(post(ev("subscription_payment.completed", o2)), ENV, f2.fetch);
   assert.equal(f2.calls[0][2].p_ends, new Date(NOW + 31 * 86400000 + 3 * 86400000).toISOString(), "날짜 모양이 아니면 추정치");
+});
+
+test("RPC의 no_target·applied_cancelled 결과 코드도 그대로 200으로 전달", async () => {
+  for (const rpcResult of ["no_target", "applied_cancelled"]) {
+    const { fetch } = fakeFetch({ rpcResult });
+    const r = await handle(post(ev("subscription.cancel_requested", OBJ({ serviceEndsAt: "2026-12-01T00:00:00Z" }))), ENV, fetch);
+    assert.equal(r.status, 200);
+    assert.deepEqual(await r.json(), { result: rpcResult });
+  }
+});
+
+test("매칭 실패 원장 적재가 실패하면 503으로 재시도를 유도", async () => {
+  const r = await handle(post(ev("subscription_payment.completed", OBJ({ content: { id: "ctn-x" } }))), ENV, fakeFetch({ eventsStatus: 500 }).fetch);
+  assert.equal(r.status, 503);
+  assert.deepEqual(await r.json(), { error: "apply_failed" });
 });
 
 test("apply_billing_event가 unknown_user를 돌려주면 재시도를 끊고 200 ignored", async () => {
