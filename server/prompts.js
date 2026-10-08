@@ -1,7 +1,7 @@
 // 노트 계획·작성 프롬프트, 요청 계약, 요청별 출력 스키마, 생성 파라미터(docs/note-contract.md §8·§9·§17 6-2·6-7·6-8).
 // 출력 스키마는 lib/note-contract.js 가 계획에서 요청마다 만든다(blockId → 타입별 슬롯). 서버와 확장이 같은 함수를 쓴다.
 // 프롬프트는 변하지 않는 시스템 본문이 앞이고 변하는 입력(user)은 호출부가 뒤에 붙인다: 접두 캐시가 맞으려면 이 순서를 지킨다.
-const NoteContract=require("../lib/note-contract.js"),Contracts=require("../lib/contracts.js"),LLM=require("./llm.js"),SectionDraft=require("../lib/section-draft.js");
+const NoteContract=require("../lib/note-contract.js"),Contracts=require("../lib/contracts.js"),LLM=require("./llm.js"),SectionDraft=require("../lib/section-draft.js"),NoteV3=require("../lib/note-v3.js");
 // 프롬프트 문구나 아래 규칙을 바꾸면 올린다. 응답에 실려 단계 캐시 키에 들어간다.
 const PROMPT_VERSION="note-v6";
 // 단계별 버전: 프롬프트 문구나 아래 규칙을 바꾸면 그 단계만 올린다 — plan 캐시가 section 의 본문 재배치에 휘말려 무효가 되지 않게.
@@ -141,13 +141,84 @@ const WORKER={
   argument:"[전문 초점: 논증] 주장–근거–숨은 전제–반론–한계를 arguments 관계의 steps·missingLinks로 구조화하고, 사실 근거(evidence)와 규범 전제(value_premise)를 구분한다.",
   figure:"[전문 초점: 도표·자료 해석] 자료가 말하는 것과 말하지 못하는 것을 나누어 쓰고, 표·그래프의 값은 근거 항목과 calcs의 figureIds로만 가리킨다.",
 };
+// sol-luna-3 단계별 지시 슬림화(docs/note-quality-review-2026-10-06/sol-luna-2-improvements-2026-10-08.md §7).
+// 모든 단계 공통 접두(COMMON)는 짧게 유지하고, 단계별 지시에는 그 단계의 역할 규칙만 넣는다.
+// Luna(draft·questions)는 변하지 않는 접두 위치에 정상 1개 + 반례 1개의 짧은 합성 예시를 둔다.
+const LUNA_EXAMPLES={
+  draft:[
+    "[작성 예시: 조건 보존과 완결된 설명]",
+    "- 정상 예시:",
+    "  * 근거 자료: \"온도가 100도 이상이고 압력이 1기압일 때 물질 A는 기화한다.\"",
+    "  * 작성 결과: claims=[{claimId:\"c1\",role:\"definition\",text:\"물질 A는 압력 1기압, 온도 100도 이상의 조건에서 기화하는 물질이다.\",evidenceIds:[\"U1.s1\"],basis:\"lecture\"}], relations={arguments:[{relationId:\"R1\",targetBlockId:\"S1_B2\",claims:[\"c1\"]}]}",
+    "  * 이유: 핵심 성립 조건(압력 1기압, 온도 100도 이상)을 본문 주장에 온전히 포함하고, 계획 블록 ID(targetBlockId)와 관계 식별자(relationId)를 명시함.",
+    "- 반례 (오류):",
+    "  * 잘못된 결과: claims=[{claimId:\"c1\",role:\"definition\",text:\"물질 A는 기화하는 물질이다.\",evidenceIds:[\"U1.s1\"],basis:\"lecture\"}], relations={notes:[{relationId:\"R1\",targetBlockId:\"S1_B4\",note:\"100도 1기압 조건\"}]}",
+    "  * 이유: 원문의 핵심 성립 조건을 본문 주장 요약에서 빠뜨리고 곁설명(notes)으로 분리하여 완결된 설명 기준을 위반함.",
+  ].join("\n"),
+  questions:[
+    "[문항 작성 예시: 본문 근거 준수]",
+    "- 정상 예시:",
+    "  * 본문 주장: \"S1_B2: 한계비용(MC)은 생산량 1단위 증가에 따른 총비용의 변동분이다.\"",
+    "  * 작성 결과: {prompt:{text:\"한계비용은 생산량 1단위 증가에 따른 총비용의 변동분이다.\",evidenceIds:[\"U1.s2\"],basis:\"lecture\"},verdict:\"O\",correction:null,answer:{reviewIds:[\"S1_B2\"],explanation:{text:\"본문 S1_B2 내용과 일치한다.\",evidenceIds:[\"U1.s2\"],basis:\"lecture\"}}}",
+    "  * 이유: 본문 주장의 사실만을 묻고, reviewIds에 실제 본문 블록(S1_B2)을 지정함.",
+    "- 반례 (오류):",
+    "  * 잘못된 결과: {prompt:{text:\"완전경쟁시장에서 장기 균형 가격은 한계비용 곡선의 최저점과 일치한다.\",evidenceIds:[],basis:\"lecture\"},answer:{reviewIds:[\"GB1\"]}}",
+    "  * 이유: 입력 본문에 없는 외부 지식을 요구하며, reviewIds에 전역 블록(GB1)을 사용하여 복습 위치 규칙을 위반함.",
+  ].join("\n"),
+};
+
+const STAGE_V3={
+  plan:[
+    "[블록 종류와 역할] B02 한눈에: 핵심 결론 1~3개(토론형이면 mode issues). B03 지도: 개념·단계 노드 3~7개와 관계(causes·supports는 근거 주장 필수). B05 개념: 계획한 개념 하나(홈 섹션에 하나). B06 비교: 같은 기준 행으로 대상 비교. B07 논리: 단계 2~8개(순서·인과·논증 구분). B08 사례: 단서와 해석. B09 자료: 저자 주장과 강의 해석. B10 수식·표·계산: 수식·도표·계산. B11 헷갈리는 점: 오해 바로잡기. B12 곁설명: 보충 메모(첫 블록 불가, 필수조건·예외 제외). B13 연결 정리: 대상 사이 관계 2~5개. B14 자기 점검: 문항과 답안(노트 전체 4~8개 배정). B18 공지: 실제 발언된 시험·과제·기한.",
+    ...STAGE.plan,
+  ],
+  editorial:STAGE.editorial,
+  draft:[
+    "단계: 섹션 의미 초안(Luna). 입력은 이 섹션의 계획(section), 개념 목록(concepts), 인용할 수 있는 근거 항목(evidence: id, 종류, 시각, 텍스트), 수식 등록부(registry), 도표(figures), 편집 명세(editorialPlan)다. 지면(B01–B18 슬롯·HTML)이 아니라 의미 단위만 작성한다 — 코드가 초안을 계획 블록으로 조판한다. gist가 스키마에 있으면 단원 요지를 40~100자 한 주장으로 쓴다.",
+    "claims는 주장의 평탄한 목록이다. claimId는 c1, c2처럼 이 초안 안에서만 유효한 로컬 키다. role은 주장의 의미 기능이다 — definition(정의)·intuition(직관·비유·읽는 법)·mechanism(왜·어떻게 작동하는가)·condition·exception(성립 조건·예외)·example(사례)·comparison·argument·procedure·calculation·notice(공지). conceptIds는 주장이 다루는 계획 개념, dependsOn은 먼저 이해해야 하는 주장의 claimId다. text는 600자 이하 한두 문장이다.",
+    "주장의 basis는 lecture(강의 자료의 사실) 또는 derived(B10 계산 결과)다. evidenceIds에 근거 항목 id(예: \"U3.s2\", \"U3.t5\", \"U3.g1\")를 1개 이상 적는다. text의 숫자는 인용한 근거 텍스트에 그대로 있어야 한다. 한 주장 안에 무관한 내용을 섞지 않는다.",
+    "완결된 설명 기준: 한 개념의 정의와 설명은 핵심 조건과 예외를 본문 주장 안에 완전히 포함해야 한다 — 핵심 조건·예외를 곁설명으로 보내거나 생략하지 않는다. 곁설명(notes)에는 본문 없이도 이해되는 보조 설명만 둔다.",
+    "내용 없는 고정 상자 채우지 않기: 근거 자료가 부족하거나 없는 관계·칸은 억지로 주장을 지어내 채우지 않는다. 확인되지 않은 칸은 null이나 빈 배열로 둔다. 계획된 블록이라도 근거가 부족해 채울 수 없으면 그 관계를 만들지 않고 nullReasons에 그 블록 id의 사유(insufficient_evidence·duplicate·unsupported_format·policy·unknown)를 적는다.",
+    "relations는 주장을 구조로 엮은 typed 객체다: comparisons, arguments, cases, materials, calcs, pitfalls, notes, links, notices, maps. B14(자기 점검)는 이 단계에서 만들지 않는다. 각 관계 항목에는 선택 필드로 relationId(예: \"R1\", \"R2\")와 targetBlockId(편집 명세에 배정된 계획 블록 ID, 예: \"S1_B2\", \"S1_B3\")를 달 수 있으며, 코드가 이를 계획 블록에 대응시킨다.",
+    "관계 작성 규칙: comparisons는 같은 기준 행으로 대상을 나란히 비교하며 미확인 칸은 null이다. arguments는 순서(procedure)·인과(causal)·논증(argument)을 구분하며, 앞뒤 나열만을 인과로 읽지 않고 명시적 인과 근거가 있을 때만 causal 및 causes·supports를 쓴다. calcs 관계의 주장이 같은 계산의 입력·단계 값을 가리킬 때는 evidenceIds에 그 계산 안의 참조(\"i1\" 입력, \"c2\" 단계)를 적는다.",
+    "입력에 editorialPlan이 있으면 따른다: glossary의 preferredTerm을 용어의 표준으로 쓰고, section(learningQuestion·mustExplain·owns·referencesOnly·visuals)이 이 섹션이 설명할 것과 맡을 개념이다. prerequisites는 앞 섹션에서 이미 검증된 핵심 주장이니 다시 정의하지 말고 참조만 한다. referencesOnly 개념은 짧게 언급만 한다.",
+    "참조 id는 요청 본문의 allowedRefs 목록 안에서만 쓴다: links 명제와 maps 노드의 targetIds·targetId에는 allowedRefs.targetIds의 id만 쓴다. 확인 항목(checks)의 targetIds에는 이 요청에 계획된 블록 id만 쓴다. 섹션 유닛의 절반 이상이 어떤 주장의 근거로 인용되어야 한다. 잡담, 출석, 인사는 다루지 않는다.",
+  ],
+  review:STAGE.review,
+  global:[
+    "[주장] 주장은 {text, evidenceIds, basis}다. text는 600자 이하 한두 문장. basis \"lecture\": 강의 자료의 사실. evidenceIds에 근거 항목 id를 1개 이상 적는다. [봉투] 블록은 {status, importance, emphasis, content}다. importance는 core·supporting·reference다.",
+    "[전역 블록] B02 한눈에: 강의의 핵심 결론 1~3개(토론형이면 mode issues). B03 지도: 개념·단계 노드 3~7개와 관계, causes·supports 간선은 근거 있는 주장이 필수. B13 연결 정리: 대상 사이의 관계 2~5개 명제.",
+    ...STAGE.global,
+  ],
+  questions:[
+    "단계: 자기 점검 문항(Luna). 본문은 이미 확정됐다 — 입력은 문항 블록이 속한 섹션의 계획(section), 채울 블록 id(blockId), 개념 목록(concepts), 살아남은 섹션들의 주장 목록(sections: 섹션별 블록과 그 주장), 편집 명세(editorialPlan)다. 근거 원문은 없다.",
+    "입력에 editorialPlan이 있으면 그 glossary의 preferredTerm을 용어의 표준으로 쓴다 — 문항과 해설의 용어를 그에 맞춘다.",
+    "blocks에는 blockId 하나(B14)의 봉투를 채운다. 계획의 purpose가 정한 문항 수와 각 문항의 목적·겨눔 대상을 그대로 따른다. 문항은 sections의 주장만으로 풀 수 있어야 한다 — 입력에 없는 지식을 묻지 않는다. 채울 수 없으면 blocks의 그 칸을 null로 둔다.",
+    "문항의 주장이 입력 주장과 같은 사실을 쓰면 그 주장의 evidenceIds를 그대로 인용하고 입력에 없는 근거 id는 만들지 않는다. 주장에 있는 숫자·조건만 쓰고 새 수치는 쓰지 않는다. targetIds와 answer.reviewIds는 입력의 allowedRefs 목록 안에서만 고른다 — reviewIds에는 현재 B14 문항 블록을 제외한 실제 본문 블록(S#_B#) id만 쓴다. 전역 블록(GB#)과 지도 노드 key는 쓰지 않는다.",
+    "[문항 규칙] OX는 verdict 필수. X이면 prompt는 pedagogical이고 correction은 근거 있는 주장, O이면 prompt는 근거 있는 주장이고 correction은 null. OX가 아니면 verdict·correction은 null이고 prompt는 근거 있는 주장. argue는 rubric 1개 이상. calc는 explanation이 같은 섹션 B10의 계산 참조를 인용. 본문에 없는 지식을 알아야 푸는 문항은 만들지 않는다.",
+  ],
+};
+
 // 시스템 본문 = 공용 + 노트 규칙 + 단계 규칙 (+ 켠 생성 옵션 + 영어 규칙 + 전문 워커 지시). 같은 단계·옵션·worker 면 모든 호출이 같은 문자열이다.
-// mode(v2 실험 모드 이름)는 plan 단계의 편집 명세 지시를 켤 뿐 — 나머지 단계·모드는 같은 문자열이다.
+// mode(v2/v3 실험 모드 이름): v3(sol-luna-3)는 단계별 규칙만 슬림하게 싣고, v2는 plan의 편집 명세 지시를 켠다.
 const systemFor=(stage,options,sourceLang,worker,mode)=>{
   if(!Object.hasOwn(STAGE,stage))throw new Error("invalid_stage");
   // link·review 는 주장을 새로 쓰지 않으므로 생성 옵션 규칙도 영어 원문 대조(src) 칸도 없다.
   const aug=stage==="plan"||stage==="editorial"||stage==="global"||stage==="link"||stage==="review"?[]:Object.keys(AUG_RULES).filter(k=>options?.[k]===true).map(k=>AUG_RULES[k]);
   const en=sourceLang==="en"&&stage!=="plan"&&stage!=="editorial"?[...EN_RULES,...(stage==="global"||stage==="link"||stage==="review"?[]:[EN_SRC])]:[];
+
+  if(NoteV3.isV3(mode)){
+    // repair 는 L2 소유 — 분기를 건드리지 않는다.
+    if(stage==="repair"){
+      return [COMMON,NOTE_RULES,...STAGE.repair,...(WRITE_V2.repair?WRITE_V2.repair:[]),...aug,...en].join("\n");
+    }
+    if(!Object.hasOwn(STAGE_V3,stage)){
+      return [COMMON,NOTE_RULES,...STAGE[stage],...(V2_MODES.includes(mode)&&WRITE_V2[stage]?WRITE_V2[stage]:[]),...aug,...en,...(stage==="draft"&&WORKER[worker]?[WORKER[worker]]:[])].join("\n");
+    }
+    const examples=LUNA_EXAMPLES[stage]?[LUNA_EXAMPLES[stage]]:[];
+    return [COMMON,...examples,...STAGE_V3[stage],...aug,...en,...(stage==="draft"&&WORKER[worker]?[WORKER[worker]]:[])].join("\n");
+  }
+
   return [COMMON,NOTE_RULES,...STAGE[stage],...(V2_MODES.includes(mode)&&WRITE_V2[stage]?WRITE_V2[stage]:[]),...aug,...en,...(stage==="draft"&&WORKER[worker]?[WORKER[worker]]:[])].join("\n");
 };
 
