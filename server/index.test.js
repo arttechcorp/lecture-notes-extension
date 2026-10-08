@@ -3712,6 +3712,40 @@ test("sol-luna-2: questions editorialPlan.glossary reaches the model input — �
   }, v2Env);
 });
 
+test("sol-luna-3: 수리 패킷은 세션 없는 Sol 독립 요청 — 짧은 수리 지시·낮은 출력 상한, 세션·다른 모드·칸 누락은 거절", async () => {
+  const bodies = [];
+  const packet = { v: 1, policyVersion: noteSpecVersion, baseRevision: 0, targets: ["S1_B3"], errorCodes: ["VAL_EVIDENCE_MISSING"], allowedOps: ["revise", "null"], neighborClaims: [], omittedIds: ["S1_B1"] };
+  // 세션 호출은 Responses API 본문을, 패킷 호출은 chat/completions 본문을 보낸다 — 경로로 응답 모양을 가른다.
+  await withNoteServer(async (u, o) => { bodies.push(JSON.parse(o.body)); return u.endsWith("/responses") ? solReply(JSON.stringify(repairOut)) : noteReply(repairOut); }, async url => {
+    const ok = await req(url, "/v1/write", "POST", repairIn({ model: SOL, requestId: "pk-1", noteMode: "sol-luna-3", packet }), tokenB);
+    const out = await ok.json();
+    assert.equal(ok.status, 200, JSON.stringify(out.error || ""));
+    assert.equal(out.noteSession, undefined, "독립 요청은 세션 봉투를 돌려주지 않는다");
+    const sent = bodies.at(-1);
+    assert.equal(sent.model, SOL);
+    const sys = sent.messages[0].content;
+    const sysText = Array.isArray(sys) ? sys.map(x => x.text).join("") : sys;
+    assert.match(sysText, /packet/, "패킷 지시가 시스템에 실린다");
+    assert.ok(!/출력은 반드시 "note"|NOTE_RULES/.test(sysText) && sysText.length < Prompts.systemFor("repair", {}).length, "COMMON+NOTE_RULES 전체가 아닌 짧은 수리 지시다");
+    // 출력은 대상 블록뿐 — max_tokens 가 쓰기 상한+추론보다 작다
+    assert.ok(sent.max_tokens <= 1600 * 1 + 8000, "예상 출력량으로 상한을 낮췄다");
+    // 같은 수리를 P+세션으로 보내면 모델 입력이 개발자 지시·P 이력까지 실려 더 크다 — 패킷은 자급 패킷만
+    const full = await req(url, "/v1/write", "POST", repairIn({ model: SOL, requestId: "pk-1f", noteMode: "sol-luna-3", noteSession: { v: 1, id: "v2pk0002", mode: "sol-luna-3", history: fork2P() } }), tokenB);
+    assert.equal(full.status, 200);
+    const fsent = bodies.at(-1), pb = Buffer.byteLength(JSON.stringify(sent)), fb = Buffer.byteLength(JSON.stringify(fsent));
+    assert.ok(pb < fb, `패킷(${pb}B)이 full-p(${fb}B)보다 작다 — P 이력·긴 지시가 빠진다`);
+  }, v2Env);
+  // packet 칸 없이 세션도 없는 sol-luna-3 repair·packet 을 싣고 세션을 동봉·다른 v2 모드의 세션 없는 repair 는 거절
+  await withNoteServer(async () => noteReply(repairOut), async url => {
+    await errorOf(await req(url, "/v1/write", "POST", repairIn({ model: SOL, requestId: "pk-2", noteMode: "sol-luna-3" })), 400, "invalid_model_or_stage");
+    await errorOf(await req(url, "/v1/write", "POST", repairIn({ model: LUNA2, requestId: "pk-3", noteMode: "sol-luna-3", packet })), 400, "invalid_model_or_stage");
+    // 세션+패킷 동봉은 봉투 검증이 먼저 잡아 request_rejected — 어느 경로든 계약이 어긋나면 400 이다
+    await errorOf(await req(url, "/v1/write", "POST", repairIn({ model: SOL, requestId: "pk-4", noteMode: "sol-luna-3", packet, noteSession: { v: 1, id: "v2pk0001", mode: "sol-luna-3", history: forkP() } })), 400, "request_rejected");
+    await errorOf(await req(url, "/v1/write", "POST", repairIn({ model: SOL, requestId: "pk-5", noteMode: "sol-luna-2", packet })), 400, "invalid_model_or_stage");
+    await errorOf(await req(url, "/v1/write", "POST", repairIn({ model: SOL, requestId: "pk-6", noteMode: "sol-luna-3", packet: { ...packet, v: 2 } })), 400, "request_rejected");
+  }, v2Env);
+});
+
 test("sol-fork-2: review 단계는 Sol+P 세션 호출이고 {edits,unresolved} 를 돌려준다", async () => {
   const bodies = [];
   const P = fork2P();

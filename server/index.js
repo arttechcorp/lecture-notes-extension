@@ -98,7 +98,7 @@ function providerSchema(s,drop){
   return out;
 }
 const VISION_SCHEMA=providerSchema({type:"object",additionalProperties:false,required:["blocks","formulas","figures"],properties:{blocks:Contracts.SCHEMAS.slideDoc.properties.blocks,formulas:Contracts.SCHEMAS.slideDoc.properties.formulas,figures:Contracts.SCHEMAS.slideDoc.properties.figures}},["id","status"]);
-const {cachedSystem,cachedUser,cacheModeOf,parseNote,reasoningFor,maxTokensFor,noTemperature,cacheOf,upstreamOf}=require("./llm.js");
+const {cachedSystem,cachedUser,cacheModeOf,parseNote,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cacheOf,upstreamOf}=require("./llm.js");
 const NoteSession=require("./note-session.js");
 const safePart=x=>{if(typeof x!=="string"||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(x))throw new Error("invalid_id");return x;};
 const tokenEqual=(a,b)=>{const x=Buffer.from(String(a)),y=Buffer.from(String(b));return x.length===y.length&&crypto.timingSafeEqual(x,y);};
@@ -660,8 +660,12 @@ function createServer(env=process.env,deps={}){
       v2Sol={"sol-luna-2":["plan","editorial","review","global","repair"],"sol-luna-3":["plan","editorial","review","global","repair"],"sol-fork-2":["plan","editorial","draft","questions","review","global","repair"]}[v2]||[];
     if(v2){
       const lunaStage=(v2==="sol-luna-2"||v2==="sol-luna-3")&&(stage==="draft"||stage==="questions");
+      // sol-luna-3 수리 패킷(repair=packet): packet 칸을 실은 세션 없는 Sol 독립 요청 — P 이력을 싣는 full-p 는 세션 경로 그대로다.
+      const packetStage=v2==="sol-luna-3"&&stage==="repair"&&session===null;
       if(lunaStage?input.model!==NoteSession.LUNA||session!==null
-          :!v2Sol.includes(stage)||input.model!==NoteSession.SOL||!session||session.mode!==v2)
+          :packetStage?input.model!==NoteSession.SOL||rest.packet===undefined
+          :!v2Sol.includes(stage)||input.model!==NoteSession.SOL||!session||session.mode!==v2
+          ||(v2==="sol-luna-3"&&stage==="repair"&&rest.packet!==undefined)) // packet 은 세션 없는 요청 전용 — 봉투와 함께 오면 계약이 어긋난다
         return fail(res,"invalid_model_or_stage");
     }else if(stage==="review"||stage==="editorial")return fail(res,"invalid_model_or_stage"); // review·editorial 은 v2 모드 전용 단계다
     if(session){
@@ -682,7 +686,9 @@ function createServer(env=process.env,deps={}){
       if(!outSchema||typeof outSchema!=="object")throw new Error("no_output_schema");
     }catch{return fail(res,"request_rejected");}
     // 세션 요청은 지시를 NoteSession.run 이 만든다(v2 는 V2_DEV 고정 지시) — 여기서 만드는 system 은 비세션·도구 Luna 용이다.
-    let system=null;try{system=Prompts.systemFor(stage,opts,sourceLang,rest.section?.worker,v2);}catch{}
+    // sol-luna-3 수리 패킷 요청은 COMMON+NOTE_RULES 전체가 아니라 짧은 수리 지시만 쓴다(개선안 §5 — repair 입력 축소).
+    const packetReq=v2==="sol-luna-3"&&stage==="repair"&&rest.packet!=null;
+    let system=null;try{system=packetReq?Prompts.repairPacket(opts,sourceLang):Prompts.systemFor(stage,opts,sourceLang,rest.section?.worker,v2);}catch{}
     if(!session&&!system)return fail(res,"request_rejected");
     const user=JSON.stringify(rest);
     if(Prompts.estimateTokens(user)>Prompts.inputTokenLimit(stage))return fail(res,"request_too_large");
@@ -694,6 +700,8 @@ function createServer(env=process.env,deps={}){
     const digest=digestOf(account,JSON.stringify({route:stage==="plan"?"plan":"write",stage,model:input.model,noteSpecVersion:input.noteSpecVersion,rest,...(sourceLang?{sourceLang}:{}),...(v2?{noteMode:v2}:{}),
       ...(session?{ns:{id:session.id,mode:session.mode,h:crypto.createHash("sha256").update(JSON.stringify(session.history)).digest("hex")}}:{})}));
     const [pi,po]=RATES[input.model]||RATES[upstreamOf(input.model)],params=Prompts.modelParams(input.model,stage),attempts=2;
+    // 수리 패킷의 출력은 대상 블록뿐 — 예상 출력량으로 상한을 낮춘다(대상당 봉투 하나 + 추론 여유).
+    if(packetReq)params.max_tokens=Math.min(params.max_tokens,(rest.repair?.length||1)*1600+reasoningBudgetFor(input.model));
     const upModel=upstreamOf(input.model),upProviders=c.providers[input.model]??c.providers[upModel];
     // openai-explicit: 고정 시스템 접두만 캐시에 쓴다. key 는 작업 라우팅 친화용 — provider.order 를 쓰면 sticky 라우팅이 꺼져
     // 없으면 같은 작업도 매번 다른 엔드포인트에 캐시를 쓴다. 내용 없이 단계와 jobId 해시만 넣는다.
@@ -708,7 +716,7 @@ function createServer(env=process.env,deps={}){
       +(lunaParams?(Prompts.estimateTokens(system+user+JSON.stringify(providerOut))*lpi+lunaParams.max_tokens*lpo+lunaParams.max_tokens*pi)/1e6:0))*100*1.2)
       :Math.ceil((Prompts.estimateTokens(system+JSON.stringify(outSchema)+user)*pi+params.max_tokens*po)/1e6*100*1.2*attempts);
     // 정산에 실을 메타 — plan 의 분야 분류 결과(subject·subjectConf)는 run 안에서 더한다.
-    const meta={stage:stage==="plan"?"plan":"write."+stage,provider:"openrouter",model:input.model,jobId:input.jobId,host:input.host,...(session?{sessionMode:session.mode}:{}),...(stage==="plan"?{lectureSeconds:span,slides:new Set(us.map(u=>u&&u.slideId).filter(Boolean)).size}:{})};
+    const meta={stage:stage==="plan"?"plan":"write."+stage,provider:"openrouter",model:input.model,jobId:input.jobId,host:input.host,...(session?{sessionMode:session.mode}:{}),...(packetReq?{packet:true}:{}),...(stage==="plan"?{lectureSeconds:span,slides:new Set(us.map(u=>u&&u.slideId).filter(Boolean)).size}:{})};
     // 분야 분류는 슬라이드 첫 줄을 제목으로 모아 Jev 에 한 번 묻는다 — plan 에서만, 제목이 없으면 건너뛴다.
     const titles=stage==="plan"?[...new Set(us.map(u=>typeof u.slideText==="string"?u.slideText.split("\n")[0].trim():"").filter(Boolean))].slice(0,20):[];
     // v2 계획은 {plan, editorialPlan} 사이드카라 출력이 일반 계획의 약 2배다 — 첫 pilot 에서 120초 상한에 두 번 끊겼다. v2 계획만 145초(무료 Edge 150초 안)로 둔다.

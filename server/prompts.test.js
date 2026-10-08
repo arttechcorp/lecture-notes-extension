@@ -132,13 +132,13 @@ test("editorial guidance: slot meanings, comparison table, logic kinds, quiz all
 test("request contracts are the stage's own field lists", () => {
   assert.deepEqual(Object.keys(Prompts.REQUEST.plan.properties), ["ir", "formulas", "figures", "recognition", "options", "allowedRefs"]);
   assert.deepEqual(Object.keys(Prompts.REQUEST.section.properties), ["concepts", "options", "allowedRefs", "section", "evidence", "registry", "figures", "learningItems", "withGist"]);
-  assert.deepEqual(Object.keys(Prompts.REQUEST.repair.properties), ["concepts", "options", "allowedRefs", "section", "evidence", "registry", "figures", "learningItems", "repair"]);
+  assert.deepEqual(Object.keys(Prompts.REQUEST.repair.properties), ["concepts", "options", "allowedRefs", "section", "evidence", "registry", "figures", "learningItems", "repair", "packet"]);
   assert.deepEqual(Object.keys(Prompts.REQUEST.global.properties), ["plan", "sections", "options", "allowedRefs"]);
   assert.deepEqual(Object.keys(Prompts.REQUEST.link.properties), ["concepts", "sections", "options", "allowedRefs"]);
   assert.deepEqual(Object.keys(Prompts.REQUEST.questions.properties), ["concepts", "sections", "options", "allowedRefs", "section", "blockId", "editorialPlan"]);
   // 선택 키: 네 단계 모두 allowedRefs, section·repair 는 섹션에 배정된 learningItems 도 없어도 된다 — 나머지 키는 모두 required 로 strict 규칙을 지킨다.
   for (const stage of Prompts.STAGES) {
-    const optional = stage === "draft" ? ["allowedRefs", "learningItems", "editorialPlan"] : ["section", "repair"].includes(stage) ? ["allowedRefs", "learningItems"] : stage === "questions" ? ["allowedRefs", "editorialPlan"] : stage === "editorial" ? [] : stage === "review" ? ["allowedRefs", "baseRevision"] : ["allowedRefs"];
+    const optional = stage === "draft" ? ["allowedRefs", "learningItems", "editorialPlan"] : stage === "repair" ? ["allowedRefs", "learningItems", "packet"] : stage === "section" ? ["allowedRefs", "learningItems"] : stage === "questions" ? ["allowedRefs", "editorialPlan"] : stage === "editorial" ? [] : stage === "review" ? ["allowedRefs", "baseRevision"] : ["allowedRefs"];
     assert.deepEqual(Object.keys(Prompts.REQUEST[stage].properties).filter(k => !Prompts.REQUEST[stage].required.includes(k)), optional, stage + " 선택 키");
   }
   // plan·global 요청은 strict 모양을 지킨다. section·repair 는 정규화된 Plan 섹션을 싣는데,
