@@ -73,8 +73,9 @@ async function paintMasks(blob,boxes){
 // noteSession 대화(이어 붙이는 연쇄), sol-fork=Sol 전용 noteSession 이지만 계획 응답의 고정 접두를 모든 쓰기 호출이 공유한다.
 // sol-luna-2·sol-fork-2(v2)=계획 응답의 고정 접두 P·편집 계획·통합 검수(review): sol-fork-2 는 전 단계 Sol,
 // sol-luna-2 는 검수·전역·수정=Sol(P)·초안·문항=Luna High 독립 호출 — 단계→모델 표는 stages.js 와 서버가 함께 강제한다.
-// 여섯 모드 다 writeAlt는 null — 대체 모델로 조용히 넘어가면 실험 조건이 아니다.
-const NOTE_MODES=new Set(["independent","sol-session","sol-luna-tool","sol-fork","sol-luna-2","sol-fork-2"]),SOL="openai/gpt-6.1-sol",LUNA_HIGH="openai/gpt-6-luna@high";
+// sol-luna-3 은 sol-luna-2 와 같은 경로다 — 개선 실험은 devNoteV3 옵션(deps.noteV3 → stages ctx.v3)으로만 가른다.
+// 일곱 모드 다 writeAlt는 null — 대체 모델로 조용히 넘어가면 실험 조건이 아니다.
+const NOTE_MODES=new Set(["independent","sol-session","sol-luna-tool","sol-fork","sol-luna-2","sol-luna-3","sol-fork-2"]),SOL="openai/gpt-6.1-sol",LUNA_HIGH="openai/gpt-6-luna@high";
 // 플래그가 켜져 있는데 여섯 모드가 아니면 값을 못 읽은 것이다 — 기본 모델로 조용히 넘어가지 않고 멈춘다(조용한 전환 금지·비용 보호).
 const noteModeOf=s=>{const m=s?.devNoteMode;
   if(m==null||m==="")return null;
@@ -82,7 +83,7 @@ const noteModeOf=s=>{const m=s?.devNoteMode;
   events.emit({stage:"job",level:"error",code:"NOTE_MODE_INVALID"});
   throw Pipeline.pipelineError("NOTE_MODE_INVALID");};
 const noteModels=(me,settings)=>{const ms=Array.isArray(me?.models)?me.models:[],pick=m=>ms.includes(m)?m:ms[0],dev=typeof settings?.devWriteModel==="string"?settings.devWriteModel.trim():"",judge=(me?.features||[]).includes("judge")?BG_MODELS.judge:null,mode=noteModeOf(settings);
-  if(mode==="independent"||mode==="sol-luna-2")return{plan:SOL,write:LUNA_HIGH,writeAlt:null,judge};
+  if(mode==="independent"||mode==="sol-luna-2"||mode==="sol-luna-3")return{plan:SOL,write:LUNA_HIGH,writeAlt:null,judge};
   if(mode)return{plan:SOL,write:SOL,writeAlt:null,judge};
   return{plan:pick(BG_MODELS.plan),write:dev&&ms.includes(dev)?dev:pick(BG_MODELS.write),writeAlt:ms.includes(BG_MODELS.writeAlt)?BG_MODELS.writeAlt:null,judge};};
 // 노트 실행 시작 때 쓴 모델 셋을 내용 없는 이벤트 한 줄로 남긴다 — devWriteModel·devNoteMode 실험군을 작업 진단 파일에서 구분하기 위해서.
@@ -94,7 +95,7 @@ const noteService=settings=>{
   const svc=name=>async o=>ServiceClient[name]({baseUrl:config.serviceUrl,token:await token(),...o});
   return {
     me:async signal=>ServiceClient.me({baseUrl:config.serviceUrl,token:await token(),timeoutMs:15000,signal}),
-    deps:(signal,me,stats)=>({service:{plan:svc("plan"),write:svc("write"),judge:svc("judge")},katex,events,signal,sleep:ms=>new Promise(r=>setTimeout(r,ms)),promptVersions:me?.promptVersions??null,cacheStats:stats??null,linkEditor:me?.config?.linkEditor===true,writer:me?.config?.noteWriter,noteMode:noteModeOf(settings)}),
+    deps:(signal,me,stats)=>({service:{plan:svc("plan"),write:svc("write"),judge:svc("judge")},katex,events,signal,sleep:ms=>new Promise(r=>setTimeout(r,ms)),promptVersions:me?.promptVersions??null,cacheStats:stats??null,linkEditor:me?.config?.linkEditor===true,writer:me?.config?.noteWriter,noteMode:noteModeOf(settings),noteV3:settings?.devNoteV3}),
     // 로컬 결과 캐시 적중은 서버 원장에 안 보인다 — 내용 없는 수치(jobId·hit/miss·rerun 번호)만 모아 보낸다. 실패해도 노트 흐름을 막지 않는다.
     report:async(jobId,rerun,stats)=>{try{await ServiceClient.reportRun({baseUrl:config.serviceUrl,token:await token(),jobId,cacheHits:stats?.hits??0,cacheMisses:stats?.misses??0,rerun});}catch{}},
   };
@@ -262,7 +263,7 @@ async function bgJob(job,source,settings,me,ctl){
       runNote:async(j,input,o)=>{
         noteModelsEvent(j.jobId,input?.models,noteModeOf(settings));
         const stats={hits:0,misses:0};
-        const res=await NoteStages.runNote(j,input,{...o,service:{plan:svc("plan"),write:svc("write"),judge:svc("judge")},katex,promptVersions:me?.promptVersions??null,cacheStats:stats,linkEditor:me?.config?.linkEditor===true,writer:me?.config?.noteWriter,noteMode:noteModeOf(settings)});
+        const res=await NoteStages.runNote(j,input,{...o,service:{plan:svc("plan"),write:svc("write"),judge:svc("judge")},katex,promptVersions:me?.promptVersions??null,cacheStats:stats,linkEditor:me?.config?.linkEditor===true,writer:me?.config?.noteWriter,noteMode:noteModeOf(settings),noteV3:settings?.devNoteV3});
         try{await ServiceClient.reportRun({baseUrl:base,token:await token(),jobId:j.jobId,cacheHits:stats.hits,cacheMisses:stats.misses,rerun:input?.rerun??0});}catch{}
         const saved=["complete","partial","recognition-only"].includes(res.status)?await saveLibrary(j.packageId,input,res,{source:"background",host:hostOf(source.pageUrl)}).catch(()=>events.emit({stage:"library",jobId:j.jobId,level:"warn",code:"LIBRARY_SAVE_FAILED"})):null;
         return {...res,packageId:j.packageId,saved:savedResult(saved)};

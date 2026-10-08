@@ -390,6 +390,7 @@ test("validate v2: P 의 끝은 고정 앵커 — 누락·중복·변조·외부
   const P=P2();
   assert.equal(NoteSession.validate(env("sol-fork-2",P),"draft").error,undefined,"신선한 작성 호출은 P 그대로");
   assert.equal(NoteSession.validate(env("sol-luna-2",P),"review").error,undefined,"sol-luna-2 의 Sol 단계도 같은 P");
+  assert.equal(NoteSession.validate(env("sol-luna-3",P),"review").error,undefined,"sol-luna-3 도 같은 P 계약");
   assert.equal(NoteSession.validate(env("sol-fork-2",[...P,NoteSession.taskItem("draft",{s:1},undefined,{},null,false)]),"draft").error,undefined,"자기 턴 이어 보내기");
   assert.equal(NoteSession.validate(env("sol-fork-2",[]),"draft").error,"request_rejected","앵커 없음");
   assert.equal(NoteSession.validate(env("sol-fork-2",[P[0],rs(),msg()]),"draft").error,"request_rejected","구 fork 모양(앵커 없음)은 v2 접두가 아니다");
@@ -413,6 +414,7 @@ test("validate v2 editorial: 계획 턴을 이어 쓰는 두 번째 턴 — 앵�
   const plan=PLAN2();
   assert.equal(NoteSession.validate(env("sol-fork-2",plan),"editorial").error,undefined,"plan 응답 이력 그대로");
   assert.equal(NoteSession.validate(env("sol-luna-2",plan),"editorial").error,undefined);
+  assert.equal(NoteSession.validate(env("sol-luna-3",plan),"editorial").error,undefined,"sol-luna-3 의 editorial 도 plan 응답 이력 그대로");
   assert.equal(NoteSession.validate(env("sol-fork-2",[...plan,NoteSession.taskItem("editorial",{options:{}},undefined,{})]),"editorial").error,undefined,"자기 턴 이어 보내기·재개");
   assert.equal(NoteSession.validate(env("sol-fork-2",[]),"editorial").error,"request_rejected","계획 없는 이력");
   assert.equal(NoteSession.validate(env("sol-fork-2",[plan[0],rs()]),"editorial").error,"request_rejected","계획이 완료되지 않았다(꼬리가 reasoning)");

@@ -21,9 +21,10 @@ const LLM=require("./llm.js"),Prompts=require("./prompts.js");
 const SOL="openai/gpt-6.1-sol",LUNA="openai/gpt-6-luna@high",TOOL="write_note";
 //   sol-luna-2    : 계획·통합 검수(review)·전역·선택 수정은 Sol 이 고정 접두 P 를 이어 쓰고, draft·questions 는
 //                   noteSession 없는 독립 Luna High 요청이다(서버가 단계→모델 표를 강제한다).
+//   sol-luna-3    : sol-luna-2 와 같은 경로 — 개선 실험은 요청 계약이 아니라 클라이언트 옵션으로 가른다.
 //   sol-fork-2    : 모든 단계가 Sol. 계획 응답 이력 끝의 고정 앵커가 P 의 끝 — 작성 호출은 P+자기 작업만 보낸다.
-const MODES=["sol-session","sol-luna-tool","sol-fork","sol-luna-2","sol-fork-2"];
-const V2=["sol-luna-2","sol-fork-2"];
+const MODES=["sol-session","sol-luna-tool","sol-fork","sol-luna-2","sol-luna-3","sol-fork-2"];
+const V2=["sol-luna-2","sol-luna-3","sol-fork-2"];
 const RESPONSES_ENDPOINT="https://openrouter.ai/api/v1/responses",CHAT_ENDPOINT="https://openrouter.ai/api/v1/chat/completions";
 const ID_RE=/^[A-Za-z0-9][A-Za-z0-9_-]{7,63}$/;
 // v2 공유 접두 P 의 끝을 표시하는 고정 user/input_text 앵커 — 텍스트가 모든 호출에서 바이트로 같아야 캐시 경계가 일정하다.

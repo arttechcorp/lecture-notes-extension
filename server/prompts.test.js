@@ -396,7 +396,7 @@ test("review stage: integrated editorial review — request contract, prompt rul
 });
 
 test("v2 editorial: a separate second Sol turn carries the editorial instruction; plan output stays the v1 contract", () => {
-  assert.deepEqual(Prompts.V2_MODES, ["sol-luna-2", "sol-fork-2"]);
+  assert.deepEqual(Prompts.V2_MODES, ["sol-luna-2", "sol-luna-3", "sol-fork-2"]);
   for (const mode of Prompts.V2_MODES) {
     const t = Prompts.systemFor("editorial", OFF, undefined, undefined, mode);
     assert.match(t, /editorialPlan/, mode + ": 편집 명세 칸 안내");

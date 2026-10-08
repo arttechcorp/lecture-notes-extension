@@ -11,6 +11,7 @@
 //   sol-luna-2    : Sol 계획({plan, editorialPlan, noteSession P}) → Luna High 독립 섹션 작성(draft, noteSession 없음) →
 //                   Sol 통합 편집 검수(review, 접두 P) → Luna High 문항 작성(questions, noteSession 없음) →
 //                   Sol 전역/복구(접두 P). writer=draft 경로 전용, link 대신 review 사용.
+//   sol-luna-3    : sol-luna-2 와 같은 경로 — 개선 실험 옵션은 cfg.noteV3(deps.noteV3 → stages ctx.v3)로 내린다.
 //   sol-fork-2    : 모든 단계(plan, draft, review, questions, global, repair)를 Sol 이 수행.
 //                   계획 응답 P(고정 anchor 포함)를 고정 접두로 공유하며 매 호출 P + 자기 작업으로 실행.
 // 제공자(OpenRouter)는 절대 직접 부르지 않는다 — 모든 모델 호출은 SERVICE_URL 서비스를 거친다.
@@ -40,19 +41,20 @@ const LLM = require("../server/llm.js");
 const { RATES } = require("../server/index.js");
 const katex = require("../lib/vendor/katex/katex.min.js");
 const NoteSession = (() => { try { return require("../server/note-session.js"); } catch { return {}; } })();
+const NoteV3 = require("../lib/note-v3.js");
 
 // offscreen 이 manifest.json 을 SUMMRIZEI_VERSION 에 두는 것과 같다 — 서버 minClientVersion 검사용.
 globalThis.SUMMRIZEI_VERSION ??= require("../manifest.json").version;
 
 export const SOL = "openai/gpt-6.1-sol", LUNA_HIGH = "openai/gpt-6-luna@high";
-export const MODES = ["independent", "sol-session", "sol-luna-tool", "sol-fork", "sol-luna-2", "sol-fork-2"];
-export const SESSION_MODES = new Set(["sol-session", "sol-luna-tool", "sol-fork", "sol-luna-2", "sol-fork-2"]);
+export const MODES = ["independent", "sol-session", "sol-luna-tool", "sol-fork", "sol-luna-2", "sol-fork-2", "sol-luna-3"];
+export const SESSION_MODES = new Set(["sol-session", "sol-luna-tool", "sol-fork", "sol-luna-2", "sol-luna-3", "sol-fork-2"]);
 // 연쇄 모드: 응답 history 를 다음 호출이 이어 붙이는 세션 — 호출 직렬화가 계약이다.
 export const CHAINED_MODES = new Set(["sol-session", "sol-luna-tool"]);
 // 고정 접두 P 를 사용하는 포크 계열 모드 (쓰기 응답이 접두를 대체하지 않음)
-export const FORK_MODES = new Set(["sol-fork", "sol-fork-2", "sol-luna-2"]);
+export const FORK_MODES = new Set(["sol-fork", "sol-fork-2", "sol-luna-2", "sol-luna-3"]);
 // v2 신규 비교군
-export const V2_MODES = new Set(["sol-luna-2", "sol-fork-2"]);
+export const V2_MODES = new Set(["sol-luna-2", "sol-luna-3", "sol-fork-2"]);
 
 // 고정 캐시 앵커 텍스트 (server/note-session.js 가 내보내는 ANCHOR_TEXT 와 일치)
 export const ANCHOR_TEXT = NoteSession.ANCHOR_TEXT ?? "--- sol-v2-cache-anchor ---";
@@ -145,13 +147,13 @@ export function estCostUsd(route, model, body) {
 export const newSession = (mode, rand = crypto.randomBytes(12).toString("hex")) =>
   ({ v: 1, id: `ns-${rand}`, mode, history: [], ...(FORK_MODES.has(mode) ? { prefix: null } : {}) });
 
-// sol-luna-2 에서 Luna High 로 나가는 단계는 세션 봉투가 없는 독립 호출이다.
-export const isLunaStage = (mode, stage) => mode === "sol-luna-2" && (stage === "draft" || stage === "questions");
+// sol-luna-2·sol-luna-3 에서 Luna High 로 나가는 단계는 세션 봉투가 없는 독립 호출이다.
+export const isLunaStage = (mode, stage) => NoteV3.isLunaV2(mode) && (stage === "draft" || stage === "questions");
 
 // 모드별 단계 모델 조회
 export const modelForStage = (mode, stage) => {
   if (mode === "independent") return stage === "plan" ? SOL : LUNA_HIGH;
-  if (mode === "sol-luna-2") return isLunaStage(mode, stage) ? LUNA_HIGH : SOL;
+  if (NoteV3.isLunaV2(mode)) return isLunaStage(mode, stage) ? LUNA_HIGH : SOL;
   return SOL; // sol-session, sol-luna-tool, sol-fork, sol-fork-2
 };
 
@@ -386,7 +388,7 @@ export function makeService({ post, session = null, calls = [], budget = null, c
           session.prefix = o.noteSession.history;
         }
       }
-      const model = (session?.mode === "sol-luna-2") ? modelForStage(session.mode, stage) : (o.model || modelForStage(session?.mode, stage));
+      const model = NoteV3.isLunaV2(session?.mode) ? modelForStage(session.mode, stage) : (o.model || modelForStage(session?.mode, stage));
       return call("/v1/write", { ...o, model }, stage, writeBody({ ...o, model }, session));
     },
     judge: o => call("/v1/judge", o, "judge." + String(o.task ?? "?"), judgeBody(o)),
@@ -538,7 +540,7 @@ export async function runArm({ mode, loaded, cfg = {}, budget = null, post }) {
   const service = makeService({ post, session, calls, budget, capture });
 
   const isV2 = V2_MODES.has(mode);
-  const writeModel = (mode === "independent" || mode === "sol-luna-2") ? LUNA_HIGH : SOL;
+  const writeModel = (mode === "independent" || NoteV3.isLunaV2(mode)) ? LUNA_HIGH : SOL;
 
   const models = {
     plan: SOL,
@@ -558,6 +560,7 @@ export async function runArm({ mode, loaded, cfg = {}, budget = null, post }) {
     writer: isV2 ? "draft" : (cfg.writer ?? "blocks"),
     linkEditor: isV2 ? false : (cfg.linkEditor === true && cfg.writer === "draft"),
     noteMode: mode, // production wiring (deps.noteMode)
+    noteV3: cfg.noteV3, // sol-luna-3 개선 실험 옵션 → stages ctx.v3
     // v2 사전검사(stages.js)는 서버 프롬프트 버전(review)을 본다. noteMode 가 있으면 단계·호출 캐시는 어차피 꺼지므로 넘겨도 로컬 캐시 우회는 그대로다.
     ...(isV2 ? { promptVersions: cfg.promptVersions ?? { review: "preflight" } } : {}),
     cacheStats: { hits: 0, misses: 0 },
@@ -659,7 +662,7 @@ export function toSpec11ResultRow({
     planComparison: fixedPlan ? "fixedPlan" : "endToEnd",
     rendererVersion: String(rendererVersion),
     actualModels: armResult.mode === "independent" ? "plan:openai/gpt-6.1-sol,write:openai/gpt-6-luna@high"
-      : armResult.mode === "sol-luna-2" ? "plan:openai/gpt-6.1-sol,draft:openai/gpt-6-luna@high,review:openai/gpt-6.1-sol"
+      : NoteV3.isLunaV2(armResult.mode) ? "plan:openai/gpt-6.1-sol,draft:openai/gpt-6-luna@high,review:openai/gpt-6.1-sol"
       : "openai/gpt-6.1-sol",
     providerCallCount: t.sent ?? armResult.calls.length,
     retries: armResult.calls.filter(c => c.ok === false).length,
@@ -696,7 +699,7 @@ export function planArms(cfg = {}) {
     mode,
     models: {
       plan: SOL,
-      write: (mode === "independent" || mode === "sol-luna-2") ? LUNA_HIGH : SOL,
+      write: (mode === "independent" || NoteV3.isLunaV2(mode)) ? LUNA_HIGH : SOL,
       writeAlt: null,
       judge: cfg.judge ?? null,
       noteMode: mode,
@@ -715,7 +718,7 @@ export function planArms(cfg = {}) {
 async function main() {
   const { values: v } = parseArgs({
     options: {
-      mode: { type: "string", default: "all" },                    // independent | sol-session | sol-luna-tool | sol-fork | sol-luna-2 | sol-fork-2 | all
+      mode: { type: "string", default: "all" },                    // independent | sol-session | sol-luna-tool | sol-fork | sol-luna-2 | sol-luna-3 | sol-fork-2 | all
       input: { type: "string", default: "tools/note-fixture/input.json" },
       repeat: { type: "string", default: "1" },
       "max-cost-usd": { type: "string" },                          // 명시적 예산 상한 USD (필수)
@@ -760,7 +763,7 @@ async function main() {
     input: { file: v.input, slides: loaded.raw.slides.length, units: loaded.units, evidence: loaded.evidenceTotal, tier: loaded.raw.tier },
     confounds: [
       "각 군은 같은 원입력·옵션을 쓰지만 계획(plan)은 군마다 새 호출이다 — 계획 차이를 모드 효과로만 읽으면 안 된다.",
-      "sol-luna-2 는 Sol 계획·검수 + Luna High 섹션 작성(draft)이다. sol-fork-2 는 전 단계 Sol(P 고정)이다.",
+      "sol-luna-2 는 Sol 계획·검수 + Luna High 섹션 작성(draft)이다. sol-luna-3 은 같은 경로다. sol-fork-2 는 전 단계 Sol(P 고정)이다.",
       "연쇄 세션 군은 쓰기가 직렬이다(write lane 1). sol-fork 및 sol-fork-2 는 병렬 쓰기지만 첫 쓰기 웜업 게이트가 있다.",
       "로컬 출력 캐시는 모든 군에서 꺼져 있다 — 같은 접두 재사용은 서버·제공자 프롬프트 캐시만 관측한다.",
       "usage.costUsd 는 서버 보고값이며 미보고는 null 로 남기고 0으로 치환하지 않는다.",
@@ -803,7 +806,7 @@ async function main() {
   const judge = v["no-judge"] ? null : (v.judge ?? ((me.features ?? []).includes("judge") ? me.routeModels?.judge?.[0] ?? null : null));
 
   for (const mode of modes) {
-    const need = (mode === "independent" || mode === "sol-luna-2") ? [SOL, LUNA_HIGH] : [SOL];
+    const need = (mode === "independent" || NoteV3.isLunaV2(mode)) ? [SOL, LUNA_HIGH] : [SOL];
     for (const m of need) if (!accountModels.includes(m)) console.error(`warning: ${mode} needs ${m} not in account models`);
   }
 

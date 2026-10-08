@@ -654,12 +654,12 @@ function createServer(env=process.env,deps={}){
     if(input.noteMode!==undefined&&!NoteSession.V2.includes(input.noteMode))return fail(res,"request_rejected");
     if(session&&input.noteMode!==undefined&&input.noteMode!==session.mode)return fail(res,"request_rejected");
     // v2 단계→모델 표를 서버가 강제한다(클라이언트 설정만 신뢰하지 않는다):
-    //   sol-luna-2: plan·review·global·repair = Sol+세션 계속. draft·questions = noteSession 없는 Luna High 독립 요청.
-    //   sol-fork-2: 모든 단계 = Sol+세션. 두 모드 모두 section·link 는 없다 — draft 가 작성, review 가 통합 검수다.
+    //   sol-luna-2·sol-luna-3: plan·review·global·repair = Sol+세션 계속. draft·questions = noteSession 없는 Luna High 독립 요청.
+    //   sol-fork-2: 모든 단계 = Sol+세션. 세 모드 모두 section·link 는 없다 — draft 가 작성, review 가 통합 검수다.
     const v2=input.noteMode??(session&&NoteSession.V2.includes(session.mode)?session.mode:null),
-      v2Sol={"sol-luna-2":["plan","editorial","review","global","repair"],"sol-fork-2":["plan","editorial","draft","questions","review","global","repair"]}[v2]||[];
+      v2Sol={"sol-luna-2":["plan","editorial","review","global","repair"],"sol-luna-3":["plan","editorial","review","global","repair"],"sol-fork-2":["plan","editorial","draft","questions","review","global","repair"]}[v2]||[];
     if(v2){
-      const lunaStage=v2==="sol-luna-2"&&(stage==="draft"||stage==="questions");
+      const lunaStage=(v2==="sol-luna-2"||v2==="sol-luna-3")&&(stage==="draft"||stage==="questions");
       if(lunaStage?input.model!==NoteSession.LUNA||session!==null
           :!v2Sol.includes(stage)||input.model!==NoteSession.SOL||!session||session.mode!==v2)
         return fail(res,"invalid_model_or_stage");
@@ -719,7 +719,7 @@ function createServer(env=process.env,deps={}){
         stage,rest,session,sourceLang,options:opts,params,providerOut,outSchema,
         noteSpecVersion:NoteContract.NOTE_SPEC_VERSION,schemaVersion:c.remoteConfig.schemaVersion,
         // sol-fork·v2 작성 호출은 같은 접두 P 만 읽는 독립 호출이라 세션 잠금 없이 병렬로 간다 — 접두를 만드는 계획 호출은 잠금을 유지한다.
-        reserve,deadline,signal,fetcher,key:c.key,gens,lock:["sol-fork","sol-luna-2","sol-fork-2"].includes(session.mode)&&stage!=="plan"&&stage!=="editorial"?async()=>()=>{}:sessionLock,
+        reserve,deadline,signal,fetcher,key:c.key,gens,lock:["sol-fork","sol-luna-2","sol-luna-3","sol-fork-2"].includes(session.mode)&&stage!=="plan"&&stage!=="editorial"?async()=>()=>{}:sessionLock,
         solProviders:upProviders,solRates:[pi,po],
         luna:session.mode==="sol-luna-tool"?{model:NoteSession.LUNA,up:upstreamOf(NoteSession.LUNA),params:lunaParams,providers:lunaProviders,
           rates:[lpi,lpo],system,user,

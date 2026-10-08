@@ -158,11 +158,11 @@ test("sol-fork: every write sends the identical plan prefix; writes overlap afte
   assert.ok(calls.filter(c => c.route === "/v1/judge").every(c => !("noteSession" in c.body)));
 });
 
-// 3c. sol-luna-2: Sol 계획 → Luna draft(독립) → Sol review(P) → Luna questions(독립) → Sol 전역/복구(P)
-test("sol-luna-2: stage->model table and noteSession selective attachment", async () => {
+// 3c. sol-luna-2·sol-luna-3: Sol 계획 → Luna draft(독립) → Sol review(P) → Luna questions(독립) → Sol 전역/복구(P)
+for (const lunaMode of ["sol-luna-2", "sol-luna-3"]) test(`${lunaMode}: stage->model table and noteSession selective attachment`, async () => {
   const { post, calls } = fakePost();
-  const res = await arm("sol-luna-2", { post, budget: new Budget({ maxCostUsd: 3, maxRequests: 400 }) });
-  assert.equal(res.session.mode, "sol-luna-2");
+  const res = await arm(lunaMode, { post, budget: new Budget({ maxCostUsd: 3, maxRequests: 400 }) });
+  assert.equal(res.session.mode, lunaMode);
   assert.ok(res.session.prefixItems > 0, "Sol 계획이 고정 접두 P 를 형성함");
   assert.ok(res.editorialPlan !== null, "editorialPlan 이 메모리에 캡처됨");
 
@@ -182,7 +182,7 @@ test("sol-luna-2: stage->model table and noteSession selective attachment", asyn
   for (const c of solWriteCalls) {
     assert.equal(c.body.model, SOL, "review, global, repair 는 Sol");
     assert.ok(c.body.noteSession !== undefined, "Sol 단계는 noteSession 포함");
-    assert.equal(c.body.noteSession.mode, "sol-luna-2");
+    assert.equal(c.body.noteSession.mode, lunaMode);
   }
 });
 
@@ -371,15 +371,18 @@ test("kvPairs·memStore·planArms", () => {
   assert.deepEqual(kvPairs("claims=10 kept=7 relinked=0"), { claims: 10, kept: 7, relinked: 0 });
   const s = memStore(); s.putJson("jobs", "j1", { state: "done" }).then(async () => assert.equal((await s.getJson("jobs", "j1")).state, "done"));
   const arms = planArms({ judge: "typesafe/jev-1.13" });
-  assert.equal(arms.length, 6, "총 6개 모드 (independent, 3개 v1 세션, 2개 v2 세션)");
+  assert.equal(arms.length, 7, "총 7개 모드 (independent, 3개 v1 세션, 3개 v2 세션)");
   assert.equal(arms[0].models.write, LUNA_HIGH);
   assert.ok(arms[1].sessionEnvelope && arms[2].sessionEnvelope && arms[3].sessionEnvelope);
   assert.equal(arms[0].sessionEnvelope, null);
   assert.equal(arms[3].mode, "sol-fork");
   assert.equal(arms[4].mode, "sol-luna-2");
   assert.equal(arms[5].mode, "sol-fork-2");
+  assert.equal(arms[6].mode, "sol-luna-3");
   assert.equal(arms[4].models.write, LUNA_HIGH);
   assert.equal(arms[5].models.write, SOL);
+  assert.equal(arms[6].models.write, LUNA_HIGH, "sol-luna-3 도 Luna 작성 경로");
+  assert.ok(arms[6].sessionEnvelope && arms[6].writer === "draft", "sol-luna-3 도 v2 세션·draft 경로");
   assert.equal(arms[4].writer, "draft");
   assert.equal(arms[5].writer, "draft");
   assert.equal(arms[3].writeLane, "default(8)", "sol-fork 는 일반 write 레인 — 연쇄 군만 1로 직렬화");

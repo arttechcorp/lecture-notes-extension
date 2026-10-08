@@ -3647,6 +3647,10 @@ test("v2 단계→모델 표: sol-luna-2 의 draft·questions 는 세션 없는 
       await errorOf(await req(url, "/v1/write", "POST", globalIn({ model: SOL, requestId: "m2-1", noteMode: "sol-luna-2" })), 400, "invalid_model_or_stage");
       await errorOf(await req(url, "/v1/write", "POST", sectionIn({ model: LUNA2, requestId: "m2-2", stage: "draft", noteMode: "sol-luna-2", noteSession: { v: 1, id: "v2luna001", mode: "sol-luna-2", history: P } })), 400, "invalid_model_or_stage");
       await errorOf(await req(url, "/v1/write", "POST", sectionIn({ model: SOL, requestId: "m2-3", stage: "draft", noteMode: "sol-luna-2" })), 400, "invalid_model_or_stage");
+      // sol-luna-3 은 같은 표다 — Sol 단계에 세션 없음 / Luna 단계에 Sol 모델·세션 첨부는 거절
+      await errorOf(await req(url, "/v1/write", "POST", globalIn({ model: SOL, requestId: "m3-1", noteMode: "sol-luna-3" })), 400, "invalid_model_or_stage");
+      await errorOf(await req(url, "/v1/write", "POST", sectionIn({ model: SOL, requestId: "m3-2", stage: "draft", noteMode: "sol-luna-3" })), 400, "invalid_model_or_stage");
+      await errorOf(await req(url, "/v1/write", "POST", sectionIn({ model: LUNA2, requestId: "m3-3", stage: "draft", noteMode: "sol-luna-3", noteSession: { v: 1, id: "v2luna003", mode: "sol-luna-3", history: P } })), 400, "invalid_model_or_stage");
       // sol-fork-2: 세션 없는 Sol 단계 호출·구 단계(section·link)는 계약에 없다
       await errorOf(await req(url, "/v1/write", "POST", globalIn({ model: SOL, requestId: "m2-4", noteMode: "sol-fork-2" })), 400, "invalid_model_or_stage");
       await errorOf(await req(url, "/v1/write", "POST", sectionIn({ model: SOL, requestId: "m2-5", noteMode: "sol-fork-2", noteSession: { v: 1, id: "v2bad002", mode: "sol-fork-2", history: P } })), 400, "invalid_model_or_stage");
@@ -3658,10 +3662,10 @@ test("v2 단계→모델 표: sol-luna-2 의 draft·questions 는 세션 없는 
   } finally { delete Prompts.REQUEST.review; }
 });
 
-test("sol-luna-2: draft 는 noteSession 없는 독립 Luna High 요청 — 자체 예약·only 허용 목록·order 없음", async () => {
+for (const lunaMode of ["sol-luna-2", "sol-luna-3"]) test(`${lunaMode}: draft 는 noteSession 없는 독립 Luna High 요청 — 자체 예약·only 허용 목록·order 없음`, async () => {
   const bodies = [];
   await withNoteServer(async (_u, o) => { bodies.push(JSON.parse(o.body)); return noteReply(v2DraftOut); }, async url => {
-    const res = await req(url, "/v1/write", "POST", sectionIn({ model: LUNA2, requestId: "l2d-1", stage: "draft", noteMode: "sol-luna-2", jobId: "job-v2-1" }), tokenB);
+    const res = await req(url, "/v1/write", "POST", sectionIn({ model: LUNA2, requestId: "l2d-1", stage: "draft", noteMode: lunaMode, jobId: "job-v2-1" }), tokenB);
     const out = await res.json();
     assert.equal(res.status, 200, JSON.stringify(out.error || ""));
     assert.deepEqual(out.output, v2DraftOut);
