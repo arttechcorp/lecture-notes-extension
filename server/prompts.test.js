@@ -520,16 +520,24 @@ test("v3 draft and questions: Luna synthetic examples in stable prefix and role 
 test("v3 review and repair: L1 review ops block preserved and L2 repair branch untouched", () => {
   // review: L1 operation 설명 블록 보존
   const revV3 = Prompts.systemFor("review", OFF, undefined, undefined, "sol-luna-3");
-  assert.match(revV3, /op: term_fix\(.*claim_edit\(.*dedupe\(.*relation_fix\(.*relink_asset\(.*request_section_redo\(/s, "review: L1 operation 설명 블록 보존");
+  assert.match(revV3, /term_fix.*claim_edit.*dedupe.*relation_fix.*relink_asset.*request_section_redo/s, "review: L1 operation 설명 블록 보존");
+  assert.match(revV3, /change\.from.*change\.to.*change\.claim.*change\.value.*change\.assetIds/s, "review: L1 새 REVIEW_OPS 필드 설명 포함");
+  assert.match(revV3, /baseRevision/, "review: baseRevision 안내 포함");
   assert.match(revV3, /dedupe로 뺄 주장에만 있는 고유한 조건·예외·근거가 다른 위치에 보존되는지/, "review: dedupe 조건 보존 확인");
   assert.match(revV3, /targetId는 호스트가 부여한 id/, "review: targetId 규칙");
   assert.match(revV3, /unresolved에 {targetId, reasonCode}로 보고하고/, "review: unresolved 규칙");
   assert.ok(!revV3.includes("[블록] B02"), "review: B01-B18 레이아웃 봉투 규칙 제외");
 
-  // repair: L2 소유 — 분기를 건드리지 않으며 v2 repair 프롬프트와 동일해야 함
+  // repair: full-p 는 기존 repair 프롬프트 불변이고, packet 변형은 Prompts.repairPacket 으로 제공
   const repV3 = Prompts.systemFor("repair", OFF, undefined, undefined, "sol-luna-3");
   const repV2 = Prompts.systemFor("repair", OFF, undefined, undefined, "sol-luna-2");
-  assert.equal(repV3, repV2, "repair 는 L2 소유로 sol-luna-3 에서도 v2 와 동일하게 유지");
+  assert.equal(repV3, repV2, "repair full-p 는 기존 repair 프롬프트와 동일");
+  assert.equal(typeof Prompts.repairPacket, "function", "repair packet 변형 함수 제공");
+  const packetPrompt = Prompts.repairPacket(OFF);
+  assert.match(packetPrompt, /검증에 걸린 블록만 고치는 편집자/, "repair packet 전용 짧은 지시");
+  assert.match(packetPrompt, /packet\.allowedOps/, "repair packet 허용 동작");
+  assert.ok(!packetPrompt.includes("[블록] B02"), "repair packet 은 COMMON+NOTE_RULES 전체를 싣지 않음");
+  assert.ok(Buffer.byteLength(packetPrompt, "utf8") < Buffer.byteLength(repV2, "utf8"), "repair packet 은 full-p 보다 슬림");
 });
 
 test("existing modes immutability: sol-luna-2, sol-fork-2, independent, and undefined generate byte-identical prompts", () => {
@@ -554,8 +562,8 @@ test("existing modes immutability: sol-luna-2, sol-fork-2, independent, and unde
 });
 
 test("prompt size reporting: v3 reduces prompt bytes for plan, editorial, draft, review, questions", () => {
-  // 기준 plan 9,390 / editorial 7,894 / draft 10,087 / repair 8,116 / review 8,359 / questions 7,745 (v2, ko, OFF)
-  const baselines = { plan: 9390, editorial: 7894, draft: 10087, repair: 8116, review: 8359, questions: 7745 };
+  // 기준 plan 9,390 / editorial 7,894 / draft 10,087 / repair 8,116 / review 9,021(L1 전 모드 결함 수정 반영) / questions 7,745 (v2, ko, OFF)
+  const baselines = { plan: 9390, editorial: 7894, draft: 10087, repair: 8116, review: 9021, questions: 7745 };
   for (const [st, baseSize] of Object.entries(baselines)) {
     const v2Size = Buffer.byteLength(Prompts.systemFor(st, OFF, undefined, undefined, "sol-luna-2"), "utf8");
     assert.equal(v2Size, baseSize, st + ": v2 기준 바이트 일치");

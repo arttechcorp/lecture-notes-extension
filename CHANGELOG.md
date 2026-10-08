@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.7.0 — 2026-10-08
+
+- 실험 모드 sol-luna-3을 추가한다(숨은 설정 devNoteMode, sol-luna-2와 같은 모델 배치·고정 접두 P에 개선안을 얹은 버전). 옵션 devNoteV3 {repair: packet|full-p, resume}로 비교군을 가른다(lib/note-v3.js). 기본 경로와 sol-luna-2·sol-fork-2의 모델 배치는 그대로다.
+- 검수 출력 계약과 적용기가 하나의 operation 표(REVIEW_OPS)를 공유한다 — relink_asset은 assetIds로 통일되고 term_fix·relation_fix의 from/to/value, 문장+근거를 함께 고치는 claim_edit이 정상 출력으로 끝까지 적용된다. 모든 변경은 baseRevision·대상 확인 → 임시 적용 → 필수 재검증 → 확정/원복을 거치고, 반려 사유와 제안/큐/실행/채택 건수를 내용 없는 숫자로 남긴다(필드: 계약에 맞는 relink_asset과 용어 치환 제안이 적용기에서 거절되고, 섹션 재작성이 큐에 들어간 것만으로 적용으로 집계됐다).
+- 복구 루프의 예산·오류 서명 제어가 실제 실행에 연결된다 — 시도 예약→실행→기록→확정/원복이 비용·서명·원인별 시도를 쌓아 동일 서명 반복에서 멈추고, loopMetrics가 실제 이벤트를 집계하며 수리 원인(writer_null·compiler_unmapped·schema·support·review_redo)을 분리해 센다(필드: record 호출이 없어 상한·서명 중단이 발동하지 않았고 BLOCKS_HELD의 loop 지표가 항상 0이었다).
+- sol-luna-3 수리는 기본으로 고정 접두 P 대신 작은 자급 패킷(대상 블록·인용 근거·완전한 인접 주장·오류 코드·허용 op·남은 예산)만 싣는 독립 Sol 요청이다. repair=full-p면 기존 경로 그대로다.
+- sol-luna-3 프롬프트를 단계별 역할 규칙으로 줄이고(plan·editorial·draft·review·questions 약 38~64% 축소) Luna draft·questions에 합성 정상/반례 예시를 고정 접두 위치에 둔다. Luna 요청은 공통 필드를 앞에 모아 공통 접두 비율을 늘린다. 다른 모드의 프롬프트는 검수 operation 문서 외 바이트 단위로 그대로다.
+- Luna 초안의 관계에 relationId·targetBlockId를 받아 지정한 계획 블록에 연결하고(없으면 기존 배열 순서), 모든 주장·관계의 included/merged/deferred/unmapped 원장을 남긴다. VisualSpec(argument_map·timeline·flow)을 원장에서 검증해 결정적 SVG로 그리는 모듈(lib/visual-spec.js)을 추가한다(아직 노트 렌더에는 연결하지 않는다).
+- sol-luna-3의 resume 옵션을 켜면 호출 결과를 입력 해시 키로 암호화 체크포인트(package-store, AES-GCM)에 두고 재사용한다. 계획·편집 계획 호출과 P는 저장하지 않고 항상 새로 낸다. 기본(꺼짐)은 기존 cold-run 그대로다.
+- 사용 기록에 캐시 읽기/쓰기·추론 토큰의 단계별 집계를 추가하고(미보고는 null), 실험 하네스가 repair·resume 비교군과 run당 $1.50 예산·중단 규칙을 코드로 지키며 보고서에 채택 수정당 비용·p50/p95 지연을 싣는다.
+
 ## 2.6.0.1 — 2026-10-07
 
 - 실험 모드 sol-luna-2·sol-fork-2의 계획이 서버 대기 한도 안에 끝나도록 편집 계획(editorialPlan)을 plan 호출에서 떼어 같은 세션의 두 번째 Sol 호출(editorial 단계)로 나눈다. plan 응답은 구 계약 그대로({plan}, 이어 쓸 이력)이고, editorial 응답이 {editorialPlan}과 앵커로 끝나는 고정 접두 P를 돌려준다(필드: 한 호출에 합친 출력이 Sol 초당 약 60~95토큰으로 120~148초를 넘겨 pilot 계획이 세 번 모두 끊겼다, 추가 비용 약 $0.12×3). 기본 경로·구 모드는 그대로다.

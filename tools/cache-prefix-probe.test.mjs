@@ -54,7 +54,7 @@ test("diagnoseCachePrefix: v3는 legacy 대비 공통 접두가 대폭 확장되
   const diag = diagnoseCachePrefix({ noteMode: "sol-luna-3" });
   assert.equal(diag.mode, "sol-luna-3");
   assert.equal(diag.passed, true);
-  assert.ok(diag.gainBytes >= 0, `v3 공통 접두 이득(${diag.gainBytes})은 0 이상이어야 함`);
+  assert.ok(diag.v3.ratioA >= diag.legacy.ratioA, `v3 공통 접두 비율(${diag.v3.ratioA})은 legacy(${diag.legacy.ratioA}) 이상이어야 함`);
   assert.equal(diag.v3.leakedDynamicTokens.length, 0, "v3 접두에 동적 토큰 누출 없어야 함");
   assert.equal(diag.v3.missingStaticTokens.length, 0, "v3 접두에 필수 정적 토큰 포함되어야 함");
 });

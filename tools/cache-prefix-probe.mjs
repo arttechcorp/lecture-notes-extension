@@ -183,7 +183,8 @@ export function diagnoseCachePrefix({ noteMode = "sol-luna-3", model = DEFAULT_M
     legacy: legacyAlignment,
     gainBytes,
     gainPercent,
-    passed: v3Alignment.passed && gainBytes >= 0,
+    // 절대 길이는 v3 프롬프트가 짧아져 줄 수 있다 — 접두 이득은 요청 대비 공통 접두 비율로 판정한다.
+    passed: v3Alignment.passed && v3Alignment.ratioA >= legacyAlignment.ratioA,
   };
 }
 
@@ -269,7 +270,7 @@ export function formatProbeReport(result) {
     `|---|---|---|---|`,
     `| 요청 A 크기 | ${v3.bytesA} bytes | ${legacy.bytesA} bytes | - |`,
     `| 요청 B 크기 | ${v3.bytesB} bytes | ${legacy.bytesB} bytes | - |`,
-    `| 공통 접두 길이 | ${v3.commonBytes} bytes | ${legacy.commonBytes} bytes | +${diag.gainBytes} bytes (${diag.gainPercent}%) |`,
+    `| 공통 접두 길이 | ${v3.commonBytes} bytes | ${legacy.commonBytes} bytes | ${diag.gainBytes >= 0 ? "+" : ""}${diag.gainBytes} bytes (${diag.gainPercent}%) |`,
     `| 공통 비율 (A/B) | ${(v3.ratioA * 100).toFixed(1)}% / ${(v3.ratioB * 100).toFixed(1)}% | ${(legacy.ratioA * 100).toFixed(1)}% / ${(legacy.ratioB * 100).toFixed(1)}% | - |`,
     ``,
     `## 2. 불변조건 및 누출 검증`,
