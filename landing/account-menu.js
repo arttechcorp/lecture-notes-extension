@@ -64,6 +64,7 @@
     link("사용자 정보", "/account"),
     link("결제 정보", "/account/billing"),
     link("구독 설정", "/account/subscription"),
+    link("사용 방법 익히기", "/welcome"),
     footer,
   );
   dlg.append(head, userBox, list);
