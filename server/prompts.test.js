@@ -138,7 +138,7 @@ test("request contracts are the stage's own field lists", () => {
   assert.deepEqual(Object.keys(Prompts.REQUEST.questions.properties), ["concepts", "sections", "options", "allowedRefs", "section", "blockId", "editorialPlan"]);
   // 선택 키: 네 단계 모두 allowedRefs, section·repair 는 섹션에 배정된 learningItems 도 없어도 된다 — 나머지 키는 모두 required 로 strict 규칙을 지킨다.
   for (const stage of Prompts.STAGES) {
-    const optional = stage === "draft" ? ["allowedRefs", "learningItems", "editorialPlan"] : ["section", "repair"].includes(stage) ? ["allowedRefs", "learningItems"] : stage === "questions" ? ["allowedRefs", "editorialPlan"] : stage === "editorial" ? [] : ["allowedRefs"];
+    const optional = stage === "draft" ? ["allowedRefs", "learningItems", "editorialPlan"] : ["section", "repair"].includes(stage) ? ["allowedRefs", "learningItems"] : stage === "questions" ? ["allowedRefs", "editorialPlan"] : stage === "editorial" ? [] : stage === "review" ? ["allowedRefs", "baseRevision"] : ["allowedRefs"];
     assert.deepEqual(Object.keys(Prompts.REQUEST[stage].properties).filter(k => !Prompts.REQUEST[stage].required.includes(k)), optional, stage + " 선택 키");
   }
   // plan·global 요청은 strict 모양을 지킨다. section·repair 는 정규화된 Plan 섹션을 싣는데,
@@ -382,8 +382,8 @@ test("review stage: integrated editorial review — request contract, prompt rul
   assert.ok(!Prompts.systemFor("review", OFF, "en").includes("[원문 대조]"), "review: src 칸 없음");
   assert.ok(Prompts.systemFor("review", OFF, "en").includes("[영어 강의]"), "review: 영어 용어 규칙은 붙는다");
 
-  assert.deepEqual(Object.keys(Prompts.REQUEST.review.properties), ["concepts", "sections", "editorialPlan", "options", "allowedRefs"]);
-  assert.deepEqual(Object.keys(Prompts.REQUEST.review.properties).filter(k => !Prompts.REQUEST.review.required.includes(k)), ["allowedRefs"]);
+  assert.deepEqual(Object.keys(Prompts.REQUEST.review.properties), ["concepts", "sections", "editorialPlan", "options", "allowedRefs", "baseRevision"]);
+  assert.deepEqual(Object.keys(Prompts.REQUEST.review.properties).filter(k => !Prompts.REQUEST.review.required.includes(k)), ["allowedRefs", "baseRevision"]);
   const claims = [{ path: "/content/definition", text: "고정비는 생산량과 무관하다", evidenceIds: ["U1.s1"], basis: "lecture" }];
   const body = { concepts: plan.concepts, sections: [{ sectionId: "S1", title: "비용", gist: null, blocks: [{ blockId: "S1_B1", type: "B05", claims, figureIds: ["G1"] }] }], editorialPlan: EP_MIN, options: { ...OFF } };
   assert.ok(Contracts.validate(Prompts.REQUEST.review, body).ok, "review 요청 계약");

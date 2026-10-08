@@ -105,8 +105,8 @@ const STAGE={
   review:[
     "단계: 통합 편집 검수. 입력은 노트의 개념 목록(concepts), 편집 계획(editorialPlan), 검증을 통과한 섹션들(sections: 섹션별 블록과 그 주장, 각 주장의 evidenceIds와 봉투 안 경로 path, 블록의 figureIds)이다 — 근거 원문은 없고, 본문을 새로 쓰지 않는다.",
     "용어 불일치(glossary의 preferredTerm 기준), 사실 모순, 같은 내용의 중복, 계획의 mustExplain이 요구한 설명(정의·조건·예외·예시·비교·논증)의 누락, 관계의 잘못된 유형·방향, 그림의 잘못된 연결만 찾아 edits에 수정 제안을 담는다. 한 번에 최대 12개다.",
-    "op: term_fix(용어를 표준 용어로 고침), claim_edit(주장 문장 수정), dedupe(중복 주장 통합), relation_fix(관계 유형·방향·대상 수정), relink_asset(기존 asset을 올바른 블록에 다시 연결), request_section_redo(그 섹션만 재작성 요청).",
-    "각 수정에는 대상 id(targetId), 이유 코드(reasonCode), 관련 근거 id(evidenceIds), 의도한 변경(change)이 필요하다. targetId는 호스트가 부여한 id(S#·S#_B#·GB#·C#·G#·단서 위치 S#_B#/P#)만 쓴다 — 봉투 안 경로나 임의 경로는 안 된다. 수정된 주장은 다시 근거·수식·숫자·참조 검사를 통과해야 하므로 근거 없는 수정은 제안하지 않는다.",
+    "op와 change에 채울 칸: term_fix(용어를 표준 용어로 치환 — change.from·change.to 필수. targetId가 주장 경로면 그 주장만, 블록이면 그 안의 모든 주장에서 치환), claim_edit(주장 문장·인용 근거 수정 — change.text로 문장만 바꾸거나 change.claim에 새 문장과 그 문장이 인용할 근거 id를 함께 담는다), dedupe(중복 주장 하나를 뺌 — targetId는 뺄 주장 경로, change.keepTargetId는 남길 판본), relation_fix(관계 노드의 값을 change.value로 치환 — targetId는 비주장 노드 경로), relink_asset(블록의 figureIds를 change.assetIds로 교체 — targetId는 블록이고 입력에 보인 G# id만 쓴다), request_section_redo(그 섹션만 재작성 요청 — targetId는 S#).",
+    "각 수정에는 대상 id(targetId), 이유 코드(reasonCode), 관련 근거 id(evidenceIds), 의도한 변경(change)이 필요하고, 출력 맨 앞의 baseRevision에는 요청 본문의 baseRevision을 그대로 옮긴다 — 어긋나면 제안 전체가 낡은 판본으로 거절된다. targetId는 호스트가 부여한 id(S#·S#_B#·GB#·C#·G#·단서 위치 S#_B#/P#)만 쓴다 — 봉투 안 경로나 임의 경로는 안 된다. 수정된 주장은 다시 근거·수식·숫자·참조 검사를 통과해야 하므로 근거 없는 수정은 제안하지 않는다.",
     "dedupe로 뺄 주장에만 있는 고유한 조건·예외·근거가 다른 위치에 보존되는지 먼저 확인한다 — 남지 않으면 dedupe가 아니라 claim_edit으로 보존하거나 unresolved에 올린다.",
     "확실한 것만 제안한다. 상한을 넘거나 근거가 모자라 바로 고칠 수 없는 문제는 unresolved에 {targetId, reasonCode}로 보고하고 조용히 승인하지 않는다. 제안이 없으면 edits는 빈 배열이다.",
   ],
@@ -213,6 +213,7 @@ const REQUEST={
     allowedRefs,
   },["allowedRefs"]),
   // v2 통합 편집 검수(§4.3): link 입력 축약에 편집 계획을 얹고, 블록에 figureIds(연결된 asset)를 선택 칸으로 둔다.
+  // baseRevision(맨 끝, 선택): 호스트가 만든 입력 판본 토큰 — 출력의 baseRevision 에 그대로 돌아와야 제안을 연다.
   review:opt({
     concepts:planConcepts,
     sections:arr(obj({sectionId:pat(IDS.section),title:{type:"string",maxLength:80},gist:{...claimPos,type:["object","null"]},
@@ -220,7 +221,8 @@ const REQUEST={
     editorialPlan:NoteContract.editorialPlanSchema,
     options,
     allowedRefs,
-  },["allowedRefs"]),
+    baseRevision:{type:"string",maxLength:64},
+  },["allowedRefs","baseRevision"]),
   // v2 편집 계획: 입력은 옵션뿐이다 — 계획은 noteSession 이력(앞 턴)에 이미 있다. 이력 없이는 서버가 거절한다.
   editorial:opt({options},[]),
   // 본문 확정 뒤 문항(draft 경로): 채울 B14 는 계획 블록 하나, 참고는 살아남은 본문 주장이다.
