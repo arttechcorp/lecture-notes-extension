@@ -200,14 +200,17 @@ const keepItem=i=>{const ks=KEEP[i?.type];if(!ks)return null;const o={};for(cons
 // 업스트림이 400 으로 거절하고, parallel_tool_calls 는 Sol 엔드포인트의 supported_parameters 에 없어
 // require_parameters 가 전부 걸러 404(no_endpoints)가 된다(2026-10-07 실 라이브 측정). 호출 강제는 tool_choice
 // 하나로 충분하고 도구 응답이 하나뿐이라 병렬 허용 칸은 의미가 없다.
-function solBody({stage,system,items,params,providers,session,mode,choice}){
+// strictSchema: 프로파일이 단계에 단 표시(stages.<단계>.strict, lib/note-profiles.js)면 출력을 strict
+// json_schema 로 받는다 — Liner Responses 는 json_schema+strict 를 지원한다(기획 §3.3, mis-sol-hai 의 editorial·review).
+// 스키마는 요청 본문(호출마다 다른 칸)이라 P 접두를 깨지 않는다.
+function solBody({stage,system,items,params,providers,session,mode,choice,strictSchema}){
   const body={model:SOL,store:false,
     input:[{role:"developer",content:[{type:"input_text",text:system,prompt_cache_breakpoint:{mode:"explicit"}}]},...items],
     reasoning:{...(params.reasoning||{}),context:"all_turns"},
     include:["reasoning.encrypted_content"],
     prompt_cache_options:{mode:"explicit",ttl:"30m"},
     max_output_tokens:params.max_tokens,
-    text:{format:{type:"json_object"}},
+    text:{format:strictSchema?{type:"json_schema",name:"lecture_note_"+stage,strict:true,schema:strictSchema}:{type:"json_object"}},
     session_id:session.id,
     provider:{only:providers,require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}};
   if(mode==="sol-luna-tool"){body.tools=[TOOL_DEF];body.tool_choice=choice;}
@@ -287,7 +290,8 @@ async function run(ctx){
   const solCall=async choice=>{
     const at=Date.now();
     const response=await ctx.fetcher(RESPONSES_ENDPOINT,{method:"POST",redirect:"error",signal:ctx.signal,headers:{authorization:"Bearer "+ctx.key,"content-type":"application/json"},body:JSON.stringify(
-      solBody({stage,system,items:history,params:ctx.params,providers:ctx.solProviders,session,mode,choice}))});
+      solBody({stage,system,items:history,params:ctx.params,providers:ctx.solProviders,session,mode,choice,
+        strictSchema:NoteProfiles.get(mode)?.stages?.[stage]?.strict===true?ctx.providerOut:null}))});
     // HTTP 거절: 4xx 는 라우팅 단계의 거절이라 생성 비용이 없다 — 이 요청의 첫 시도면 예약을 환불한다.
     // 5xx·전송 실패는 제공자 쪽에서 돈이 나갔는지 알 수 없어 예약을 그대로 둔다(보수적). 두 번째 이후 호출의 거절은 항상 과금 확정.
     if(!response.ok){const detail=await upstreamDetail(h,response);tries.push(h.attemptOf("a"+tries.length,Date.now()-at,null,detail,tag(null,SOL)));

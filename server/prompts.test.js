@@ -138,7 +138,7 @@ test("request contracts are the stage's own field lists", () => {
   assert.deepEqual(Object.keys(Prompts.REQUEST.questions.properties), ["concepts", "sections", "options", "allowedRefs", "section", "blockId", "editorialPlan"]);
   // 선택 키: 네 단계 모두 allowedRefs, plan 은 mis-sol-hai emphasis, section·repair 는 섹션에 배정된 learningItems 도 없어도 된다 — 나머지 키는 모두 required 로 strict 규칙을 지킨다.
   for (const stage of Prompts.STAGES) {
-    const optional = stage === "draft" ? ["allowedRefs", "learningItems", "editorialPlan"] : stage === "repair" ? ["allowedRefs", "learningItems", "packet"] : stage === "section" ? ["allowedRefs", "learningItems"] : stage === "questions" ? ["allowedRefs", "editorialPlan"] : stage === "editorial" ? [] : stage === "review" ? ["sections", "html", "omittedSectionIds", "allowedRefs", "baseRevision"] : stage === "plan" ? ["allowedRefs", "emphasis"] : ["allowedRefs"];
+    const optional = stage === "draft" ? ["allowedRefs", "learningItems", "editorialPlan", "images"] : stage === "repair" ? ["allowedRefs", "learningItems", "packet"] : stage === "section" ? ["allowedRefs", "learningItems"] : stage === "questions" ? ["allowedRefs", "editorialPlan"] : stage === "editorial" ? [] : stage === "review" ? ["sections", "html", "omittedSectionIds", "allowedRefs", "baseRevision"] : stage === "plan" ? ["allowedRefs", "emphasis"] : ["allowedRefs"];
     assert.deepEqual(Object.keys(Prompts.REQUEST[stage].properties).filter(k => !Prompts.REQUEST[stage].required.includes(k)), optional, stage + " 선택 키");
   }
   // plan·global 요청은 strict 모양을 지킨다. section·repair 는 정규화된 Plan 섹션을 싣는데,
@@ -323,7 +323,7 @@ test("questions stage: request pins the plan's B14 block; output is that one env
 
 test("draft stage: semantic-draft prompt, request contract, output schema, specialist worker", () => {
   // 요청 계약은 섹션 작성과 같다 — 출력만 블록 봉투 대신 주장·typed 관계다.
-  assert.deepEqual(Object.keys(Prompts.REQUEST.draft.properties), ["concepts", "options", "allowedRefs", "section", "evidence", "registry", "figures", "learningItems", "withGist", "editorialPlan"]);
+  assert.deepEqual(Object.keys(Prompts.REQUEST.draft.properties), ["concepts", "options", "allowedRefs", "section", "evidence", "registry", "figures", "learningItems", "withGist", "editorialPlan", "images"]);
   const t = Prompts.systemFor("draft");
   assert.match(t, /의미 초안/, "draft: 단계 이름");
   assert.match(t, /지면\(B01–B18 슬롯·색·번호·HTML\)이 아니라 의미 단위만 쓴다/, "draft: 지면이 아니라 의미");
@@ -399,7 +399,7 @@ test("review stage: integrated editorial review — request contract, prompt rul
 });
 
 test("v2 editorial: a separate second Sol turn carries the editorial instruction; plan output stays the v1 contract", () => {
-  assert.deepEqual(Prompts.V2_MODES, ["sol-luna-2", "sol-luna-3", "sol-fork-2"]);
+  assert.deepEqual(Prompts.V2_MODES, ["sol-luna-2", "sol-luna-3", "sol-fork-2", "mis-sol-hai"]);
   for (const mode of Prompts.V2_MODES) {
     const t = Prompts.systemFor("editorial", OFF, undefined, undefined, mode);
     assert.match(t, /editorialPlan/, mode + ": 편집 명세 칸 안내");
@@ -412,8 +412,9 @@ test("v2 editorial: a separate second Sol turn carries the editorial instruction
     assert.equal(Contracts.isStrictCompatible(sch), true, mode + " 출력 strict");
     // 계획은 모드와 무관하게 구 계약 그대로 — 한 호출에 합치면 Sol 출력이 Edge 150초를 넘는다(2026-10-07 pilot).
     assert.equal(Prompts.outputSchema("plan", undefined, undefined, mode), NoteContract.schemas.plannerOutput, mode + ": plan 출력");
-    if (mode === "sol-luna-3") {
-      assert.notEqual(Prompts.systemFor("plan", OFF, undefined, undefined, mode), Prompts.systemFor("plan"), mode + ": v3 는 슬림화된 plan 지시");
+    if (mode === "sol-luna-3" || mode === "mis-sol-hai") {
+      // sol-luna-3 는 슬림화된 plan 지시, mis-sol-hai 는 MSH plan 지시가 붙는다 — 모드별 테스트가 따로 단정한다.
+      assert.notEqual(Prompts.systemFor("plan", OFF, undefined, undefined, mode), Prompts.systemFor("plan"), mode + ": 모드 지시가 기본과 다르다");
     } else {
       assert.equal(Prompts.systemFor("plan", OFF, undefined, undefined, mode), Prompts.systemFor("plan"), mode + ": plan 지시");
     }
@@ -605,3 +606,53 @@ test("plan request contract accepts emphasis signal entries and rejects invalid 
   assert.match(Prompts.systemFor("plan"), /입력에 emphasis가 있으면/, "plan 지시에 emphasis 숫자 뜻 포함");
 });
 
+
+// ── mis-sol-hai: 모드 지시는 프로파일의 prompts 표시로만 켜지고, 이미지 근거 칸과 길이 상한 ──
+test("mis-sol-hai: plan·draft 에만 모드 지시가 붙고 다른 단계·모드는 바이트 불변", () => {
+  const plan = Prompts.systemFor("plan", OFF, undefined, undefined, "mis-sol-hai");
+  assert.match(plan, /\[mis-sol-hai\] 모든 슬라이드를 정확히 한 섹션에 배정한다/, "plan: 슬라이드 커버리지");
+  assert.match(plan, /emphasis 는 유닛별 강조 신호/, "plan: 강조 신호 입력의 뜻");
+  assert.match(plan, /B12 hint·background/, "plan: 강조 상위에 곁설명 배정");
+  assert.match(plan, /slide_absent/, "plan: 말로만 한 내용의 B12 kind");
+  const draft = Prompts.systemFor("draft", OFF, undefined, undefined, "mis-sol-hai");
+  assert.match(draft, /slide_absent.*발화 근거만 인용한다/, "draft: slide_absent 근거 제한");
+  assert.match(draft, /images 는 OCR 이 읽지 못한 필기 영역 이미지다/, "draft: 필기 이미지 근거");
+  // review 는 축약 HTML 입력 지시 한 줄이 붙는다(§4.7 D8 — L6 가 html 칸을 싣는다).
+  const review = Prompts.systemFor("review", OFF, undefined, undefined, "mis-sol-hai");
+  assert.match(review, /축약 렌더 HTML.*data-block·data-claim 앵커/, "review: 축약 HTML 입력 안내");
+  // MSH 지시가 없는 단계는 v2 프롬프트와 같은 문자열이다.
+  for (const st of ["editorial", "global", "repair", "questions"])
+    assert.equal(Prompts.systemFor(st, OFF, undefined, undefined, "mis-sol-hai"),
+      Prompts.systemFor(st, OFF, undefined, undefined, "sol-luna-2"), st + ": v2 와 동일");
+  // 기존 모드에는 MSH 지시가 붙지 않는다.
+  for (const st of ["plan", "draft"]) {
+    assert.ok(!Prompts.systemFor(st, OFF, undefined, undefined, "sol-luna-2").includes("[mis-sol-hai]"), st + ": v2 무영향");
+    assert.ok(!Prompts.systemFor(st, OFF, undefined, undefined, "sol-luna-3").includes("[mis-sol-hai]"), st + ": v3 무영향");
+    assert.ok(!Prompts.systemFor(st, OFF).includes("[mis-sol-hai]"), st + ": 기본 경로 무영향");
+  }
+});
+
+test("mis-sol-hai: draft 요청의 images 칸 — 필기 영역 이미지 근거 모양(선택)", () => {
+  const body = { concepts: plan.concepts, options: { ...OFF }, section: s1, withGist: false,
+    evidence: [{ id: "U1.s1", unitId: "U1", kind: "slide", t0: 0, t1: 150, slideId: "sl-1", sourceId: "b1", role: "title", text: "원가는 생산량에 어떻게 반응하는가" }],
+    registry: [], figures: [] };
+  assert.ok(Contracts.validate(Prompts.REQUEST.draft, body).ok, "images 없는 요청(선택 칸)");
+  const withImg = { ...body, images: [{ id: "U1.s1", image: "data:image/jpeg;base64,QUJD" }] };
+  assert.ok(Contracts.validate(Prompts.REQUEST.draft, withImg).ok, "이미지 근거를 실은 요청 모양");
+  for (const bad of [
+    { ...body, images: [{ id: "U1.s1", image: "https://example.com/a.png" }] },   // data URL 만 받는다
+    { ...body, images: [{ id: "BAD", image: "data:image/jpeg;base64,QUJD" }] },  // 근거 항목 id 패턴
+    { ...body, images: [{ id: "U1.s1", image: "data:image/jpeg;base64,QUJD", note: "x" }] }, // 계약 밖 키
+  ]) assert.ok(!Contracts.validate(Prompts.REQUEST.draft, bad).ok, JSON.stringify(bad.images));
+});
+
+test("mis-sol-hai 프롬프트 길이 상한(기획 §7 — 버전과 함께 길이를 기록·리뷰한다)", () => {
+  // MSH 지시는 plan·draft 에만 있고 v2 본문 위에 짧게 얹는다 — 추가분과 총량 모두 상한을 둔다.
+  for (const st of ["plan", "draft"]) {
+    const msh = Buffer.byteLength(Prompts.systemFor(st, OFF, undefined, undefined, "mis-sol-hai"), "utf8");
+    const v2 = Buffer.byteLength(Prompts.systemFor(st, OFF, undefined, undefined, "sol-luna-2"), "utf8");
+    assert.ok(msh - v2 > 0, `${st}: MSH 지시가 붙는다`);
+    assert.ok(msh - v2 < 1400, `${st}: MSH 추가분 ${msh - v2}B 가 상한 안`);
+    assert.ok(msh < 12000, `${st}: 총량 ${msh}B 가 상한 안`);
+  }
+});

@@ -1,7 +1,7 @@
 // 노트 계획·작성 프롬프트, 요청 계약, 요청별 출력 스키마, 생성 파라미터(docs/note-contract.md §8·§9·§17 6-2·6-7·6-8).
 // 출력 스키마는 lib/note-contract.js 가 계획에서 요청마다 만든다(blockId → 타입별 슬롯). 서버와 확장이 같은 함수를 쓴다.
 // 프롬프트는 변하지 않는 시스템 본문이 앞이고 변하는 입력(user)은 호출부가 뒤에 붙인다: 접두 캐시가 맞으려면 이 순서를 지킨다.
-const NoteContract=require("../lib/note-contract.js"),Contracts=require("../lib/contracts.js"),LLM=require("./llm.js"),SectionDraft=require("../lib/section-draft.js"),NoteV3=require("../lib/note-v3.js");
+const NoteContract=require("../lib/note-contract.js"),Contracts=require("../lib/contracts.js"),LLM=require("./llm.js"),SectionDraft=require("../lib/section-draft.js"),NoteV3=require("../lib/note-v3.js"),NoteProfiles=require("../lib/note-profiles.js");
 // 프롬프트 문구나 아래 규칙을 바꾸면 올린다. 응답에 실려 단계 캐시 키에 들어간다.
 const PROMPT_VERSION="note-v6";
 // 단계별 버전: 프롬프트 문구나 아래 규칙을 바꾸면 그 단계만 올린다 — plan 캐시가 section 의 본문 재배치에 휘말려 무효가 되지 않게.
@@ -200,6 +200,21 @@ const STAGE_V3={
   ],
 };
 
+// mis-sol-hai 단계 지시(기획 §4.4·§4.5) — 프로파일의 prompts:"msh" 표시(lib/note-profiles.js)가 있을 때만 붙는다.
+// §7: 스키마·검증기로 강제되는 제약(블록 카탈로그·근거 인용·슬라이드 커버리지)은 반복하지 않고 모드 특유의 규칙만 쓴다.
+const MSH={
+  plan:[
+    "[mis-sol-hai] 모든 슬라이드를 정확히 한 섹션에 배정한다 — 제목만 있거나 내용이 없는 슬라이드도 빼지 말고 '내용 없음'으로 표시한 섹션에 둔다.",
+    "입력의 emphasis 는 유닛별 강조 신호(체류·핵심어 재등장·강조어·재방문·필기 면적)다 — 신호가 높은 자리의 블록에 곁설명(B12 hint·background)을 배정해 부가 설명을 붙이고, 슬라이드에 없이 말로만 한 내용에는 B12 블록을 배정한다(작성 단계가 kind slide_absent 로 채운다).",
+  ],
+  draft:[
+    "[mis-sol-hai] 슬라이드에 없이 말로만 한 내용은 notes 관계의 kind \"slide_absent\"로 쓴다 — 그 관계의 주장은 발화 근거만 인용한다.",
+    "입력의 images 는 OCR 이 읽지 못한 필기 영역 이미지다 — id 는 그 영역이 속한 근거다. 이미지에서 읽은 내용은 그 근거 id 를 인용하는 주장으로 쓰고, 읽히지 않는 필기는 쓰지 않는다.",
+  ],
+  review:[
+    "[mis-sol-hai] 입력의 html 은 축약 렌더 HTML 이다 — data-block·data-claim 앵커가 블록·주장 id 다.",
+  ],
+};
 // 시스템 본문 = 공용 + 노트 규칙 + 단계 규칙 (+ 켠 생성 옵션 + 영어 규칙 + 전문 워커 지시). 같은 단계·옵션·worker 면 모든 호출이 같은 문자열이다.
 // mode(v2/v3 실험 모드 이름): v3(sol-luna-3)는 단계별 규칙만 슬림하게 싣고, v2는 plan의 편집 명세 지시를 켠다.
 const systemFor=(stage,options,sourceLang,worker,mode)=>{
@@ -220,7 +235,8 @@ const systemFor=(stage,options,sourceLang,worker,mode)=>{
     return [COMMON,...examples,...STAGE_V3[stage],...aug,...en,...(stage==="draft"&&WORKER[worker]?[WORKER[worker]]:[])].join("\n");
   }
 
-  return [COMMON,NOTE_RULES,...STAGE[stage],...(V2_MODES.includes(mode)&&WRITE_V2[stage]?WRITE_V2[stage]:[]),...aug,...en,...(stage==="draft"&&WORKER[worker]?[WORKER[worker]]:[])].join("\n");
+  const msh=NoteProfiles.get(mode)?.prompts==="msh"&&MSH[stage];
+  return [COMMON,NOTE_RULES,...STAGE[stage],...(V2_MODES.includes(mode)&&WRITE_V2[stage]?WRITE_V2[stage]:[]),...(msh||[]),...aug,...en,...(stage==="draft"&&WORKER[worker]?[WORKER[worker]]:[])].join("\n");
 };
 
 // sol-luna-3 수리 패킷(repair=packet) 전용 짧은 지시 — COMMON+NOTE_RULES 전체를 싣지 않는다(개선안 §5·P1).
@@ -305,7 +321,10 @@ const REQUEST={
       remainingBudget:{type:["number","null"],minimum:0},
     },["neighborClaims","omittedIds","remainingBudget"])},["allowedRefs","learningItems","packet"]),
   // 의미 초안 경로(§2 대안 B): 입력은 섹션 작성과 같고, 출력은 블록 봉투 대신 주장·typed 관계다(lib/section-draft.js).
-  draft:opt({concepts:planConcepts,options,allowedRefs,...writerBody,withGist:{type:"boolean"},editorialPlan:lunaPacket},["allowedRefs","learningItems","editorialPlan"]),
+  // images(선택, mis-sol-hai §4.2): OCR 이 읽지 못한 필기 영역 이미지 — id 는 그 영역이 속한 근거 항목 id 다.
+  // 이미지 바이트는 모델 호출에만 쓰고 저장하지 않는다. 본문 크기 가드는 호스트가 이미지를 떼고 잰다(server/index.js).
+  draft:opt({concepts:planConcepts,options,allowedRefs,...writerBody,withGist:{type:"boolean"},editorialPlan:lunaPacket,
+    images:arr(obj({id:pat(IDS.evidence),image:{type:"string",pattern:"^data:image/(jpeg|png);base64,",maxLength:1600000}}),20)},["allowedRefs","learningItems","editorialPlan","images"]),
   global:opt({
     plan:obj({concepts:planConcepts,global:arr(S.plan.properties.global.items,3,1)}),
     sections:survSections(claimRef),

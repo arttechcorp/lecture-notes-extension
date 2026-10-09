@@ -158,3 +158,43 @@ test("toLiner: GPT-6 모델만 Liner 로 — provider·미지원 칸 제거, 키
   assert.equal(LLM.toLiner("https://openrouter.ai/api/v1/chat/completions",{headers:hdr,body:JSON.stringify({model:"xiaomi/mimo-v2.6-flash"})},L),null);
   assert.equal(LLM.toLiner("https://openrouter.ai/api/v1/chat/completions",{headers:hdr,body:JSON.stringify({model:"openai/gpt-6-luna"})},{}),null);
 });
+
+test("toLiner: Liner 제공 모델 목록(mis-sol-hai D9) — 목록의 계열만 Liner, 나머지는 OpenRouter",()=>{
+  const L={key:"k",base:"https://liner.example/api/v1"},hdr={};
+  const call=m=>LLM.toLiner("https://openrouter.ai/api/v1/chat/completions",{headers:hdr,body:JSON.stringify({model:m})},L);
+  // 목록의 모델과 그 @effort 변형(등록 변형은 upstreamOf, 미등록 변형은 접미 절단으로)은 Liner.
+  for(const m of ["openai/gpt-6.1-sol","openai/gpt-6-luna","openai/gpt-6-luna@high","openai/gpt-6-luna@xhigh","openai/gpt-6-luna@low"])
+    assert.ok(call(m),`${m} → Liner`);
+  // 목록 밖: mis-sol-hai 작성 모델, 목록에 없는 gpt-6 변형, 다른 제공자는 모두 변환 없음.
+  for(const m of ["anthropic/claude-haiku-5.5","anthropic/claude-haiku-4.5","openai/gpt-6-sol","openai/gpt-5","xiaomi/mimo-v2.6-flash"])
+    assert.equal(call(m),null,`${m} → OpenRouter`);
+  // Liner 와 무관한 URL·본문 파손·모델 없는 본문도 변환 없음.
+  assert.equal(LLM.toLiner("https://example.com/x",{headers:hdr,body:"{}"},L),null);
+  assert.equal(call(null),null);
+});
+
+test("readChoice: 잘림·거부·미완료를 JSON 파싱보다 먼저 본다(Haiku 독립 호출, §4.5)",()=>{
+  assert.deepEqual(LLM.readChoice({choices:[{finish_reason:"length",message:{content:"{\"a\":"}}]}),{error:"truncated"});
+  assert.deepEqual(LLM.readChoice({choices:[{finish_reason:"stop",message:{refusal:"cannot",content:null}}]}),{error:"refused"});
+  assert.deepEqual(LLM.readChoice({choices:[{finish_reason:"stop",message:{content:"{\"ok\":1}"}}]}),{text:"{\"ok\":1}"});
+  assert.equal(LLM.readChoice({choices:[{finish_reason:"content_filter",message:{}}]}).error,"incomplete.content_filter");
+  assert.equal(LLM.readChoice({choices:[]}).error,"incomplete.none");
+  assert.equal(LLM.readChoice({choices:[{finish_reason:"stop",message:{}}]}).error,"empty");
+});
+
+test("userWithImages: 필기 영역 이미지는 근거 id 라벨과 image_url 파트로 붙는다(mis-sol-hai §4.2)",()=>{
+  const img=[{id:"U4.s2",image:"data:image/jpeg;base64,QUJD"}];
+  const m=LLM.userWithImages("{\"stage\":\"draft\"}",img);
+  assert.equal(m.role,"user");
+  assert.equal(m.content.length,3);
+  assert.equal(m.content[0].type,"text");
+  assert.equal(m.content[1].text,"[필기 이미지 — 근거 U4.s2]");
+  assert.deepEqual(m.content[2],{type:"image_url",image_url:{url:"data:image/jpeg;base64,QUJD"}});
+  // 캐시 분할 파트(배열 본문) 뒤에 붙고 중단점은 유지된다.
+  const c=LLM.userWithImages([{type:"text",text:"head",cache_control:{type:"ephemeral"}},{type:"text",text:"tail"}],img);
+  assert.equal(c.content[0].cache_control.type,"ephemeral");
+  assert.equal(c.content.at(-1).type,"image_url");
+  // 이미지 없으면 본문을 건드리지 않는다.
+  assert.deepEqual(LLM.userWithImages("x",[]),{role:"user",content:"x"});
+  assert.deepEqual(LLM.userWithImages("x",null),{role:"user",content:"x"});
+});

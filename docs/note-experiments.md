@@ -7,8 +7,8 @@
 
 1. `lib/note-profiles.js` `PROFILES` 에 항목 하나를 추가한다:
    - `id`: `devNoteMode` 값. `family`(`independent`|`session`|`v2`), `session`(`null`|`chain`|`fork`),
-     `stages`(`{<단계>:{model, transport:"session"|"independent"|"packet"}}`), `clientModels`({plan,write}), `options`(정규화 함수 또는 null).
-   - transport 뜻은 파일 머리 주석 참고. `packet`은 "세션 XOR 패킷"(sol-luna-3 repair 참고).
+     `stages`(`{<단계>:{model, transport:"session"|"independent"|"packet"|"dual"}}`), `clientModels`({plan,write}), `options`(정규화 함수 또는 null).
+   - transport 뜻은 파일 머리 주석 참고. `packet`은 "세션 XOR 패킷"(sol-luna-3 repair 참고), `dual`은 "세션이면 model 세션·없으면 alt 독립"(mis-sol-hai repair 참고).
 2. 새 단계·요청 칸이 필요하면 `server/prompts.js`의 `REQUEST`/`STAGE`(프롬프트·스키마)를 먼저 추가한다 — 표만으로는 새 단계가 안 생긴다.
 3. `lib/note-profiles.test.js` 3종이 자동으로 새 항목을 검사한다(불변식은 전 행 순회). 동치 표는 기존 7개만 덮는다 — 새 모드는 직접 기대값을 쓴다.
 4. `lib/settings.js`의 `devNoteMode` 허용 목록에 새 id를 추가해야 숨은 설정으로 켤 수 있다(validateSettings 화이트리스트).

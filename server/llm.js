@@ -19,6 +19,8 @@ const MODELS={
   "openai/gpt-6-luna@high":{base:"openai/gpt-6-luna",tags:["azure","azure/us","azure/eu"],reasoning:{effort:"high"},reasoningBudget:8000,maxTokens:32768,temperature:false,cacheMode:"openai-explicit"},
   "openai/gpt-6-luna@xhigh":{base:"openai/gpt-6-luna",tags:["azure","azure/us","azure/eu"],reasoning:{effort:"xhigh"},reasoningBudget:16000,maxTokens:32768,temperature:false,cacheMode:"openai-explicit"},
   "openai/gpt-6.1-sol":{tags:["azure","openai","azure/us","azure/eu"],reasoning:{effort:"medium"},reasoningBudget:8000,maxTokens:32768,temperature:false},
+  // mis-sol-hai 작성 모델(기획 §3.2): Liner 에 없으므로 OpenRouter. reasoning_effort high 기본, temperature 는 생략(temperature:false).
+  "anthropic/claude-haiku-5.5":{tags:["amazon-bedrock/global"],reasoning:{effort:"high"},reasoningBudget:8000,maxTokens:32768,temperature:false,cache:true},
   "xiaomi/mimo-v2.6-pro":{tags:["deepinfra/fp8"],reasoning:{effort:"low"},reasoningBudget:4000,maxTokens:32768},
   "xiaomi/mimo-v2.6-flash":{tags:["io-net/fp8","venice/fp8","deepinfra/fp8"],reasoning:{enabled:false},maxTokens:32768},
 };
@@ -77,6 +79,26 @@ const UNMANGLE=[
 ];
 const unmangle=s=>UNMANGLE.reduce((acc,[re,rep])=>acc.replace(re,rep),s);
 const parseNote=text=>JSON.parse(text,(_,v)=>typeof v==="string"?unmangle(v):v);
+// 이미지 근거(mis-sol-hai 필기 해석, 기획 §4.2): user 텍스트 뒤에 근거 id 라벨과 image_url 파트를 번갈아 붙인다.
+// 이미지는 이 요청 안에서만 산다 — 문자열이든 캐시 분할 파트든 그 뒤에 덧붙이고, 호출 뒤에는 버린다(저장 금지).
+const userWithImages=(user,images)=>{
+  if(!Array.isArray(images)||!images.length)return{role:"user",content:user};
+  const parts=typeof user==="string"?[{type:"text",text:user}]:user.slice();
+  for(const i of images)if(i&&typeof i.id==="string"&&typeof i.image==="string")
+    parts.push({type:"text",text:"[필기 이미지 — 근거 "+i.id+"]"},{type:"image_url",image_url:{url:i.image}});
+  return{role:"user",content:parts};
+};
+// chat/completions 응답의 첫 선택지에서 본문을 꺼낸다 — 잘림(finish_reason "length")·거부(message.refusal)·
+// 미완료를 JSON 파싱·검증보다 먼저 본다(기획 §4.5 — Haiku 독립 호출 경로).
+const readChoice=raw=>{
+  const c=raw&&raw.choices&&raw.choices[0];
+  if(!c)return{error:"incomplete.none"};
+  if(c.finish_reason==="length")return{error:"truncated"};
+  if(c.finish_reason!=="stop")return{error:"incomplete."+String(c.finish_reason||"none").toLowerCase().replace(/[^a-z0-9_]/g,"").slice(0,30)};
+  if(c.message&&c.message.refusal)return{error:"refused"};
+  if(typeof c.message?.content!=="string"||!c.message.content)return{error:"empty"};
+  return{text:c.message.content};
+};
 // 공급자가 응답 usage 에 실어 주는 프롬프트 캐시 상세를 한 모양으로 정규화한다.
 // OpenAI·Gemini 계열은 prompt_tokens_details.cached_tokens(Chat)·input_tokens_details.cached_tokens(Responses)와
 // 같은 칸 안의 cache_write_tokens, Anthropic 은 cache_read_input_tokens·cache_creation_input_tokens,
@@ -85,19 +107,21 @@ const cacheOf=u=>{const num=v=>Number.isFinite(v)&&v>=0?Math.floor(v):null,
   ds=[u?.prompt_tokens_details,u?.input_tokens_details],pick=k=>{for(const d of ds){const v=num(d?.[k]);if(v!==null)return v;}return null;};
   return {cached_input_tokens:pick("cached_tokens")??num(u?.cache_read_input_tokens)??num(u?.prompt_cache_hit_tokens),
     cache_write_tokens:pick("cache_write_tokens")??num(u?.cache_creation_input_tokens)??num(u?.cache_write_tokens)};};
-// Liner(OpenAI 호환 게이트웨이)로 보낼 모델: GPT-6 계열만. 판정·STT·다른 모델은 OpenRouter 그대로다.
+// Liner(OpenAI 호환 게이트웨이)가 제공하는 모델 목록(기획 D9): 이 목록의 모델만 Liner 로 보내고
+// 그 외(anthropic/claude-haiku-5.5 등)는 OpenRouter 그대로다. 판정·STT·비전도 OpenRouter.
 // Liner 는 provider 칸과 reasoning 객체(chat)·prompt_cache_options·reasoning.context(responses)를 거절한다(2026-10-08 실측).
 // 캐시는 cache_control(chat)·자동 접두(responses)로 된다. 키·주소가 없으면 변환하지 않는다.
-const LINER_MODEL=/^openai\/gpt-6(\.1)?-(sol|luna)(@\w+)?$/;
+const LINER_MODELS=new Set(["openai/gpt-6.1-sol","openai/gpt-6-luna"]);
+const onLiner=m=>LINER_MODELS.has(upstreamOf(m))||LINER_MODELS.has(String(m||"").split("@")[0]);
 function toLiner(url,init,liner){
   if(!liner?.key||!liner.base||typeof init?.body!=="string")return null;
   const m=/^https:\/\/openrouter\.ai\/api\/v1\/(chat\/completions|responses)$/.exec(String(url));
   if(!m)return null;
   let b;try{b=JSON.parse(init.body);}catch{return null;}
-  if(!b||!LINER_MODEL.test(b.model||""))return null;
+  if(!b||!onLiner(b.model))return null;
   delete b.provider;delete b.prompt_cache_options;
   if(m[1]==="responses"){if(b.reasoning)delete b.reasoning.context;}
   else if(b.reasoning){if(b.reasoning.effort)b.reasoning_effort=b.reasoning.effort;delete b.reasoning;}
   return[liner.base.replace(/\/+$/,"")+"/"+m[1],{...init,body:JSON.stringify(b),headers:{...init.headers,authorization:"Bearer "+liner.key}}];
 }
-module.exports={toLiner,MODELS,upstreamOf,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cachedSystem,cachedUser,cacheModeOf,parseNote,cacheOf,commonPrefixLength,orderUserPayload,SHARED_HEAD};
+module.exports={toLiner,MODELS,LINER_MODELS,upstreamOf,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cachedSystem,cachedUser,cacheModeOf,parseNote,cacheOf,commonPrefixLength,orderUserPayload,SHARED_HEAD,userWithImages,readChoice};
