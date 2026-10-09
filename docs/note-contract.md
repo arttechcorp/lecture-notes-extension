@@ -231,12 +231,13 @@ PlannerOutput = {
 ```text
 SectionOutput = { gist: C?, blocks: { "<blockId>": Envelope | null, ... 계획의 blockId 전부 }, checks: [Check](0..6) }
 Envelope      = { status: e[supported, uncertain, conflicting, corrected], importance: e[core, supporting, reference],
-                  emphasis: [{ kind: e[stress, exam], evidenceIds: [evidenceId](1..3) }](0..2), content: <타입별 슬롯 §9> }
+                  emphasis: [{ kind: e[stress, exam], evidenceIds: [evidenceId](1..3), quote: s(40)?, repeat: int≥2? }](0..2), content: <타입별 슬롯 §9> }
 Check (B17)   = { kind: e[recognition_uncertain, input_conflict, missing, correction], claim: C,
                   targetIds: [blockId](0..4), before: C?, after: C?, hold: C? }
 ```
 
 - 블록 값이 `null`이면 Writer가 **작성을 보류**한 것이다. 근거가 부족해 계획한 블록을 정직하게 비운 경우다. 코드는 이를 제외(`VAL_BLOCK_DECLINED`)로 기록하고 의존 정리를 돌린다.
+- `emphasis`의 `quote`(발화 원문 한 줄)·`repeat`(반복 횟수)는 선택 필드다. 제공자 출력 스키마는 strict라 두 칸을 내지 않고, 코드 검증(`validateSection`·`validateGlobal`)과 저장 노트 스키마가 받는다 — 파이프라인이 검증을 지나 주입한 값도 통과한다(mis-sol-hai §4.6).
 - `gist`(단원 요지 1문장)는 B04 헤더의 한 칸이다. 섹션을 반으로 나눠 다시 쓸 때는 첫 반쪽 요청에만 넣는다.
 - `checks`는 Writer가 작성 중 발견한 확인 필요·정정이다. 계획 단계에서는 충돌을 미리 알 수 없어서, 계획 블록이 아니라 항상 쓸 수 있는 칸으로 둔다.
 - `SectionDraft`(코드 내부 표현)는 `{sectionId, gist, blocks:[{id, type, envelope}], checks}`이다. 블록은 **계획 순서**를 따르며, 병렬 작업이 끝난 순서와는 무관하다.
@@ -268,7 +269,8 @@ Note = {
   registry: [{ id: formulaId, latex: s?, text: s?, status, slideId, t0, display: e[latex, crop, check],
                checks?: { parse: e[ok, failed, unchecked], symbols: e[match, mismatch, unchecked], units: e[ok, mismatch, unchecked] } }],
   figures:  [{ id: figureId, evidenceId, kind, title: s?, cells: [[s]]?, chartData?, t0, display: e[table, chart, crop, check], explanation?: C? }],   # 판정은 lib/figures.js(§14)
-  sources:  [{ id: evidenceId, kind, t0, t1, slideId: s? }],          # 인용된 근거의 위치만. 텍스트 없음
+  sources:  [{ id: evidenceId, kind: e[slide, speech, figure, handwriting], t0, t1, slideId: s? }],   # 인용된 근거의 위치만. 텍스트 없음
+  evidenceMeta?: { <unitId>: { source: e[slide, speech], ink: b, emphasis: number? } },  # 선택 사이드카(mis-sol-hai §4.6) — 없으면 생략. 조립이 단위 키·필드 모양을 검사한다
   notices:  [{ code, count: int?, ids: [s]?, ranges: [{ t0, t1 }]? }],
   dropped:  [{ blockId, type, codes: [code](1..8) }],                 # 내용 없음
   pruned:   [{ id, codes: [code](1..4) }],                            # 정리 전 위치 ID, 내용 없음
@@ -313,7 +315,7 @@ Block = { id: blockId, type, sectionId: sectionId?, status, importance, emphasis
 | B09 자료 읽기 | 섹션 | 단원 | `sourceTitle: s(120)`, `sourceKind: e[text, historical, philosophical, literary, data, other]`, `gist: C`, `quote: {text: s(150), evidenceIds: [evidenceId](1..2)}?`, `points: [{clue, reading}](0..6)`, `authorClaim: C?`, `lecturerReading: C?`, `limits: [C](0..3)` | 인용은 꼭 필요한 짧은 구절만 | `quote`는 인용 근거에 글자 그대로 있어야 한다(`VAL_QUOTE_NOT_FOUND`). 저자 주장과 교수 해석은 다른 칸 |
 | B10 수식·표·그래프 | 섹션 | 단원 | `title`, `kind: e[formula, table, graph, calc]`, `goal: C?`, `formulaIds`, `figureIds`, `variables: [{symbol: s(40), meaning: C, unit?}](0..10)`, `assumptions`, `inputs`·`steps`(§7), `derived: [s(400)](0..4)`, `reading: [C](0..6)`, `result: C?`, `limits`, `withheld: C?` | 식은 독립 행, 계산은 단계 | §7 검산. `derived`는 KaTeX 검증(`VAL_DERIVED_INVALID`)과 재타이핑 검사. 원본 수식은 `formulaIds`와 `{{F#}}`로만 가리킨다. `figureIds`는 본문에서 다루는 도표다(배치는 계획 블록의 `figureIds`, §14) |
 | B11 헷갈리기 쉬운 점 | 섹션 | 단원 | `misconception: C`, `correction: C`, `conditions: [C](0..3)`, `origin: e[lecture_correction, structural_check]` | 단원당 0–2 | `structural_check`는 "구분 점검"으로 표시하고, 오해 문장만 `pedagogical`을 허용한다. `correction`은 근거가 필수 |
-| B12 곁설명 | 섹션 | 단원 | `kind: e[term, background, original, link, hint]`, `note: C` | 40–140자 | 바로 앞 블록에 붙는다. 앞 블록이 빠지면 함께 정리된다. 필수 조건·예외는 이 블록으로 보내지 않는다(프롬프트) |
+| B12 곁설명 | 섹션 | 단원 | `kind: e[term, background, original, link, hint, slide_absent]`, `note: C` | 40–140자 | 바로 앞 블록에 붙는다. 앞 블록이 빠지면 함께 정리된다. 필수 조건·예외는 이 블록으로 보내지 않는다(프롬프트). `slide_absent`(슬라이드에 없는 설명)는 인용 근거가 전부 발화이고 본문이 섹션 슬라이드 OCR에 없어야 한다(`VAL_SLIDE_ABSENT`) |
 | B13 연결 정리 | 섹션 또는 전역 | 단원·문서 | `title`, `propositions: [{relation: e[common, contrast, inclusion, condition, complement, cause, sequence], claim: C, targetIds: [TargetId](1..4)}](1..5)` | 관계 2–5 | 대상이 살아 있어야 한다(아니면 명제 정리). 전역은 새 근거 금지 |
 | B14 자기 점검 | 섹션 | 단원 → 조판은 점검 파트 | `items: [{kind: e[recall, distinguish, apply, argue, calc, interpret, ox], prompt: C, premise: C?, level: e[basic, applied, advanced], targetIds: [TargetId](1..3), answer: {verdict: e[O, X]?, explanation: C, correction: C?, rubric: [C](0..5), alternatives: [s(200)](0..3), reviewIds: [blockId](1..3)}}](1..8)` | 문서 4–8, 짧은 강의 2–4 | §10 문항 규칙. 문항과 답안을 **같은 항목**으로 작성한다 |
 | B15 정답과 해설 | 코드 | 렌더 투영 | B14 `answer`에서 만든다 | 닫힌 문항 50–150자, 열린 문항 채점 포인트 3–5 | 문항 ID와 1:1. 공개 방식은 §15 |
@@ -326,6 +328,7 @@ Block = { id: blockId, type, sectionId: sectionId?, status, importance, emphasis
   - `stress`: 중요·핵심·꼭·반드시·기억
   - `exam`: 시험·출제·중간고사·기말고사·퀴즈
   - 위반하면 `VAL_EMPHASIS_UNSUPPORTED`다.
+  - 선택 필드: `stress`의 `quote`는 인용 근거의 발화 원문 그대로여야 한다(`VAL_QUOTE_NOT_FOUND`, 40자 이하). `repeat`은 반복 횟수(2 이상)다.
 - 시험 언급은 "실제 신호"로만 표시하고 출제 확정으로 바꾸지 않는다.
 - `importance`(core·supporting·reference)는 학습상 중심성을 나타내는 모델 판단이고, 교수 강조와는 별개 축이다.
 
@@ -351,7 +354,7 @@ Block = { id: blockId, type, sectionId: sectionId?, status, importance, emphasis
 | `VAL_CALC_*` | §7 |
 | `VAL_TABLE_SHAPE` / `VAL_TABLE_EMPTY_ROW` / `VAL_POINT_REF` / `VAL_MAP_REF` / `VAL_MAP_EDGE_UNSUPPORTED` | 구조 무결성 |
 | `VAL_CONCEPT_REF` / `VAL_REF_UNKNOWN` | 계획에 없는 개념·수식·도표, 존재하지 않는 대상·복습 위치 |
-| `VAL_ORIGINAL_UNSUPPORTED` / `VAL_QUOTE_NOT_FOUND` / `VAL_DUE_NOT_FOUND` / `VAL_EMPHASIS_UNSUPPORTED` | 근거에 실제로 없는 원어·인용·기한·강조 |
+| `VAL_ORIGINAL_UNSUPPORTED` / `VAL_QUOTE_NOT_FOUND` / `VAL_DUE_NOT_FOUND` / `VAL_EMPHASIS_UNSUPPORTED` / `VAL_SLIDE_ABSENT` | 근거에 실제로 없는 원어·인용·기한·강조 / B12 `slide_absent`가 발화만으로 설명 가능한 내용이 아님 |
 | `VAL_ANSWER_SHAPE` | 문항 규칙 위반(아래) |
 | `VAL_SUPERSEDED` / `VAL_STATUS_UNEXPLAINED` | §6 정정, §9 B17 |
 | `VAL_GLOBAL_EVIDENCE_NEW` | 전역 블록이 새 근거를 인용 |
@@ -488,7 +491,16 @@ Block = { id: blockId, type, sectionId: sectionId?, status, importance, emphasis
 - 크롭이 없다고 클라우드로 자동 전환하지 않는다(불변식). 그래프도 임의로 복원하지 않는다.
 - **도표 배치는 Planner가 정한다.** 계획 블록의 `figureIds`에 든 도표는 그 블록 바로 뒤에 표시한다. B10 내용의 `figureIds`는 본문에서 다루는 도표다. 고지는 이 둘에 든 도표만 센다.
 
-## 15. 답안 공개와 PDF 분할 (렌더 계약 — `lib/note-spec.js` `layout`·`templates`·`css`, `RENDER_VERSION = "render-4"`)
+## 15. 답안 공개와 PDF 분할 (렌더 계약 — `lib/note-spec.js` `layout`·`templates`·`css`, `RENDER_VERSION = "render-7"`)
+
+**근거 기반 표시(mis-sol-hai §4.6 — 렌더러가 데이터로 계산, 모델은 마크업을 쓰지 않는다):**
+- 새 데이터(`evidenceMeta`·`handwriting` 근거·`emphasis.quote`/`repeat`·B12 `slide_absent`)가 전혀 없는 노트는 표시가 하나도 켜지지 않아 기존 렌더와 같다.
+- 1B 강조: 주장의 근거가 블록 `stress` 근거와 겹치거나 근거 메타 `emphasis`가 렌더 옵션 `emphasisMin`(기본 끔) 이상이면 굵게+연한 밑줄 하이라이트.
+- 2B 필기: 주장이 `handwriting` 근거(또는 메타 `ink`)를 인용하면 점선 밑줄+펜 아이콘. 필기 크롭은 렌더하지 않는다.
+- 3B: B12 `slide_absent`는 연한 배경+마이크 아이콘의 "슬라이드에 없는 설명" 라벨로 그린다.
+- 추가 표현과 코드 상한: 시험 배지(단원 2·블록 1), 반복 `×N`(단원 2·블록 1, `repeat` 또는 stress 근거 수≥2), 핵심 용어 첫 등장 굵게(문서 1회, 정의 제목 제외, 1B와 겹치지 않는다 — 굵은 표시는 주장당 하나), 조건·예외 마커(단원 3, "단,/다만/예외"로 시작하는 주장), B07 `causal` 4단계 이하 인라인 흐름, B06 대상 둘 대비 쌍, `quote` 교수 인용(단원 1, 40자).
+- B05 슬롯 라벨(쉬운 풀이·작동 원리·범위·예시)은 화면·PDF에 표시하지 않는다 — 슬롯은 생성 계약에서만 살리고 내용은 문단으로 이어진다.
+- 흑백 인쇄 대체: 1B는 얇은 실선 밑줄, 2B는 굵은 점선 밑줄, 3B는 굵은 왼쪽 테두리로 구분이 남는다.
 
 **문서 순서(코드, 구현됨):**
 - B01 머리 → B18 공지(작성 위치와 무관하게 문서 머리 뒤로 모음) → B02 한눈에 → B03 지도
