@@ -6,6 +6,7 @@
   const Contracts = need("Contracts", "./contracts.js");
   const Verify = need("Verify", "./verify.js");
   const Formulas = need("Formulas", "./formulas.js");
+  const NoteProfiles = need("NoteProfiles", "./note-profiles.js");
 
   const NOTE_SPEC_VERSION = "lecture-note-2";
   const NOTE_SCHEMA_VERSION = 1;
@@ -76,7 +77,14 @@
 
   const STATUS = en(["supported", "uncertain", "conflicting", "corrected"]);
   const IMPORTANCE = en(["core", "supporting", "reference"]);
-  const emphasis = arr(obj({ kind: en(["stress", "exam"]), evidenceIds: arr(evId, 3, 1) }), 2);
+  // 강조 표시 항목. quote(발화 원문 한 줄)·repeat(반복 횟수)는 선택 필드 — 제공자 출력 스키마(emphasis)는
+  // strict 라 두 키만 강제하고, 느슨한 emphasisWide 는 저장 노트와 코드 검증이 받는다(주입 경로는 파이프라인).
+  const EMPHASIS_PROPS = {
+    kind: en(["stress", "exam"]), evidenceIds: arr(evId, 3, 1),
+    quote: orNull(str(40)), repeat: orNull({ type: "integer", minimum: 2, maximum: 99 }),
+  };
+  const emphasis = arr(obj({ kind: EMPHASIS_PROPS.kind, evidenceIds: EMPHASIS_PROPS.evidenceIds }), 2);
+  const emphasisWide = arr(obj(EMPHASIS_PROPS, ["kind", "evidenceIds"]), 2);
 
   // §9 슬롯(전송 상한). null 은 "강의에서 확인되지 않음 / 해당 없음", 빈 배열은 "항목 없음"이다.
   const content = {
@@ -150,7 +158,7 @@
       misconception: claim, correction: claim,
       conditions: arr(claim, 3), origin: en(["lecture_correction", "structural_check"]),
     }),
-    B12: obj({ kind: en(["term", "background", "original", "link", "hint"]), note: claim }),
+    B12: obj({ kind: en(["term", "background", "original", "link", "hint", "slide_absent"]), note: claim }),
     B13: obj({
       title: str(80),
       propositions: arr(obj({
@@ -245,10 +253,12 @@
   }
 
   // 공통 봉투는 코드가 검증한다(§3.1). content 스키마가 없는 타입(B01·B04·B15·B16·B17)은 Writer 슬롯이 없다.
-  function envelopeSchema(type, policy = POLICY) {
+  // emSchema: 제공자 출력 스키마는 strict emphasis(기본). 코드 검증(validateSection·validateGlobal)은
+  // 선택 필드를 받는 emphasisWide 를 넘긴다 — 파이프라인이 검증을 지나 주입한 quote·repeat 도 통과한다.
+  function envelopeSchema(type, policy = POLICY, emSchema = emphasis) {
     const c = content[type];
     if (!c) throw new Error("내용 스키마가 없는 블록 타입: " + type);
-    return restrictBasis(obj({ status: STATUS, importance: IMPORTANCE, emphasis, content: c }), policy);
+    return restrictBasis(obj({ status: STATUS, importance: IMPORTANCE, emphasis: emSchema, content: c }), policy);
   }
 
   // §8.2: Planner 출력과 정규화된 Plan. Plan 은 모델 출력에 blockId·버전·정책을 코드가 붙인 것이다.
@@ -369,7 +379,7 @@
   const t0t1 = obj({ t0: nonneg, t1: nonneg });
   const noteBlock = obj({
     id: pat(IDS.block), type: en(WRITER_TYPES), sectionId: orNull(pat(IDS.section)),
-    status: STATUS, importance: IMPORTANCE, emphasis, content: {},
+    status: STATUS, importance: IMPORTANCE, emphasis: emphasisWide, content: {},
   });
   const noteSchema = obj({
     schemaVersion: { type: "integer", const: NOTE_SCHEMA_VERSION },
@@ -414,7 +424,10 @@
       t0: nonneg, display: en(["table", "chart", "crop", "check"]),
       explanation: orNull(claim),
     }, ["id", "evidenceId", "kind", "title", "cells", "chartData", "t0", "display"]), 200),
-    sources: arr(obj({ id: evId, kind: en(["slide", "speech", "figure"]), t0: nonneg, t1: nonneg, slideId: orNull(str(64)) }), 20000),
+    sources: arr(obj({ id: evId, kind: en(["slide", "speech", "figure", "handwriting"]), t0: nonneg, t1: nonneg, slideId: orNull(str(64)) }), 20000),
+    // 근거 메타 사이드카(선택, mis-sol-hai §4.6): unitId → { source, ink, emphasis }.
+    // 단위 키가 열린 객체라 스키마는 껍데기만 — 내용 검사는 assembleNote 가 한다.
+    evidenceMeta: orNull({ type: "object" }),
     notices: arr(obj({ code: pat(IDS.code), count: orNull({ type: "integer", minimum: 0 }), ids: orNull(arr(s64, 200)), ranges: orNull(arr(t0t1, 200)) }), 50),
     dropped: arr(obj({
       blockId: pat(IDS.block), type: en(WRITER_TYPES), codes: arr(s64, 8, 1),
@@ -495,7 +508,7 @@
   // ── sol-luna-2 / sol-fork-2(docs/note-quality-review-2026-10-06/sol-v2-implementation-handoff.md §4) ──
   // v2 계약을 타는 실험 모드 이름 — 단계별 모델 표·고정 접두 계약은 서버와 클라이언트가 이 목록으로 분기한다.
   // sol-luna-3 은 sol-luna-2 와 같은 경로다(개선 실험은 요청 계약이 아니라 lib/note-v3.js 옵션으로 가른다).
-  const V2_MODES = ["sol-luna-2", "sol-luna-3", "sol-fork-2"];
+  const V2_MODES = NoteProfiles.ids().filter(NoteProfiles.isV2);
 
   // §4.1 편집 명세: v2 계획 응답의 두 번째 칸. 실행 메모리 전용 — 저장되는 Note 에 들어가지 않는다.
   // id 는 모두 호스트가 정한 체계다 — 모델이 임의 id·모델명·경로를 지어내 실행을 조종하지 못하게 한다.
@@ -1135,6 +1148,7 @@
   // ===== §10 코드 검사 공통 조각 =====
   // detail 에는 id·숫자·JSON 경로만 넣는다 — 주장 텍스트는 repair 프롬프트에도 돌려보내지 않는다(§10).
   const EV_RE = new RegExp(IDS.evidence);
+  const UNIT_RE = new RegExp(IDS.unit);
   const CALC_RE = /^(S[0-9]{1,3}_B[0-9]{1,2}|GB[0-9])\.[ic][0-9]{1,2}$/;
   const FREF_RE = /\{\{\s*(F\d+)\s*\}\}/g;
   const POINT_RE = /^(S[0-9]{1,3}_B[0-9]{1,2})\/P[1-6]$/;
@@ -1321,9 +1335,14 @@
     pushErr(errs, "VAL_VERBATIM",
       Verify.verbatimIds([...claimsOf(env).map(x => x.claim.text), ...nonClaimStrings(c, false)].join("\n"), [...ctx.evById.values()]));
     // 강조 표시는 인용 근거 텍스트에 실제 강조어가 있어야 한다(§9 공통 봉투).
-    for (const em of env.emphasis || [])
+    (env.emphasis || []).forEach((em, i) => {
       pushErr(errs, "VAL_EMPHASIS_UNSUPPORTED", (em.evidenceIds || [])
         .filter(id => !ctx.evById.has(id) || !(EMPHASIS_WORDS[em.kind] || /$^/).test(ctx.evById.get(id).text)));
+      // quote 는 인용 근거의 발화 원문 그대로다(B09 인용과 같은 검사).
+      if (em.quote != null && !(em.evidenceIds || []).some(id =>
+        ctx.evById.has(id) && normSub(ctx.evById.get(id).text).includes(normSub(em.quote))))
+        pushErr(errs, "VAL_QUOTE_NOT_FOUND", [`/emphasis/${i}/quote`]);
+    });
     typeRules(rec, local, errs);
   }
 
@@ -1395,6 +1414,18 @@
           it.targetIds.filter(id => !ctx.targetOk(id) || (ctx.concepts.has(id) && ctx.concepts.get(id) !== "defined")));
         pushErr(errs, "VAL_REF_UNKNOWN", a.reviewIds.filter(id => !ctx.reviewOk(id, rec.id)));
       });
+    } else if (t === "B12") {
+      // "슬라이드에 없는 설명": 인용 근거가 전부 발화여야 하고, 본문은 이 섹션 슬라이드 OCR 에
+      // 없는 내용이어야 한다(기획 §4.6 — 슬라이드 문장을 발화 설명으로 위장하지 못하게).
+      if (c.kind === "slide_absent") {
+        const ids = Array.isArray(c.note && c.note.evidenceIds) ? c.note.evidenceIds : [];
+        if (!ids.length) pushErr(errs, "VAL_SLIDE_ABSENT", ["/content/note/evidenceIds"]);
+        pushErr(errs, "VAL_SLIDE_ABSENT",
+          ids.filter(id => ctx.evById.has(id) && ctx.evById.get(id).kind !== "speech"));
+        if (typeof (c.note && c.note.text) === "string" && [...ctx.evById.values()].some(e =>
+          e.kind === "slide" && normSub(e.text).includes(normSub(c.note.text))))
+          pushErr(errs, "VAL_SLIDE_ABSENT", ["/content/note/text"]);
+      }
     } else if (t === "B18") {
       c.items.forEach((it, i) => {
         if (it.due != null && !it.claim.evidenceIds.some(r =>
@@ -1425,7 +1456,7 @@
       const rec = { id: pb.blockId, type: pb.type, planBlock: pb, envelope: env ?? null, errors: [] };
       if (env == null) pushErr(rec.errors, env === undefined ? "VAL_SCHEMA" : "VAL_BLOCK_DECLINED");
       else {
-        const v = Contracts.validate(envelopeSchema(pb.type, plan.policy), env);
+        const v = Contracts.validate(envelopeSchema(pb.type, plan.policy, emphasisWide), env);
         if (!v.ok) pushErr(rec.errors, "VAL_SCHEMA", v.errors.map(e => e.path));
       }
       return rec;
@@ -1533,7 +1564,7 @@
         const rec = { id: g.blockId, type: g.type, planBlock: g, envelope: env ?? null, errors: [] };
         if (env == null) pushErr(rec.errors, env === undefined ? "VAL_SCHEMA" : "VAL_BLOCK_DECLINED");
         else {
-          const v = Contracts.validate(envelopeSchema(g.type), env);
+          const v = Contracts.validate(envelopeSchema(g.type, POLICY, emphasisWide), env);
           if (!v.ok) pushErr(rec.errors, "VAL_SCHEMA", v.errors.map(e => e.path));
           else {
             inspectBlock(rec, ctx);
@@ -1548,7 +1579,7 @@
 
   // §12: 검증 → 정정 지도 → 재검증 → 의존 정리(고정점) → Note 조립.
   // 입력 객체는 절대 바꾸지 않는다 — 살아남은 봉투·확인 항목·요지만 깊은 복사해 다듬는다.
-  function assembleNote({ plan, sections = [], global = null, units = [], evidence = [], registry = [], formulaUnits = {}, figures = [], crops = [], meta = {}, tier, systemNotices = [], promptVersion = null, katex, events = null }) {
+  function assembleNote({ plan, sections = [], global = null, units = [], evidence = [], registry = [], formulaUnits = {}, figures = [], crops = [], meta = {}, tier, systemNotices = [], promptVersion = null, katex, events = null, evidenceMeta = null }) {
     const outputs = new Map(sections.map(s => [s.sectionId, s.output]));
     const run = sup => {
       const m = new Map();
@@ -1770,9 +1801,19 @@
       const spec = LIST[b.type];
       if (spec && b.wrapped) b.env.content[spec[0]] = b.wrapped.map(w => w.item);
     }
+    // repeat 는 모델 값을 믿지 않는다 — 인용 발화 근거 수와 다르면 조립 때 버린다(L3 강조 신호가 넣은 값만 통과).
+    const evKind = new Map(evidence.map(e => [e.id, e && e.kind]));
+    const sanEm = e => {
+      if (!e || typeof e !== "object" || e.repeat == null) return e;
+      const speech = (Array.isArray(e.evidenceIds) ? e.evidenceIds : []).filter(id => evKind.get(id) === "speech").length;
+      if (e.repeat === speech) return e;
+      const { repeat, ...rest } = e;
+      return rest;
+    };
     const toBlock = b => ({
       id: b.id, type: b.type, sectionId: b.sectionId,
-      status: b.env.status, importance: b.env.importance, emphasis: b.env.emphasis, content: b.env.content,
+      status: b.env.status, importance: b.env.importance,
+      emphasis: (Array.isArray(b.env.emphasis) ? b.env.emphasis : []).map(sanEm), content: b.env.content,
     });
     const secOut = [];
     (plan.sections || []).forEach((ps, i) => {
@@ -1953,7 +1994,16 @@
       sources, notices, dropped, pruned, advisories, stats,
       ...(pending.length ? { pending } : {}),
       ...(coverage ? { coverage } : {}),
+      ...(evidenceMeta != null ? { evidenceMeta } : {}),
     };
+    // 근거 메타 사이드카(mis-sol-hai §4.6): unitId → {source, ink, emphasis} — 없으면 필드째 생략한다.
+    if (evidenceMeta != null) {
+      const emEntry = obj({ source: en(["slide", "speech"]), ink: { type: "boolean" }, emphasis: orNull({ type: "number" }) });
+      const bad = typeof evidenceMeta !== "object" || Array.isArray(evidenceMeta)
+        ? ["<root>"]
+        : Object.keys(evidenceMeta).filter(k => !UNIT_RE.test(k) || !Contracts.validate(emEntry, evidenceMeta[k]).ok);
+      if (bad.length) throw new Error("evidenceMeta 형식이 올바르지 않습니다: " + bad[0]);
+    }
     if (coverage && events && typeof events.emit === "function") {
       events.emit({
         stage: "validate",
