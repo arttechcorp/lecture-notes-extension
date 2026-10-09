@@ -146,3 +146,15 @@ test("cachedUser (questions): v3 요청은 섹션이 달라도 공통 문맥 접
   assert.ok(headText.includes("Physics"), "공통 접두에 concepts가 포함되어야 함");
   assert.ok(headText.includes("Summary of S1"), "공통 접두에 전체 sections 요약이 포함되어야 함");
 });
+
+test("toLiner: GPT-6 모델만 Liner 로 — provider·미지원 칸 제거, 키 교체, 그 외는 변환 없음",()=>{
+  const L={key:"k-liner",base:"https://liner.example/api/v1/"},hdr={authorization:"Bearer or",x:"1"};
+  const r=LLM.toLiner("https://openrouter.ai/api/v1/responses",{headers:hdr,body:JSON.stringify({model:"openai/gpt-6.1-sol",provider:{only:["azure"]},prompt_cache_options:{mode:"explicit"},reasoning:{effort:"medium",context:"all_turns"},session_id:"s"})},L);
+  assert.equal(r[0],"https://liner.example/api/v1/responses");
+  const b=JSON.parse(r[1].body);assert.deepEqual([b.provider,b.prompt_cache_options,b.reasoning.context,b.reasoning.effort,b.session_id],[undefined,undefined,undefined,"medium","s"]);
+  assert.equal(r[1].headers.authorization,"Bearer k-liner");assert.equal(r[1].headers.x,"1");
+  const c=LLM.toLiner("https://openrouter.ai/api/v1/chat/completions",{headers:hdr,body:JSON.stringify({model:"openai/gpt-6-luna",provider:{},prompt_cache_options:{mode:"explicit"},reasoning:{effort:"high"},response_format:{}})},L);
+  const cb=JSON.parse(c[1].body);assert.deepEqual([cb.provider,cb.reasoning,cb.prompt_cache_options,cb.reasoning_effort],[undefined,undefined,undefined,"high"]);
+  assert.equal(LLM.toLiner("https://openrouter.ai/api/v1/chat/completions",{headers:hdr,body:JSON.stringify({model:"xiaomi/mimo-v2.6-flash"})},L),null);
+  assert.equal(LLM.toLiner("https://openrouter.ai/api/v1/chat/completions",{headers:hdr,body:JSON.stringify({model:"openai/gpt-6-luna"})},{}),null);
+});

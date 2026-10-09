@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.7.1 — 2026-10-09
+
+- GPT-6 계열(Sol·Luna) 호출을 Liner 게이트웨이로 보낸다. 서버가 LINER_API_KEY·LINER_BASE_URL을 가지면 OpenRouter 요청을 Liner 모양으로 바꾼다(toLiner) — provider·prompt_cache_options·reasoning.context를 빼고 chat의 reasoning 객체는 reasoning_effort로 옮긴다. 판정·STT·비전 등 그 밖의 모델은 OpenRouter 그대로이고, 키가 없으면 변환하지 않는다. Liner의 데이터 보존 정책(ZDR)은 확인하지 못했다. 실강의 sol-luna-2로 끝까지 검증(총 $0.85, 핵심 22/22).
+- reasoning.context(all_turns/current_turn)는 계획→편집·실강의에서 커버리지 차이가 없었다.
+
+## 2.7.1 — 2026-10-09
+
+- 
+
 ## 2.7.0 — 2026-10-08
 
 - 실험 모드 sol-luna-3을 추가한다(숨은 설정 devNoteMode, sol-luna-2와 같은 모델 배치·고정 접두 P에 개선안을 얹은 버전). 옵션 devNoteV3 {repair: packet|full-p, resume}로 비교군을 가른다(lib/note-v3.js). 기본 경로와 sol-luna-2·sol-fork-2의 모델 배치는 그대로다.

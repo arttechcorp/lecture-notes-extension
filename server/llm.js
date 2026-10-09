@@ -85,4 +85,19 @@ const cacheOf=u=>{const num=v=>Number.isFinite(v)&&v>=0?Math.floor(v):null,
   ds=[u?.prompt_tokens_details,u?.input_tokens_details],pick=k=>{for(const d of ds){const v=num(d?.[k]);if(v!==null)return v;}return null;};
   return {cached_input_tokens:pick("cached_tokens")??num(u?.cache_read_input_tokens)??num(u?.prompt_cache_hit_tokens),
     cache_write_tokens:pick("cache_write_tokens")??num(u?.cache_creation_input_tokens)??num(u?.cache_write_tokens)};};
-module.exports={MODELS,upstreamOf,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cachedSystem,cachedUser,cacheModeOf,parseNote,cacheOf,commonPrefixLength,orderUserPayload,SHARED_HEAD};
+// Liner(OpenAI 호환 게이트웨이)로 보낼 모델: GPT-6 계열만. 판정·STT·다른 모델은 OpenRouter 그대로다.
+// Liner 는 provider 칸과 reasoning 객체(chat)·prompt_cache_options·reasoning.context(responses)를 거절한다(2026-10-08 실측).
+// 캐시는 cache_control(chat)·자동 접두(responses)로 된다. 키·주소가 없으면 변환하지 않는다.
+const LINER_MODEL=/^openai\/gpt-6(\.1)?-(sol|luna)(@\w+)?$/;
+function toLiner(url,init,liner){
+  if(!liner?.key||!liner.base||typeof init?.body!=="string")return null;
+  const m=/^https:\/\/openrouter\.ai\/api\/v1\/(chat\/completions|responses)$/.exec(String(url));
+  if(!m)return null;
+  let b;try{b=JSON.parse(init.body);}catch{return null;}
+  if(!b||!LINER_MODEL.test(b.model||""))return null;
+  delete b.provider;delete b.prompt_cache_options;
+  if(m[1]==="responses"){if(b.reasoning)delete b.reasoning.context;}
+  else if(b.reasoning){if(b.reasoning.effort)b.reasoning_effort=b.reasoning.effort;delete b.reasoning;}
+  return[liner.base.replace(/\/+$/,"")+"/"+m[1],{...init,body:JSON.stringify(b),headers:{...init.headers,authorization:"Bearer "+liner.key}}];
+}
+module.exports={toLiner,MODELS,upstreamOf,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cachedSystem,cachedUser,cacheModeOf,parseNote,cacheOf,commonPrefixLength,orderUserPayload,SHARED_HEAD};

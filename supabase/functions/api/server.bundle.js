@@ -3548,7 +3548,7 @@ function providerSchema(s,drop){
   return out;
 }
 const VISION_SCHEMA=providerSchema({type:"object",additionalProperties:false,required:["blocks","formulas","figures"],properties:{blocks:Contracts.SCHEMAS.slideDoc.properties.blocks,formulas:Contracts.SCHEMAS.slideDoc.properties.formulas,figures:Contracts.SCHEMAS.slideDoc.properties.figures}},["id","status"]);
-const {cachedSystem,cachedUser,cacheModeOf,parseNote,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cacheOf,upstreamOf}=require("./llm.js");
+const {cachedSystem,cachedUser,cacheModeOf,parseNote,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cacheOf,upstreamOf,toLiner}=require("./llm.js");
 const NoteSession=require("./note-session.js");
 const safePart=x=>{if(typeof x!=="string"||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(x))throw new Error("invalid_id");return x;};
 const tokenEqual=(a,b)=>{const x=Buffer.from(String(a)),y=Buffer.from(String(b));return x.length===y.length&&crypto.timingSafeEqual(x,y);};
@@ -3707,7 +3707,7 @@ function readState(file){
 function createServer(env=process.env,deps={}){
   const c=config(env);fs.mkdirSync(c.root,{recursive:true});
   if(fs.lstatSync(c.root).isSymbolicLink())throw new Error("archive_root_symlink_not_allowed");
-  const usageFile=c.stateFile||path.join(c.root,"usage.json"),state=readState(usageFile),fetcher=deps.fetch||fetch,inflight=new Map(),active=new Set(),sems=new Map(),buckets=new Map(),plans=new Map(),profiles=new Set(),clock=deps.now||Date.now;
+  const usageFile=c.stateFile||path.join(c.root,"usage.json"),state=readState(usageFile),rawFetch=deps.fetch||fetch,liner={key:env.LINER_API_KEY,base:env.LINER_BASE_URL},fetcher=(url,init)=>{const r=toLiner(url,init,liner);return r?rawFetch(...r):rawFetch(url,init);},inflight=new Map(),active=new Set(),sems=new Map(),buckets=new Map(),plans=new Map(),profiles=new Set(),clock=deps.now||Date.now;
   const month=()=>new Date().toISOString().slice(0,7);
   const record=account=>{
     let r=Object.hasOwn(state.accounts,account)?state.accounts[account]:null;
@@ -4727,7 +4727,22 @@ const cacheOf=u=>{const num=v=>Number.isFinite(v)&&v>=0?Math.floor(v):null,
   ds=[u?.prompt_tokens_details,u?.input_tokens_details],pick=k=>{for(const d of ds){const v=num(d?.[k]);if(v!==null)return v;}return null;};
   return {cached_input_tokens:pick("cached_tokens")??num(u?.cache_read_input_tokens)??num(u?.prompt_cache_hit_tokens),
     cache_write_tokens:pick("cache_write_tokens")??num(u?.cache_creation_input_tokens)??num(u?.cache_write_tokens)};};
-module.exports={MODELS,upstreamOf,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cachedSystem,cachedUser,cacheModeOf,parseNote,cacheOf,commonPrefixLength,orderUserPayload,SHARED_HEAD};
+// Liner(OpenAI 호환 게이트웨이)로 보낼 모델: GPT-6 계열만. 판정·STT·다른 모델은 OpenRouter 그대로다.
+// Liner 는 provider 칸과 reasoning 객체(chat)·prompt_cache_options·reasoning.context(responses)를 거절한다(2026-10-08 실측).
+// 캐시는 cache_control(chat)·자동 접두(responses)로 된다. 키·주소가 없으면 변환하지 않는다.
+const LINER_MODEL=/^openai\/gpt-6(\.1)?-(sol|luna)(@\w+)?$/;
+function toLiner(url,init,liner){
+  if(!liner?.key||!liner.base||typeof init?.body!=="string")return null;
+  const m=/^https:\/\/openrouter\.ai\/api\/v1\/(chat\/completions|responses)$/.exec(String(url));
+  if(!m)return null;
+  let b;try{b=JSON.parse(init.body);}catch{return null;}
+  if(!b||!LINER_MODEL.test(b.model||""))return null;
+  delete b.provider;delete b.prompt_cache_options;
+  if(m[1]==="responses"){if(b.reasoning)delete b.reasoning.context;}
+  else if(b.reasoning){if(b.reasoning.effort)b.reasoning_effort=b.reasoning.effort;delete b.reasoning;}
+  return[liner.base.replace(/\/+$/,"")+"/"+m[1],{...init,body:JSON.stringify(b),headers:{...init.headers,authorization:"Bearer "+liner.key}}];
+}
+module.exports={toLiner,MODELS,upstreamOf,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cachedSystem,cachedUser,cacheModeOf,parseNote,cacheOf,commonPrefixLength,orderUserPayload,SHARED_HEAD};
 
 },
 "server/note-session.js": function (module, exports, require, __filename, __dirname) {

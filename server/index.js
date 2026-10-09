@@ -98,7 +98,7 @@ function providerSchema(s,drop){
   return out;
 }
 const VISION_SCHEMA=providerSchema({type:"object",additionalProperties:false,required:["blocks","formulas","figures"],properties:{blocks:Contracts.SCHEMAS.slideDoc.properties.blocks,formulas:Contracts.SCHEMAS.slideDoc.properties.formulas,figures:Contracts.SCHEMAS.slideDoc.properties.figures}},["id","status"]);
-const {cachedSystem,cachedUser,cacheModeOf,parseNote,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cacheOf,upstreamOf}=require("./llm.js");
+const {cachedSystem,cachedUser,cacheModeOf,parseNote,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cacheOf,upstreamOf,toLiner}=require("./llm.js");
 const NoteSession=require("./note-session.js");
 const safePart=x=>{if(typeof x!=="string"||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(x))throw new Error("invalid_id");return x;};
 const tokenEqual=(a,b)=>{const x=Buffer.from(String(a)),y=Buffer.from(String(b));return x.length===y.length&&crypto.timingSafeEqual(x,y);};
@@ -257,7 +257,7 @@ function readState(file){
 function createServer(env=process.env,deps={}){
   const c=config(env);fs.mkdirSync(c.root,{recursive:true});
   if(fs.lstatSync(c.root).isSymbolicLink())throw new Error("archive_root_symlink_not_allowed");
-  const usageFile=c.stateFile||path.join(c.root,"usage.json"),state=readState(usageFile),fetcher=deps.fetch||fetch,inflight=new Map(),active=new Set(),sems=new Map(),buckets=new Map(),plans=new Map(),profiles=new Set(),clock=deps.now||Date.now;
+  const usageFile=c.stateFile||path.join(c.root,"usage.json"),state=readState(usageFile),rawFetch=deps.fetch||fetch,liner={key:env.LINER_API_KEY,base:env.LINER_BASE_URL},fetcher=(url,init)=>{const r=toLiner(url,init,liner);return r?rawFetch(...r):rawFetch(url,init);},inflight=new Map(),active=new Set(),sems=new Map(),buckets=new Map(),plans=new Map(),profiles=new Set(),clock=deps.now||Date.now;
   const month=()=>new Date().toISOString().slice(0,7);
   const record=account=>{
     let r=Object.hasOwn(state.accounts,account)?state.accounts[account]:null;
