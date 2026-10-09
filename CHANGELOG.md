@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.8.0.3 — 2026-10-09
+
+- mis-sol-hai 작성·질문·수리(Haiku 5.5)는 strict response_format 대신 스키마를 system 메시지로 받는다. Anthropic 구조화 출력은 null 허용 칸을 요청당 16개까지만 받아(공식 문서) 약 48칸인 초안 스키마가 늘 400이었다(실행 mis-sol-hai-10, provider_http_400). 출력은 기존 계약 검증·형식 재시도가 보고, 코드 블록으로 감싼 JSON도 받는다.
+
 ## 2.8.0.2 — 2026-10-09
 
 - mis-sol-hai 작성(Haiku 5.5)의 OpenRouter 공급자를 google-vertex/global로 고정한다. 요청은 고정 공급자·strict 구조화 출력·ZDR을 함께 요구하는데, Bedrock은 구조화 출력이 없고 Anthropic·Azure는 ZDR이 아니라 모든 작성 호출이 502였다(실행 mis-sol-hai-3·4·8).

@@ -3728,6 +3728,25 @@ test("sol-luna-2: questions editorialPlan.glossary reaches the model input — �
   }, v2Env);
 });
 
+// 스키마 system 메시지: 첫 줄은 지시, 나머지는 스키마 JSON.
+const schemaMessage = body => { const m = body.messages.filter(x => x.role === "system").at(-1); return JSON.parse(m.content.split("\n").slice(1).join("\n")); };
+
+test("mis-sol-hai: Haiku draft 는 strict response_format 대신 스키마를 프롬프트로 받고, 코드 블록으로 감싼 JSON 도 받는다", async () => {
+  const HAIKU = "anthropic/claude-haiku-5.5", bodies = [];
+  const env = { ...v2Env, ALLOWED_MODELS: JSON.stringify([model, SOL, LUNA2, HAIKU]), OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], [SOL]: ["azure", "azure/us"], "openai/gpt-6-luna": ["azure", "azure/us"], [HAIKU]: ["google-vertex/global"] }) };
+  await withNoteServer(async (_u, o) => { bodies.push(JSON.parse(o.body)); return noteReply("```json\n" + JSON.stringify(v2DraftOut) + "\n```"); }, async url => {
+    const res = await req(url, "/v1/write", "POST", sectionIn({ model: HAIKU, requestId: "msh-s1", stage: "draft", noteMode: "mis-sol-hai" }), tokenB);
+    const out = await res.json();
+    assert.equal(res.status, 200, JSON.stringify(out.error || ""));
+    const body = bodies.at(-1);
+    assert.equal(body.response_format, undefined);
+    assert.equal(body.provider.require_parameters, true);
+    const sch = schemaMessage(body);
+    assert.equal(sch.type, "object");
+    assert.ok(sch.properties.nullReasons, "Haiku 정적 스키마(nullReasons 배열)를 그대로 싣는다");
+  }, env);
+});
+
 test("mis-sol-hai: 필기 이미지를 실은 독립 draft 요청은 평문 본문 상한을 넘는다 — images 없는 큰 본문은 여전히 413", async () => {
   const HAIKU = "anthropic/claude-haiku-5.5";
   const bodies = [];
@@ -3757,7 +3776,9 @@ test("mis-sol-hai: 독립 수리(repair)는 blocks 를 {blockId,envelope}[] 로 
     const out = await res.json();
     assert.equal(res.status, 200, JSON.stringify(out.error || ""));
     assert.deepEqual(out.output, { blocks: { S1_B3: noteWriter.sections.S1.first.blocks.S1_B3 } }, "배열 응답이 keyed 맵으로 되돌아온다");
-    const sch = bodies.at(-1).response_format.json_schema.schema;
+    // Anthropic strict 스키마는 null 허용(union) 칸을 16개까지만 받는다 — Haiku 는 response_format 없이 스키마를 마지막 system 메시지로 받는다.
+    assert.equal(bodies.at(-1).response_format, undefined, "Haiku 요청에는 strict response_format 이 없다");
+    const sch = schemaMessage(bodies.at(-1));
     assert.equal(sch.properties.blocks.type, "array", "제공자 스키마의 blocks 는 배열이다");
     assert.ok(sch.properties.blocks.items.required.includes("blockId") && sch.properties.blocks.items.required.includes("envelope"));
     assert.ok(!("noteSession" in bodies.at(-1)) || bodies.at(-1).noteSession === undefined, "독립 호출에는 세션 봉투가 없다");

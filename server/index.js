@@ -104,7 +104,7 @@ VISION_BLOCKS.items={...VISION_BLOCKS.items,properties:{...VISION_BLOCKS.items.p
 // 필기 표시(ink)는 제공자가 모르는 후처리 메타다 — 제공자 스키마에서만 빼고 서버가 null 로 둔다.
 delete VISION_BLOCKS.items.properties.ink;
 const VISION_SCHEMA=providerSchema({type:"object",additionalProperties:false,required:["blocks","formulas","figures"],properties:{blocks:VISION_BLOCKS,formulas:Contracts.SCHEMAS.slideDoc.properties.formulas,figures:Contracts.SCHEMAS.slideDoc.properties.figures}},["id","status"]);
-const {cachedSystem,cachedUser,cacheModeOf,parseNote,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cacheOf,upstreamOf,toLiner,userWithImages,readChoice}=require("./llm.js");
+const {cachedSystem,cachedUser,cacheModeOf,parseNote,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cacheOf,upstreamOf,toLiner,userWithImages,readChoice,schemaInPrompt}=require("./llm.js");
 const SectionDraft=require("../lib/section-draft.js");
 const NoteSession=require("./note-session.js");
 const safePart=x=>{if(typeof x!=="string"||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(x))throw new Error("invalid_id");return x;};
@@ -828,8 +828,9 @@ function createServer(env=process.env,deps={}){
           const at=Date.now();
           const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
             model:upModel,...params,...cacheFields,
-            messages:[cachedSystem(input.model,system),msh&&images?userWithImages(cachedUser(input.model,userText,stage).content,images):cachedUser(input.model,userText,stage)],
-            response_format:{type:"json_schema",json_schema:{name:"lecture_note_"+stage,strict:true,schema:providerOut}},
+            // Haiku 등 schemaInPrompt 모델: strict response_format 대신 스키마를 system 메시지로 준다(server/llm.js) — 출력은 아래 계약 검증이 본다.
+            messages:[cachedSystem(input.model,system),...(schemaInPrompt(input.model)?[{role:"system",content:"출력은 아래 JSON 스키마를 따르는 JSON 객체 하나뿐이다.\n"+JSON.stringify(providerOut)}]:[]),msh&&images?userWithImages(cachedUser(input.model,userText,stage).content,images):cachedUser(input.model,userText,stage)],
+            ...(schemaInPrompt(input.model)?{}:{response_format:{type:"json_schema",json_schema:{name:"lecture_note_"+stage,strict:true,schema:providerOut}}}),
             // v2 표시 요청(sol-luna-2 의 Luna 독립 호출)은 sticky 라우팅을 끄는 order 를 빼고 only 만 둔다(spec 5.2·6).
             provider:{only:upProviders,...(v2?{}:{order:upProviders}),require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}
           })});

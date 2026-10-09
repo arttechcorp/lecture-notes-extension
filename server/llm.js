@@ -20,7 +20,9 @@ const MODELS={
   "openai/gpt-6-luna@xhigh":{base:"openai/gpt-6-luna",tags:["azure","azure/us","azure/eu"],reasoning:{effort:"xhigh"},reasoningBudget:16000,maxTokens:32768,temperature:false,cacheMode:"openai-explicit"},
   "openai/gpt-6.1-sol":{tags:["azure","openai","azure/us","azure/eu"],reasoning:{effort:"medium"},reasoningBudget:8000,maxTokens:32768,temperature:false},
   // mis-sol-hai 작성 모델(기획 §3.2): Liner 에 없으므로 OpenRouter. reasoning_effort high 기본, temperature 는 생략(temperature:false).
-  "anthropic/claude-haiku-5.5":{tags:["google-vertex/global"],reasoning:{effort:"high"},reasoningBudget:8000,maxTokens:32768,temperature:false,cache:true},
+  // schemaInPrompt: Anthropic strict json_schema 는 null 허용(union) 칸을 요청당 16개까지만 받아(공식 문서, 초과 시 400) 초안 스키마(약 48칸)가 늘 거절된다 —
+  // response_format 없이 스키마를 system 메시지로 주고 서버 계약 검증·형식 재시도로 받는다.
+  "anthropic/claude-haiku-5.5":{tags:["google-vertex/global"],reasoning:{effort:"high"},reasoningBudget:8000,maxTokens:32768,temperature:false,cache:true,schemaInPrompt:true},
   "xiaomi/mimo-v2.6-pro":{tags:["deepinfra/fp8"],reasoning:{effort:"low"},reasoningBudget:4000,maxTokens:32768},
   "xiaomi/mimo-v2.6-flash":{tags:["io-net/fp8","venice/fp8","deepinfra/fp8"],reasoning:{enabled:false},maxTokens:32768},
 };
@@ -78,7 +80,9 @@ const UNMANGLE=[
   [/\u000d(ho|ight|angle|floor|ceil)\b/gu,"\\r$1"],
 ];
 const unmangle=s=>UNMANGLE.reduce((acc,[re,rep])=>acc.replace(re,rep),s);
-const parseNote=text=>JSON.parse(text,(_,v)=>typeof v==="string"?unmangle(v):v);
+// 스키마를 프롬프트로 받은 모델은 JSON 을 코드 블록으로 감쌀 때가 있다 — 바깥 펜스만 벗긴다.
+const parseNote=text=>JSON.parse(String(text).trim().replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/,""),(_,v)=>typeof v==="string"?unmangle(v):v);
+const schemaInPrompt=model=>!!MODELS[model]?.schemaInPrompt;
 // 이미지 근거(mis-sol-hai 필기 해석, 기획 §4.2): user 텍스트 뒤에 근거 id 라벨과 image_url 파트를 번갈아 붙인다.
 // 이미지는 이 요청 안에서만 산다 — 문자열이든 캐시 분할 파트든 그 뒤에 덧붙이고, 호출 뒤에는 버린다(저장 금지).
 const userWithImages=(user,images)=>{
@@ -124,4 +128,4 @@ function toLiner(url,init,liner){
   else if(b.reasoning){if(b.reasoning.effort)b.reasoning_effort=b.reasoning.effort;delete b.reasoning;}
   return[liner.base.replace(/\/+$/,"")+"/"+m[1],{...init,body:JSON.stringify(b),headers:{...init.headers,authorization:"Bearer "+liner.key}}];
 }
-module.exports={toLiner,MODELS,LINER_MODELS,upstreamOf,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cachedSystem,cachedUser,cacheModeOf,parseNote,cacheOf,commonPrefixLength,orderUserPayload,SHARED_HEAD,userWithImages,readChoice};
+module.exports={schemaInPrompt,toLiner,MODELS,LINER_MODELS,upstreamOf,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cachedSystem,cachedUser,cacheModeOf,parseNote,cacheOf,commonPrefixLength,orderUserPayload,SHARED_HEAD,userWithImages,readChoice};
