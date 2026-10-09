@@ -48,6 +48,10 @@ function htmlTableCells(html){
   return cells.length?cells.slice(0,200):null;
 }
 const stripTags=s=>String(s??"").replace(TAG," ").replace(/\s+/g," ").trim();
+// 텍스트 블록은 표와 같이 태그를 지운다 — 줄 구조(목록 항목)는 남기려고 <br> 만 줄바꿈으로 바꾼다.
+// 지우는 것은 알려진 HTML 태그뿐이다. "p < 0.05 … q > 0.1" 같은 부등호를 태그로 오인하면 본문이 깨진다.
+const HTML_TAG=/<\/?(?:a|b|i|u|em|strong|span|sub|sup|p|div|font|small|ul|ol|li|table|thead|tbody|tr|td|th|h[1-6])(?:\s[^<>]*)?\/?>/gi;
+const plainText=s=>String(s??"").replace(/<br\s*\/?>/gi,"\n").replace(HTML_TAG,"").replace(/[ \t]+/g," ").replace(/ *\n */g,"\n").trim();
 // OCR 블록 type → slideDoc role. title·header·footer·figure_label 은 boilerplate·근거 규칙이
 // 그대로 먹이도록 기존 역할로 매기고, 나머지 텍스트 종류는 읽기 흐름의 본문이다.
 const ROLE={title:"title",header:"header",footer:"footer",caption:"figure_label",text:"body",list:"body",aside_text:"body",references:"body",signature:"body",code:"body"};
@@ -64,14 +68,15 @@ function toSlideDoc(raw,{slideId,t0,t1,model,mode}){
     // extract_header/footer 가 분리한 머리·바닥글은 읽기 순서가 없어서 blocks 말미에 붙인다 —
     // role 이 header/footer 라 boilerplate 규칙과 근거 텍스트 제외가 그대로 적용된다.
     for(const [text,role]of[[page.header,"header"],[page.footer,"footer"]]){
-      const t=stripTags(text);
+      const t=plainText(text);
       if(t)blocks.push({id:"b0",text:t.slice(0,4000),role,bbox:null,conf:null});
     }
     for(const b of Array.isArray(page.blocks)?page.blocks:[]){
       if(!b||typeof b!=="object")continue;
-      const text=typeof b.content==="string"?b.content.trim():"",bbox=normBox(b,dims),conf=confOf(b),type=b.type;
+      const raw=typeof b.content==="string"?b.content:"",text=plainText(raw),bbox=normBox(b,dims),conf=confOf(b),type=b.type;
       if(type==="equation"){
-        if(text)formulas.push({id:"f0",latex:null,text:text.slice(0,4000),bbox,conf,status:"unverified"});
+        // 수식은 원문 그대로 둔다 — 부등호가 태그처럼 보여도 LaTeX 이다.
+        if(raw.trim())formulas.push({id:"f0",latex:null,text:raw.trim().slice(0,4000),bbox,conf,status:"unverified"});
         continue;
       }
       if(type==="table"){

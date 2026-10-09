@@ -117,6 +117,22 @@ const slideDocFixture = () => ({
 const slideProvider = (doc = slideDocFixture()) => ({ ok: true, json: async () => ({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(doc) } }], usage: { prompt_tokens: 900, completion_tokens: 120, cost: .002 } }) });
 const visionBody = o => ({ model, requestId: "vision-x", slideId: "lec-01-slide-03", t0: 120, t1: 135.5, image: jpeg(2048), mode: "full", ...o });
 
+test("the OpenRouter vision route accepts the optional ink mask and does not forward it", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  let sent = null;
+  const server = createServer(visionEnv(root), { fetch: async (_url, options) => { sent = JSON.parse(options.body); return slideProvider(); } });
+  await new Promise(r => server.listen(0, "127.0.0.1", r));
+  const url = "http://127.0.0.1:" + server.address().port;
+  try {
+    const res = await req(url, "/v1/vision", "POST", visionBody({ requestId: "vision-ink", ink: [{ x: .1, y: .1, w: .2, h: .2 }] }));
+    assert.equal(res.status, 200, "ink 은 모든 비전 모델이 받는 선택 필드다");
+    assert.ok(!JSON.stringify(sent).includes('"ink"'), "OCR 전용 메타라 OpenRouter 제공자에게 나가지 않는다");
+  } finally {
+    await new Promise(r => server.close(r));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("vision route reads a slide, gates on the paid feature and caps image size", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
   let sent = null;

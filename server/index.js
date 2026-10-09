@@ -487,8 +487,8 @@ function createServer(env=process.env,deps={}){
         ...attemptFields(requestId,meta.stage!=="stt",tries,{status,amount,billedCost:billed,policyVersion:c.remoteConfig.policyVersion})}});}catch{stored=false;}
       // 정산이 안 닫혀도 이미 만든 결과는 돌려준다 — 예약이 reserved 로 남아 비용이 보수적으로 잡힌다. 환불만은 예약이 안 풀렸으므로 같은 requestId 재시도를 약속할 수 없다.
       if(!error)return send(res,200,payload);
-      if(status==="refunded")return stored?fail(res,code,error.retryAfterMs):fail(res,"usage_store_failed");
-      fail(res,code,undefined,error.session?{noteSession:error.session}:undefined);
+      if(status==="refunded")return stored?fail(res,code,error.retryAfterMs,error.failExtra):fail(res,"usage_store_failed");
+      fail(res,code,undefined,{...error.failExtra,...(error.session?{noteSession:error.session}:{})});
     }finally{clearTimeout(timer);res.removeListener("close",disconnect);const n=(inflight.get(id)||1)-1;n>0?inflight.set(id,n):inflight.delete(id);active.delete(controller);}
   }
   async function vision(input,account,res){
@@ -497,7 +497,8 @@ function createServer(env=process.env,deps={}){
     // Mistral OCR 은 요청 모양·과금(페이지)이 OpenRouter 비전과 다르다 — 모델 이름으로만 갈린다(실험 분기, 레지스트리 연결은 통합 때).
     if(OCR_MODELS.has(input.model))return await visionOcr(input,account,res);
     safePart(input.requestId);
-    const fields=["model","requestId","slideId","t0","t1","image","mode"],optional=["jobId"];
+    // ink 는 OCR 경로 전용 메타라 여기서는 받아 버리기만 한다 — 클라이언트가 모델과 무관하게 붙일 수 있다.
+    const fields=["model","requestId","slideId","t0","t1","image","mode"],optional=["jobId","ink"];
     if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)&&!optional.includes(k)))return fail(res,"unexpected_field");
     if(typeof input.slideId!=="string"||!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(input.slideId)||!Number.isFinite(input.t0)||!Number.isFinite(input.t1)||input.t0<0||input.t1<input.t0||!["full","reread"].includes(input.mode))return fail(res,"invalid_vision_params");
     const match=/^data:image\/jpeg;base64,([A-Za-z0-9+/]+={0,2})$/.exec(String(input.image||""));
@@ -556,7 +557,7 @@ function createServer(env=process.env,deps={}){
     // 예약 = 1페이지 × 단가 × 최대 시도(기획 §6). 정산은 제공자가 센 pages_processed 로 되돌린다.
     const reserve=Math.max(1,Math.ceil(attempts*OcrMistral.USD_PER_PAGE*100));
     return await withReservation({account,requestId:input.requestId,digest,reserve,model:input.model,res,meta:{stage:"vision."+input.mode,provider:"mistral",model:input.model,images:1,jobId:input.jobId}},async signal=>{
-      let amount=0,reported=true,pages=0;const tries=[];
+      let amount=0,reported=true,pages=0,billed=false;const tries=[];
       try{
         for(let retry=0;retry<attempts;retry++){
           const at=Date.now();
@@ -566,10 +567,12 @@ function createServer(env=process.env,deps={}){
             const st=Number(e?.status)||0,detail=st>0?"provider_http_"+st:"provider_transport";
             tries.push(attemptOf("a"+tries.length,Date.now()-at,null,detail));
             // 429·5xx 만 제한 재시도한다. 그 외 4xx(400 등)는 설정 오류 — 돈이 안 나갔으니 환불로 접는다.
-            if(st>=400&&st<500&&st!==429)throw Object.assign(new Error("mistral_config"),{refund:true,code:"provider_failed_or_invalid_output",detail:"provider_config_error"});
+            if(st>=400&&st<500&&st!==429)throw Object.assign(new Error("mistral_config"),{refund:true,code:"provider_failed_or_invalid_output",detail:"provider_config_error",failExtra:{retryable:false,detail:"provider_config_error"}});
             if(!OcrMistral.retryableStatus(st)||retry===attempts-1)throw Object.assign(new Error("provider_failed"),{detail});
             continue;
           }
+          // 응답이 왔으면 제공자가 페이지를 처리했을 수 있다 — 이때부터 실패는 환불이 아니라 센 금액 청구다.
+          billed=true;
           // 토큰 0으로 위장하지 않는다 — 페이지 과금은 제공자의 usage_info.pages_processed 만 믿는다.
           const cost=OcrMistral.pageCost(raw?.usage_info);
           if(cost===null)reported=false;else{amount+=cost;pages+=raw.usage_info.pages_processed;}
@@ -581,7 +584,13 @@ function createServer(env=process.env,deps={}){
             return {amount,reported,attempts:tries,payload:{slideDoc,usage:{pages,costUsd:reported?amount:reserve/100},promptVersion:c.remoteConfig.promptVersion,schemaVersion:c.remoteConfig.schemaVersion}};
           }catch(error){const t=tries.at(-1);t.status="error";t.error=errCode(error);if(retry===attempts-1)throw error;}
         }
-      }catch(e){e.attempts??=tries;throw e;}
+      }catch(e){
+        e.attempts??=tries;
+        // 처리되지 않은 최종 실패(응답 없음·429/5xx 소진)는 환불해 청구 0 이다. 앞선 호출이 응답을 받았다면 그 페이지만큼 청구한다.
+        if(billed){delete e.refund;e.code??="provider_failed_or_invalid_output";e.charged={reported,amount};}
+        else{e.refund=true;if(signal.aborted)e.code="request_cancelled_or_timed_out";}
+        throw e;
+      }
     });
   }
   async function stt(input,account,res){

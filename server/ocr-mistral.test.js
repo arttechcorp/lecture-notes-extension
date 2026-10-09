@@ -70,8 +70,10 @@ test("markInk flags blocks overlapping the L1 ink mask",()=>{
   const doc=OcrMistral.toSlideDoc(ocrResponse([page([
     blk("text","겹치는 블록",[.1,.1,.5,.3]),
     blk("text","안 겹치는 블록",[.6,.6,.9,.9]),
-    blk("text","상자 없는 블록",null),
+    // 좌표 키가 아예 없는 블록 — blk() 은 0박스를 만들어 null 경로를 못 탄다.
+    { type:"text",content:"상자 없는 블록",confidence_scores:score(.9) },
   ])]),meta);
+  assert.equal(doc.blocks[2].bbox,null,"좌표가 없으면 bbox 는 null 이다");
   OcrMistral.markInk(doc,[{x:.2,y:.15,w:.1,h:.1}]);
   assert.equal(doc.blocks[0].ink,true);
   assert.equal(doc.blocks[1].ink,undefined);
@@ -152,11 +154,68 @@ test("429 retries once and bills both attempts by pages; 400 is a refunded confi
   try{
     const res=await req(url2,"/v1/vision",visionBody({requestId:"ocr-badcfg"}));
     assert.equal(res.status,502);
+    const err=(await res.json()).error;
+    assert.equal(err.retryable,false,"설정 오류는 같은 요청을 다시 보내도 같은 결과다");
+    assert.equal(err.detail,"provider_config_error");
     assert.equal(calls2,1,"400 은 설정 오류라 재시도하지 않는다");
     const state=JSON.parse(fs.readFileSync(path.join(root2,"usage.json"),"utf8"));
     assert.equal(state.accounts.A.jobs["ocr-badcfg"],undefined,"환불된 요청은 예약이 남지 않는다");
+    assert.equal(state.accounts.A.spentCents,0,"환불이면 장부에 한 푼도 남지 않는다");
+    assert.equal(state.accounts.A.requests,0);
     const retry=await req(url2,"/v1/vision",visionBody({requestId:"ocr-badcfg"}));
     assert.equal(retry.status,502,"같은 requestId 도 환불됐으므로 다시 보낼 수 있다");
     assert.equal(calls2,2);
   }finally{await close(server2);removeTemp(root2);}
+});
+
+test("a final 429 with no processed page is refunded and stays retryable",async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),"summrizei-service-test-"));
+  const server=createServer(ocrEnv(root),{fetch:async()=>({ok:false,status:429,headers:{get:()=>null}})});
+  await new Promise(r=>server.listen(0,"127.0.0.1",r));const url="http://127.0.0.1:"+server.address().port;
+  try{
+    const res=await req(url,"/v1/vision",visionBody({requestId:"ocr-429"}));
+    assert.equal(res.status,502);
+    assert.equal((await res.json()).error.retryable,true,"처리되지 않은 혼잡은 같은 요청으로 다시 보낼 수 있다");
+    const state=JSON.parse(fs.readFileSync(path.join(root,"usage.json"),"utf8"));
+    assert.equal(state.accounts.A.spentCents,0,"처리된 페이지가 없으니 청구 0");
+    assert.equal(state.accounts.A.requests,0);
+  }finally{await close(server);removeTemp(root);}
+});
+
+test("a page the provider already processed is charged even when the retry then fails",async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),"summrizei-service-test-"));let calls=0;
+  // 첫 응답은 페이지를 셌지만 계약에 안 맞아(pages 없음) 재시도한다 — 둘째는 429 로 소진된다.
+  const server=createServer(ocrEnv(root),{fetch:async()=>{calls++;
+    if(calls===1)return mistralProvider({pages:null,usage_info:{pages_processed:1}});
+    return {ok:false,status:429,headers:{get:()=>null}};}});
+  await new Promise(r=>server.listen(0,"127.0.0.1",r));const url="http://127.0.0.1:"+server.address().port;
+  try{
+    const res=await req(url,"/v1/vision",visionBody({requestId:"ocr-billed"}));
+    assert.equal(res.status,502);assert.equal(calls,2);
+    const state=JSON.parse(fs.readFileSync(path.join(root,"usage.json"),"utf8"));
+    assert.ok(Math.abs(state.accounts.A.spentCents-0.4)<0.01,"처리된 한 페이지(약 0.4¢)만 남고 예약 1¢ 전액은 남지 않는다");
+  }finally{await close(server);removeTemp(root);}
+});
+
+test("pixel boxes from Mistral are normalized by the page size end to end",async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),"summrizei-service-test-"));
+  const raw=ocrResponse([page([blk("text","픽셀 좌표 본문",[100,50,600,250])],{dimensions:{width:1000,height:500,dpi:96}})]);
+  const server=createServer(ocrEnv(root),{fetch:async()=>mistralProvider(raw)});
+  await new Promise(r=>server.listen(0,"127.0.0.1",r));const url="http://127.0.0.1:"+server.address().port;
+  try{
+    const res=await req(url,"/v1/vision",visionBody({requestId:"ocr-px"}));
+    assert.equal(res.status,200);
+    const {slideDoc}=await res.json();
+    assert.deepEqual(slideDoc.blocks[0].bbox,{x:.1,y:.1,w:.5,h:.4},"픽셀 100·50·600·250 을 1000×500 으로 나눈다");
+  }finally{await close(server);removeTemp(root);}
+});
+
+test("text blocks drop known HTML tags, keep line breaks, and leave comparison signs and LaTeX alone",()=>{
+  const doc=OcrMistral.toSlideDoc(ocrResponse([page([
+    blk("text","<b>굵은</b> 글<br>둘째 줄 p < 0.05 이고 q > 0.1",[0,0,.9,.2]),
+    blk("equation","x < 3 and y > 2",[0,.3,.5,.4]),
+  ])]),meta);
+  assert.equal(doc.blocks[0].text,"굵은 글\n둘째 줄 p < 0.05 이고 q > 0.1");
+  assert.equal(doc.formulas[0].text,"x < 3 and y > 2");
+  Contracts.assertValid(Contracts.SCHEMAS.slideDoc,doc,"slideDoc");
 });
