@@ -86,3 +86,20 @@
   2. repair 비용 절감(run C에서 비용의 67%): `sol-fork-2` 기준 repair 13건의 평균 입력은 약 40k토큰(캐시읽기 26.7k 포함)으로, 블록 단위 재작성에도 접두 P 전체를 싣는다. 별도 repair 접두(계획·편집만) 또는 Luna repair 시도를 검토.
   3. 통합 검수의 반려 사유 분포를 보고 재검증 규칙이 과한지, 제안 품질이 낮은지 가린다.
   4. 8번(보관함 저장 실패) 조사.
+
+## 8. 후속 (2026-10-09): `reasoning.context` 비교와 Liner 전환
+
+### 8.1 `reasoning.context`
+
+- 공식 문서(OpenRouter reasoning-tokens): 출력 아이템을 되돌려 보내는 멀티턴에서 모델이 볼 추론 범위를 정한다. `auto`(기본)·`all_turns`(입력의 모든 턴 추론 참조)·`current_turn`(현재 턴만). GPT-5.6 이상만 지원. Liner는 이 칸을 거절(`unknown_parameter`)하고 `reasoning` 아이템도 돌려주지 않는다.
+- 합성 fixture(`sol-luna-3`, 계획→편집, 6회): 계획 입력 3741토큰, 용어집 7·섹션 5로 동일, 블록 수 18~20, 비용·시간·토큰은 같은 설정 반복 편차 안. 곱셈 회상 시험(OpenRouter, 설정당 3회)은 셋 다 3/3이라 구분력이 없었다.
+- 실강의 `sol-luna-2`(lec2): `current_turn` 1회 총 약 $0.50(run C `all_turns` $0.976). plan·editorial·draft 비용은 같고(각 $0.086·$0.063·$0.034 대 $0.089·$0.069·$0.037), 핵심 25/25 동일. 비용 차이는 review가 502로 4회 실패해 비용이 없고 repair 호출 수가 달라서이며 옵션 효과로 읽을 수 없다. 사람이 두 PDF를 보고 "큰 차이는 없다"고 판단했다(블라인드 아님).
+- 결론: 이 구간에서 `reasoning.context`가 필요하다는 증거는 없다. 서버 실험 스위치(`NOTE_REASONING_CONTEXT`)는 실험 후 되돌렸다.
+
+### 8.2 Liner 게이트웨이 전환 (v2.7.1, 커밋 `beb4f5f`)
+
+- 확인: Liner `/v1/responses`·`/v1/chat/completions`에서 `openai/gpt-6.1-sol`·`openai/gpt-6-luna`가 동작하고, `usage.cost`를 보고하며, 접두 캐시가 된다(chat은 `cache_control`로 쓰기·읽기 확인, responses는 자동. Sol 읽기 단가는 OpenRouter와 같은 수준). `session_id`·`include`·`text.format`·`seed`·`prompt_cache_key`는 받는다.
+- 거절(400): `provider`(chat), `prompt_cache_options`, `reasoning.context`, chat의 `reasoning` 객체(→ `reasoning_effort`로 대체). `gpt-6-luna@high` 접미사 모델명은 없다(서버가 기본 모델명+effort로 보낸다). `reasoning.encrypted_content` 추론 아이템은 오지 않는다.
+- 구현: `server/llm.js` `toLiner` — GPT-6 Sol·Luna 요청만 Liner 형식으로 바꿔 보낸다. 시크릿 `LINER_API_KEY`·`LINER_BASE_URL`이 있을 때만 작동하고 지우면 OpenRouter로 돌아간다. 판정·STT·비전·mimo 등은 OpenRouter 그대로.
+- 실강의 검증(`sol-luna-2`, lec2, 배포 서버): 완주, 총 $0.846(plan $0.097, editorial $0.078, draft $0.050/6회, repair $0.460/6회, review $0.082, global $0.077). 핵심 22/22·보충 9/9·조건 4/4·예시 4/4, 섹션 탈락 없음, 보류 19→18 복구, 근거 유지 135/145.
+- 열린 위험: ① **Liner의 데이터 보존(ZDR)·`data_collection:"deny"` 준수는 확인하지 못했다** — `provider` 칸을 보낼 수 없어 요청으로는 강제할 수 없다. 약관 확인 필요. ② review의 섹션 재작성 요청 5건이 `stale_revision`으로 거절돼 채택 0(원인 미조사). ③ 라이브러리 저장 실패(5번 8행)는 계속된다. ④ 한 번씩 돌린 결과라 OpenRouter 대비 품질·비용 차이를 가르지 못한다.
