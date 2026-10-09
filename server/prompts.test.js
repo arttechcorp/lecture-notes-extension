@@ -130,15 +130,15 @@ test("editorial guidance: slot meanings, comparison table, logic kinds, quiz all
 });
 
 test("request contracts are the stage's own field lists", () => {
-  assert.deepEqual(Object.keys(Prompts.REQUEST.plan.properties), ["ir", "formulas", "figures", "recognition", "options", "allowedRefs"]);
+  assert.deepEqual(Object.keys(Prompts.REQUEST.plan.properties), ["ir", "formulas", "figures", "recognition", "options", "allowedRefs", "emphasis"]);
   assert.deepEqual(Object.keys(Prompts.REQUEST.section.properties), ["concepts", "options", "allowedRefs", "section", "evidence", "registry", "figures", "learningItems", "withGist"]);
   assert.deepEqual(Object.keys(Prompts.REQUEST.repair.properties), ["concepts", "options", "allowedRefs", "section", "evidence", "registry", "figures", "learningItems", "repair", "packet"]);
   assert.deepEqual(Object.keys(Prompts.REQUEST.global.properties), ["plan", "sections", "options", "allowedRefs"]);
   assert.deepEqual(Object.keys(Prompts.REQUEST.link.properties), ["concepts", "sections", "options", "allowedRefs"]);
   assert.deepEqual(Object.keys(Prompts.REQUEST.questions.properties), ["concepts", "sections", "options", "allowedRefs", "section", "blockId", "editorialPlan"]);
-  // 선택 키: 네 단계 모두 allowedRefs, section·repair 는 섹션에 배정된 learningItems 도 없어도 된다 — 나머지 키는 모두 required 로 strict 규칙을 지킨다.
+  // 선택 키: 네 단계 모두 allowedRefs, plan 은 mis-sol-hai emphasis, section·repair 는 섹션에 배정된 learningItems 도 없어도 된다 — 나머지 키는 모두 required 로 strict 규칙을 지킨다.
   for (const stage of Prompts.STAGES) {
-    const optional = stage === "draft" ? ["allowedRefs", "learningItems", "editorialPlan"] : stage === "repair" ? ["allowedRefs", "learningItems", "packet"] : stage === "section" ? ["allowedRefs", "learningItems"] : stage === "questions" ? ["allowedRefs", "editorialPlan"] : stage === "editorial" ? [] : stage === "review" ? ["allowedRefs", "baseRevision"] : ["allowedRefs"];
+    const optional = stage === "draft" ? ["allowedRefs", "learningItems", "editorialPlan"] : stage === "repair" ? ["allowedRefs", "learningItems", "packet"] : stage === "section" ? ["allowedRefs", "learningItems"] : stage === "questions" ? ["allowedRefs", "editorialPlan"] : stage === "editorial" ? [] : stage === "review" ? ["allowedRefs", "baseRevision"] : stage === "plan" ? ["allowedRefs", "emphasis"] : ["allowedRefs"];
     assert.deepEqual(Object.keys(Prompts.REQUEST[stage].properties).filter(k => !Prompts.REQUEST[stage].required.includes(k)), optional, stage + " 선택 키");
   }
   // plan·global 요청은 strict 모양을 지킨다. section·repair 는 정규화된 Plan 섹션을 싣는데,
@@ -575,5 +575,26 @@ test("prompt size reporting: v3 reduces prompt bytes for plan, editorial, draft,
       assert.ok(v3Size < baseSize, `${st}: v3 크기(${v3Size})가 v2(${baseSize})보다 작아야 함`);
     }
   }
+});
+
+test("plan request contract accepts emphasis signal entries and rejects invalid shapes", () => {
+  const basePlanBody = {
+    ir: { units: [units[0]] },
+    formulas: [],
+    figures: [],
+    recognition: "local",
+    options: OFF,
+  };
+  assert.ok(Contracts.validate(Prompts.REQUEST.plan, basePlanBody).ok, "emphasis 없는 plan 통과");
+
+  const validEmphasis = [
+    { unitId: "U1", dwellRatio: 1.25, repeatCount: 3, stressHits: 2, revisits: 1, inkArea: 10.5 },
+  ];
+  assert.ok(Contracts.validate(Prompts.REQUEST.plan, { ...basePlanBody, emphasis: validEmphasis }).ok, "emphasis 있는 plan 통과");
+
+  // 음수나 잘못된 타입 거절
+  assert.ok(!Contracts.validate(Prompts.REQUEST.plan, { ...basePlanBody, emphasis: [{ unitId: "U1", dwellRatio: -1, repeatCount: 0, stressHits: 0, revisits: 0, inkArea: 0 }] }).ok, "음수 dwellRatio 거절");
+  assert.ok(!Contracts.validate(Prompts.REQUEST.plan, { ...basePlanBody, emphasis: [{ unitId: "invalid", dwellRatio: 1, repeatCount: 0, stressHits: 0, revisits: 0, inkArea: 0 }] }).ok, "잘못된 unitId 패턴 거절");
+  assert.ok(!Contracts.validate(Prompts.REQUEST.plan, { ...basePlanBody, emphasis: [{ unitId: "U1", dwellRatio: 1, repeatCount: 1.5, stressHits: 0, revisits: 0, inkArea: 0 }] }).ok, "정수 아닌 repeatCount 거절");
 });
 

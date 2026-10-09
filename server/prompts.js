@@ -270,6 +270,8 @@ const lunaPacket=opt({
   section:{...NoteContract.editorialPlanSchema.properties.sections.items,type:["object","null"]},
   prerequisites:arr(obj({sectionId:pat(IDS.section),text:{type:"string",maxLength:600},evidenceIds:arr({type:"string",maxLength:32},8),basis:{type:"string",maxLength:16}}),12),
 },["prerequisites"]);
+// mis-sol-hai 강조 신호: 유닛별 체류·핵심어 재등장·강조어·재방문·필기 면적 수치(기획 §4.3).
+const emphasisItem=obj({unitId:pat(IDS.unit),dwellRatio:{type:"number",minimum:0},repeatCount:{type:"integer",minimum:0},stressHits:{type:"integer",minimum:0},revisits:{type:"integer",minimum:0},inkArea:{type:"number",minimum:0}});
 const REQUEST={
   plan:opt({
     ir:obj({units:arr(Contracts.SCHEMAS.unit,500,1)}),
@@ -279,7 +281,8 @@ const REQUEST={
     recognition:{type:"string",enum:["local","cloud"]},
     options,
     allowedRefs,
-  },["allowedRefs"]),
+    emphasis:arr(emphasisItem,500),
+  },["allowedRefs","emphasis"]),
   // 섹션 계열은 작업 공유 칸(concepts·options·allowedRefs)이 먼저 온다 — 직렬화가 스키마 순서라 공유 접두가 같으면
   // 앞서 찍은 두 번째 캐시 중단점(llm.js cachedUser)까지 재사용된다. 재배치는 키 순서뿐, 스키마는 그대로다.
   section:opt({concepts:planConcepts,options,allowedRefs,...writerBody,withGist:{type:"boolean"}},["allowedRefs","learningItems"]),
