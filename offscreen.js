@@ -75,14 +75,17 @@ async function paintMasks(blob,boxes){
 // sol-luna-2 는 검수·전역·수정=Sol(P)·초안·문항=Luna High 독립 호출 — 단계→모델 표는 stages.js 와 서버가 함께 강제한다.
 // sol-luna-3 은 sol-luna-2 와 같은 경로다 — 개선 실험은 devNoteV3 옵션(deps.noteV3 → stages ctx.v3)으로만 가른다.
 // 일곱 모드 다 writeAlt는 null — 대체 모델로 조용히 넘어가면 실험 조건이 아니다.
-const NOTE_MODES=new Set(["independent","sol-session","sol-luna-tool","sol-fork","sol-luna-2","sol-luna-3","sol-fork-2"]),SOL="openai/gpt-6.1-sol",LUNA_HIGH="openai/gpt-6-luna@high";
+// 모드 표는 lib/note-profiles.js(전역 NoteProfiles)가 단일 출처다 — vm 테스트는 이 파일만 올리므로 없을 때는 같은 값의 리터럴로 떨어진다.
+const NP=globalThis.NoteProfiles||null;
+const NOTE_MODES=new Set(NP?NP.ids():["independent","sol-session","sol-luna-tool","sol-fork","sol-luna-2","sol-luna-3","sol-fork-2"]),SOL="openai/gpt-6.1-sol",LUNA_HIGH="openai/gpt-6-luna@high";
 // 플래그가 켜져 있는데 여섯 모드가 아니면 값을 못 읽은 것이다 — 기본 모델로 조용히 넘어가지 않고 멈춘다(조용한 전환 금지·비용 보호).
 const noteModeOf=s=>{const m=s?.devNoteMode;
   if(m==null||m==="")return null;
   if(NOTE_MODES.has(m))return m;
   events.emit({stage:"job",level:"error",code:"NOTE_MODE_INVALID"});
   throw Pipeline.pipelineError("NOTE_MODE_INVALID");};
-const noteModels=(me,settings)=>{const ms=Array.isArray(me?.models)?me.models:[],pick=m=>ms.includes(m)?m:ms[0],dev=typeof settings?.devWriteModel==="string"?settings.devWriteModel.trim():"",judge=(me?.features||[]).includes("judge")?BG_MODELS.judge:null,mode=noteModeOf(settings);
+const noteModels=(me,settings)=>{const ms=Array.isArray(me?.models)?me.models:[],pick=m=>ms.includes(m)?m:ms[0],dev=typeof settings?.devWriteModel==="string"?settings.devWriteModel.trim():"",judge=(me?.features||[]).includes("judge")?BG_MODELS.judge:null,mode=noteModeOf(settings),prof=mode&&NP?.get(mode);
+  if(prof)return{plan:prof.clientModels.plan,write:prof.clientModels.write,writeAlt:null,judge};
   if(mode==="independent"||mode==="sol-luna-2"||mode==="sol-luna-3")return{plan:SOL,write:LUNA_HIGH,writeAlt:null,judge};
   if(mode)return{plan:SOL,write:SOL,writeAlt:null,judge};
   return{plan:pick(BG_MODELS.plan),write:dev&&ms.includes(dev)?dev:pick(BG_MODELS.write),writeAlt:ms.includes(BG_MODELS.writeAlt)?BG_MODELS.writeAlt:null,judge};};

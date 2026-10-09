@@ -59,7 +59,7 @@ const cachedUser=(model,user,stage,opts={})=>{
   const keys=SHARED_HEAD[stage];
   if(!(MODELS[model]?.cache||MODELS[model]?.cacheMode==="openai-explicit")||!keys)return {role:"user",content:user};
   let parsed;try{parsed=JSON.parse(user);}catch{return {role:"user",content:user};}
-  const isV3=opts===true||opts?.isV3===true||(Boolean(NoteV3?.isV3)&&NoteV3.isV3(opts?.noteMode))||parsed?.isV3===true||parsed?.noteMode==="sol-luna-3";
+  const isV3=opts===true||opts?.isV3===true||(Boolean(NoteV3?.isV3)&&NoteV3.isV3(opts?.noteMode))||parsed?.isV3===true||(Boolean(NoteV3?.isV3)&&NoteV3.isV3(parsed?.noteMode));
   const targetUser=isV3?orderUserPayload(user,stage,true):user;
   const head={};for(const k of keys)if(parsed[k]!==undefined)head[k]=parsed[k];
   if(!Object.keys(head).length)return {role:"user",content:targetUser};

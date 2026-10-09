@@ -2,7 +2,7 @@
 // Operator key server-only; archive contents are authenticated ciphertext.
 const fs=require("node:fs"),path=require("node:path"),http=require("node:http"),crypto=require("node:crypto");
 const Vault=require("../lib/vault.js");
-const Contracts=require("../lib/contracts.js"),NoteContract=require("../lib/note-contract.js"),Prompts=require("./prompts.js");
+const Contracts=require("../lib/contracts.js"),NoteContract=require("../lib/note-contract.js"),Prompts=require("./prompts.js"),NoteProfiles=require("../lib/note-profiles.js");
 const {createAuth}=require("./auth.js"),{fileUsage,supabaseUsage,FAIL_CODE}=require("./usage.js"),{supabaseVault}=require("./vault-store.js");
 const RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"google/gemini-2.5-pro":[1.25,10],"anthropic/claude-haiku-4.5":[1,5],"anthropic/claude-sonnet-4.6":[3,15],"anthropic/claude-sonnet-5":[2,10],"openai/gpt-6-luna":[.1,.5],"openai/gpt-6.1-sol":[2,10],"xiaomi/mimo-v2.6-pro":[.435,.87],"xiaomi/mimo-v2.6-flash":[.14,.28]};
 // 이미지 입력은 텍스트와 단가가 다르고 출력도 훨씬 짧다. /v1/plan·/v1/write 와 예약 계산을 섞지 않는다.
@@ -653,20 +653,15 @@ function createServer(env=process.env,deps={}){
     // v2 실험 모드 칸(noteMode)은 strict allowlist — 세션이 실린 요청은 봉투의 mode 와 반드시 일치해야 한다.
     if(input.noteMode!==undefined&&!NoteSession.V2.includes(input.noteMode))return fail(res,"request_rejected");
     if(session&&input.noteMode!==undefined&&input.noteMode!==session.mode)return fail(res,"request_rejected");
-    // v2 단계→모델 표를 서버가 강제한다(클라이언트 설정만 신뢰하지 않는다):
+    // v2 단계→모델 표를 서버가 강제한다(클라이언트 설정만 신뢰하지 않는다) — 표는 lib/note-profiles.js 가 단일 출처다.
     //   sol-luna-2·sol-luna-3: plan·review·global·repair = Sol+세션 계속. draft·questions = noteSession 없는 Luna High 독립 요청.
     //   sol-fork-2: 모든 단계 = Sol+세션. 세 모드 모두 section·link 는 없다 — draft 가 작성, review 가 통합 검수다.
+    //   sol-luna-3 수리 패킷(repair=packet): packet 칸을 실은 세션 없는 Sol 독립 요청 — P 이력을 싣는 full-p 는 세션 경로 그대로다.
+    //   packet 은 세션 없는 요청 전용 — 봉투와 함께 오면 계약이 어긋난다.
     const v2=input.noteMode??(session&&NoteSession.V2.includes(session.mode)?session.mode:null),
-      v2Sol={"sol-luna-2":["plan","editorial","review","global","repair"],"sol-luna-3":["plan","editorial","review","global","repair"],"sol-fork-2":["plan","editorial","draft","questions","review","global","repair"]}[v2]||[];
+      route=v2?NoteProfiles.serverRoute(v2,stage,{hasSession:session!==null,hasPacket:rest.packet!==undefined}):null;
     if(v2){
-      const lunaStage=(v2==="sol-luna-2"||v2==="sol-luna-3")&&(stage==="draft"||stage==="questions");
-      // sol-luna-3 수리 패킷(repair=packet): packet 칸을 실은 세션 없는 Sol 독립 요청 — P 이력을 싣는 full-p 는 세션 경로 그대로다.
-      const packetStage=v2==="sol-luna-3"&&stage==="repair"&&session===null;
-      if(lunaStage?input.model!==NoteSession.LUNA||session!==null
-          :packetStage?input.model!==NoteSession.SOL||rest.packet===undefined
-          :!v2Sol.includes(stage)||input.model!==NoteSession.SOL||!session||session.mode!==v2
-          ||(v2==="sol-luna-3"&&stage==="repair"&&rest.packet!==undefined)) // packet 은 세션 없는 요청 전용 — 봉투와 함께 오면 계약이 어긋난다
-        return fail(res,"invalid_model_or_stage");
+      if(!route.ok||input.model!==route.model||(route.transport==="session"&&session.mode!==v2))return fail(res,"invalid_model_or_stage");
     }else if(stage==="review"||stage==="editorial")return fail(res,"invalid_model_or_stage"); // review·editorial 은 v2 모드 전용 단계다
     if(session){
       if(input.model!==NoteSession.SOL)return fail(res,stage==="plan"?"invalid_model":"invalid_model_or_stage");
@@ -687,7 +682,7 @@ function createServer(env=process.env,deps={}){
     }catch{return fail(res,"request_rejected");}
     // 세션 요청은 지시를 NoteSession.run 이 만든다(v2 는 V2_DEV 고정 지시) — 여기서 만드는 system 은 비세션·도구 Luna 용이다.
     // sol-luna-3 수리 패킷 요청은 COMMON+NOTE_RULES 전체가 아니라 짧은 수리 지시만 쓴다(개선안 §5 — repair 입력 축소).
-    const packetReq=v2==="sol-luna-3"&&stage==="repair"&&rest.packet!=null;
+    const packetReq=route?.transport==="packet";
     let system=null;try{system=packetReq?Prompts.repairPacket(opts,sourceLang):Prompts.systemFor(stage,opts,sourceLang,rest.section?.worker,v2);}catch{}
     if(!session&&!system)return fail(res,"request_rejected");
     const user=JSON.stringify(rest);
@@ -727,7 +722,7 @@ function createServer(env=process.env,deps={}){
         stage,rest,session,sourceLang,options:opts,params,providerOut,outSchema,
         noteSpecVersion:NoteContract.NOTE_SPEC_VERSION,schemaVersion:c.remoteConfig.schemaVersion,
         // sol-fork·v2 작성 호출은 같은 접두 P 만 읽는 독립 호출이라 세션 잠금 없이 병렬로 간다 — 접두를 만드는 계획 호출은 잠금을 유지한다.
-        reserve,deadline,signal,fetcher,key:c.key,gens,lock:["sol-fork","sol-luna-2","sol-luna-3","sol-fork-2"].includes(session.mode)&&stage!=="plan"&&stage!=="editorial"?async()=>()=>{}:sessionLock,
+        reserve,deadline,signal,fetcher,key:c.key,gens,lock:NoteProfiles.get(session.mode)?.session==="fork"&&stage!=="plan"&&stage!=="editorial"?async()=>()=>{}:sessionLock,
         solProviders:upProviders,solRates:[pi,po],
         luna:session.mode==="sol-luna-tool"?{model:NoteSession.LUNA,up:upstreamOf(NoteSession.LUNA),params:lunaParams,providers:lunaProviders,
           rates:[lpi,lpo],system,user,

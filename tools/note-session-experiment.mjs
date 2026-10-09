@@ -42,19 +42,24 @@ const { RATES } = require("../server/index.js");
 const katex = require("../lib/vendor/katex/katex.min.js");
 const NoteSession = (() => { try { return require("../server/note-session.js"); } catch { return {}; } })();
 const NoteV3 = require("../lib/note-v3.js");
+const NoteProfiles = require("../lib/note-profiles.js");
 
 // offscreen 이 manifest.json 을 SUMMRIZEI_VERSION 에 두는 것과 같다 — 서버 minClientVersion 검사용.
 globalThis.SUMMRIZEI_VERSION ??= require("../manifest.json").version;
 
-export const SOL = "openai/gpt-6.1-sol", LUNA_HIGH = "openai/gpt-6-luna@high";
-export const MODES = ["independent", "sol-session", "sol-luna-tool", "sol-fork", "sol-luna-2", "sol-fork-2", "sol-luna-3"];
-export const SESSION_MODES = new Set(["sol-session", "sol-luna-tool", "sol-fork", "sol-luna-2", "sol-luna-3", "sol-fork-2"]);
+// 모드 목록·분류는 lib/note-profiles.js 의 프로파일 표가 단일 출처다 — 여기서는 파생만 한다.
+export const SOL = NoteProfiles.SOL, LUNA_HIGH = NoteProfiles.LUNA;
+// arm 실행 순서: 계열 순(independent→session→v2), 같은 계열에서 실험 옵션을 갖는 변형(sol-luna-3)은 맨 뒤 — 기존 arm 순서와 같다.
+export const MODES = [...NoteProfiles.ids()].sort((a, b) =>
+  (({ independent: 0, session: 1, v2: 2 })[NoteProfiles.get(a).family] * 2 + (NoteProfiles.get(a).options ? 1 : 0)) -
+  (({ independent: 0, session: 1, v2: 2 })[NoteProfiles.get(b).family] * 2 + (NoteProfiles.get(b).options ? 1 : 0)));
+export const SESSION_MODES = new Set(NoteProfiles.ids().filter(id => NoteProfiles.get(id).session !== null));
 // 연쇄 모드: 응답 history 를 다음 호출이 이어 붙이는 세션 — 호출 직렬화가 계약이다.
-export const CHAINED_MODES = new Set(["sol-session", "sol-luna-tool"]);
+export const CHAINED_MODES = new Set(NoteProfiles.ids().filter(id => NoteProfiles.get(id).session === "chain"));
 // 고정 접두 P 를 사용하는 포크 계열 모드 (쓰기 응답이 접두를 대체하지 않음)
-export const FORK_MODES = new Set(["sol-fork", "sol-fork-2", "sol-luna-2", "sol-luna-3"]);
+export const FORK_MODES = new Set(NoteProfiles.ids().filter(id => NoteProfiles.get(id).session === "fork"));
 // v2 신규 비교군
-export const V2_MODES = new Set(["sol-luna-2", "sol-luna-3", "sol-fork-2"]);
+export const V2_MODES = new Set(NoteProfiles.ids().filter(NoteProfiles.isV2));
 
 // 고정 캐시 앵커 텍스트 (server/note-session.js 가 내보내는 ANCHOR_TEXT 와 일치)
 export const ANCHOR_TEXT = NoteSession.ANCHOR_TEXT ?? "--- sol-v2-cache-anchor ---";
@@ -163,15 +168,11 @@ export function estCostUsd(route, model, body) {
 export const newSession = (mode, rand = crypto.randomBytes(12).toString("hex")) =>
   ({ v: 1, id: `ns-${rand}`, mode, history: [], ...(FORK_MODES.has(mode) ? { prefix: null } : {}) });
 
-// sol-luna-2·sol-luna-3 에서 Luna High 로 나가는 단계는 세션 봉투가 없는 독립 호출이다.
-export const isLunaStage = (mode, stage) => NoteV3.isLunaV2(mode) && (stage === "draft" || stage === "questions");
+// Luna 계열 v2 에서 Luna High 로 나가는 단계는 세션 봉투가 없는 독립 호출이다(레지스트리의 transport 독립 단계).
+export const isLunaStage = (mode, stage) => NoteProfiles.isLunaV2(mode) && NoteProfiles.get(mode)?.stages?.[stage]?.transport === "independent";
 
-// 모드별 단계 모델 조회
-export const modelForStage = (mode, stage) => {
-  if (mode === "independent") return stage === "plan" ? SOL : LUNA_HIGH;
-  if (NoteV3.isLunaV2(mode)) return isLunaStage(mode, stage) ? LUNA_HIGH : SOL;
-  return SOL; // sol-session, sol-luna-tool, sol-fork, sol-fork-2
-};
+// 모드별 단계 모델 조회 — 레지스트리의 단계→모델 표와 같다(모르는 모드·단계는 Sol).
+export const modelForStage = (mode, stage) => NoteProfiles.stageModel(mode, stage) ?? SOL;
 
 // 세션 본문 생성: sol-fork/sol-fork-2/sol-luna-2 쓰기 단계는 고정 접두 P 만 싣는다.
 export const sessionBody = (s, phase, stage) => {
@@ -581,7 +582,7 @@ export async function runArm({ mode, loaded, cfg = {}, budget = null, post }) {
   const service = makeService({ post, session, calls, budget, capture });
 
   const isV2 = V2_MODES.has(mode);
-  const writeModel = (mode === "independent" || NoteV3.isLunaV2(mode)) ? LUNA_HIGH : SOL;
+  const writeModel = NoteProfiles.get(mode).clientModels.write;
 
   const models = {
     plan: SOL,
@@ -741,7 +742,7 @@ export function planArms(cfg = {}) {
     mode,
     models: {
       plan: SOL,
-      write: (mode === "independent" || NoteV3.isLunaV2(mode)) ? LUNA_HIGH : SOL,
+      write: NoteProfiles.get(mode).clientModels.write,
       writeAlt: null,
       judge: cfg.judge ?? null,
       noteMode: mode,
@@ -857,7 +858,7 @@ async function main() {
   const judge = v["no-judge"] ? null : (v.judge ?? ((me.features ?? []).includes("judge") ? me.routeModels?.judge?.[0] ?? null : null));
 
   for (const mode of modes) {
-    const need = (mode === "independent" || NoteV3.isLunaV2(mode)) ? [SOL, LUNA_HIGH] : [SOL];
+    const need = [...new Set(Object.values(NoteProfiles.get(mode).stages).map(s => s.model))];
     for (const m of need) if (!accountModels.includes(m)) console.error(`warning: ${mode} needs ${m} not in account models`);
   }
 
