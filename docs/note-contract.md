@@ -270,7 +270,7 @@ Note = {
                checks?: { parse: e[ok, failed, unchecked], symbols: e[match, mismatch, unchecked], units: e[ok, mismatch, unchecked] } }],
   figures:  [{ id: figureId, evidenceId, kind, title: s?, cells: [[s]]?, chartData?, t0, display: e[table, chart, crop, check], explanation?: C? }],   # 판정은 lib/figures.js(§14)
   sources:  [{ id: evidenceId, kind: e[slide, speech, figure, handwriting], t0, t1, slideId: s? }],   # 인용된 근거의 위치만. 텍스트 없음
-  evidenceMeta?: { <unitId>: { source: e[slide, speech], ink: b, emphasis: number? } },  # 선택 사이드카(mis-sol-hai §4.6) — 없으면 생략. 조립이 단위 키·필드 모양을 검사한다
+  evidenceMeta?: { <unitId>: { source: e[slide, speech], ink: b, emphasis: number? } },  # 선택 사이드카(mis-sol-hai §4.6) — 없으면 생략. NOTE_SCHEMA_VERSION과 같은 수명(스키마 버전과 함께 바뀐다). 조립이 단위 키·필드 모양을 검사한다
   notices:  [{ code, count: int?, ids: [s]?, ranges: [{ t0, t1 }]? }],
   dropped:  [{ blockId, type, codes: [code](1..8) }],                 # 내용 없음
   pruned:   [{ id, codes: [code](1..4) }],                            # 정리 전 위치 ID, 내용 없음
@@ -494,11 +494,12 @@ Block = { id: blockId, type, sectionId: sectionId?, status, importance, emphasis
 ## 15. 답안 공개와 PDF 분할 (렌더 계약 — `lib/note-spec.js` `layout`·`templates`·`css`, `RENDER_VERSION = "render-7"`)
 
 **근거 기반 표시(mis-sol-hai §4.6 — 렌더러가 데이터로 계산, 모델은 마크업을 쓰지 않는다):**
-- 새 데이터(`evidenceMeta`·`handwriting` 근거·`emphasis.quote`/`repeat`·B12 `slide_absent`)가 전혀 없는 노트는 표시가 하나도 켜지지 않아 기존 렌더와 같다.
+- 표시는 `evidenceMeta`가 있는 노트에만 켠다. 사이드카가 없는 노트(기존 노트 포함)는 표시가 하나도 나지 않아 기존 렌더와 같다. B12 `slide_absent`의 "슬라이드에 없는 설명" 라벨은 블록 종류 자체의 표시라 이 스위치와 무관하다.
+- `emphasis.repeat`는 모델 값을 믿지 않는다 — 인용 발화 근거 수와 다르면 조립(`assembleNote`)이 버린다. `×N`은 저장된 `repeat` 또는 인용 발화 근거 수를 표시한다.
 - 1B 강조: 주장의 근거가 블록 `stress` 근거와 겹치거나 근거 메타 `emphasis`가 렌더 옵션 `emphasisMin`(기본 끔) 이상이면 굵게+연한 밑줄 하이라이트.
 - 2B 필기: 주장이 `handwriting` 근거(또는 메타 `ink`)를 인용하면 점선 밑줄+펜 아이콘. 필기 크롭은 렌더하지 않는다.
 - 3B: B12 `slide_absent`는 연한 배경+마이크 아이콘의 "슬라이드에 없는 설명" 라벨로 그린다.
-- 추가 표현과 코드 상한: 시험 배지(단원 2·블록 1), 반복 `×N`(단원 2·블록 1, `repeat` 또는 stress 근거 수≥2), 핵심 용어 첫 등장 굵게(문서 1회, 정의 제목 제외, 1B와 겹치지 않는다 — 굵은 표시는 주장당 하나), 조건·예외 마커(단원 3, "단,/다만/예외"로 시작하는 주장), B07 `causal` 4단계 이하 인라인 흐름, B06 대상 둘 대비 쌍, `quote` 교수 인용(단원 1, 40자).
+- 추가 표현과 코드 상한: 시험 배지(단원 2·블록 1), 반복 `×N`(단원 2·블록 1, `repeat` 또는 인용 발화 근거 수≥2), 핵심 용어 첫 등장 굵게(문서 1회, 정의 제목 제외, 1B와 겹치지 않는다 — 굵은 표시는 주장당 하나), 조건·예외 마커(단원 3, "단,/다만/예외"로 시작하는 주장), B07 `causal` 4단계 이하 인라인 흐름, B06 대상 둘 대비 쌍, `quote` 교수 인용(단원 1, 40자).
 - B05 슬롯 라벨(쉬운 풀이·작동 원리·범위·예시)은 화면·PDF에 표시하지 않는다 — 슬롯은 생성 계약에서만 살리고 내용은 문단으로 이어진다.
 - 흑백 인쇄 대체: 1B는 얇은 실선 밑줄, 2B는 굵은 점선 밑줄, 3B는 굵은 왼쪽 테두리로 구분이 남는다.
 
