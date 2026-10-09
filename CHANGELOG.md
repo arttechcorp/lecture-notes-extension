@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.8.0.1 — 2026-10-09
+
+- 서버: Claude Haiku 5.5의 OpenRouter 공급자 고정을 amazon-bedrock으로 바꾼다(amazon-bedrock/global 엔드포인트가 없어 모든 Haiku 호출이 공급자를 찾지 못했다).
+
 ## 2.8.0 — 2026-10-09
 
 - 실험 모드 mis-sol-hai를 추가한다(숨은 설정 devNoteMode). 슬라이드마다 다음 슬라이드로 넘어가기 직전 프레임을 캡처해 교수 필기를 담고(재방문 시 이전 캡처를 지우고 다시 캡처, 마지막 슬라이드는 영상 끝 직전), Mistral OCR 4.1로 인식한 뒤 Sol(Liner 세션)이 예시 노트 블록 레이아웃으로 계획하고 Claude Haiku 5.5(OpenRouter)가 섹션 JSON을 쓴다. 검수는 Sol 세션에 축약 HTML을 보내 1회만 하고, 섹션 재작성은 영상 10분당 최대 1개다. 이 모드에서는 JEV 판정과 근거 지지 검사를 끈다. 기본 경로와 다른 실험 모드의 모델 배치는 그대로다.

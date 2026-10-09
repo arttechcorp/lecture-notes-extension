@@ -3,7 +3,7 @@
 // reasoning 도 모델마다 다르다: { enabled:false } 를 거절하는 엔드포인트는 가장 싼 effort 를 준다.
 // temperature:false 는 그 파라미터 자체를 거절하는 모델이다 — require_parameters 로 보내는 요청은 키를 아예 빼야 한다.
 // tools/openrouter-endpoint-probe.mjs 가 둘을 실제 목록과 대조한다. 1차 공급자 태그(anthropic·openai·google-ai-studio)는
-// zdr:true 와 함께 쓰면 늘 404 라 고정하지 않는다. Claude 는 amazon-bedrock/global 로 보낸다.
+// zdr:true 와 함께 쓰면 늘 404 라 고정하지 않는다. Claude 는 amazon-bedrock/global 로 보낸다(Haiku 5.5 는 global 엔드포인트가 없어 amazon-bedrock).
 // maxTokens 는 reasoning 을 포함한다. 서버 예약액이 이 값에 비례하므로 단계별 상한은 prompts.js 가 더 낮게 정한다.
 // reasoningBudget 은 그 단계 출력 상한 위에 얹는 추론 토큰용 max_tokens 여유분이다 — 추론형 모델이 답을 쓰기 전 상한을 다 먹지 않게 한다(prompts.js).
 // cache: system 프롬프트에 캐시 중단점을 찍을지. Anthropic 은 cache_control 을 명시해야 붙고, Gemini 는 암묵 캐시라 표시하지 않는다.
@@ -20,7 +20,7 @@ const MODELS={
   "openai/gpt-6-luna@xhigh":{base:"openai/gpt-6-luna",tags:["azure","azure/us","azure/eu"],reasoning:{effort:"xhigh"},reasoningBudget:16000,maxTokens:32768,temperature:false,cacheMode:"openai-explicit"},
   "openai/gpt-6.1-sol":{tags:["azure","openai","azure/us","azure/eu"],reasoning:{effort:"medium"},reasoningBudget:8000,maxTokens:32768,temperature:false},
   // mis-sol-hai 작성 모델(기획 §3.2): Liner 에 없으므로 OpenRouter. reasoning_effort high 기본, temperature 는 생략(temperature:false).
-  "anthropic/claude-haiku-5.5":{tags:["amazon-bedrock/global"],reasoning:{effort:"high"},reasoningBudget:8000,maxTokens:32768,temperature:false,cache:true},
+  "anthropic/claude-haiku-5.5":{tags:["amazon-bedrock"],reasoning:{effort:"high"},reasoningBudget:8000,maxTokens:32768,temperature:false,cache:true},
   "xiaomi/mimo-v2.6-pro":{tags:["deepinfra/fp8"],reasoning:{effort:"low"},reasoningBudget:4000,maxTokens:32768},
   "xiaomi/mimo-v2.6-flash":{tags:["io-net/fp8","venice/fp8","deepinfra/fp8"],reasoning:{enabled:false},maxTokens:32768},
 };
