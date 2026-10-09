@@ -76,8 +76,8 @@ test("markInk flags blocks overlapping the L1 ink mask",()=>{
   assert.equal(doc.blocks[2].bbox,null,"좌표가 없으면 bbox 는 null 이다");
   OcrMistral.markInk(doc,[{x:.2,y:.15,w:.1,h:.1}]);
   assert.equal(doc.blocks[0].ink,true);
-  assert.equal(doc.blocks[1].ink,undefined);
-  assert.equal(doc.blocks[2].ink,undefined,"bbox 없는 블록은 표시하지 않는다");
+  assert.equal(doc.blocks[1].ink,null);
+  assert.equal(doc.blocks[2].ink,null,"bbox 없는 블록은 표시하지 않는다");
   OcrMistral.markInk(doc,[]);OcrMistral.markInk(doc,null);OcrMistral.markInk(doc,[{x:0,y:0,w:0,h:0}]);
   assert.equal(doc.blocks[0].ink,true,"빈 마스크 호출은 기존 표시를 건드리지 않는다");
 });
@@ -108,6 +108,27 @@ test("boot requires MISTRAL_API_KEY when the OCR model is allowed; providers are
     assert.throws(()=>createServer({...ocrEnv(root),MISTRAL_API_KEY:undefined}),/MISTRAL_API_KEY/);
     assert.doesNotThrow(()=>createServer(ocrEnv(root)));
   }finally{removeTemp(root);}
+});
+
+test("MISTRAL_BASE_URL: default, quoted, custom https are accepted; non-https or junk is rejected",()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),"summrizei-service-test-"));
+  try{
+    assert.throws(()=>createServer({...ocrEnv(root),MISTRAL_BASE_URL:"http://api.mistral.ai/v1"}),/mistral_base/,"http 는 거절");
+    assert.throws(()=>createServer({...ocrEnv(root),MISTRAL_BASE_URL:"not-a-url"}),/mistral_base/,"URL 아닌 값은 거절");
+    assert.doesNotThrow(()=>createServer({...ocrEnv(root),MISTRAL_BASE_URL:'"https://ocr-proxy.example.com/api/v1/"'}),"따옴표·끝 슬래시는 벗긴다");
+    assert.doesNotThrow(()=>createServer(ocrEnv(root)),"없으면 공식 기본점");
+  }finally{removeTemp(root);}
+});
+
+test("MISTRAL_BASE_URL custom https origin receives ${base}/ocr",async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),"summrizei-service-test-"));let sentUrl=null;
+  const server=createServer({...ocrEnv(root),MISTRAL_BASE_URL:"https://ocr-proxy.example.com/api/v1/"}, {fetch:async(url,options)=>{sentUrl=url;return mistralProvider();}});
+  await new Promise(r=>server.listen(0,"127.0.0.1",r));const url="http://127.0.0.1:"+server.address().port;
+  try{
+    const res=await req(url,"/v1/vision",visionBody({requestId:"ocr-base"}));
+    assert.equal(res.status,200);
+    assert.equal(sentUrl,"https://ocr-proxy.example.com/api/v1/ocr");
+  }finally{await close(server);removeTemp(root);}
 });
 
 test("mistral vision route sends the OCR request shape and normalizes to slideDoc",async()=>{

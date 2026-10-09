@@ -100,7 +100,7 @@ const noteService=settings=>{
   const svc=name=>async o=>ServiceClient[name]({baseUrl:config.serviceUrl,token:await token(),...o});
   return {
     me:async signal=>ServiceClient.me({baseUrl:config.serviceUrl,token:await token(),timeoutMs:15000,signal}),
-    deps:(signal,me,stats)=>({service:{plan:svc("plan"),write:svc("write"),judge:svc("judge")},katex,events,signal,sleep:ms=>new Promise(r=>setTimeout(r,ms)),promptVersions:me?.promptVersions??null,cacheStats:stats??null,linkEditor:me?.config?.linkEditor===true,writer:me?.config?.noteWriter,noteMode:noteModeOf(settings),noteV3:settings?.devNoteV3}),
+    deps:(signal,me,stats)=>({service:{plan:svc("plan"),write:svc("write"),judge:svc("judge")},katex,events,signal,sleep:ms=>new Promise(r=>setTimeout(r,ms)),promptVersions:me?.promptVersions??null,cacheStats:stats??null,linkEditor:me?.config?.linkEditor===true,writer:me?.config?.noteWriter,noteMode:noteModeOf(settings),noteV3:settings?.devNoteV3,emphasisSignals:NP?.get(noteModeOf(settings))?.emphasisSignals===true}),
     // 로컬 결과 캐시 적중은 서버 원장에 안 보인다 — 내용 없는 수치(jobId·hit/miss·rerun 번호)만 모아 보낸다. 실패해도 노트 흐름을 막지 않는다.
     report:async(jobId,rerun,stats)=>{try{await ServiceClient.reportRun({baseUrl:config.serviceUrl,token:await token(),jobId,cacheHits:stats?.hits??0,cacheMisses:stats?.misses??0,rerun});}catch{}},
   };
@@ -154,6 +154,26 @@ async function cropRegions(blob,doc,ctx){
     }
   }finally{bmp.close();}
   return {crops,hashes,formulas,ocr,lowRes};
+}
+// mis-sol-hai D6: OCR 이 못 읽은 필기 영역(정규화 상자)만 잘라 Blob 목록으로 돌려준다 — 슬라이드 전체는 자르지 않는다.
+// cropRegions 와 같은 방식(createImageBitmap+OffscreenCanvas)이고, 결과는 작성 단계의 이미지 근거로만 쓰인다 —
+// 저장소·노트·이벤트 어디에도 싣지 않고 runNote 입력의 메모리 참조로만 둔다.
+async function cropInk(blob,boxes,ctx){
+  const {signal=null}=ctx||{};
+  signal?.throwIfAborted();
+  const bmp=await createImageBitmap(blob),canvas=(w,h)=>new OffscreenCanvas(w,h);
+  try{
+    const out=[];
+    for(const b of boxes||[]){
+      signal?.throwIfAborted();
+      const x=Math.max(0,Math.min(bmp.width,Math.round(b.x*bmp.width))),y=Math.max(0,Math.min(bmp.height,Math.round(b.y*bmp.height)));
+      const w=Math.min(bmp.width-x,Math.round(b.w*bmp.width)),h=Math.min(bmp.height-y,Math.round(b.h*bmp.height));
+      if(w<4||h<4){out.push(null);continue;} // 상자가 사라지면 그 영역은 근거가 없다 — 순서는 상자와 맞춰 둔다
+      const g=canvas(w,h).getContext("2d");g.drawImage(bmp,x,y,w,h,0,0,w,h);
+      out.push(await g.canvas.convertToBlob({type:"image/jpeg",quality:0.85}));
+    }
+    return out;
+  }finally{bmp.close();}
 }
 // 노트 키. 기기에 있으면 그대로, 없으면(보관함 비우기 뒤·패널에서 키를 못 받은 채 끝난 작업) 지금 로그인한 계정 것을 background(LIBRARY_KEY)에서 받아 둔다.
 // offscreen 은 인증 모듈을 싣지 않아 uid 는 AUTH_TOKEN 의 sub 로 정한다. 로그아웃·오프라인이면 던진다 — 호출자가 "no-key"로 접는다.
@@ -257,20 +277,27 @@ function bgResult(jobId,res){
 }
 async function bgJob(job,source,settings,me,ctl){
   const base=settings.serviceUrl,token=()=>tokenProvider(settings.appSessionToken,settings.serviceUrl),svc=name=>async o=>ServiceClient[name]({baseUrl:base,token:await token(),...o}),progress=bgProgress(job.jobId);
+  // 실험 프로파일(note-profiles.js)이 실행 옵션까지 선언한다 — mis-sol-hai 는 vision=mistral-ocr-4-1·lastFrame 캡처·emphasisSignals.
+  // 레지스트리가 없는 모드는 기존 경로 그대로다(프로파일 칸이 없으면 아무것도 바뀌지 않는다).
+  const prof=noteModeOf(settings)&&NP?.get(noteModeOf(settings));
+  const noteOpts=settingsOf(settings).noteOptions;
   let done;
   try{
     const res=await BackgroundJob.runBackground(job,source,{
       fetch:refererFetch(source.pageUrl),decode:LectureDecode,paint:paintMasks,
       // 강의가 길면 기본 200장을 넘는다. 진짜 상한은 서버의 월 비용 한도다.
-      vision:VisionClient.createVisionEngine({baseUrl:base,token,model:BG_MODELS.vision,maxCalls:Infinity,signal:ctl.signal}),
-      stt:{stt:svc("stt")},settings,features:me,models:{...BG_MODELS,...noteModels(me,settings),judge:BG_MODELS.judge},signal:ctl.signal,crop:cropRegions,options:settingsOf(settings).noteOptions,
+      vision:VisionClient.createVisionEngine({baseUrl:base,token,model:prof?.vision??BG_MODELS.vision,maxCalls:Infinity,signal:ctl.signal}),
+      // lastFrame 은 사용자 옵션이 아니라 프로파일 칸에서만 파생한다 — noteOpts 에는 그 키가 없다(settings.js 화이트리스트 밖).
+      stt:{stt:svc("stt")},settings,features:me,models:{...BG_MODELS,...noteModels(me,settings),judge:BG_MODELS.judge},signal:ctl.signal,crop:cropRegions,cropInk,options:{...noteOpts,...(prof?.lastFrame?{lastFrame:true}:{})},
       // 끝나면(인식 결과만 있어도) 로컬 보관함에 둔다. 저장 실패는 노트를 잃게 하지 않도록 코드만 남기고 결말은 그대로 알린다.
       runNote:async(j,input,o)=>{
         noteModelsEvent(j.jobId,input?.models,noteModeOf(settings));
         const stats={hits:0,misses:0};
-        const res=await NoteStages.runNote(j,input,{...o,service:{plan:svc("plan"),write:svc("write"),judge:svc("judge")},katex,promptVersions:me?.promptVersions??null,cacheStats:stats,linkEditor:me?.config?.linkEditor===true,writer:me?.config?.noteWriter,noteMode:noteModeOf(settings),noteV3:settings?.devNoteV3});
+        const res=await NoteStages.runNote(j,input,{...o,service:{plan:svc("plan"),write:svc("write"),judge:svc("judge")},katex,promptVersions:me?.promptVersions??null,cacheStats:stats,linkEditor:me?.config?.linkEditor===true,writer:me?.config?.noteWriter,noteMode:noteModeOf(settings),noteV3:settings?.devNoteV3,emphasisSignals:prof?.emphasisSignals===true});
         try{await ServiceClient.reportRun({baseUrl:base,token:await token(),jobId:j.jobId,cacheHits:stats.hits,cacheMisses:stats.misses,rerun:input?.rerun??0});}catch{}
-        const saved=["complete","partial","recognition-only"].includes(res.status)?await saveLibrary(j.packageId,input,res,{source:"background",host:hostOf(source.pageUrl)}).catch(()=>events.emit({stage:"library",jobId:j.jobId,level:"warn",code:"LIBRARY_SAVE_FAILED"})):null;
+        // inkImages(Blob)는 메모리 근거다 — JSON 저장하면 {} 가 되어 재생성을 깨고, 픽셀 저장은 저장 금지 규칙에도 어긋난다. 저장본에서 뗀다.
+        const storable={...input,slides:(input.slides??[]).map(s=>s?.inkImages?{...s,inkImages:undefined}:s)};
+        const saved=["complete","partial","recognition-only"].includes(res.status)?await saveLibrary(j.packageId,storable,res,{source:"background",host:hostOf(source.pageUrl)}).catch(()=>events.emit({stage:"library",jobId:j.jobId,level:"warn",code:"LIBRARY_SAVE_FAILED"})):null;
         return {...res,packageId:j.packageId,saved:savedResult(saved)};
       },
     });

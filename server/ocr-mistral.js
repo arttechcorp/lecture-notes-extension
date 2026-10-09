@@ -1,7 +1,7 @@
 // Mistral OCR 4.1 어댑터 — OpenRouter 를 거치지 않고 api.mistral.ai 를 직접 부른다(기획 §3.1).
 // 페이지 과금이라 토큰 단가표(RATES·VISION_RATES)와 섞지 않고 페이지 단가로 계산한다.
 const Contracts=require("../lib/contracts.js");
-const ENDPOINT="https://api.mistral.ai/v1/ocr";
+const BASE="https://api.mistral.ai/v1",ENDPOINT=BASE+"/ocr";
 const MODEL="mistral-ocr-4-1";
 const USD_PER_PAGE=4/1000;
 // 형식 실패·혼잡 대비 같은 요청 안의 최대 호출 수 — 예약도 이 횟수로 잡는다.
@@ -69,7 +69,7 @@ function toSlideDoc(raw,{slideId,t0,t1,model,mode}){
     // role 이 header/footer 라 boilerplate 규칙과 근거 텍스트 제외가 그대로 적용된다.
     for(const [text,role]of[[page.header,"header"],[page.footer,"footer"]]){
       const t=plainText(text);
-      if(t)blocks.push({id:"b0",text:t.slice(0,4000),role,bbox:null,conf:null});
+      if(t)blocks.push({id:"b0",text:t.slice(0,4000),role,bbox:null,conf:null,ink:null});
     }
     for(const b of Array.isArray(page.blocks)?page.blocks:[]){
       if(!b||typeof b!=="object")continue;
@@ -87,15 +87,15 @@ function toSlideDoc(raw,{slideId,t0,t1,model,mode}){
       }
       if(type==="image"){
         if(bbox&&bbox.w>0&&bbox.h>0)figures.push({id:"g0",bbox,kind:"photo",title:null,cells:null,chartSummary:null,chartData:null,conf});
-        else if(text)blocks.push({id:"b0",text:text.slice(0,4000),role:"body",bbox:null,conf});
+        else if(text)blocks.push({id:"b0",text:text.slice(0,4000),role:"body",bbox:null,conf,ink:null});
         continue;
       }
       if(!text)continue;
-      blocks.push({id:"b0",text:text.slice(0,4000),role:ROLE[type]||"body",bbox,conf});
+      blocks.push({id:"b0",text:text.slice(0,4000),role:ROLE[type]||"body",bbox,conf,ink:null});
     }
     // 블록이 하나도 안 온 페이지는 markdown 이라도 본문으로 둔다 — 빈 슬라이드로 흘리지 않는다.
     if(!blocks.length&&!formulas.length&&!figures.length&&typeof page.markdown==="string"&&page.markdown.trim())
-      blocks.push({id:"b0",text:page.markdown.trim().slice(0,4000),role:"body",bbox:null,conf:null});
+      blocks.push({id:"b0",text:page.markdown.trim().slice(0,4000),role:"body",bbox:null,conf:null,ink:null});
   }
   blocks.forEach((b,i)=>b.id="b"+(i+1));formulas.forEach((f,i)=>f.id="f"+(i+1));figures.forEach((g,i)=>g.id="g"+(i+1));
   return {schemaVersion:Contracts.CONTRACT_VERSION,slideId,t0,t1,engine:"vision-mistral",model,blocks,formulas,figures};
@@ -111,8 +111,9 @@ function markInk(doc,masks){
 }
 // 과금은 제공자가 센 페이지 수만 믿는다 — usage_info 가 없으면 미보고(null)로 호출자가 예약을 유지한다.
 const pageCost=u=>Number.isFinite(u?.pages_processed)&&u.pages_processed>=0?u.pages_processed*USD_PER_PAGE:null;
-async function recognize({fetcher,key,image,signal,boundedResponse}){
-  const response=await fetcher(ENDPOINT,{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+key,"content-type":"application/json"},body:JSON.stringify(requestBody(image))});
+// endpoint 는 호출자가 env(MISTRAL_BASE_URL, https 만)로 정한 기본점 + "/ocr" 다 — 여기서는 전체 주소를 하드코딩하지 않는다.
+async function recognize({fetcher,key,image,signal,boundedResponse,endpoint=ENDPOINT}){
+  const response=await fetcher(endpoint,{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+key,"content-type":"application/json"},body:JSON.stringify(requestBody(image))});
   if(!response.ok)throw Object.assign(new Error("mistral_http"),{status:response.status,headers:response.headers});
   return boundedResponse(response,4*1024*1024);
 }

@@ -145,7 +145,7 @@ test("request contracts are the stage's own field lists", () => {
   // W2 의 선택 필드(learningItemIds·needs·worker 등)가 구 클라이언트 호환으로 optional 이라 strict 가 아니다 — 요청 계약이라 출력 스키마와 규칙이 다르다.
   for (const stage of ["plan", "global"])
     assert.equal(Contracts.isStrictCompatible({ ...Prompts.REQUEST[stage], required: Object.keys(Prompts.REQUEST[stage].properties) }), true, stage + " 요청");
-  for (const stage of ["section", "repair"])
+  for (const stage of ["section", "repair", "draft"])
     assert.doesNotThrow(() => Contracts.validate(Prompts.REQUEST[stage], null), stage + " 요청 lint");
   // repair 의 previous 는 이전 봉투를 그대로 싣는 자유 칸이다 — strict 스키마가 아니라 계약 검증으로 본다.
   const body = {

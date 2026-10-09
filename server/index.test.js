@@ -3728,6 +3728,42 @@ test("sol-luna-2: questions editorialPlan.glossary reaches the model input — �
   }, v2Env);
 });
 
+test("mis-sol-hai: 필기 이미지를 실은 독립 draft 요청은 평문 본문 상한을 넘는다 — images 없는 큰 본문은 여전히 413", async () => {
+  const HAIKU = "anthropic/claude-haiku-5.5";
+  const bodies = [];
+  await withNoteServer(async (_u, o) => { bodies.push(JSON.parse(o.body)); return noteReply(v2DraftOut); }, async url => {
+    // 세션 봉투 없는 독립 호출이라 평문 상한(256KB)만 있으면 이미지 요청이 413 에 걸린다 — images 칸이 있으면 이미지 상한이 적용된다.
+    const res = await req(url, "/v1/write", "POST", sectionIn({ model: HAIKU, requestId: "msh-i1", stage: "draft", noteMode: "mis-sol-hai",
+      images: [{ id: "U1.s2", image: "data:image/jpeg;base64," + "A".repeat(300000) }] }), tokenB);
+    const out = await res.json();
+    assert.equal(res.status, 200, JSON.stringify(out.error || ""));
+    const userMsg = bodies.at(-1).messages.at(-1);
+    assert.ok(Array.isArray(userMsg.content), "이미지가 user 메시지의 content 파트로 실린다");
+    assert.equal(userMsg.content.filter(p => p.type === "image_url").length, 1);
+    assert.ok(userMsg.content.some(p => p.type === "text" && p.text.includes("U1.s2")), "근거 id 라벨이 앞에 붙는다");
+    // 이미지 칸 없는 큰 본문은 여전히 평문 상한에 걸린다
+    const big = await req(url, "/v1/write", "POST", sectionIn({ model: LUNA2, requestId: "msh-i2", stage: "draft", noteMode: "sol-luna-2",
+      evidence: s1Evidence.map((e, i) => i === 0 ? { ...e, text: "x".repeat(300000) } : e) }), tokenB);
+    assert.equal(big.status, 413);
+  }, { ...v2Env, ALLOWED_MODELS: JSON.stringify([model, SOL, LUNA2, HAIKU]), OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], [SOL]: ["azure", "azure/us"], "openai/gpt-6-luna": ["azure", "azure/us"], [HAIKU]: ["anthropic"] }) });
+});
+
+test("mis-sol-hai: 독립 수리(repair)는 blocks 를 {blockId,envelope}[] 로 요청하고 keyed 맵으로 돌려준다", async () => {
+  const HAIKU = "anthropic/claude-haiku-5.5", bodies = [];
+  const env = { ...v2Env, ALLOWED_MODELS: JSON.stringify([model, SOL, LUNA2, HAIKU]), OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], [SOL]: ["azure", "azure/us"], "openai/gpt-6-luna": ["azure", "azure/us"], [HAIKU]: ["anthropic"] }) };
+  // 제공자는 배열 모양으로 받는다 — 응답도 배열이면 검증 전에 keyed 맵으로 되돌린다.
+  await withNoteServer(async (_u, o) => { bodies.push(JSON.parse(o.body)); return noteReply({ blocks: [{ blockId: "S1_B3", envelope: noteWriter.sections.S1.first.blocks.S1_B3 }] }); }, async url => {
+    const res = await req(url, "/v1/write", "POST", repairIn({ model: HAIKU, requestId: "msh-r1", stage: "repair", noteMode: "mis-sol-hai" }), tokenB);
+    const out = await res.json();
+    assert.equal(res.status, 200, JSON.stringify(out.error || ""));
+    assert.deepEqual(out.output, { blocks: { S1_B3: noteWriter.sections.S1.first.blocks.S1_B3 } }, "배열 응답이 keyed 맵으로 되돌아온다");
+    const sch = bodies.at(-1).response_format.json_schema.schema;
+    assert.equal(sch.properties.blocks.type, "array", "제공자 스키마의 blocks 는 배열이다");
+    assert.ok(sch.properties.blocks.items.required.includes("blockId") && sch.properties.blocks.items.required.includes("envelope"));
+    assert.ok(!("noteSession" in bodies.at(-1)) || bodies.at(-1).noteSession === undefined, "독립 호출에는 세션 봉투가 없다");
+  }, env);
+});
+
 test("sol-luna-3: 수리 패킷은 세션 없는 Sol 독립 요청 — 짧은 수리 지시·낮은 출력 상한, 세션·다른 모드·칸 누락은 거절", async () => {
   const bodies = [];
   const packet = { v: 1, policyVersion: noteSpecVersion, baseRevision: 0, targets: ["S1_B3"], errorCodes: ["VAL_EVIDENCE_MISSING"], allowedOps: ["revise", "null"], neighborClaims: [], omittedIds: ["S1_B1"] };

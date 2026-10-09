@@ -4,7 +4,7 @@ const fs=require("node:fs"),path=require("node:path"),http=require("node:http"),
 const Vault=require("../lib/vault.js");
 const Contracts=require("../lib/contracts.js"),NoteContract=require("../lib/note-contract.js"),Prompts=require("./prompts.js"),NoteProfiles=require("../lib/note-profiles.js");
 const {createAuth}=require("./auth.js"),{fileUsage,supabaseUsage,FAIL_CODE}=require("./usage.js"),{supabaseVault}=require("./vault-store.js");
-const RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"google/gemini-2.5-pro":[1.25,10],"anthropic/claude-haiku-4.5":[1,5],"anthropic/claude-sonnet-4.6":[3,15],"anthropic/claude-sonnet-5":[2,10],"openai/gpt-6-luna":[.1,.5],"openai/gpt-6.1-sol":[2,10],"xiaomi/mimo-v2.6-pro":[.435,.87],"xiaomi/mimo-v2.6-flash":[.14,.28]};
+const RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"google/gemini-2.5-pro":[1.25,10],"anthropic/claude-haiku-4.5":[1,5],"anthropic/claude-haiku-5.5":[.1,.5],"anthropic/claude-sonnet-4.6":[3,15],"anthropic/claude-sonnet-5":[2,10],"openai/gpt-6-luna":[.1,.5],"openai/gpt-6.1-sol":[2,10],"xiaomi/mimo-v2.6-pro":[.435,.87],"xiaomi/mimo-v2.6-flash":[.14,.28]};
 // 이미지 입력은 텍스트와 단가가 다르고 출력도 훨씬 짧다. /v1/plan·/v1/write 와 예약 계산을 섞지 않는다.
 // 제공자가 비용(usage.cost)을 보고하지 않으면 토큰 수 × 단가표(USD/100만 토큰)로 계산한다 — 예약액 전체를 청구하지 않게.
 // 토큰 수도 없으면 null(미보고) — 장부가 예약액을 청구한다. 추론 토큰은 completion_tokens 에 들어 있다.
@@ -99,8 +99,13 @@ function providerSchema(s,drop){
   if(out.items)out.items=providerSchema(out.items,drop);
   return out;
 }
-const VISION_SCHEMA=providerSchema({type:"object",additionalProperties:false,required:["blocks","formulas","figures"],properties:{blocks:Contracts.SCHEMAS.slideDoc.properties.blocks,formulas:Contracts.SCHEMAS.slideDoc.properties.formulas,figures:Contracts.SCHEMAS.slideDoc.properties.figures}},["id","status"]);
-const {cachedSystem,cachedUser,cacheModeOf,parseNote,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cacheOf,upstreamOf,toLiner}=require("./llm.js");
+const VISION_BLOCKS={...Contracts.SCHEMAS.slideDoc.properties.blocks,items:{...Contracts.SCHEMAS.slideDoc.properties.blocks.items}};
+VISION_BLOCKS.items={...VISION_BLOCKS.items,properties:{...VISION_BLOCKS.items.properties},required:VISION_BLOCKS.items.required.filter(k=>k!=="ink")};
+// 필기 표시(ink)는 제공자가 모르는 후처리 메타다 — 제공자 스키마에서만 빼고 서버가 null 로 둔다.
+delete VISION_BLOCKS.items.properties.ink;
+const VISION_SCHEMA=providerSchema({type:"object",additionalProperties:false,required:["blocks","formulas","figures"],properties:{blocks:VISION_BLOCKS,formulas:Contracts.SCHEMAS.slideDoc.properties.formulas,figures:Contracts.SCHEMAS.slideDoc.properties.figures}},["id","status"]);
+const {cachedSystem,cachedUser,cacheModeOf,parseNote,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cacheOf,upstreamOf,toLiner,userWithImages,readChoice}=require("./llm.js");
+const SectionDraft=require("../lib/section-draft.js");
 const NoteSession=require("./note-session.js");
 const safePart=x=>{if(typeof x!=="string"||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(x))throw new Error("invalid_id");return x;};
 const tokenEqual=(a,b)=>{const x=Buffer.from(String(a)),y=Buffer.from(String(b));return x.length===y.length&&crypto.timingSafeEqual(x,y);};
@@ -239,7 +244,9 @@ function config(env){
   if(!plain(providerConcurrency)||Object.values(providerConcurrency).some(v=>!Number.isInteger(v)||v<=0))throw new Error("invalid_provider_concurrency");
   // 요청 수·분당 호출 수는 거친 안전망이다. 진짜 상한은 비용 캡(MAX_COST_CENTS, GLOBAL_COST_CENTS)이다 —
   // v2 유료 작업은 강의 1시간에 150회 안팎을 부르고 비전 8레인만으로도 분당 120회에 닿아서 예전 기본값이 정상 작업을 막았다.
-  return {tokens,allow,providers,key:env.OPENROUTER_API_KEY,mgmtKey:env.OPENROUTER_MANAGEMENT_KEY||null,mistralKey:env.MISTRAL_API_KEY||null,origins,root:path.resolve(env.VAULT_DIR||"server-data"),stateFile:env.USAGE_STATE_FILE?path.resolve(env.USAGE_STATE_FILE):null,
+  // Mistral OCR 기본점 — env 로 바꿀 때는 https 만 허용한다(앞뒤 따옴표는 벗긴다). 없으면 공식 api.mistral.ai.
+  const mistralBase=(()=>{const raw=String(env.MISTRAL_BASE_URL||"").trim().replace(/^["']+|["']+$/g,""),b=raw||"https://api.mistral.ai/v1";let u;try{u=new URL(b);}catch{throw new Error("invalid_mistral_base_url");}if(u.protocol!=="https:")throw new Error("invalid_mistral_base_url");return u.origin+u.pathname.replace(/\/+$/,"");})();
+  return {tokens,allow,providers,key:env.OPENROUTER_API_KEY,mgmtKey:env.OPENROUTER_MANAGEMENT_KEY||null,mistralKey:env.MISTRAL_API_KEY||null,mistralBase,origins,root:path.resolve(env.VAULT_DIR||"server-data"),stateFile:env.USAGE_STATE_FILE?path.resolve(env.USAGE_STATE_FILE):null,
     accountLimits,visionModels,sttModels,judgeModels,featureFlags,remoteConfig,supabase,planFeatures,providerConcurrency,maxCents:positive(env.MAX_COST_CENTS,1500),maxRequests:positive(env.MAX_REQUESTS,10000),globalCents:positive(env.GLOBAL_COST_CENTS,15000),timeout:Math.min(positive(env.OPENROUTER_TIMEOUT_MS,120000),120000),accountConcurrency:positive(env.ACCOUNT_CONCURRENCY,12),providerQueueMs:positive(env.PROVIDER_QUEUE_MS,10000),ratePerMin:positive(env.ACCOUNT_RATE_PER_MIN,300),maxFiles:100,maxArchiveBytes:200*1024*1024};
 }
 function atomic(file,data){fs.mkdirSync(path.dirname(file),{recursive:true});const temp=file+"."+crypto.randomUUID()+".tmp";fs.writeFileSync(temp,JSON.stringify(data),{mode:0o600,flag:"wx"});fs.renameSync(temp,file);}
@@ -309,13 +316,15 @@ function createServer(env=process.env,deps={}){
     return {code:r?.code||"unauthorized",reason:r?.reason,detail:r?.detail};
   }
   const SESSION_BODY=4*1024*1024;
-  // plainMax: noteSession 이력이 없는 본문의 상한(있으면 max 까지 허용) — 이력 실린 세션 요청만 4MB 까지 넓다.
+  // 필기 이미지 근거(mis-sol-hai draft): 장당 1.6M자×20장 스키마 상한 + 본문 봉투 — 세션 봉투 없는 독립 호출이라 plainMax 에 걸리면 안 된다.
+  const IMAGE_BODY=SESSION_BODY+20*1600000;
+  // plainMax: noteSession 이력·images 가 없는 본문의 상한(있으면 max 까지 허용) — 이력 실린 세션·필기 이미지 요청만 크게 넓다.
   async function body(req,max,plainMax){
     const declared=Number(req.headers["content-length"]);if(declared>max)throw new Error("request_too_large");
     const chunks=[];let size=0;
     for await(const chunk of req){size+=chunk.length;if(size>max)throw new Error("request_too_large");chunks.push(chunk);}
     const raw=Buffer.concat(chunks);
-    if(plainMax&&size>plainMax&&!raw.includes('"noteSession"'))throw new Error("request_too_large");
+    if(plainMax&&size>plainMax&&!raw.includes('"noteSession"')&&!raw.includes('"images":'))throw new Error("request_too_large");
     return JSON.parse(raw.toString("utf8")||"{}");
   }
   function accountDir(account){
@@ -562,7 +571,7 @@ function createServer(env=process.env,deps={}){
         for(let retry=0;retry<attempts;retry++){
           const at=Date.now();
           let raw;
-          try{raw=await OcrMistral.recognize({fetcher,key:c.mistralKey,image:input.image,signal,boundedResponse});}
+          try{raw=await OcrMistral.recognize({fetcher,key:c.mistralKey,image:input.image,signal,boundedResponse,endpoint:c.mistralBase+"/ocr"});}
           catch(e){
             const st=Number(e?.status)||0,detail=st>0?"provider_http_"+st:"provider_transport";
             tries.push(attemptOf("a"+tries.length,Date.now()-at,null,detail));
@@ -579,7 +588,7 @@ function createServer(env=process.env,deps={}){
           tries.push(attemptOf("a"+tries.length,Date.now()-at,{cost},null,{model:OcrMistral.MODEL,provider:"mistral"}));
           try{
             const slideDoc=Contracts.assertValid(Contracts.SCHEMAS.slideDoc,OcrMistral.toSlideDoc(raw,{slideId:input.slideId,t0:input.t0,t1:input.t1,model:input.model,mode:input.mode}),"슬라이드 인식 결과");
-            // ink 표시는 계약 바깥의 실험 메타라 검증 뒤에 붙인다 — 클라이언트도 검증 전에 떼었다가 되돌린다.
+            // ink 표시는 블록의 선택 칸(계약 안) — 클라이언트가 계산한 필기 마스크와 겹치는 블록에 서버가 단다.
             OcrMistral.markInk(slideDoc,ink);
             return {amount,reported,attempts:tries,payload:{slideDoc,usage:{pages,costUsd:reported?amount:reserve/100},promptVersion:c.remoteConfig.promptVersion,schemaVersion:c.remoteConfig.schemaVersion}};
           }catch(error){const t=tries.at(-1);t.status="error";t.error=errCode(error);if(retry===attempts-1)throw error;}
@@ -727,6 +736,8 @@ function createServer(env=process.env,deps={}){
     if(v2){
       if(!route.ok||input.model!==route.model||(route.transport==="session"&&session.mode!==v2))return fail(res,"invalid_model_or_stage");
     }else if(stage==="review"||stage==="editorial")return fail(res,"invalid_model_or_stage"); // review·editorial 은 v2 모드 전용 단계다
+    // mis-sol-hai(프로파일 prompts:"msh"): 초안·문항·독립 수리는 Haiku 독립 호출 — 이미지 근거 칸·출력 스키마·응답 판독이 표준 경로와 다르다.
+    const msh=NoteProfiles.get(v2)?.prompts==="msh";
     if(session){
       if(input.model!==NoteSession.SOL)return fail(res,stage==="plan"?"invalid_model":"invalid_model_or_stage");
       // 도구가 실행하는 작성 모델도 클라이언트 선택과 같은 게이트를 거친다 — 허용 목록·계정 등급·제공자 핀 모두 필요하다.
@@ -750,7 +761,9 @@ function createServer(env=process.env,deps={}){
     let system=null;try{system=packetReq?Prompts.repairPacket(opts,sourceLang):Prompts.systemFor(stage,opts,sourceLang,rest.section?.worker,v2);}catch{}
     if(!session&&!system)return fail(res,"request_rejected");
     const user=JSON.stringify(rest);
-    if(Prompts.estimateTokens(user)>Prompts.inputTokenLimit(stage))return fail(res,"request_too_large");
+    // 필기 이미지 근거(mis-sol-hai draft): 본문 크기 가드·토큰 추정은 이미지를 뺀 JSON 으로 잰다 — base64 를 텍스트 토큰으로 세면 예약이 부풀려진다.
+    const images=Array.isArray(rest.images)&&rest.images.length?rest.images:null,userText=images?JSON.stringify({...rest,images:undefined}):user;
+    if(Prompts.estimateTokens(userText)>Prompts.inputTokenLimit(stage))return fail(res,"request_too_large");
     // Free 월 분 한도: 로컬 인식은 STT 를 거치지 않으므로 계획 요청에서 강의 길이(유닛 시각 범위)를 분으로 센다.
     // 클라우드 STT 를 쓴 작업은 STT 가 이미 셌다. ponytail: recognition 은 클라이언트 신고다 — STT 기능이 없는 계정은 신고와 무관하게 센다.
     const us=stage==="plan"?rest.ir.units:[],span=us.length?Math.max(...us.map(u=>u.t1))-Math.min(...us.map(u=>u.t0)):0;
@@ -765,7 +778,12 @@ function createServer(env=process.env,deps={}){
     // openai-explicit: 고정 시스템 접두만 캐시에 쓴다. key 는 작업 라우팅 친화용 — provider.order 를 쓰면 sticky 라우팅이 꺼져
     // 없으면 같은 작업도 매번 다른 엔드포인트에 캐시를 쓴다. 내용 없이 단계와 jobId 해시만 넣는다.
     const cacheMode=cacheModeOf(input.model),cacheFields=cacheMode==="openai-explicit"?{prompt_cache_options:{mode:"explicit",ttl:"30m"},...(input.jobId?{prompt_cache_key:`${stage}:${crypto.createHash("sha256").update(String(input.jobId)).digest("hex").slice(0,32)}`}:{})}:{};
-    const providerOut=providerSchema(outSchema,[]);
+    // mis-sol-hai 초안·독립 수리: keyed 칸(nullReasons·blocks 맵)은 제공자 strict 스키마가 요구하는
+    // 정적 배열 모양으로 내린다 — 응답은 검증 전 정규화가 다시 keyed 맵으로 돌린다(lib/section-draft.js).
+    const providerOut=providerSchema(
+      msh&&stage==="draft"?SectionDraft.providerSchemaFor(rest.section,{gist:rest.withGist,policy:rest.options,allowedRefs:rest.allowedRefs,sourceLang,nullReasons:true})
+      :msh&&stage==="repair"?REPAIR_PROVIDER_SCHEMA
+      :outSchema,[]);
     // 형식 실패 재시도분까지 예약하고 정산에서 되돌린다. 시스템 본문과 스키마도 입력 토큰이다.
     // 세션 모드는 요청 안에서 Sol·Luna 여러 호출이 돈다 — 도구 호출(Luna)과 Sol 이 도구 결과를 다시 읽는 입력까지 예약에 넣는다.
     const lunaProviders=c.providers[NoteSession.LUNA]??c.providers[upstreamOf(NoteSession.LUNA)],
@@ -773,7 +791,7 @@ function createServer(env=process.env,deps={}){
       solIn=session?Prompts.estimateTokens(NoteSession.systemFor(opts)+JSON.stringify(session.history)+JSON.stringify(rest)+JSON.stringify(providerOut)):0;
     const reserve=session?Math.ceil((2*(solIn*pi+params.max_tokens*po)/1e6
       +(lunaParams?(Prompts.estimateTokens(system+user+JSON.stringify(providerOut))*lpi+lunaParams.max_tokens*lpo+lunaParams.max_tokens*pi)/1e6:0))*100*1.2)
-      :Math.ceil((Prompts.estimateTokens(system+JSON.stringify(outSchema)+user)*pi+params.max_tokens*po)/1e6*100*1.2*attempts);
+      :Math.ceil((Prompts.estimateTokens(system+JSON.stringify(outSchema)+userText)*pi+params.max_tokens*po)/1e6*100*1.2*attempts);
     // 정산에 실을 메타 — plan 의 분야 분류 결과(subject·subjectConf)는 run 안에서 더한다.
     const meta={stage:stage==="plan"?"plan":"write."+stage,provider:"openrouter",model:input.model,jobId:input.jobId,host:input.host,...(session?{sessionMode:session.mode}:{}),...(packetReq?{packet:true}:{}),...(stage==="plan"?{lectureSeconds:span,slides:new Set(us.map(u=>u&&u.slideId).filter(Boolean)).size}:{})};
     // 분야 분류는 슬라이드 첫 줄을 제목으로 모아 Jev 에 한 번 묻는다 — plan 에서만, 제목이 없으면 건너뛴다.
@@ -810,7 +828,7 @@ function createServer(env=process.env,deps={}){
           const at=Date.now();
           const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
             model:upModel,...params,...cacheFields,
-            messages:[cachedSystem(input.model,system),cachedUser(input.model,user,stage)],
+            messages:[cachedSystem(input.model,system),msh&&images?userWithImages(cachedUser(input.model,userText,stage).content,images):cachedUser(input.model,userText,stage)],
             response_format:{type:"json_schema",json_schema:{name:"lecture_note_"+stage,strict:true,schema:providerOut}},
             // v2 표시 요청(sol-luna-2 의 Luna 독립 호출)은 sticky 라우팅을 끄는 order 를 빼고 only 만 둔다(spec 5.2·6).
             provider:{only:upProviders,...(v2?{}:{order:upProviders}),require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}
@@ -829,10 +847,18 @@ function createServer(env=process.env,deps={}){
           // 잘림은 한도를 키워 재시도하지 않는다 — 클라이언트가 섹션을 나눠 새 요청으로 보낸다(§6.5). 재시도 없이 지금까지 나간 비용만 청구한다.
           // 잘린 출력이 같은 말을 되풀이했는지(반복 루프) 내용 없이 남긴다: 뒤쪽 4000자의 40자 조각 중 서로 다른 조각 비율. 0.5 미만이면 .rep
           if(choice?.finish_reason==="length"){const t=tries.at(-1);t.status="error";t.error="llm_output_truncated."+(repetitive(choice?.message?.content)?"rep":"long");throw Object.assign(new Error("llm_output_truncated"),{code:"llm_output_truncated",detail:t.error,charged:{amount,reported,usage}});}
+          // mis-sol-hai 독립 호출: 잘림·거부·미완료를 finish_reason 보다 먼저 본문으로 판독한다(readChoice — 도구 모델은 거절을 content 에 쓴다).
+          const sel=msh?readChoice(raw):null;
+          if(sel?.error==="truncated"){const t=tries.at(-1);t.status="error";t.error="llm_output_truncated."+(repetitive(sel.text)?"rep":"long");throw Object.assign(new Error("llm_output_truncated"),{code:"llm_output_truncated",detail:t.error,charged:{amount,reported,usage}});}
         // 형식 실패(파손·계약 불일치·repair 개수 불일치)만 같은 모델·제공자로 한 번 더 간다 — 돈은 이미 나갔다.
         try{
+          if(sel?.error)throw Object.assign(new Error("provider_output_incomplete"),{detail:sel.error});
           if(choice?.finish_reason!=="stop")throw Object.assign(new Error("provider_output_incomplete"),{detail:"incomplete."+String(choice?.finish_reason||"none").toLowerCase().replace(/[^a-z0-9_]/g,"").slice(0,30)});
-          const fin=finalizeNote(stage,choice.message.content,outSchema,rest);
+          // mis-sol-hai 초안·수리 응답의 배열 칸(nullReasons·blocks)은 검증 전에 keyed 맵으로 돌리고 빠진 키는 null 로 채운다.
+          const fin=finalizeNote(stage,sel?sel.text:choice.message.content,outSchema,rest,
+            msh&&stage==="draft"?p=>SectionDraft.normalizeNullReasons(p,(rest.section?.blocks??[]).map(b=>b.blockId))
+            :msh&&stage==="repair"?p=>normalizeRepairBlocks(p,[...new Set((rest.repair??[]).map(r=>r.blockId))])
+            :null);
           // 계획 호출이 끝난 뒤에만 분류 결과를 기다린다 — 앞서 병렬로 나간 호출이고 이미 끝났거나 5초 안에 끝난다.
           const classified=classifying?await classifying:null;
           if(classified){meta.subject=classified.subject;meta.subjectConf=classified.conf;}
@@ -906,7 +932,7 @@ function createServer(env=process.env,deps={}){
       if(req.url==="/v1/stt"&&req.method==="POST")return await stt(await body(req,17000000),who,res);
       if(req.url==="/v1/judge"&&req.method==="POST")return await judge(await body(req,70000),who,res);
       if(req.url==="/v1/plan"&&req.method==="POST")return await plan(await body(req,SESSION_BODY,512*1024),who,res);
-      if(req.url==="/v1/write"&&req.method==="POST")return await write(await body(req,SESSION_BODY,256*1024),who,res);
+      if(req.url==="/v1/write"&&req.method==="POST")return await write(await body(req,IMAGE_BODY,256*1024),who,res);
       fail(res,"not_found");
     }catch(e){fail(res,e&&e.message==="request_too_large"?"request_too_large":"request_rejected");}
   };
@@ -921,8 +947,19 @@ const repetitive=t=>{if(typeof t!=="string"||t.length<2000)return false;const ta
 const shapeOf=v=>/^[A-Za-z]{1,3}[0-9]{0,4}([_\-/.][A-Za-z]{0,3}[0-9]{0,4}){0,2}$/.test(v)?v.slice(0,24):v.slice(0,24).replace(/[A-Za-z]/g,"A").replace(/[0-9]/g,"9").replace(/[가-힣]/g,"가").replace(/A+/g,"A").replace(/9+/g,"9").replace(/가+/g,"가");
 // 모델 응답 문자열 → 계약 출력: 파싱(unmangle)·id 정규화·salvage·strict 검사. 독립 호출 경로와 noteSession
 // 세션 경로가 같은 규칙을 쓴다 — 검증이 서버 로컬이므로 업스트림 strict 강제가 없어도 출력 계약은 같다.
-const finalizeNote=(stage,content,outSchema,rest)=>{
+// mis-sol-hai 수리(Haiku): keyed blocks 맵은 초안 nullReasons 와 같은 이유로 {blockId,envelope}[] 로 내린다.
+// 봉투 안 모양은 providerSchema 가 못 거는 블록 타입별 계약이라 서버가 검증한다 — 제공자 스키마는 배열 틀만 단다.
+const REPAIR_PROVIDER_SCHEMA={type:"object",additionalProperties:false,required:["blocks"],properties:{blocks:{type:"array",items:{type:"object",additionalProperties:false,required:["blockId","envelope"],properties:{blockId:{type:"string"},envelope:{type:["object","null"]}}}}}};
+const normalizeRepairBlocks=(parsed,ids)=>{
+  if(!parsed||typeof parsed!=="object"||!Array.isArray(parsed.blocks))return parsed;
+  const blocks={};for(const id of ids)if(typeof id==="string")blocks[id]=null;
+  for(const e of parsed.blocks)if(e&&typeof e==="object"&&typeof e.blockId==="string")blocks[e.blockId]=e.envelope??null;
+  return {...parsed,blocks};
+};
+const finalizeNote=(stage,content,outSchema,rest,patch=null)=>{
   let parsed;try{parsed=parseNote(content);}catch{throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_json"});}
+  // 출력 후정규화 훅(mis-sol-hai 초안 nullReasons·수리 blocks 의 배열→keyed 맵) — id 정규화보다 먼저 적용한다(배열은 canonicalMapKeys 가 만지지 못한다).
+  if(typeof patch==="function")parsed=patch(parsed);
   // editorial(v2 편집 계획)은 계획 id 를 그대로 쓰는 별도 출력이다 — id 정규화·지도 키 정리를 거치지 않고 스키마만 본다.
   // 계획·근거·asset 과의 ID 교차 검증은 입력 자료를 가진 클라이언트가 한다(NoteContract.validateEditorialPlan).
   if(stage==="plan")parsed=NoteContract.canonicalPlanIds(parsed); // 제공자가 id pattern 을 강제하지 않는다 — 검사 전에 C1../S1.. 로 다시 매긴다
@@ -963,7 +1000,7 @@ const stripDollar=s=>{if(typeof s!=="string")return s;const t=s.trim().replace(/
 function toSlideDoc(parsed,{slideId,t0,t1,model,mode}){
   if(!parsed||typeof parsed!=="object"||!Array.isArray(parsed.blocks)||!Array.isArray(parsed.formulas)||!Array.isArray(parsed.figures))throw new Error("invalid_vision_output");
   return {schemaVersion:Contracts.CONTRACT_VERSION,slideId,t0,t1,engine:"vision-cloud",model,
-    blocks:parsed.blocks.filter(b=>b&&!(typeof b.text==="string"&&!b.text.trim())).map((b,i)=>({id:"b"+(i+1),text:b.text,role:b.role,bbox:box(b.bbox),conf:clamp01(b.conf)})),
+    blocks:parsed.blocks.filter(b=>b&&!(typeof b.text==="string"&&!b.text.trim())).map((b,i)=>({id:"b"+(i+1),text:b.text,role:b.role,bbox:box(b.bbox),conf:clamp01(b.conf),ink:null})),
     formulas:parsed.formulas.map((f,i)=>({id:"f"+(i+1),latex:stripDollar(f.latex),text:f.text,bbox:box(f.bbox),conf:clamp01(f.conf),status:mode==="reread"?"reread":"unverified"})),
     figures:parsed.figures.map((g,i)=>({id:"g"+(i+1),bbox:box(g.bbox),kind:g.kind,title:g.title,cells:g.cells,chartSummary:g.chartSummary,chartData:g.chartData??null,conf:clamp01(g.conf)}))};
 }
