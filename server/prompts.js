@@ -52,6 +52,7 @@ const EN_SRC="[원문 대조] 주장마다 src를 채운다. src는 그 주장�
 const STAGE={
   plan:[
     "단계: 계획. 입력은 유닛 목록(units: 슬라이드 글과 발화, 시각, 중요도), 수식 요약(formulas: id, 상태, 나오는 유닛), 도표 요약(figures)이다. 본문은 쓰지 않고 구조만 정한다.",
+    "입력에 emphasis가 있으면 유닛별 체류 비율(dwellRatio), 핵심어 재등장(repeatCount), 강조어 출현(stressHits), 재방문(revisits), 필기 면적(inkArea, 없으면 null)의 신호 수치다.",
     "섹션 경계는 청크나 분량이 아니라 내용의 흐름으로 정한다. 섹션 id는 S1부터 순서대로, 각 섹션은 IR 순서로 연속한 유닛을 갖고, 모든 유닛은 정확히 한 섹션에 속한다. 강의 전개 순서를 바꾸지 않는다.",
     `섹션은 최대 40개, 섹션 하나의 유닛은 60개 이하, 블록은 12개 이하다. 한 섹션의 작성 입력(그 유닛의 근거 전부)이 약 ${T.writerInput}토큰 안에 들도록 유닛을 묶는다.`,
     "섹션마다 title(15~40자), question(그 단원이 답하는 질문, 없으면 null), stage(understand·relate·apply·check), 블록 구성(type, purpose 한 문장, 다루는 conceptIds·formulaIds·figureIds)을 정한다. purpose에는 그 블록만이 하는 일(편집 목적)을 적어 블록끼리 역할이 겹치지 않게 하고, B14라면 문항 수와 각 문항의 목적·겨눔 대상까지 적는다. 다른 섹션의 정정이나 정의가 꼭 필요하면 그 유닛을 crossUnitIds(10개 이하)로 잇는다.",
@@ -271,7 +272,7 @@ const lunaPacket=opt({
   prerequisites:arr(obj({sectionId:pat(IDS.section),text:{type:"string",maxLength:600},evidenceIds:arr({type:"string",maxLength:32},8),basis:{type:"string",maxLength:16}}),12),
 },["prerequisites"]);
 // mis-sol-hai 강조 신호: 유닛별 체류·핵심어 재등장·강조어·재방문·필기 면적 수치(기획 §4.3).
-const emphasisItem=obj({unitId:pat(IDS.unit),dwellRatio:{type:"number",minimum:0},repeatCount:{type:"integer",minimum:0},stressHits:{type:"integer",minimum:0},revisits:{type:"integer",minimum:0},inkArea:{type:"number",minimum:0}});
+const emphasisItem=obj({unitId:pat(IDS.unit),dwellRatio:{type:"number",minimum:0},repeatCount:{type:"integer",minimum:0},stressHits:{type:"integer",minimum:0},revisits:{type:"integer",minimum:0},inkArea:{type:["number","null"],minimum:0}});
 const REQUEST={
   plan:opt({
     ir:obj({units:arr(Contracts.SCHEMAS.unit,500,1)}),

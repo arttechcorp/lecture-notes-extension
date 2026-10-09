@@ -562,8 +562,8 @@ test("existing modes immutability: sol-luna-2, sol-fork-2, independent, and unde
 });
 
 test("prompt size reporting: v3 reduces prompt bytes for plan, editorial, draft, review, questions", () => {
-  // 기준 plan 9,390 / editorial 7,894 / draft 10,087 / repair 8,116 / review 9,021(L1 전 모드 결함 수정 반영) / questions 7,745 (v2, ko, OFF)
-  const baselines = { plan: 9390, editorial: 7894, draft: 10087, repair: 8116, review: 9021, questions: 7745 };
+  // 기준 plan 9,604(L3 emphasis 지시 추가) / editorial 7,894 / draft 10,087 / repair 8,116 / review 9,021(L1 전 모드 결함 수정 반영) / questions 7,745 (v2, ko, OFF)
+  const baselines = { plan: 9604, editorial: 7894, draft: 10087, repair: 8116, review: 9021, questions: 7745 };
   for (const [st, baseSize] of Object.entries(baselines)) {
     const v2Size = Buffer.byteLength(Prompts.systemFor(st, OFF, undefined, undefined, "sol-luna-2"), "utf8");
     assert.equal(v2Size, baseSize, st + ": v2 기준 바이트 일치");
@@ -589,12 +589,16 @@ test("plan request contract accepts emphasis signal entries and rejects invalid 
 
   const validEmphasis = [
     { unitId: "U1", dwellRatio: 1.25, repeatCount: 3, stressHits: 2, revisits: 1, inkArea: 10.5 },
+    { unitId: "U2", dwellRatio: 0.8, repeatCount: 0, stressHits: 0, revisits: 0, inkArea: null },
   ];
-  assert.ok(Contracts.validate(Prompts.REQUEST.plan, { ...basePlanBody, emphasis: validEmphasis }).ok, "emphasis 있는 plan 통과");
+  assert.ok(Contracts.validate(Prompts.REQUEST.plan, { ...basePlanBody, emphasis: validEmphasis }).ok, "emphasis 있는 plan 통과 (nullable inkArea 포함)");
 
   // 음수나 잘못된 타입 거절
   assert.ok(!Contracts.validate(Prompts.REQUEST.plan, { ...basePlanBody, emphasis: [{ unitId: "U1", dwellRatio: -1, repeatCount: 0, stressHits: 0, revisits: 0, inkArea: 0 }] }).ok, "음수 dwellRatio 거절");
   assert.ok(!Contracts.validate(Prompts.REQUEST.plan, { ...basePlanBody, emphasis: [{ unitId: "invalid", dwellRatio: 1, repeatCount: 0, stressHits: 0, revisits: 0, inkArea: 0 }] }).ok, "잘못된 unitId 패턴 거절");
   assert.ok(!Contracts.validate(Prompts.REQUEST.plan, { ...basePlanBody, emphasis: [{ unitId: "U1", dwellRatio: 1, repeatCount: 1.5, stressHits: 0, revisits: 0, inkArea: 0 }] }).ok, "정수 아닌 repeatCount 거절");
+
+  // plan 시스템 지시문에 emphasis 설명 포함 확인
+  assert.match(Prompts.systemFor("plan"), /입력에 emphasis가 있으면/, "plan 지시에 emphasis 숫자 뜻 포함");
 });
 
