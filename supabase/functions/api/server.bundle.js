@@ -898,6 +898,31 @@ const __defs = {
   // §4.1 교차 검증: 스키마를 통과한 뒤 계획·근거·asset 의 실제 id 집합과 대조한다.
   // plan 은 normalizePlan 결과다(최소 sections[].sectionId·concepts[].conceptId·learningItems[].itemId).
   // errors 는 코드와 id 만 싣는다(내용 없음, §10). 모르는 id·순환·한 개념의 다중 소유·계획 밖 참조는 거절이다.
+  // repairPlan 이 섹션을 버리거나 번호를 다시 매기면, 원래 계획을 보고 쓴 편집 계획의 섹션 id 가 어긋난다(Sol 은 보정 전 계획만 안다).
+  // 같은 옛→새 대응(repairPlan().sectionMap)으로 옮기고 한 섹션으로 모인 항목은 합친다. 모양이 어긋나면 그대로 둔다 — 판정은 검증기 몫이다.
+  function remapEditorialSections(editorialPlan, sectionMap) {
+    const secs = editorialPlan?.sections, keys = ["learningItemIds", "prerequisiteSectionIds", "mustExplain", "owns", "referencesOnly", "visuals"];
+    if (!sectionMap || !Array.isArray(secs) || !secs.every(s => s && typeof s === "object" && keys.every(k => Array.isArray(s[k])))) return editorialPlan;
+    const to = id => sectionMap[id] ?? id, uniq = a => [...new Set(a)];
+    const merged = new Map();
+    for (const s of secs) {
+      const id = to(s.sectionId), m = merged.get(id);
+      if (!m) { merged.set(id, { ...s, sectionId: id, ...Object.fromEntries(keys.map(k => [k, [...s[k]]])) }); continue; }
+      for (const k of keys) m[k].push(...s[k]);
+      if (m.learningQuestion == null) m.learningQuestion = s.learningQuestion;
+      m.targetOutputTokens = Math.min(16000, m.targetOutputTokens + s.targetOutputTokens);
+    }
+    for (const m of merged.values()) {
+      m.learningItemIds = uniq(m.learningItemIds).slice(0, 50);
+      m.prerequisiteSectionIds = uniq(m.prerequisiteSectionIds.map(to)).filter(p => p !== m.sectionId).slice(0, 40);
+      m.mustExplain = m.mustExplain.slice(0, 20);
+      m.owns = uniq(m.owns).slice(0, 12);
+      m.referencesOnly = uniq(m.referencesOnly).filter(c => !m.owns.includes(c)).slice(0, 12);
+      m.visuals = m.visuals.slice(0, 8);
+    }
+    return { ...editorialPlan, sections: [...merged.values()] };
+  }
+
   function validateEditorialPlan(editorialPlan, plan, evidenceIds, assetIds) {
     const v = Contracts.validate(editorialPlanSchema, editorialPlan);
     if (!v.ok) return { ok: false, errors: [{ code: "VAL_EDITORIAL_SCHEMA", detail: v.errors.map(e => e.path) }] };
@@ -1441,7 +1466,7 @@ const __defs = {
     // i. 전역 블록은 타입당 하나 — 나중 중복은 버린다.
     const gSeen = new Set();
     out.global = out.global.filter(g => gSeen.has(g.type) ? (fix("global-dup:" + g.type), false) : (gSeen.add(g.type), true));
-    return { output: out, fixes };
+    return { output: out, fixes, sectionMap: Object.fromEntries(homeOf) }; // 옛 섹션 id → 새 id — 원래 계획을 보고 쓴 편집 계획을 옮길 때 쓴다
   }
 
   // §7 계산 검산: 모델이 준 식을 eval 하지 않고 허용된 연산 4종을 숫자에 직접 적용한다.
@@ -2382,7 +2407,7 @@ const __defs = {
     LEARNING_ITEM_KINDS, LEARNING_ITEM_STATUSES, LEARNING_ITEM_REASONS, SECTION_WORKERS, EXPECTED_SIZES, formatCoverageMsg, withPlannerDefaults,
     schemas, envelopeSchema, sectionOutputSchemaFor, repairOutputSchemaFor, globalOutputSchemaFor, linkOutputSchema,
     normalizePlan, repairPlan, canonicalPlanIds, canonicalMapKeys, checkCalc, displayOf, citedRefs, validateSection, validateGlobal, assembleNote, restrictBasis, policyOf, AUG, withSource, measurePlanCaps,
-    V2_MODES, EDITORIAL_ROLES, VISUAL_KINDS, REVIEW_OPS, editorialPlanSchema, plannerOutputV2, reviewOutputSchema, validateEditorialPlan,
+    V2_MODES, EDITORIAL_ROLES, VISUAL_KINDS, REVIEW_OPS, editorialPlanSchema, plannerOutputV2, reviewOutputSchema, validateEditorialPlan, remapEditorialSections,
   });
   globalThis.NoteContract = api;
   if (typeof module !== "undefined") module.exports = api;
@@ -3834,7 +3859,7 @@ function config(env){
   // Mistral OCR 기본점 — env 로 바꿀 때는 https 만 허용한다(앞뒤 따옴표는 벗긴다). 없으면 공식 api.mistral.ai.
   const mistralBase=(()=>{const raw=String(env.MISTRAL_BASE_URL||"").trim().replace(/^["']+|["']+$/g,""),b=raw||"https://api.mistral.ai/v1";let u;try{u=new URL(b);}catch{throw new Error("invalid_mistral_base_url");}if(u.protocol!=="https:")throw new Error("invalid_mistral_base_url");return u.origin+u.pathname.replace(/\/+$/,"");})();
   return {tokens,allow,providers,key:env.OPENROUTER_API_KEY,mgmtKey:env.OPENROUTER_MANAGEMENT_KEY||null,mistralKey:env.MISTRAL_API_KEY||null,mistralBase,origins,root:path.resolve(env.VAULT_DIR||"server-data"),stateFile:env.USAGE_STATE_FILE?path.resolve(env.USAGE_STATE_FILE):null,
-    accountLimits,visionModels,sttModels,judgeModels,featureFlags,remoteConfig,supabase,planFeatures,providerConcurrency,maxCents:positive(env.MAX_COST_CENTS,1500),maxRequests:positive(env.MAX_REQUESTS,10000),globalCents:positive(env.GLOBAL_COST_CENTS,15000),timeout:Math.min(positive(env.OPENROUTER_TIMEOUT_MS,120000),120000),accountConcurrency:positive(env.ACCOUNT_CONCURRENCY,12),providerQueueMs:positive(env.PROVIDER_QUEUE_MS,10000),ratePerMin:positive(env.ACCOUNT_RATE_PER_MIN,300),maxFiles:100,maxArchiveBytes:200*1024*1024};
+    accountLimits,visionModels,sttModels,judgeModels,featureFlags,remoteConfig,supabase,planFeatures,providerConcurrency,maxCents:positive(env.MAX_COST_CENTS,1500),maxRequests:positive(env.MAX_REQUESTS,10000),globalCents:positive(env.GLOBAL_COST_CENTS,15000),timeout:positive(env.OPENROUTER_TIMEOUT_MS,120000),accountConcurrency:positive(env.ACCOUNT_CONCURRENCY,12),providerQueueMs:positive(env.PROVIDER_QUEUE_MS,10000),ratePerMin:positive(env.ACCOUNT_RATE_PER_MIN,300),maxFiles:100,maxArchiveBytes:200*1024*1024};
 }
 function atomic(file,data){fs.mkdirSync(path.dirname(file),{recursive:true});const temp=file+"."+crypto.randomUUID()+".tmp";fs.writeFileSync(temp,JSON.stringify(data),{mode:0o600,flag:"wx"});fs.renameSync(temp,file);}
 function readState(file){
@@ -4384,7 +4409,7 @@ function createServer(env=process.env,deps={}){
     // 분야 분류는 슬라이드 첫 줄을 제목으로 모아 Jev 에 한 번 묻는다 — plan 에서만, 제목이 없으면 건너뛴다.
     const titles=stage==="plan"?[...new Set(us.map(u=>typeof u.slideText==="string"?u.slideText.split("\n")[0].trim():"").filter(Boolean))].slice(0,20):[];
     // v2 계획은 {plan, editorialPlan} 사이드카라 출력이 일반 계획의 약 2배다 — 첫 pilot 에서 120초 상한에 두 번 끊겼다. v2 계획만 145초(무료 Edge 150초 안)로 둔다.
-    return await withReservation({account,requestId:input.requestId,digest,reserve,minutes,model:input.model,res,meta,...(v2&&(stage==="plan"||stage==="editorial")?{timeoutMs:145000}:{})},async (signal,store,gens,deadline)=>{
+    return await withReservation({account,requestId:input.requestId,digest,reserve,minutes,model:input.model,res,meta,...(v2&&(stage==="plan"||stage==="editorial")?{timeoutMs:Math.max(c.timeout,145000)}:{})},async (signal,store,gens,deadline)=>{
       // 세션 경로: 분야 분류(Jev)는 대화 이력에 넣지 않는다 — Sol·Luna 호출 전부가 이 예약·deadline 안에서 돌고
       // 시간이 모자라면 200 pending 으로 넘겨 클라이언트가 같은 단계를 다시 보낸다(최대 3요청은 클라이언트 계약).
       if(session)return await NoteSession.run({
@@ -4647,7 +4672,7 @@ async function boundedResponse(response,max){
   try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>max)throw new Error("response_too_large");chunks.push(value);}return JSON.parse(Buffer.concat(chunks).toString("utf8"));}
   finally{await reader.cancel().catch(()=>{});}
 }
-if(require.main===module)createServer().listen(Number(process.env.PORT||8788),"127.0.0.1",()=>console.log("Summrizei pilot service ready on loopback."));
+if(require.main===module)createServer().listen(Number(process.env.PORT||8788),process.env.HOST||"127.0.0.1",()=>console.log("Summrizei service ready."));
 module.exports={repetitive,createServer,config,tokenEqual,RATES,STT_RATES,readState,toTranscript,toSlideDoc,VISION_SCHEMA,judgeProbs,JUDGE_MODELS};
 
 
@@ -4878,7 +4903,7 @@ module.exports = { ENDPOINT, JUDGE_TASKS, QUESTIONS, SUBJECTS, buildRequests, bu
 // reasoning 도 모델마다 다르다: { enabled:false } 를 거절하는 엔드포인트는 가장 싼 effort 를 준다.
 // temperature:false 는 그 파라미터 자체를 거절하는 모델이다 — require_parameters 로 보내는 요청은 키를 아예 빼야 한다.
 // tools/openrouter-endpoint-probe.mjs 가 둘을 실제 목록과 대조한다. 1차 공급자 태그(anthropic·openai·google-ai-studio)는
-// zdr:true 와 함께 쓰면 늘 404 라 고정하지 않는다. Claude 는 amazon-bedrock/global 로 보낸다(Haiku 5.5 는 global 엔드포인트가 없어 amazon-bedrock).
+// zdr:true 와 함께 쓰면 늘 404 라 고정하지 않는다. Claude 는 amazon-bedrock/global 로 보낸다(Haiku 5.5 는 Bedrock 이 structured_outputs 를 안 지원해 json_schema strict + require_parameters 가 404 라 google-vertex/global).
 // maxTokens 는 reasoning 을 포함한다. 서버 예약액이 이 값에 비례하므로 단계별 상한은 prompts.js 가 더 낮게 정한다.
 // reasoningBudget 은 그 단계 출력 상한 위에 얹는 추론 토큰용 max_tokens 여유분이다 — 추론형 모델이 답을 쓰기 전 상한을 다 먹지 않게 한다(prompts.js).
 // cache: system 프롬프트에 캐시 중단점을 찍을지. Anthropic 은 cache_control 을 명시해야 붙고, Gemini 는 암묵 캐시라 표시하지 않는다.
@@ -4895,7 +4920,7 @@ const MODELS={
   "openai/gpt-6-luna@xhigh":{base:"openai/gpt-6-luna",tags:["azure","azure/us","azure/eu"],reasoning:{effort:"xhigh"},reasoningBudget:16000,maxTokens:32768,temperature:false,cacheMode:"openai-explicit"},
   "openai/gpt-6.1-sol":{tags:["azure","openai","azure/us","azure/eu"],reasoning:{effort:"medium"},reasoningBudget:8000,maxTokens:32768,temperature:false},
   // mis-sol-hai 작성 모델(기획 §3.2): Liner 에 없으므로 OpenRouter. reasoning_effort high 기본, temperature 는 생략(temperature:false).
-  "anthropic/claude-haiku-5.5":{tags:["amazon-bedrock"],reasoning:{effort:"high"},reasoningBudget:8000,maxTokens:32768,temperature:false,cache:true},
+  "anthropic/claude-haiku-5.5":{tags:["google-vertex/global"],reasoning:{effort:"high"},reasoningBudget:8000,maxTokens:32768,temperature:false,cache:true},
   "xiaomi/mimo-v2.6-pro":{tags:["deepinfra/fp8"],reasoning:{effort:"low"},reasoningBudget:4000,maxTokens:32768},
   "xiaomi/mimo-v2.6-flash":{tags:["io-net/fp8","venice/fp8","deepinfra/fp8"],reasoning:{enabled:false},maxTokens:32768},
 };
@@ -5720,7 +5745,7 @@ const STAGE_V3={
 // §7: 스키마·검증기로 강제되는 제약(블록 카탈로그·근거 인용·슬라이드 커버리지)은 반복하지 않고 모드 특유의 규칙만 쓴다.
 const MSH={
   plan:[
-    "[mis-sol-hai] 모든 슬라이드를 정확히 한 섹션에 배정한다 — 제목만 있거나 내용이 없는 슬라이드도 빼지 말고 '내용 없음'으로 표시한 섹션에 둔다.",
+    "[mis-sol-hai] 모든 슬라이드를 정확히 한 섹션에 배정한다 — 제목만 있거나 내용이 없는 슬라이드는 다음 슬라이드의 섹션에 합친다.",
     "입력의 emphasis 는 유닛별 강조 신호(체류·핵심어 재등장·강조어·재방문·필기 면적)다 — 신호가 높은 자리의 블록에 곁설명(B12 hint·background)을 배정해 부가 설명을 붙이고, 슬라이드에 없이 말로만 한 내용에는 B12 블록을 배정한다(작성 단계가 kind slide_absent 로 채운다).",
   ],
   draft:[
@@ -6019,10 +6044,10 @@ function supabaseUsage({url,key,http}){
     // 로컬 결과 캐시 hit/miss 의 콘텐츠 없는 run 집계(POST /v1/runs → run_reports). 청구 정산 근거가 아니다.
     // 같은 jobId 의 두 번째 보고는 무시한다(재전송·중복 수신에도 한 줄).
     async recordRun({account,report}){
-      const res=await http(url+"/rest/v1/run_reports?on_conflict=user_id,job_id",{method:"POST",
+      await http(url+"/rest/v1/run_reports?on_conflict=user_id,job_id",{method:"POST",
         headers:{...auth,"content-type":"application/json",prefer:"resolution=ignore-duplicates,return=minimal"},
         body:JSON.stringify([{user_id:account,job_id:report.jobId,cache_kind:"local_result",cache_hits:report.cacheHits,cache_misses:report.cacheMisses,rerun:report.rerun,client_version:report.clientVersion??null}])},false);
-      return res?.ok===true;
+      return true; // parse=false 는 본문을 버리고 undefined 를 돌려준다 — HTTP 오류는 http 가 던진다
     },
     // /v1/me 의 한도 조회. plans·monthly_usage 직접 조회다(schema-v2.sql 의 service_role 권한).
     async quota(user,plan,monthStart){

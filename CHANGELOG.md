@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.8.0.2 — 2026-10-09
+
+- mis-sol-hai 작성(Haiku 5.5)의 OpenRouter 공급자를 google-vertex/global로 고정한다. 요청은 고정 공급자·strict 구조화 출력·ZDR을 함께 요구하는데, Bedrock은 구조화 출력이 없고 Anthropic·Azure는 ZDR이 아니라 모든 작성 호출이 502였다(실행 mis-sol-hai-3·4·8).
+- 계획 보정이 빈 섹션을 버리고 번호를 다시 매기면 편집 계획의 섹션 id도 같은 대응으로 옮기고 합친다(remapEditorialSections). Sol은 보정 전 계획을 보고 편집 계획을 쓰므로 없는 섹션을 가리켜 EDITORIAL_PLAN_INVALID로 멈췄다(실행 mis-sol-hai-1·2). 편집 계획 검증 실패 시 오류 코드·id를 EDITORIAL_DETAIL로 남긴다.
+- mis-sol-hai 계획 지시: 제목만 있거나 내용이 없는 슬라이드는 다음 슬라이드의 섹션에 합친다.
+- 서버: /v1/runs가 저장에 성공해도 503(usage_store_failed)을 돌려주던 판정 오류를 고친다(2026-10-07부터). OPENROUTER_TIMEOUT_MS 120초 상한을 풀고(기본 120초 그대로) v2 계획·편집 계획 시간은 그 값과 145초 중 큰 쪽, 로컬 실행 시 HOST로 바인딩 주소를 바꿀 수 있다.
+
 ## 2.8.0.1 — 2026-10-09
 
 - 서버: Claude Haiku 5.5의 OpenRouter 공급자 고정을 amazon-bedrock으로 바꾼다(amazon-bedrock/global 엔드포인트가 없어 모든 Haiku 호출이 공급자를 찾지 못했다).

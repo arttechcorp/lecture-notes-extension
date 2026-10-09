@@ -151,3 +151,12 @@ test("costOf reasoning tokens: 공급자 completion_tokens에 reasoning이 포�
   assert.equal(calculatedCost, (2000 * 1.0 + 1000 * 5.0) / 1e6); // $0.007
   assert.notEqual(calculatedCost, (2000 * 1.0 + (1000 + 600) * 5.0) / 1e6, "이중 집계 금지");
 });
+
+test("recordRun: 본문을 읽지 않는 http(parse=false 는 undefined)가 성공하면 저장 성공, 던지면 실패로 전파", async () => {
+  // 운영 sbHttp 는 parse=false 일 때 아무것도 돌려주지 않는다 — 반환값으로 성공을 판정하면 늘 503 이었다(2026-10-07~).
+  const report = { jobId: "job-1", cacheHits: 1, cacheMisses: 2, rerun: 0, clientVersion: "2.8.0.1" };
+  const ok = supabaseUsage({ url: "https://db.example", key: "k", http: async () => undefined });
+  assert.equal(await ok.recordRun({ account: "user-1", report }), true);
+  const bad = supabaseUsage({ url: "https://db.example", key: "k", http: async () => { throw Object.assign(new Error("x"), { status: 500 }); } });
+  await assert.rejects(bad.recordRun({ account: "user-1", report }));
+});

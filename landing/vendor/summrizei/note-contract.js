@@ -544,6 +544,31 @@
   // §4.1 교차 검증: 스키마를 통과한 뒤 계획·근거·asset 의 실제 id 집합과 대조한다.
   // plan 은 normalizePlan 결과다(최소 sections[].sectionId·concepts[].conceptId·learningItems[].itemId).
   // errors 는 코드와 id 만 싣는다(내용 없음, §10). 모르는 id·순환·한 개념의 다중 소유·계획 밖 참조는 거절이다.
+  // repairPlan 이 섹션을 버리거나 번호를 다시 매기면, 원래 계획을 보고 쓴 편집 계획의 섹션 id 가 어긋난다(Sol 은 보정 전 계획만 안다).
+  // 같은 옛→새 대응(repairPlan().sectionMap)으로 옮기고 한 섹션으로 모인 항목은 합친다. 모양이 어긋나면 그대로 둔다 — 판정은 검증기 몫이다.
+  function remapEditorialSections(editorialPlan, sectionMap) {
+    const secs = editorialPlan?.sections, keys = ["learningItemIds", "prerequisiteSectionIds", "mustExplain", "owns", "referencesOnly", "visuals"];
+    if (!sectionMap || !Array.isArray(secs) || !secs.every(s => s && typeof s === "object" && keys.every(k => Array.isArray(s[k])))) return editorialPlan;
+    const to = id => sectionMap[id] ?? id, uniq = a => [...new Set(a)];
+    const merged = new Map();
+    for (const s of secs) {
+      const id = to(s.sectionId), m = merged.get(id);
+      if (!m) { merged.set(id, { ...s, sectionId: id, ...Object.fromEntries(keys.map(k => [k, [...s[k]]])) }); continue; }
+      for (const k of keys) m[k].push(...s[k]);
+      if (m.learningQuestion == null) m.learningQuestion = s.learningQuestion;
+      m.targetOutputTokens = Math.min(16000, m.targetOutputTokens + s.targetOutputTokens);
+    }
+    for (const m of merged.values()) {
+      m.learningItemIds = uniq(m.learningItemIds).slice(0, 50);
+      m.prerequisiteSectionIds = uniq(m.prerequisiteSectionIds.map(to)).filter(p => p !== m.sectionId).slice(0, 40);
+      m.mustExplain = m.mustExplain.slice(0, 20);
+      m.owns = uniq(m.owns).slice(0, 12);
+      m.referencesOnly = uniq(m.referencesOnly).filter(c => !m.owns.includes(c)).slice(0, 12);
+      m.visuals = m.visuals.slice(0, 8);
+    }
+    return { ...editorialPlan, sections: [...merged.values()] };
+  }
+
   function validateEditorialPlan(editorialPlan, plan, evidenceIds, assetIds) {
     const v = Contracts.validate(editorialPlanSchema, editorialPlan);
     if (!v.ok) return { ok: false, errors: [{ code: "VAL_EDITORIAL_SCHEMA", detail: v.errors.map(e => e.path) }] };
@@ -1087,7 +1112,7 @@
     // i. 전역 블록은 타입당 하나 — 나중 중복은 버린다.
     const gSeen = new Set();
     out.global = out.global.filter(g => gSeen.has(g.type) ? (fix("global-dup:" + g.type), false) : (gSeen.add(g.type), true));
-    return { output: out, fixes };
+    return { output: out, fixes, sectionMap: Object.fromEntries(homeOf) }; // 옛 섹션 id → 새 id — 원래 계획을 보고 쓴 편집 계획을 옮길 때 쓴다
   }
 
   // §7 계산 검산: 모델이 준 식을 eval 하지 않고 허용된 연산 4종을 숫자에 직접 적용한다.
@@ -2028,7 +2053,7 @@
     LEARNING_ITEM_KINDS, LEARNING_ITEM_STATUSES, LEARNING_ITEM_REASONS, SECTION_WORKERS, EXPECTED_SIZES, formatCoverageMsg, withPlannerDefaults,
     schemas, envelopeSchema, sectionOutputSchemaFor, repairOutputSchemaFor, globalOutputSchemaFor, linkOutputSchema,
     normalizePlan, repairPlan, canonicalPlanIds, canonicalMapKeys, checkCalc, displayOf, citedRefs, validateSection, validateGlobal, assembleNote, restrictBasis, policyOf, AUG, withSource, measurePlanCaps,
-    V2_MODES, EDITORIAL_ROLES, VISUAL_KINDS, REVIEW_OPS, editorialPlanSchema, plannerOutputV2, reviewOutputSchema, validateEditorialPlan,
+    V2_MODES, EDITORIAL_ROLES, VISUAL_KINDS, REVIEW_OPS, editorialPlanSchema, plannerOutputV2, reviewOutputSchema, validateEditorialPlan, remapEditorialSections,
   });
   globalThis.NoteContract = api;
   if (typeof module !== "undefined") module.exports = api;

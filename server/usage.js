@@ -104,10 +104,10 @@ function supabaseUsage({url,key,http}){
     // 로컬 결과 캐시 hit/miss 의 콘텐츠 없는 run 집계(POST /v1/runs → run_reports). 청구 정산 근거가 아니다.
     // 같은 jobId 의 두 번째 보고는 무시한다(재전송·중복 수신에도 한 줄).
     async recordRun({account,report}){
-      const res=await http(url+"/rest/v1/run_reports?on_conflict=user_id,job_id",{method:"POST",
+      await http(url+"/rest/v1/run_reports?on_conflict=user_id,job_id",{method:"POST",
         headers:{...auth,"content-type":"application/json",prefer:"resolution=ignore-duplicates,return=minimal"},
         body:JSON.stringify([{user_id:account,job_id:report.jobId,cache_kind:"local_result",cache_hits:report.cacheHits,cache_misses:report.cacheMisses,rerun:report.rerun,client_version:report.clientVersion??null}])},false);
-      return res?.ok===true;
+      return true; // parse=false 는 본문을 버리고 undefined 를 돌려준다 — HTTP 오류는 http 가 던진다
     },
     // /v1/me 의 한도 조회. plans·monthly_usage 직접 조회다(schema-v2.sql 의 service_role 권한).
     async quota(user,plan,monthStart){
