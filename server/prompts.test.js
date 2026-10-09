@@ -138,7 +138,7 @@ test("request contracts are the stage's own field lists", () => {
   assert.deepEqual(Object.keys(Prompts.REQUEST.questions.properties), ["concepts", "sections", "options", "allowedRefs", "section", "blockId", "editorialPlan"]);
   // 선택 키: 네 단계 모두 allowedRefs, plan 은 mis-sol-hai emphasis, section·repair 는 섹션에 배정된 learningItems 도 없어도 된다 — 나머지 키는 모두 required 로 strict 규칙을 지킨다.
   for (const stage of Prompts.STAGES) {
-    const optional = stage === "draft" ? ["allowedRefs", "learningItems", "editorialPlan"] : stage === "repair" ? ["allowedRefs", "learningItems", "packet"] : stage === "section" ? ["allowedRefs", "learningItems"] : stage === "questions" ? ["allowedRefs", "editorialPlan"] : stage === "editorial" ? [] : stage === "review" ? ["sections", "html", "allowedRefs", "baseRevision"] : stage === "plan" ? ["allowedRefs", "emphasis"] : ["allowedRefs"];
+    const optional = stage === "draft" ? ["allowedRefs", "learningItems", "editorialPlan"] : stage === "repair" ? ["allowedRefs", "learningItems", "packet"] : stage === "section" ? ["allowedRefs", "learningItems"] : stage === "questions" ? ["allowedRefs", "editorialPlan"] : stage === "editorial" ? [] : stage === "review" ? ["sections", "html", "omittedSectionIds", "allowedRefs", "baseRevision"] : stage === "plan" ? ["allowedRefs", "emphasis"] : ["allowedRefs"];
     assert.deepEqual(Object.keys(Prompts.REQUEST[stage].properties).filter(k => !Prompts.REQUEST[stage].required.includes(k)), optional, stage + " 선택 키");
   }
   // plan·global 요청은 strict 모양을 지킨다. section·repair 는 정규화된 Plan 섹션을 싣는데,
@@ -382,8 +382,11 @@ test("review stage: integrated editorial review — request contract, prompt rul
   assert.ok(!Prompts.systemFor("review", OFF, "en").includes("[원문 대조]"), "review: src 칸 없음");
   assert.ok(Prompts.systemFor("review", OFF, "en").includes("[영어 강의]"), "review: 영어 용어 규칙은 붙는다");
 
-  assert.deepEqual(Object.keys(Prompts.REQUEST.review.properties), ["concepts", "sections", "html", "editorialPlan", "options", "allowedRefs", "baseRevision"]);
-  assert.deepEqual(Object.keys(Prompts.REQUEST.review.properties).filter(k => !Prompts.REQUEST.review.required.includes(k)), ["sections", "html", "allowedRefs", "baseRevision"]);
+  assert.deepEqual(Object.keys(Prompts.REQUEST.review.properties), ["concepts", "sections", "html", "omittedSectionIds", "editorialPlan", "options", "allowedRefs", "baseRevision"]);
+  assert.deepEqual(Object.keys(Prompts.REQUEST.review.properties).filter(k => !Prompts.REQUEST.review.required.includes(k)), ["sections", "html", "omittedSectionIds", "allowedRefs", "baseRevision"]);
+  // mis-sol-hai 변형: sections 대신 축약 HTML(+ 잘린 섹션 목록)을 실을 수 있다 — 스키마는 둘 다 선택 칸, "정확히 하나"는 서버 핸들러가 본다.
+  assert.ok(Contracts.validate(Prompts.REQUEST.review, { concepts: plan.concepts, html: '<section class="note-sec" id="S1"><p>본문</p></section>', omittedSectionIds: ["S2"], editorialPlan: EP_MIN, options: { ...OFF } }).ok, "html 입력 계약");
+  assert.ok(!Contracts.validate(Prompts.REQUEST.review, { concepts: plan.concepts, html: "x", omittedSectionIds: ["Q9"], editorialPlan: EP_MIN, options: { ...OFF } }).ok, "omittedSectionIds 패턴 거절");
   const claims = [{ path: "/content/definition", text: "고정비는 생산량과 무관하다", evidenceIds: ["U1.s1"], basis: "lecture" }];
   const body = { concepts: plan.concepts, sections: [{ sectionId: "S1", title: "비용", gist: null, blocks: [{ blockId: "S1_B1", type: "B05", claims, figureIds: ["G1"] }] }], editorialPlan: EP_MIN, options: { ...OFF } };
   assert.ok(Contracts.validate(Prompts.REQUEST.review, body).ok, "review 요청 계약");

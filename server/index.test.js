@@ -3785,6 +3785,24 @@ test("sol-fork-2: review 단계는 Sol+P 세션 호출이고 {edits,unresolved} 
   } finally { delete Prompts.REQUEST.review; delete Prompts.reviewOutputSchema; Prompts.systemFor = origSF; }
 });
 
+// 앞 테스트들이 Prompts.REQUEST.review 를 stub 한 뒤 delete 로 지운다 — 진짜 스키마 참조를 로드 시점에 잡아 둔다.
+const REAL_REVIEW_REQ = Prompts.REQUEST.review, REAL_REVIEW_OUT = Prompts.reviewOutputSchema;
+test("review 입력은 sections·html 중 정확히 하나 — 둘 다 없거나 겹치면 request_rejected", async () => {
+  Prompts.REQUEST.review ??= REAL_REVIEW_REQ;
+  Prompts.reviewOutputSchema ??= REAL_REVIEW_OUT;
+  const P = fork2P();
+  const base = { model: SOL, noteSpecVersion, stage: "review", concepts: notePlan.concepts, editorialPlan: { v: 1, glossary: [], sections: [{ sectionId: "S1", learningQuestion: null, learningItemIds: [], prerequisiteSectionIds: [], mustExplain: [], owns: [], referencesOnly: [], visuals: [], targetOutputTokens: 1200 }] }, options: { ...noteOpts }, noteMode: "sol-fork-2", noteSession: { v: 1, id: "rxchk001", mode: "sol-fork-2", history: P } };
+  const sections = [{ sectionId: "S1", title: "t", gist: null, blocks: [] }];
+  await withNoteServer(async () => solReply(JSON.stringify({ baseRevision: null, edits: [], unresolved: [] })), async url => {
+    await errorOf(await req(url, "/v1/write", "POST", { ...base, requestId: "rx-0" }), 400, "request_rejected"); // 둘 다 없음
+    await errorOf(await req(url, "/v1/write", "POST", { ...base, requestId: "rx-1", sections, html: "<p>x</p>" }), 400, "request_rejected"); // 겹침
+    for (const [requestId, extra] of [["rx-2", { html: '<section class="note-sec" id="S1"><p>x</p></section>' }], ["rx-3", { sections }]]) {
+      const res = await req(url, "/v1/write", "POST", { ...base, requestId, ...extra });
+      assert.equal(res.status, 200, requestId + " " + JSON.stringify(await res.json()));
+    }
+  }, v2Env);
+});
+
 test("v2 editorial 단계: v2 모드·계획 이력이 있어야 하고 스키마 위반은 명시 오류 — 구 모드 plan 응답은 그대로", async () => {
   const edIn = (over = {}) => ({ model: SOL, noteSpecVersion, stage: "editorial", options: { ...noteOpts }, ...over });
   // v2 모드 표시 없이는 editorial 을 부를 수 없다.

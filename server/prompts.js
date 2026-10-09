@@ -327,11 +327,13 @@ const REQUEST={
     sections:arr(obj({sectionId:pat(IDS.section),title:{type:"string",maxLength:80},gist:{...claimPos,type:["object","null"]},
       blocks:arr(opt({blockId:pat(IDS.block),type:{type:"string",enum:NoteContract.WRITER_TYPES},claims:arr(claimPos,80),figureIds:arr(pat(IDS.figure),4)},["figureIds"]),12)}),40,1),
     html:{type:"string",maxLength:100000},
+    // html 입력이 상한으로 잘렸을 때 뒤에서 빠진 섹션 id — Sol이 재작성 대상으로 고를 수 있게 알린다.
+    omittedSectionIds:arr(pat(IDS.section),40),
     editorialPlan:NoteContract.editorialPlanSchema,
     options,
     allowedRefs,
     baseRevision:{type:"string",maxLength:64},
-  },["allowedRefs","baseRevision","sections","html"]),
+  },["allowedRefs","baseRevision","sections","html","omittedSectionIds"]),
   // v2 편집 계획: 입력은 옵션뿐이다 — 계획은 noteSession 이력(앞 턴)에 이미 있다. 이력 없이는 서버가 거절한다.
   editorial:opt({options},[]),
   // 본문 확정 뒤 문항(draft 경로): 채울 B14 는 계획 블록 하나, 참고는 살아남은 본문 주장이다.
