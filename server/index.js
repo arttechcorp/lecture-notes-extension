@@ -45,6 +45,8 @@ const attemptFields=(requestId,promptCache,attempts,{status,amount,billedCost,po
     costStatus:status==="refunded"?"not_applicable":amount===null?"unreported":reported!==null&&Math.abs(reported-amount)<1e-9?"provider_reported":"estimated"};
 };
 const VISION_RATES={"google/gemini-2.5-flash-lite":[.1,.4],"google/gemini-3.8-flash":[1.5,7.5],"mistralai/ministral-8b-2512":[.15,.15],"qwen/qwen3-vl-8b-instruct":[.12,.45],"openai/gpt-6-luna":[.1,.5]};
+// Mistral OCR 은 OpenRouter 를 거치지 않고 페이지 과금이라 토큰 단가표에 없다 — 허용 목록은 OCR_MODELS 가 별도로 연다.
+const OcrMistral=require("./ocr-mistral.js"),OCR_MODELS=new Set([OcrMistral.MODEL]);
 // 구조화 출력은 상자 좌표까지 JSON으로 나가 순수 텍스트보다 길다.
 const VISION_MAX_TOKENS=8192;
 // MAI Transcribe 는 오디오 시간당 과금이다. 예약은 클라이언트 선언 길이로 잡되 정산은 제공자가 잰
@@ -168,8 +170,10 @@ function config(env){
   const providers=JSON.parse(env.OPENROUTER_PROVIDERS_JSON||"{}");
   for(const m of allow){const pin=providers[m]??providers[upstreamOf(m)];if(!Array.isArray(pin)||!pin.length||pin.some(p=>typeof p!=="string"||p.length>100))throw new Error("explicit_provider_allowlist_required");}
   const visionModels=JSON.parse(env.ALLOWED_VISION_MODELS||"[]");
-  if(!Array.isArray(visionModels)||visionModels.some(m=>!VISION_RATES[m]))throw new Error("invalid_vision_model_allowlist");
-  for(const m of visionModels)if(!Array.isArray(providers[m])||!providers[m].length)throw new Error("explicit_provider_allowlist_required");
+  if(!Array.isArray(visionModels)||visionModels.some(m=>!VISION_RATES[m]&&!OCR_MODELS.has(m)))throw new Error("invalid_vision_model_allowlist");
+  // OpenRouter 경유 모델만 제공자 목록이 필요하다. Mistral 직접 호출은 MISTRAL_API_KEY 하나면 된다.
+  for(const m of visionModels)if(VISION_RATES[m]&&(!Array.isArray(providers[m])||!providers[m].length))throw new Error("explicit_provider_allowlist_required");
+  if(visionModels.some(m=>OCR_MODELS.has(m))&&!env.MISTRAL_API_KEY)throw new Error("MISTRAL_API_KEY required");
   const sttModels=JSON.parse(env.ALLOWED_STT_MODELS||"[]");
   if(!Array.isArray(sttModels)||sttModels.some(m=>!STT_RATES[m]))throw new Error("invalid_stt_model_allowlist");
   // 변수가 없으면 gpt-4.1-nano 제공자 목록이 설정됐을 때만 기본으로 켠다 — 목록이 없는데
@@ -235,7 +239,7 @@ function config(env){
   if(!plain(providerConcurrency)||Object.values(providerConcurrency).some(v=>!Number.isInteger(v)||v<=0))throw new Error("invalid_provider_concurrency");
   // 요청 수·분당 호출 수는 거친 안전망이다. 진짜 상한은 비용 캡(MAX_COST_CENTS, GLOBAL_COST_CENTS)이다 —
   // v2 유료 작업은 강의 1시간에 150회 안팎을 부르고 비전 8레인만으로도 분당 120회에 닿아서 예전 기본값이 정상 작업을 막았다.
-  return {tokens,allow,providers,key:env.OPENROUTER_API_KEY,mgmtKey:env.OPENROUTER_MANAGEMENT_KEY||null,origins,root:path.resolve(env.VAULT_DIR||"server-data"),stateFile:env.USAGE_STATE_FILE?path.resolve(env.USAGE_STATE_FILE):null,
+  return {tokens,allow,providers,key:env.OPENROUTER_API_KEY,mgmtKey:env.OPENROUTER_MANAGEMENT_KEY||null,mistralKey:env.MISTRAL_API_KEY||null,origins,root:path.resolve(env.VAULT_DIR||"server-data"),stateFile:env.USAGE_STATE_FILE?path.resolve(env.USAGE_STATE_FILE):null,
     accountLimits,visionModels,sttModels,judgeModels,featureFlags,remoteConfig,supabase,planFeatures,providerConcurrency,maxCents:positive(env.MAX_COST_CENTS,1500),maxRequests:positive(env.MAX_REQUESTS,10000),globalCents:positive(env.GLOBAL_COST_CENTS,15000),timeout:Math.min(positive(env.OPENROUTER_TIMEOUT_MS,120000),120000),accountConcurrency:positive(env.ACCOUNT_CONCURRENCY,12),providerQueueMs:positive(env.PROVIDER_QUEUE_MS,10000),ratePerMin:positive(env.ACCOUNT_RATE_PER_MIN,300),maxFiles:100,maxArchiveBytes:200*1024*1024};
 }
 function atomic(file,data){fs.mkdirSync(path.dirname(file),{recursive:true});const temp=file+"."+crypto.randomUUID()+".tmp";fs.writeFileSync(temp,JSON.stringify(data),{mode:0o600,flag:"wx"});fs.renameSync(temp,file);}
@@ -490,6 +494,8 @@ function createServer(env=process.env,deps={}){
   async function vision(input,account,res){
     if(!(account.limits.features||[]).includes("vision")||c.featureFlags.vision===false)return fail(res,"feature_not_in_account_plan");
     if(!c.visionModels.includes(input.model))return fail(res,"invalid_model");
+    // Mistral OCR 은 요청 모양·과금(페이지)이 OpenRouter 비전과 다르다 — 모델 이름으로만 갈린다(실험 분기, 레지스트리 연결은 통합 때).
+    if(OCR_MODELS.has(input.model))return await visionOcr(input,account,res);
     safePart(input.requestId);
     const fields=["model","requestId","slideId","t0","t1","image","mode"],optional=["jobId"];
     if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)&&!optional.includes(k)))return fail(res,"unexpected_field");
@@ -526,6 +532,53 @@ function createServer(env=process.env,deps={}){
             if(raw.choices?.[0]?.finish_reason!=="stop")throw new Error("provider_output_incomplete");
             const slideDoc=Contracts.assertValid(Contracts.SCHEMAS.slideDoc,toSlideDoc(parseNote(raw.choices[0].message.content),{slideId:input.slideId,t0:input.t0,t1:input.t1,model:input.model,mode:input.mode}),"슬라이드 인식 결과");
             return {amount,reported,attempts:tries,payload:{slideDoc,usage:{...usage,costUsd:reported?amount:reserve/100},promptVersion:c.remoteConfig.promptVersion,schemaVersion:c.remoteConfig.schemaVersion}};
+          }catch(error){const t=tries.at(-1);t.status="error";t.error=errCode(error);if(retry===attempts-1)throw error;}
+        }
+      }catch(e){e.attempts??=tries;throw e;}
+    });
+  }
+  // Mistral OCR 4.1 — api.mistral.ai/v1/ocr 직접 호출(기획 §3.1). 응답은 ocr-mistral.js 가 slideDoc 계약으로 정규화한다.
+  async function visionOcr(input,account,res){
+    safePart(input.requestId);
+    // L1 의 필기 마스크(ink)는 선택 — 슬라이드와 같은 0~1 비율 bbox 목록으로 겹치는 블록에 ink:true 를 단다.
+    const fields=["model","requestId","slideId","t0","t1","image","mode"],optional=["jobId","ink"];
+    if(fields.some(k=>input[k]===undefined)||Object.keys(input).some(k=>!fields.includes(k)&&!optional.includes(k)))return fail(res,"unexpected_field");
+    if(typeof input.slideId!=="string"||!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(input.slideId)||!Number.isFinite(input.t0)||!Number.isFinite(input.t1)||input.t0<0||input.t1<input.t0||!["full","reread"].includes(input.mode))return fail(res,"invalid_vision_params");
+    const match=/^data:image\/jpeg;base64,([A-Za-z0-9+/]+={0,2})$/.exec(String(input.image||""));
+    if(!match)return fail(res,"invalid_image");
+    const bytes=Buffer.from(match[1],"base64").byteLength;
+    if(!bytes||bytes>1536*1024)return fail(res,"image_too_large");
+    const boxOk=b=>b&&typeof b==="object"&&!Array.isArray(b)&&[b.x,b.y,b.w,b.h].every(Number.isFinite)&&b.x>=0&&b.y>=0&&b.w>=0&&b.h>=0&&b.x<=1&&b.y<=1&&b.x+b.w<=1+1e-6&&b.y+b.h<=1+1e-6;
+    const ink=input.ink===undefined?[]:input.ink;
+    if(!Array.isArray(ink)||ink.length>100||!ink.every(boxOk))return fail(res,"invalid_vision_params");
+    const digest=digestOf(account,JSON.stringify({model:input.model,slideId:input.slideId,t0:input.t0,t1:input.t1,mode:input.mode,ink,image:crypto.createHash("sha256").update(match[1]).digest("hex")}));
+    const attempts=OcrMistral.MAX_ATTEMPTS;
+    // 예약 = 1페이지 × 단가 × 최대 시도(기획 §6). 정산은 제공자가 센 pages_processed 로 되돌린다.
+    const reserve=Math.max(1,Math.ceil(attempts*OcrMistral.USD_PER_PAGE*100));
+    return await withReservation({account,requestId:input.requestId,digest,reserve,model:input.model,res,meta:{stage:"vision."+input.mode,provider:"mistral",model:input.model,images:1,jobId:input.jobId}},async signal=>{
+      let amount=0,reported=true,pages=0;const tries=[];
+      try{
+        for(let retry=0;retry<attempts;retry++){
+          const at=Date.now();
+          let raw;
+          try{raw=await OcrMistral.recognize({fetcher,key:c.mistralKey,image:input.image,signal,boundedResponse});}
+          catch(e){
+            const st=Number(e?.status)||0,detail=st>0?"provider_http_"+st:"provider_transport";
+            tries.push(attemptOf("a"+tries.length,Date.now()-at,null,detail));
+            // 429·5xx 만 제한 재시도한다. 그 외 4xx(400 등)는 설정 오류 — 돈이 안 나갔으니 환불로 접는다.
+            if(st>=400&&st<500&&st!==429)throw Object.assign(new Error("mistral_config"),{refund:true,code:"provider_failed_or_invalid_output",detail:"provider_config_error"});
+            if(!OcrMistral.retryableStatus(st)||retry===attempts-1)throw Object.assign(new Error("provider_failed"),{detail});
+            continue;
+          }
+          // 토큰 0으로 위장하지 않는다 — 페이지 과금은 제공자의 usage_info.pages_processed 만 믿는다.
+          const cost=OcrMistral.pageCost(raw?.usage_info);
+          if(cost===null)reported=false;else{amount+=cost;pages+=raw.usage_info.pages_processed;}
+          tries.push(attemptOf("a"+tries.length,Date.now()-at,{cost},null,{model:OcrMistral.MODEL,provider:"mistral"}));
+          try{
+            const slideDoc=Contracts.assertValid(Contracts.SCHEMAS.slideDoc,OcrMistral.toSlideDoc(raw,{slideId:input.slideId,t0:input.t0,t1:input.t1,model:input.model,mode:input.mode}),"슬라이드 인식 결과");
+            // ink 표시는 계약 바깥의 실험 메타라 검증 뒤에 붙인다 — 클라이언트도 검증 전에 떼었다가 되돌린다.
+            OcrMistral.markInk(slideDoc,ink);
+            return {amount,reported,attempts:tries,payload:{slideDoc,usage:{pages,costUsd:reported?amount:reserve/100},promptVersion:c.remoteConfig.promptVersion,schemaVersion:c.remoteConfig.schemaVersion}};
           }catch(error){const t=tries.at(-1);t.status="error";t.error=errCode(error);if(retry===attempts-1)throw error;}
         }
       }catch(e){e.attempts??=tries;throw e;}
