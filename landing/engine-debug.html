@@ -51,6 +51,17 @@ td.detail{white-space:normal;max-width:520px;word-break:break-all;font-size:11.5
 <main class="ed-main">
   <p id="edStatus" role="status" aria-live="polite"></p>
 
+  <section id="gateView" hidden>
+    <div class="ed-card">
+      <h1>엔진 디버그</h1>
+      <p>비밀번호를 입력하세요.</p>
+      <form id="gateForm">
+        <input type="password" id="gateInput" autocomplete="current-password" aria-label="비밀번호" style="width:100%;min-height:44px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;font:inherit;margin-bottom:12px">
+        <button class="button dark" type="submit" style="width:100%">확인</button>
+      </form>
+    </div>
+  </section>
+
   <section id="loginView" hidden>
     <div class="ed-card">
       <h1>관리자 로그인</h1>

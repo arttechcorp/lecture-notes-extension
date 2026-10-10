@@ -4,7 +4,22 @@
   const $ = (id) => document.getElementById(id);
   const statusEl = $("edStatus");
   const setStatus = (msg) => { statusEl.textContent = msg || ""; };
-  const show = (id) => { for (const v of ["loginView", "deniedView", "dashboardView"]) $(v).hidden = v !== id; };
+  const show = (id) => { for (const v of ["gateView", "loginView", "deniedView", "dashboardView"]) $(v).hidden = v !== id; };
+
+  // 진입 비밀번호는 화면 앞의 걸쇠일 뿐이다 — 데이터는 뒤의 Supabase 로그인 + is_admin RPC 가 막는다.
+  const GATE_PW = "qhdks551!!";
+  const unlocked = () => sessionStorage.getItem("ed.gate") === "1";
+  $("gateForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    if ($("gateInput").value === GATE_PW) {
+      sessionStorage.setItem("ed.gate", "1");
+      setStatus("로그인 상태를 확인하는 중입니다...");
+      startAuth();
+    } else {
+      setStatus("비밀번호가 다릅니다.");
+      $("gateInput").select();
+    }
+  });
 
   const cfg = window.SUMMRIZEI_SUPABASE;
   if (!cfg || !cfg.url || !cfg.anonKey) {
@@ -157,20 +172,31 @@
   $("logoutButton").addEventListener("click", logout);
   $("deniedLogoutButton").addEventListener("click", logout);
 
-  setStatus("로그인 상태를 확인하는 중입니다...");
-  supabase.auth.onAuthStateChange((_event, session) => {
-    clearInterval(timer);
-    if (!session) {
-      $("edAccount").hidden = true;
-      show("loginView");
+  let authStarted = false;
+  function startAuth() {
+    if (authStarted) return;
+    authStarted = true;
+    supabase.auth.onAuthStateChange((_event, session) => {
+      clearInterval(timer);
+      if (!session) {
+        $("edAccount").hidden = true;
+        show("loginView");
+        setStatus("");
+        return;
+      }
+      $("edAccount").hidden = false;
+      $("edEmail").textContent = session.user.email || "";
+      show("dashboardView");
       setStatus("");
-      return;
-    }
-    $("edAccount").hidden = false;
-    $("edEmail").textContent = session.user.email || "";
-    show("dashboardView");
-    setStatus("");
-    refresh();
-    timer = setInterval(refresh, 15000); // 15초 자동 새로고침(선택 유지)
-  });
+      refresh();
+      timer = setInterval(refresh, 15000); // 15초 자동 새로고침(선택 유지)
+    });
+  }
+
+  if (unlocked()) {
+    setStatus("로그인 상태를 확인하는 중입니다...");
+    startAuth();
+  } else {
+    show("gateView");
+  }
 })();
