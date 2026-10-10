@@ -3,12 +3,20 @@
 const Contracts=require("../lib/contracts.js");
 const BASE="https://api.mistral.ai/v1",ENDPOINT=BASE+"/ocr";
 const MODEL="mistral-ocr-4-1";
-const USD_PER_PAGE=4/1000;
+// 도표 주석(bbox_annotation_format)을 함께 받는 쪽은 Document AI 단가 $5/1,000쪽이다(OCR 단독 $4) — 장부는 실제 요청 모양의 단가로 센다.
+const USD_PER_PAGE=5/1000;
 // 형식 실패·혼잡 대비 같은 요청 안의 최대 호출 수 — 예약도 이 횟수로 잡는다.
 const MAX_ATTEMPTS=2;
 // 설정 오류(400)는 다시 불러도 같다 — 재시도는 혼잡·서버 오류에만.
 const retryableStatus=s=>s===429||s>=500;
 
+const FIGURE_ANNOTATION={type:"object",additionalProperties:false,required:["kind","title","summary"],properties:{
+  kind:{type:"string",enum:["chart","diagram","table","photo","decorative"],description:"그림 종류. 축이 있는 그래프는 chart, 도식·흐름도·결정 경계 그림은 diagram, 표는 table, 사진은 photo, 로고·장식은 decorative."},
+  title:{type:["string","null"],description:"그림에 적힌 제목이나 캡션을 화면 그대로. 없으면 null."},
+  summary:{type:"string",description:"한국어 한두 문장. 그래프면 가로축·세로축 이름, 계열(색·선 종류), 추세를 적고 값은 화면에 숫자로 적힌 것만 쓴다. 짐작하거나 해석을 덧붙이지 않는다."}}};
+const annotationOf=img=>{const raw=img?.image_annotation??img?.annotation;if(raw==null)return null;try{const o=typeof raw==="string"?JSON.parse(raw):raw;return o&&typeof o==="object"&&!Array.isArray(o)?o:null;}catch{return null;}};
+// 수식 블록은 LaTeX 를 구분자($$·$·\[ \])로 감싸 온다 — 구분자를 벗긴 본문을 latex 에 둬야 수식 검증(파싱·숫자 대조)이 돈다.
+const latexOf=raw=>{const t=String(raw||"").trim(),m=t.match(/^\$\$([\s\S]+)\$\$$/)||t.match(/^\\\[([\s\S]+)\\\]$/)||t.match(/^\$([^$]+)\$$/);const b=(m?m[1]:t).trim();return b?b.slice(0,4000):null;}; // 구분자가 없어도 equation 블록 본문은 LaTeX 다
 const requestBody=image=>({
   model:MODEL,
   document:{type:"image_url",image_url:image},
@@ -18,6 +26,9 @@ const requestBody=image=>({
   extract_header:true,
   extract_footer:true,
   include_image_base64:false,
+  // 도표마다 종류·화면 제목·한국어 요약을 받는다 — OCR 만으로는 그래프가 이름 없는 사진(photo)이라 계획·작성 모델이 그래프 내용을 모른다(실행 mis-sol-hai-22).
+  // 필드 설명이 주석 지시다. 화면에 보이는 것만 적게 해 값 짐작을 막는다.
+  bbox_annotation_format:{type:"json_schema",json_schema:{name:"slide_figure",strict:true,schema:FIGURE_ANNOTATION}},
 });
 
 // 좌표 단위는 공식 문서가 정하지 않는다 — 전부 0~1이면 비율로 두고, 하나라도 넘으면 픽셀로 보고
@@ -65,6 +76,7 @@ function toSlideDoc(raw,{slideId,t0,t1,model,mode}){
   for(const page of pages){
     if(!page||typeof page!=="object")continue;
     const dims=page.dimensions;
+    const imgById=new Map((Array.isArray(page.images)?page.images:[]).filter(i=>i&&typeof i.id==="string").map(i=>[i.id,i]));
     // extract_header/footer 가 분리한 머리·바닥글은 읽기 순서가 없어서 blocks 말미에 붙인다 —
     // role 이 header/footer 라 boilerplate 규칙과 근거 텍스트 제외가 그대로 적용된다.
     for(const [text,role]of[[page.header,"header"],[page.footer,"footer"]]){
@@ -76,7 +88,7 @@ function toSlideDoc(raw,{slideId,t0,t1,model,mode}){
       const raw=typeof b.content==="string"?b.content:"",text=plainText(raw),bbox=normBox(b,dims),conf=confOf(b),type=b.type;
       if(type==="equation"){
         // 수식은 원문 그대로 둔다 — 부등호가 태그처럼 보여도 LaTeX 이다.
-        if(raw.trim())formulas.push({id:"f0",latex:null,text:raw.trim().slice(0,4000),bbox,conf,status:"unverified"});
+        if(raw.trim())formulas.push({id:"f0",latex:latexOf(raw),text:raw.trim().slice(0,4000),bbox,conf,status:"unverified"});
         continue;
       }
       if(type==="table"){
@@ -86,7 +98,10 @@ function toSlideDoc(raw,{slideId,t0,t1,model,mode}){
         continue;
       }
       if(type==="image"){
-        if(bbox&&bbox.w>0&&bbox.h>0)figures.push({id:"g0",bbox,kind:"photo",title:null,cells:null,chartSummary:null,chartData:null,conf});
+        const an=annotationOf(imgById.get(b.image_id)),kind=["chart","diagram","table","photo"].includes(an?.kind)?an.kind:"photo";
+        if(an?.kind==="decorative")continue; // 로고·장식은 도표가 아니다
+        if(bbox&&bbox.w>0&&bbox.h>0)figures.push({id:"g0",bbox,kind,title:typeof an?.title==="string"&&an.title.trim()?an.title.trim().slice(0,300):null,cells:null,
+          chartSummary:typeof an?.summary==="string"&&an.summary.trim()?an.summary.trim().slice(0,1000):null,chartData:null,conf});
         else if(text)blocks.push({id:"b0",text:text.slice(0,4000),role:"body",bbox:null,conf,ink:null});
         continue;
       }

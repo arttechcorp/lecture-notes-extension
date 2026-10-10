@@ -28,8 +28,27 @@ test("toSlideDoc maps block types, roles and page header/footer",()=>{
   assert.equal(doc.blocks.find(b=>b.text==="3쪽").role,"footer");
   assert.equal(doc.blocks.find(b=>b.text==="내부 머리글").role,"header");
   const f=doc.formulas[0];
-  assert.equal(f.text,"\\sum_k i_k = 0");assert.equal(f.status,"unverified");assert.equal(f.latex,null);
+  assert.equal(f.text,"\\sum_k i_k = 0");assert.equal(f.status,"unverified");assert.equal(f.latex,"\\sum_k i_k = 0","equation 블록 본문은 LaTeX 로 넘겨 수식 검증이 돈다");
   assert.equal(doc.blocks[0].id,"b1");assert.equal(f.id,"f1");
+  Contracts.assertValid(Contracts.SCHEMAS.slideDoc,doc,"slideDoc");
+});
+
+test("mis-sol-hai: 수식은 구분자를 벗긴 LaTeX 를 latex 에, 도표는 bbox 주석의 종류·제목·한국어 요약을 싣고 장식은 뺀다",()=>{
+  const ann=o=>JSON.stringify(o);
+  const doc=OcrMistral.toSlideDoc(ocrResponse([page([
+    blk("equation","$$\\mathrm{CV}_{(n)} = \\frac{1}{n}\\sum_{i=1}^{n} e_i^2$$",[0.3,0.4,0.6,0.5]),
+    blk("image","",[0.1,0.5,0.5,0.9],{image_id:"img-0.jpeg"}),
+    blk("image","",[0.8,0.0,0.9,0.1],{image_id:"img-1.jpeg"}),
+  ],{images:[
+    {id:"img-0.jpeg",top_left_x:0.1,top_left_y:0.5,bottom_right_x:0.5,bottom_right_y:0.9,image_annotation:ann({kind:"chart",title:"LOOCV",summary:"가로축은 다항식 차수, 세로축은 평균제곱오차다."})},
+    {id:"img-1.jpeg",top_left_x:0.8,top_left_y:0,bottom_right_x:0.9,bottom_right_y:0.1,image_annotation:ann({kind:"decorative",title:null,summary:"로고"})},
+  ]})]),meta);
+  assert.equal(doc.formulas[0].latex,"\\mathrm{CV}_{(n)} = \\frac{1}{n}\\sum_{i=1}^{n} e_i^2");
+  assert.equal(doc.figures.length,1,"장식 이미지는 도표에서 뺀다");
+  assert.deepEqual([doc.figures[0].kind,doc.figures[0].title,doc.figures[0].chartSummary],["chart","LOOCV","가로축은 다항식 차수, 세로축은 평균제곱오차다."]);
+  const plain=OcrMistral.toSlideDoc(ocrResponse([page([blk("image","",[0.1,0.5,0.5,0.9],{image_id:"x"})])]),meta);
+  assert.deepEqual([plain.figures[0].kind,plain.figures[0].chartSummary],["photo",null],"주석이 없으면 종전대로 photo");
+  assert.ok(OcrMistral.requestBody("data:").bbox_annotation_format.json_schema.schema.required.includes("summary"));
   Contracts.assertValid(Contracts.SCHEMAS.slideDoc,doc,"slideDoc");
 });
 
@@ -82,8 +101,8 @@ test("markInk flags blocks overlapping the L1 ink mask",()=>{
   assert.equal(doc.blocks[0].ink,true,"빈 마스크 호출은 기존 표시를 건드리지 않는다");
 });
 
-test("pageCost bills pages_processed at $4/1000, unreported stays null",()=>{
-  assert.equal(OcrMistral.pageCost({pages_processed:60}),0.24);
+test("pageCost bills pages_processed at $5/1000 (주석 포함 Document AI 단가), unreported stays null",()=>{
+  assert.equal(OcrMistral.pageCost({pages_processed:60}),0.3);
   assert.equal(OcrMistral.pageCost({pages_processed:0}),0);
   assert.equal(OcrMistral.pageCost({}),null);
   assert.equal(OcrMistral.pageCost(null),null);
@@ -149,7 +168,7 @@ test("mistral vision route sends the OCR request shape and normalizes to slideDo
     assert.equal(slideDoc.engine,"vision-mistral");
     assert.equal(slideDoc.blocks[0].text,"슬라이드 본문");
     assert.equal(slideDoc.blocks[0].ink,true,"ink 마스크와 겹치는 블록은 표시된다");
-    assert.equal(usage.pages,1);assert.equal(usage.costUsd,0.004);
+    assert.equal(usage.pages,1);assert.equal(usage.costUsd,0.005);
     const bad=await req(url,"/v1/vision",visionBody({requestId:"ocr-two",ink:[{x:2,y:0,w:1,h:1}]}));
     assert.equal(bad.status,400,"프레임 밖 마스크는 거절한다");
   }finally{await close(server);removeTemp(root);}
@@ -166,7 +185,7 @@ test("429 retries once and bills both attempts by pages; 400 is a refunded confi
   try{
     const res=await req(url,"/v1/vision",visionBody({requestId:"ocr-retry"}));
     assert.equal(res.status,200);assert.equal(calls,2,"429 는 같은 요청 안에서 한 번 더 간다");
-    assert.equal((await res.json()).usage.costUsd,0.004,"실패한 시도는 페이지가 없어 성공분만 정산된다");
+    assert.equal((await res.json()).usage.costUsd,0.005,"실패한 시도는 페이지가 없어 성공분만 정산된다");
   }finally{await close(server);removeTemp(root);}
 
   const root2=fs.mkdtempSync(path.join(os.tmpdir(),"summrizei-service-test-"));let calls2=0;
@@ -229,7 +248,7 @@ test("a page the provider already processed is charged even when the retry then 
     const res=await req(url,"/v1/vision",visionBody({requestId:"ocr-billed"}));
     assert.equal(res.status,502);assert.equal(calls,2);
     const state=JSON.parse(fs.readFileSync(path.join(root,"usage.json"),"utf8"));
-    assert.ok(Math.abs(state.accounts.A.spentCents-0.4)<0.01,"처리된 한 페이지(약 0.4¢)만 남고 예약 1¢ 전액은 남지 않는다");
+    assert.ok(Math.abs(state.accounts.A.spentCents-0.5)<0.01,"처리된 한 페이지(약 0.5¢)만 남고 예약 1¢ 전액은 남지 않는다");
   }finally{await close(server);removeTemp(root);}
 });
 
