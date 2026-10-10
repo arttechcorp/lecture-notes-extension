@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.8.0.15 — 2026-10-10
+
+- mis-sol-hai Haiku 수리 응답의 형식 흔들림을 받아 낸다: 루트 checks·요청하지 않은 블록은 버리고 요청 블록만 남기며, JSON 앞뒤에 붙은 설명은 바깥 {…} 구간으로 다시 읽는다(실행 mis-sol-hai-23의 _checks·why_.extra·invalid_json).
+
 ## 2.8.0.14 — 2026-10-10
 
 - mis-sol-hai Sol 세션 수리도 배열 blocks 응답을 keyed 맵으로 되돌린다. 세션 경로가 정규화를 거치지 않아 Sol 수리가 모두 required 로 실패했다(실행 mis-sol-hai-23).

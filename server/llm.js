@@ -84,7 +84,11 @@ const UNMANGLE=[
 ];
 const unmangle=s=>UNMANGLE.reduce((acc,[re,rep])=>acc.replace(re,rep),s);
 // 스키마를 프롬프트로 받은 모델은 JSON 을 코드 블록으로 감쌀 때가 있다 — 바깥 펜스만 벗긴다.
-const parseNote=text=>JSON.parse(String(text).trim().replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/,""),(_,v)=>typeof v==="string"?unmangle(v):v);
+// 앞뒤에 설명을 붙인 응답은 바깥 {…} 구간으로 한 번 더 읽는다(실행 mis-sol-hai-23 Haiku 수리 invalid_json).
+const parseNote=text=>{
+  const t=String(text).trim().replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/,""),rev=(_,v)=>typeof v==="string"?unmangle(v):v;
+  try{return JSON.parse(t,rev);}catch(e){const i=t.indexOf("{"),j=t.lastIndexOf("}");if(i<0||j<=i||(i===0&&j===t.length-1))throw e;return JSON.parse(t.slice(i,j+1),rev);}
+};
 const schemaInPrompt=model=>!!MODELS[model]?.schemaInPrompt;
 // 이미지 근거(mis-sol-hai 필기 해석, 기획 §4.2): user 텍스트 뒤에 근거 id 라벨과 image_url 파트를 번갈아 붙인다.
 // 이미지는 이 요청 안에서만 산다 — 문자열이든 캐시 분할 파트든 그 뒤에 덧붙이고, 호출 뒤에는 버린다(저장 금지).

@@ -198,3 +198,9 @@ test("userWithImages: 필기 영역 이미지는 근거 id 라벨과 image_url �
   assert.deepEqual(LLM.userWithImages("x",[]),{role:"user",content:"x"});
   assert.deepEqual(LLM.userWithImages("x",null),{role:"user",content:"x"});
 });
+
+test("parseNote: 앞뒤에 설명을 붙인 JSON 도 바깥 {…} 구간으로 읽는다(실행 mis-sol-hai-23 Haiku 수리 invalid_json)", () => {
+  assert.deepEqual(LLM.parseNote('다음은 수리 결과입니다.\n{"blocks":[]}\n이상입니다.'), { blocks: [] });
+  assert.deepEqual(LLM.parseNote('```json\n{"a":1}\n```'), { a: 1 });
+  assert.throws(() => LLM.parseNote("설명뿐"), SyntaxError);
+});

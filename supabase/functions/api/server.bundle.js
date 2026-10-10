@@ -4575,11 +4575,12 @@ const shapeOf=v=>/^[A-Za-z]{1,3}[0-9]{0,4}([_\-/.][A-Za-z]{0,3}[0-9]{0,4}){0,2}$
 const REPAIR_PROVIDER_SCHEMA={type:"object",additionalProperties:false,required:["blocks"],properties:{blocks:{type:"array",items:{type:"object",additionalProperties:false,required:["blockId","envelope"],properties:{blockId:{type:"string"},envelope:{type:["object","null"]}}}}}};
 const normalizeRepairBlocks=(parsed,ids)=>{
   if(!parsed||typeof parsed!=="object"||!Array.isArray(parsed.blocks))return parsed;
+  // 수리 출력은 blocks 하나, 요청한 블록만이다 — 섹션 출력을 흉내 낸 루트 checks·요청하지 않은 blockId 는 버린다(실행 mis-sol-hai-23 _checks·why_.extra).
   const blocks={};for(const id of ids)if(typeof id==="string")blocks[id]=null;
   // 봉투를 JSON 문자열로 감싸 보내는 응답도 받는다 — 문자열은 salvage 가 못 비워 블록 단위 타입 오류로 수리 전체가 실패했다(실행 mis-sol-hai-21·22 Sol 수리).
   const env=v=>{if(typeof v!=="string")return v??null;try{const o=JSON.parse(v);return o&&typeof o==="object"&&!Array.isArray(o)?o:null;}catch{return null;}};
-  for(const e of parsed.blocks)if(e&&typeof e==="object"&&typeof e.blockId==="string")blocks[e.blockId]=env(e.envelope);
-  return {...parsed,blocks};
+  for(const e of parsed.blocks)if(e&&typeof e==="object"&&Object.hasOwn(blocks,e.blockId))blocks[e.blockId]=env(e.envelope);
+  return {blocks};
 };
 const finalizeNote=(stage,content,outSchema,rest,patch=null)=>{
   let parsed;try{parsed=parseNote(content);}catch{throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_json"});}
@@ -4999,7 +5000,11 @@ const UNMANGLE=[
 ];
 const unmangle=s=>UNMANGLE.reduce((acc,[re,rep])=>acc.replace(re,rep),s);
 // 스키마를 프롬프트로 받은 모델은 JSON 을 코드 블록으로 감쌀 때가 있다 — 바깥 펜스만 벗긴다.
-const parseNote=text=>JSON.parse(String(text).trim().replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/,""),(_,v)=>typeof v==="string"?unmangle(v):v);
+// 앞뒤에 설명을 붙인 응답은 바깥 {…} 구간으로 한 번 더 읽는다(실행 mis-sol-hai-23 Haiku 수리 invalid_json).
+const parseNote=text=>{
+  const t=String(text).trim().replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/,""),rev=(_,v)=>typeof v==="string"?unmangle(v):v;
+  try{return JSON.parse(t,rev);}catch(e){const i=t.indexOf("{"),j=t.lastIndexOf("}");if(i<0||j<=i||(i===0&&j===t.length-1))throw e;return JSON.parse(t.slice(i,j+1),rev);}
+};
 const schemaInPrompt=model=>!!MODELS[model]?.schemaInPrompt;
 // 이미지 근거(mis-sol-hai 필기 해석, 기획 §4.2): user 텍스트 뒤에 근거 id 라벨과 image_url 파트를 번갈아 붙인다.
 // 이미지는 이 요청 안에서만 산다 — 문자열이든 캐시 분할 파트든 그 뒤에 덧붙이고, 호출 뒤에는 버린다(저장 금지).
