@@ -2396,6 +2396,14 @@ test("unreported costs are priced from tokens (null only without tokens) and rep
   }, { setup: sb => { sb.plan = "free"; } });
 });
 
+test("schemaWhy: 블록 단위 실패에 블록 안 첫 원 오류의 경로·규칙을 붙인다(내용 없음)", () => {
+  const { schemaWhy } = require("./index.js");
+  const errs = [{ path: "/blocks/S1_B4/content/claims/0/evidenceIds", message: "필수 속성이 없습니다" }, { path: "/blocks/S2_B1/content", message: "타입이 다릅니다: object" }];
+  assert.equal(schemaWhy(errs, "/blocks/S1_B4"), ".why_content_claims_0_evidenceids.required");
+  assert.equal(schemaWhy(errs, "/blocks/S2_B1"), ".why_content.type");
+  assert.equal(schemaWhy(errs, "/sections"), "", "블록 밖 경로는 덧붙이지 않는다");
+});
+
 test("a length cut-off settles as an error carrying the reported charge, not as a refund", async () => {
   await withSupabase(async ({ url, sb }) => {
     const jwt = ec1();

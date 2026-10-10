@@ -33,6 +33,10 @@ const attemptOf=(id,latencyMs,u,error,meta)=>{
     costStatus:cost!==null?"provider_reported":i!==null||o!==null?"estimated":"unreported",...(meta||{})};
 };
 // 시도 오류 코드: detail 이 있으면 그것, 아니면 코드 모양의 message — 나머지는 invalid_output.
+const SCHEMA_MSG=[["타입이 다릅니다","type"],["값이 다릅니다","const"],["허용된 값이 아닙니다","enum"],["필수 속성이 없습니다","required"],["허용되지 않는 속성입니다","extra"],["항목이 부족합니다","min_items"],["항목이 너무 많습니다","max_items"],["길이가 부족합니다","min_len"],["길이가 너무 깁니다","max_len"],["패턴과 다릅니다","pattern"],["최솟값 미만입니다","min"],["최댓값을 넘습니다","max"]];
+// 블록 단위 실패(/blocks/<id>)의 원인: 그 블록 안 첫 원 오류의 경로·규칙 코드. 내용은 싣지 않는다.
+const schemaWhy=(errors,path)=>{if(!String(path).startsWith("/blocks/"))return "";const e=(errors||[]).find(x=>String(x.path).startsWith(path+"/"))||(errors||[])[0];
+  return e?".why_"+(String(e.path).split("/").slice(3).join("_")+"."+(SCHEMA_MSG.find(([m])=>String(e.message).startsWith(m))?.[1]||"x")).toLowerCase().replace(/[^a-z0-9_.]/g,"_").slice(0,40):"";};
 const errCode=e=>typeof e?.detail==="string"&&e.detail||(/^[a-z][a-z0-9_.-]{0,62}$/.test(e?.message)?e.message:null)||"invalid_output";
 // 요청 안의 시도 목록을 원장 필드로 접는다. logical_task_id 는 클라이언트 재시도(-rN)를 묶는 기준 id, attempt_id 는 마지막 제공자 호출 번호.
 // 미보고는 합계에서도 null 로 보존한다. 청구액은 요청 행에만 두고 시도별 상세는 usage_attempts 로 가므로 요청 합계를 중복 세지 않는다.
@@ -994,7 +998,9 @@ const finalizeNote=(stage,content,outSchema,rest,patch=null)=>{
   }
   const r=Contracts.validate(outSchema,checked);
   // editorial 은 루트 키 이름(내용 아님)도 detail 에 싣는다 — 어느 칸이 어긋났는지가 보여야 고칠 수 있다.
+  // salvage 가 블록을 null 로 비운 뒤 실패하면 경로가 /blocks/<id> 에서 끝나 원인이 안 보인다(실행 mis-sol-hai-21 Sol 수리) — 비우기 전 첫 오류의 블록 안 경로·규칙을 덧붙인다(내용 없음).
   if(!r.ok)throw Object.assign(new Error("invalid_note_output"),{detail:"invalid_schema."+String(r.errors?.[0]?.path||r.errors?.[0]?.keyword||"x").toLowerCase().replace(/[^a-z0-9_.]/g,"_").slice(0,40)
+    +(!pre.ok?schemaWhy(pre.errors,r.errors?.[0]?.path):"")
     +(stage==="editorial"&&checked&&typeof checked==="object"?".k_"+Object.keys(checked).slice(0,5).join("-").toLowerCase().replace(/[^a-z0-9_-]/g,"_").slice(0,40)+".v_"+typeof checked.v:"")});
   return{parsed,salvaged,salvagedErrors};
 };
@@ -1066,5 +1072,5 @@ async function boundedResponse(response,max){
   finally{await reader.cancel().catch(()=>{});}
 }
 if(require.main===module)createServer().listen(Number(process.env.PORT||8788),process.env.HOST||"127.0.0.1",()=>console.log("Summrizei service ready."));
-module.exports={repetitive,createServer,config,tokenEqual,RATES,STT_RATES,readState,toTranscript,toSlideDoc,VISION_SCHEMA,judgeProbs,JUDGE_MODELS};
+module.exports={schemaWhy,repetitive,createServer,config,tokenEqual,RATES,STT_RATES,readState,toTranscript,toSlideDoc,VISION_SCHEMA,judgeProbs,JUDGE_MODELS};
 

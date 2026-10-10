@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.8.0.9 — 2026-10-10
+
+- 서비스 클라이언트가 서버 요청 계약의 칸을 빠짐없이 보낸다. mis-sol-hai 에서 추가된 plan.emphasis(강조 신호, D4)·draft.images(미판독 필기 이미지, D6)·review.html·omittedSectionIds·baseRevision(Sol 검수, D8)이 HTTP 본문에서 빠져, 검수는 늘 400(review_sections_xor_html)이고 강조 신호·필기 해석은 서버에 닿지 않았다(실행 mis-sol-hai-21). 서버 REQUEST 스키마의 모든 칸이 실리는지 계약 테스트로 묶었다.
+- 수리 출력이 블록 스키마에 어긋나 실패하면 원장 error_code 에 블록 안 첫 원 오류의 경로·규칙(why_)을 덧붙인다(실행 21의 Sol 세션 수리 invalid_schema 원인 추적용).
+
 ## 2.8.0.8 — 2026-10-10
 
 - 요약하지 못한 단원의 도표는 그 단원과 함께 뺀다. 어느 블록도 가리키지 않은 도표가 실패한 단원 구간에 있으면 마지막 단원 뒤로 몰려 노트 끝이 영어 도표 설명으로 채워졌다(실행 mis-sol-hai-14).
