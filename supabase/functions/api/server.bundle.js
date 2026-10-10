@@ -4330,7 +4330,7 @@ function createServer(env=process.env,deps={}){
     const rest=Object.fromEntries(Object.keys(spec.properties).filter(k=>input[k]!==undefined).map(k=>[k,input[k]])),checked=Contracts.validate(spec,rest);
     if(!checked.ok)return fail(res,checked.errors.some(e=>e.message==="허용되지 않는 속성입니다")?"unexpected_field":"request_rejected",null,{detail:checked.errors.slice(0,3).map(e=>e.path).join(";").slice(0,200)});
     // review 입력은 주장 축약(sections)과 렌더 HTML 축약(html, mis-sol-hai) 중 정확히 하나다 — 둘 다 없거나 겹치면 거절한다.
-    if(stage==="review"&&(rest.sections===undefined)===(rest.html===undefined))return fail(res,"request_rejected");
+    if(stage==="review"&&(rest.sections===undefined)===(rest.html===undefined))return fail(res,"request_rejected",null,{detail:"review_sections_xor_html"});
     // 가상 사례·강의 밖 보강(6-8)은 계정 기능 augment 가 있어야 켤 수 있다. 화면의 버튼만으로 막지 않는다(§18).
     const opts=rest.options;
     if((opts.syntheticExamples||opts.externalAugmentation)&&(!(account.limits.features||[]).includes("augment")||c.featureFlags.augment===false))return fail(res,"feature_not_in_account_plan");

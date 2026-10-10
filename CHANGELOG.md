@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.8.0.7 — 2026-10-10
+
+- mis-sol-hai Sol 검수(렌더 HTML 입력)가 서버 상한을 넘지 않게 한다. 첫 섹션 통째 보존은 95,000바이트까지만 하고, 도표 SVG의 도형 좌표는 빼고 라벨만 남긴다. 실행 mis-sol-hai-14에서 검수 요청이 400 request_rejected로 거절돼 피드백 단계(D8)가 돌지 않았다.
+- 검수 실패 이벤트(REVIEW_FAILED)에 서버 detail(스키마 경로)을 함께 남긴다.
+
 ## 2.8.0.6 — 2026-10-10
 
 - mis-sol-hai의 Mistral OCR 호출을 한 번에 하나씩 보낸다(프로파일 visionLanes 1). 비전 3레인과 서버 즉시 재시도가 겹쳐 모든 OCR 호출이 429였고 차단기가 열려 작업이 멈췄다(실행 mis-sol-hai-16, Mistral OCR 첫 실제 호출).
