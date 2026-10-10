@@ -282,7 +282,9 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
             worker = null; swSession = null;
             for (let i = 0; i < 30 && !(await grabWorker()); i++) await new Promise(r => setTimeout(r, 700));
             if (!(await grabWorker())) throw new Error('extension did not come back after reload');
-            v = await workerEval(() => chrome.runtime.getManifest().version).catch(() => null);
+            // 재로드 직후 잡은 SW 채널이 아직 죽은 이전 워커일 수 있다 — 버전이 읽힐 때까지 채널을 다시 잡는다(run 9·11·13·15 의 "running null")
+            v = null;
+            for (let i = 0; i < 20 && v !== report.version; i++) { v = await workerEval(() => chrome.runtime.getManifest().version).catch(() => null); if (v !== report.version) { worker = null; swSession = null; await new Promise(r => setTimeout(r, 700)); await grabWorker(); } }
             if (v !== report.version) throw new Error(`extension version mismatch: running ${v}, repo ${report.version}`);
             rec.detail = `attached; reloaded id=${id} v${v}.` + FOLDER_NOTE;
           }

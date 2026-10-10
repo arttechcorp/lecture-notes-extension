@@ -203,6 +203,21 @@ test("a final 429 with no processed page is refunded and stays retryable",async(
   }finally{await close(server);removeTemp(root);}
 });
 
+test("429: Retry-After 를 지켜 다시 가고, 소진되면 간격·사유를 돌려준다",async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),"summrizei-service-test-"));const waits=[];
+  const r429={ok:false,status:429,headers:{get:k=>k==="retry-after"?"3":null},text:async()=>JSON.stringify({object:"error",message:"Requests rate limit exceeded",type:"rate_limited",code:"1300"})};
+  const server=createServer(ocrEnv(root),{fetch:async()=>r429,sleep:async ms=>{waits.push(ms);}});
+  await new Promise(r=>server.listen(0,"127.0.0.1",r));const url="http://127.0.0.1:"+server.address().port;
+  try{
+    const res=await req(url,"/v1/vision",visionBody({requestId:"ocr-ra"}));
+    const err=(await res.json()).error;
+    assert.deepEqual(waits,[3000],"같은 요청 안의 재시도 전에 Retry-After 만큼 쉰다");
+    assert.equal(err.retryable,true);assert.equal(err.retryAfterMs,3000,"클라이언트 재시도도 그 간격을 따른다");
+  }finally{await close(server);removeTemp(root);}
+  const e=await OcrMistral.recognize({fetcher:async()=>r429,key:"k",image:"data:image/jpeg;base64,AA==",boundedResponse:null}).catch(x=>x);
+  assert.equal(e.reason,"rate_limited_1300","429 사유(type·code)를 원장 error_code 로 넘긴다");
+});
+
 test("a page the provider already processed is charged even when the retry then fails",async()=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),"summrizei-service-test-"));let calls=0;
   // 첫 응답은 페이지를 셌지만 계약에 안 맞아(pages 없음) 재시도한다 — 둘째는 429 로 소진된다.

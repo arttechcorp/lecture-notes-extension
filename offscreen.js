@@ -288,7 +288,7 @@ async function bgJob(job,source,settings,me,ctl){
       // 강의가 길면 기본 200장을 넘는다. 진짜 상한은 서버의 월 비용 한도다.
       vision:VisionClient.createVisionEngine({baseUrl:base,token,model:prof?.vision??BG_MODELS.vision,maxCalls:Infinity,signal:ctl.signal}),
       // lastFrame 은 사용자 옵션이 아니라 프로파일 칸에서만 파생한다 — noteOpts 에는 그 키가 없다(settings.js 화이트리스트 밖).
-      stt:{stt:svc("stt")},settings,features:me,models:{...BG_MODELS,...noteModels(me,settings),judge:BG_MODELS.judge},signal:ctl.signal,crop:cropRegions,cropInk,options:{...noteOpts,...(prof?.lastFrame?{lastFrame:true}:{})},
+      stt:{stt:svc("stt")},settings,features:me,models:{...BG_MODELS,...noteModels(me,settings),judge:BG_MODELS.judge},signal:ctl.signal,crop:cropRegions,cropInk,options:{...noteOpts,...(prof?.lastFrame?{lastFrame:true}:{}),...(prof?.visionLanes?{visionLanes:prof.visionLanes}:{})},
       // 끝나면(인식 결과만 있어도) 로컬 보관함에 둔다. 저장 실패는 노트를 잃게 하지 않도록 코드만 남기고 결말은 그대로 알린다.
       runNote:async(j,input,o)=>{
         noteModelsEvent(j.jobId,input?.models,noteModeOf(settings));

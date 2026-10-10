@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.8.0.6 — 2026-10-10
+
+- mis-sol-hai의 Mistral OCR 호출을 한 번에 하나씩 보낸다(프로파일 visionLanes 1). 비전 3레인과 서버 즉시 재시도가 겹쳐 모든 OCR 호출이 429였고 차단기가 열려 작업이 멈췄다(실행 mis-sol-hai-16, Mistral OCR 첫 실제 호출).
+- 서버는 Mistral 429에 Retry-After(없으면 1.5초)를 지켜 다시 시도하고, 소진되면 그 간격을 클라이언트 재시도에 넘긴다. 원장 error_code에 Mistral 실패 사유(type·code)를 덧붙인다.
+- e2e 하네스: 확장 재로드 직후 버전을 못 읽어 run이 실패하던 경합("running null")을 재시도로 막는다.
+
 ## 2.8.0.5 — 2026-10-10
 
 - mis-sol-hai 작성(Haiku 5.5)의 추론 깊이를 effort low로 정한다. Haiku 5.5는 adaptive thinking만 받아 토큰 예산(2.8.0.4)이 먹히지 않았고, 실강의에서 추론이 11~22K토큰으로 출력 상한을 계속 먹었다(실행 mis-sol-hai-14).

@@ -266,6 +266,7 @@ function readState(file){
   return s;
 }
 function createServer(env=process.env,deps={}){
+  const sleep=deps.sleep||(ms=>new Promise(r=>setTimeout(r,ms)));
   const c=config(env);fs.mkdirSync(c.root,{recursive:true});
   if(fs.lstatSync(c.root).isSymbolicLink())throw new Error("archive_root_symlink_not_allowed");
   const usageFile=c.stateFile||path.join(c.root,"usage.json"),state=readState(usageFile),rawFetch=deps.fetch||fetch,liner={key:env.LINER_API_KEY,base:env.LINER_BASE_URL},fetcher=(url,init)=>{const r=toLiner(url,init,liner);return r?rawFetch(...r):rawFetch(url,init);},inflight=new Map(),active=new Set(),sems=new Map(),buckets=new Map(),plans=new Map(),profiles=new Set(),clock=deps.now||Date.now;
@@ -573,11 +574,14 @@ function createServer(env=process.env,deps={}){
           let raw;
           try{raw=await OcrMistral.recognize({fetcher,key:c.mistralKey,image:input.image,signal,boundedResponse,endpoint:c.mistralBase+"/ocr"});}
           catch(e){
-            const st=Number(e?.status)||0,detail=st>0?"provider_http_"+st:"provider_transport";
+            const st=Number(e?.status)||0,detail=st>0?"provider_http_"+st+(e.reason?"."+e.reason:""):"provider_transport";
+            // 429 는 Retry-After(없으면 1.5초)를 지켜 다시 가고, 소진되면 그 간격을 클라이언트 재시도에 넘긴다(실행 mis-sol-hai-16: 즉시 재시도로 전부 429).
+            const ra=(()=>{const h=e?.headers?.get?.("retry-after"),v=Number(h);return h==null||String(h).trim()===""||!Number.isFinite(v)?1500:Math.min(Math.max(Math.round(v*1000),1000),30000);})();
             tries.push(attemptOf("a"+tries.length,Date.now()-at,null,detail));
             // 429·5xx 만 제한 재시도한다. 그 외 4xx(400 등)는 설정 오류 — 돈이 안 나갔으니 환불로 접는다.
             if(st>=400&&st<500&&st!==429)throw Object.assign(new Error("mistral_config"),{refund:true,code:"provider_failed_or_invalid_output",detail:"provider_config_error",failExtra:{retryable:false,detail:"provider_config_error"}});
-            if(!OcrMistral.retryableStatus(st)||retry===attempts-1)throw Object.assign(new Error("provider_failed"),{detail});
+            if(!OcrMistral.retryableStatus(st)||retry===attempts-1)throw Object.assign(new Error("provider_failed"),{detail,...(st===429?{retryAfterMs:ra}:{})});
+            if(st===429)await sleep(Math.min(ra,5000));
             continue;
           }
           // 응답이 왔으면 제공자가 페이지를 처리했을 수 있다 — 이때부터 실패는 환불이 아니라 센 금액 청구다.

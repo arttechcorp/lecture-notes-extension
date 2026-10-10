@@ -2451,7 +2451,8 @@ const __defs = {
     //   emphasisSignals — plan 입력에 유닛별 강조 신호 숫자를 싣고 JEV 판정은 끈다(L3 의 lib/emphasis.js).
     //   repair 이중 경로 — 세션이 실린 수리는 Sol(세션), 세션 없는 수리는 Haiku 독립 호출이다(L6 섹션 재작성이 봉투 없이 온다).
     //   lastFrame — 전환 직전 프레임으로 캡처해 필기까지 담는다(L1 의 VisualGate lastFrame 모드, background-job 이 읽는다).
-    "mis-sol-hai":{id:"mis-sol-hai",family:"v2",session:"fork",vision:"mistral-ocr-4-1",prompts:"msh",reviewInput:"html",emphasisSignals:true,lastFrame:true,clientModels:{plan:SOL,write:HAIKU},options:null,
+    //   visionLanes — 비전 호출 레인 상한. Mistral OCR 은 초당 요청 한도가 낮아 1 로 줄인다(background-job 이 읽는다).
+    "mis-sol-hai":{id:"mis-sol-hai",family:"v2",session:"fork",vision:"mistral-ocr-4-1",visionLanes:1,prompts:"msh",reviewInput:"html",emphasisSignals:true,lastFrame:true,clientModels:{plan:SOL,write:HAIKU},options:null,
       stages:{plan:SE(SOL),editorial:{...SE(SOL),strict:true},draft:I(HAIKU),questions:I(HAIKU),review:{...SE(SOL),strict:true},global:SE(SOL),repair:DU(SOL,HAIKU)}},
   };
   const build=profiles=>{
@@ -3878,6 +3879,7 @@ function readState(file){
   return s;
 }
 function createServer(env=process.env,deps={}){
+  const sleep=deps.sleep||(ms=>new Promise(r=>setTimeout(r,ms)));
   const c=config(env);fs.mkdirSync(c.root,{recursive:true});
   if(fs.lstatSync(c.root).isSymbolicLink())throw new Error("archive_root_symlink_not_allowed");
   const usageFile=c.stateFile||path.join(c.root,"usage.json"),state=readState(usageFile),rawFetch=deps.fetch||fetch,liner={key:env.LINER_API_KEY,base:env.LINER_BASE_URL},fetcher=(url,init)=>{const r=toLiner(url,init,liner);return r?rawFetch(...r):rawFetch(url,init);},inflight=new Map(),active=new Set(),sems=new Map(),buckets=new Map(),plans=new Map(),profiles=new Set(),clock=deps.now||Date.now;
@@ -4185,11 +4187,14 @@ function createServer(env=process.env,deps={}){
           let raw;
           try{raw=await OcrMistral.recognize({fetcher,key:c.mistralKey,image:input.image,signal,boundedResponse,endpoint:c.mistralBase+"/ocr"});}
           catch(e){
-            const st=Number(e?.status)||0,detail=st>0?"provider_http_"+st:"provider_transport";
+            const st=Number(e?.status)||0,detail=st>0?"provider_http_"+st+(e.reason?"."+e.reason:""):"provider_transport";
+            // 429 는 Retry-After(없으면 1.5초)를 지켜 다시 가고, 소진되면 그 간격을 클라이언트 재시도에 넘긴다(실행 mis-sol-hai-16: 즉시 재시도로 전부 429).
+            const ra=(()=>{const h=e?.headers?.get?.("retry-after"),v=Number(h);return h==null||String(h).trim()===""||!Number.isFinite(v)?1500:Math.min(Math.max(Math.round(v*1000),1000),30000);})();
             tries.push(attemptOf("a"+tries.length,Date.now()-at,null,detail));
             // 429·5xx 만 제한 재시도한다. 그 외 4xx(400 등)는 설정 오류 — 돈이 안 나갔으니 환불로 접는다.
             if(st>=400&&st<500&&st!==429)throw Object.assign(new Error("mistral_config"),{refund:true,code:"provider_failed_or_invalid_output",detail:"provider_config_error",failExtra:{retryable:false,detail:"provider_config_error"}});
-            if(!OcrMistral.retryableStatus(st)||retry===attempts-1)throw Object.assign(new Error("provider_failed"),{detail});
+            if(!OcrMistral.retryableStatus(st)||retry===attempts-1)throw Object.assign(new Error("provider_failed"),{detail,...(st===429?{retryAfterMs:ra}:{})});
+            if(st===429)await sleep(Math.min(ra,5000));
             continue;
           }
           // 응답이 왔으면 제공자가 페이지를 처리했을 수 있다 — 이때부터 실패는 환불이 아니라 센 금액 청구다.
@@ -5539,7 +5544,9 @@ const pageCost=u=>Number.isFinite(u?.pages_processed)&&u.pages_processed>=0?u.pa
 // endpoint 는 호출자가 env(MISTRAL_BASE_URL, https 만)로 정한 기본점 + "/ocr" 다 — 여기서는 전체 주소를 하드코딩하지 않는다.
 async function recognize({fetcher,key,image,signal,boundedResponse,endpoint=ENDPOINT}){
   const response=await fetcher(endpoint,{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+key,"content-type":"application/json"},body:JSON.stringify(requestBody(image))});
-  if(!response.ok)throw Object.assign(new Error("mistral_http"),{status:response.status,headers:response.headers});
+  // 실패 사유(type·code)만 짧게 남긴다 — 429 가 초당 한도(rate_limited)인지 등급 용량인지 원장(error_code)에서 가린다. 본문 전체는 싣지 않는다.
+  if(!response.ok){let reason=null;try{const j=JSON.parse(String(await response.text()).slice(0,2000));reason=[j?.type,j?.code].filter(v=>v!=null&&v!=="").join("_").replace(/[^A-Za-z0-9_]/g,"").slice(0,40)||null;}catch{}
+    throw Object.assign(new Error("mistral_http"),{status:response.status,headers:response.headers,reason});}
   return boundedResponse(response,4*1024*1024);
 }
 module.exports={ENDPOINT,MODEL,USD_PER_PAGE,MAX_ATTEMPTS,requestBody,toSlideDoc,markInk,pageCost,retryableStatus,recognize,normBox,htmlTableCells};

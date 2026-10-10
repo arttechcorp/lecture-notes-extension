@@ -114,7 +114,9 @@ const pageCost=u=>Number.isFinite(u?.pages_processed)&&u.pages_processed>=0?u.pa
 // endpoint 는 호출자가 env(MISTRAL_BASE_URL, https 만)로 정한 기본점 + "/ocr" 다 — 여기서는 전체 주소를 하드코딩하지 않는다.
 async function recognize({fetcher,key,image,signal,boundedResponse,endpoint=ENDPOINT}){
   const response=await fetcher(endpoint,{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+key,"content-type":"application/json"},body:JSON.stringify(requestBody(image))});
-  if(!response.ok)throw Object.assign(new Error("mistral_http"),{status:response.status,headers:response.headers});
+  // 실패 사유(type·code)만 짧게 남긴다 — 429 가 초당 한도(rate_limited)인지 등급 용량인지 원장(error_code)에서 가린다. 본문 전체는 싣지 않는다.
+  if(!response.ok){let reason=null;try{const j=JSON.parse(String(await response.text()).slice(0,2000));reason=[j?.type,j?.code].filter(v=>v!=null&&v!=="").join("_").replace(/[^A-Za-z0-9_]/g,"").slice(0,40)||null;}catch{}
+    throw Object.assign(new Error("mistral_http"),{status:response.status,headers:response.headers,reason});}
   return boundedResponse(response,4*1024*1024);
 }
 module.exports={ENDPOINT,MODEL,USD_PER_PAGE,MAX_ATTEMPTS,requestBody,toSlideDoc,markInk,pageCost,retryableStatus,recognize,normBox,htmlTableCells};
