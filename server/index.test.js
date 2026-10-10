@@ -3741,7 +3741,7 @@ test("mis-sol-hai: Haiku draft 는 strict response_format 대신 스키마를 �
     const body = bodies.at(-1);
     assert.equal(body.response_format, undefined);
     assert.equal(body.provider.require_parameters, true);
-    assert.deepEqual(body.reasoning, { max_tokens: 8000 }, "effort 는 max_tokens 비율(high=0.8)이라 추론이 상한을 다 먹는다 — 예산을 직접 준다");
+    assert.deepEqual(body.reasoning, { effort: "low" }, "Haiku 5.5 는 adaptive thinking 만 받아 깊이를 effort 로만 정한다 — high 는 추론이 출력 상한을 다 먹었다");
     assert.ok(body.max_tokens > 8000);
     const sch = schemaMessage(body);
     assert.equal(sch.type, "object");

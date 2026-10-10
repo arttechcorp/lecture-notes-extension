@@ -20,10 +20,11 @@ const MODELS={
   "openai/gpt-6-luna@xhigh":{base:"openai/gpt-6-luna",tags:["azure","azure/us","azure/eu"],reasoning:{effort:"xhigh"},reasoningBudget:16000,maxTokens:32768,temperature:false,cacheMode:"openai-explicit"},
   "openai/gpt-6.1-sol":{tags:["azure","openai","azure/us","azure/eu"],reasoning:{effort:"medium"},reasoningBudget:8000,maxTokens:32768,temperature:false},
   // mis-sol-hai 작성 모델(기획 §3.2): Liner 에 없으므로 OpenRouter. temperature 는 생략(temperature:false).
-  // reasoning 은 effort 대신 max_tokens 다 — OpenRouter 는 Claude 의 effort 를 max_tokens 비율(high=0.8)로 바꿔, 실강의에서 추론이 상한(22K)을 다 먹고 잘렸다.
+  // reasoning effort low: Haiku 5.5 는 adaptive thinking 만 받아 토큰 예산(budget_tokens)으로는 못 묶는다(공식 문서, 4.7+ 는 400). 실강의에서 high 는 추론 15~22K,
+  // reasoning.max_tokens 8000 도 11~22K 로 상한(22K)을 먹어 초안 대부분이 잘렸다(mis-sol-hai-12·14). 깊이는 effort 로만 정한다.
   // schemaInPrompt: Anthropic strict json_schema 는 null 허용(union) 칸을 요청당 16개까지만 받아(공식 문서, 초과 시 400) 초안 스키마(약 48칸)가 늘 거절된다 —
   // response_format 없이 스키마를 system 메시지로 주고 서버 계약 검증·형식 재시도로 받는다.
-  "anthropic/claude-haiku-5.5":{tags:["google-vertex/global"],reasoning:{max_tokens:8000},reasoningBudget:8000,maxTokens:32768,temperature:false,cache:true,schemaInPrompt:true},
+  "anthropic/claude-haiku-5.5":{tags:["google-vertex/global"],reasoning:{effort:"low"},reasoningBudget:8000,maxTokens:32768,temperature:false,cache:true,schemaInPrompt:true},
   "xiaomi/mimo-v2.6-pro":{tags:["deepinfra/fp8"],reasoning:{effort:"low"},reasoningBudget:4000,maxTokens:32768},
   "xiaomi/mimo-v2.6-flash":{tags:["io-net/fp8","venice/fp8","deepinfra/fp8"],reasoning:{enabled:false},maxTokens:32768},
 };

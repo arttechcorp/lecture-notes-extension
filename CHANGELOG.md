@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.8.0.5 — 2026-10-10
+
+- mis-sol-hai 작성(Haiku 5.5)의 추론 깊이를 effort low로 정한다. Haiku 5.5는 adaptive thinking만 받아 토큰 예산(2.8.0.4)이 먹히지 않았고, 실강의에서 추론이 11~22K토큰으로 출력 상한을 계속 먹었다(실행 mis-sol-hai-14).
+
 ## 2.8.0.4 — 2026-10-10
 
 - mis-sol-hai 작성(Haiku 5.5)의 추론을 effort high 대신 예산 8,000토큰으로 직접 준다. OpenRouter는 Claude의 effort를 출력 상한 비율(high=0.8)로 바꾸는데, 실강의에서 추론이 상한 22,000토큰을 다 먹어 작성 호출의 약 4분의 3이 잘렸다(실행 mis-sol-hai-12, llm_output_truncated.long).
