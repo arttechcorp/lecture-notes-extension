@@ -204,3 +204,8 @@ test("parseNote: 앞뒤에 설명을 붙인 JSON 도 바깥 {…} 구간으로 �
   assert.deepEqual(LLM.parseNote('```json\n{"a":1}\n```'), { a: 1 });
   assert.throws(() => LLM.parseNote("설명뿐"), SyntaxError);
 });
+
+test("parseNote: JSON 문자열 안의 LaTeX 홑백슬래시(잘못된 이스케이프)는 실패 뒤 백슬래시를 살려 다시 읽는다", () => {
+  assert.deepEqual(LLM.parseNote('{"a":"$\\hat{y}$ 와 \\lambda, \\sum_i"}'), { a: "$\\hat{y}$ 와 \\lambda, \\sum_i" });
+  assert.deepEqual(LLM.parseNote('{"a":"줄\\n바꿈 \\"인용\\""}'), { a: '줄\n바꿈 "인용"' }, "정상 이스케이프는 그대로");
+});

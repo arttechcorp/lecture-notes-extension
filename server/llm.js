@@ -87,7 +87,10 @@ const unmangle=s=>UNMANGLE.reduce((acc,[re,rep])=>acc.replace(re,rep),s);
 // 앞뒤에 설명을 붙인 응답은 바깥 {…} 구간으로 한 번 더 읽는다(실행 mis-sol-hai-23 Haiku 수리 invalid_json).
 const parseNote=text=>{
   const t=String(text).trim().replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/,""),rev=(_,v)=>typeof v==="string"?unmangle(v):v;
-  try{return JSON.parse(t,rev);}catch(e){const i=t.indexOf("{"),j=t.lastIndexOf("}");if(i<0||j<=i||(i===0&&j===t.length-1))throw e;return JSON.parse(t.slice(i,j+1),rev);}
+  // 문자열 안 LaTeX 홑백슬래시(\hat·\lambda — JSON 이스케이프가 아님)는 실패 뒤에만 백슬래시를 두 겹으로 살린다(실행 mis-sol-hai-24 문항 invalid_json).
+  const esc=x=>x.replace(/\\\\|\\(?!["\\/bfnrtu])/g,m=>m.length===2?m:"\\\\");
+  const tryAll=x=>{try{return JSON.parse(x,rev);}catch(e){const y=esc(x);if(y===x)throw e;return JSON.parse(y,rev);}};
+  try{return tryAll(t);}catch(e){const i=t.indexOf("{"),j=t.lastIndexOf("}");if(i<0||j<=i||(i===0&&j===t.length-1))throw e;return tryAll(t.slice(i,j+1));}
 };
 const schemaInPrompt=model=>!!MODELS[model]?.schemaInPrompt;
 // 이미지 근거(mis-sol-hai 필기 해석, 기획 §4.2): user 텍스트 뒤에 근거 id 라벨과 image_url 파트를 번갈아 붙인다.

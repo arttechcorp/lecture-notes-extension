@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.8.0.17 — 2026-10-10
+
+- 모델 JSON 문자열 안의 LaTeX 홑백슬래시(\\hat·\\lambda)를 파싱 실패 뒤 살려 다시 읽는다(실행 mis-sol-hai-24 문항 invalid_json ×7).
+
 ## 2.8.0.16 — 2026-10-10
 
 - mis-sol-hai 도표 아래에 Mistral 주석 요약을 캡션으로 싣지 않는다 — 생성 요약이라 축·값을 틀렸다(실행 mis-sol-hai-23: 'Epoch'·'서포트 벡터'). 작성 근거로는 그대로 쓴다.
