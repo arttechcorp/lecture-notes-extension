@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // sol-wire-probe — server/note-session.js 의 solBody() 가 만드는 실제 plan 단계 본문을
 // OpenRouter /api/v1/responses 에 보내고, 필드 하나씩만 바꾼 변형으로 400/404 거절 원인을 가른다.
-//   사용: OPENROUTER_API_KEY=… node tools/sol-wire-probe.mjs [sol-session|sol-luna-tool|sol-fork|sol-luna-2|sol-fork-2]
+//   사용: OPENROUTER_API_KEY=… node tools/sol-wire-probe.mjs [sol-session|sol-luna-tool|sol-fork|sol-luna-2|sol-luna-3|sol-fork-2]
 // v2 모드의 기준 본문은 dev(고정 V2_DEV)+P(계획 작업·응답·고정 앵커)+일회성 작업(breakpoint 없음)의 작성 호출 모양이다.
 // 키는 env 에서만 읽는다 — 출력·파일·로그·요청 본문에 절대 싣지 않고 파일은 읽지 않는다.
 // 강의 내용이 아닌 합성 본문만 보낸다(작은 system + 작은 task). 각 변형의 출력은

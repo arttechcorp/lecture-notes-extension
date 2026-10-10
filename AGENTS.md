@@ -23,6 +23,7 @@ Rules for Codex, Claude Code, Antigravity, Devin.
 - No auto cloud fallback: If local processing fails, halt and ask. Do not route data to external AI.
 - Storage limit: Plaintext lecture content lives in memory only. Derived artifacts (transcripts, slide text, formula/figure crops, notes, checkpoints, content-free logs) may be persisted only AES-GCM encrypted on the device (`lib/package-store.js`). `chrome.storage` holds settings and consent records only (`lib/settings.js`). The service stores only authenticated ciphertext and content-free metadata (accounts, usage).
 - Crops: Only figure, table or formula regions may be cropped and kept (encrypted). Never store whole slides.
+- mis-sol-hai: OCR이 못 읽은 필기 영역은 클라우드 인식 동의 범위에서 작성 모델에 이미지로 보내 해석하며 저장하지 않는다.
 - Inference boundary: Operator API keys stay on the server. External processing requires explicit consent: HTTPS protects transport, but the service/model necessarily sees the data transiently during inference. Never describe inference as end-to-end encrypted.
 - Respect protections: Stop immediately if DRM/EME, encrypted streams (HLS `EXT-X-KEY`/`EXT-X-SESSION-KEY` other than NONE, DASH `ContentProtection`) or capture blockers are present. Never fetch key URIs, never bypass. Header rules may only reproduce the Referer of the page the user is viewing, scoped to the extension's own requests.
 - Non-substitutive: Output structured summaries, concepts, and questions only. Never recreate verbatim lecture text.

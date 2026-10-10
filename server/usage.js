@@ -104,10 +104,10 @@ function supabaseUsage({url,key,http}){
     // 로컬 결과 캐시 hit/miss 의 콘텐츠 없는 run 집계(POST /v1/runs → run_reports). 청구 정산 근거가 아니다.
     // 같은 jobId 의 두 번째 보고는 무시한다(재전송·중복 수신에도 한 줄).
     async recordRun({account,report}){
-      const res=await http(url+"/rest/v1/run_reports?on_conflict=user_id,job_id",{method:"POST",
+      await http(url+"/rest/v1/run_reports?on_conflict=user_id,job_id",{method:"POST",
         headers:{...auth,"content-type":"application/json",prefer:"resolution=ignore-duplicates,return=minimal"},
         body:JSON.stringify([{user_id:account,job_id:report.jobId,cache_kind:"local_result",cache_hits:report.cacheHits,cache_misses:report.cacheMisses,rerun:report.rerun,client_version:report.clientVersion??null}])},false);
-      return res?.ok===true;
+      return true; // parse=false 는 본문을 버리고 undefined 를 돌려준다 — HTTP 오류는 http 가 던진다
     },
     // /v1/me 의 한도 조회. plans·monthly_usage 직접 조회다(schema-v2.sql 의 service_role 권한).
     async quota(user,plan,monthStart){
@@ -117,4 +117,117 @@ function supabaseUsage({url,key,http}){
     },
   };
 }
-module.exports={fileUsage,supabaseUsage,FAIL_CODE};
+
+// 단계별 집계 helper: 내용 없는 숫자만으로 단계별 토큰·비용·적중률을 요약한다.
+// 미보고된 토큰/비용은 null 을 유지하고 0 과 구분한다.
+function stageUsageSummary(attempts=[]){
+  if(!Array.isArray(attempts))return {byStage:[],total:null};
+  const groups=new Map();
+  for(const a of attempts){
+    if(!a||typeof a!=="object")continue;
+    const st=a.stage||a.p_stage||"unknown";
+    if(!groups.has(st))groups.set(st,[]);
+    groups.get(st).push(a);
+  }
+  const sumOrNull=(list,fn)=>{
+    let sum=0,count=0;
+    for(const item of list){
+      const v=fn(item);
+      if(Number.isFinite(v)&&v>=0){sum+=v;count++;}
+    }
+    return count>0?sum:null;
+  };
+  const costSumOrNull=(list,fn)=>{
+    let sum=0,count=0;
+    for(const item of list){
+      const v=fn(item);
+      if(Number.isFinite(v)&&v>=0){sum+=v;count++;}
+    }
+    return count>0?Math.round(sum*1e6)/1e6:null;
+  };
+  const numField=(a,...keys)=>{
+    for(const k of keys){
+      const v=a[k];
+      if(Number.isFinite(v)&&v>=0)return Math.floor(v);
+    }
+    return null;
+  };
+  const costField=a=>{
+    if(Number.isFinite(a.costUsd)&&a.costUsd>=0)return a.costUsd;
+    if(Number.isFinite(a.providerReportedCost)&&a.providerReportedCost>=0)return a.providerReportedCost;
+    if(Number.isFinite(a.provider_reported_cost_micros)&&a.provider_reported_cost_micros>=0)return a.provider_reported_cost_micros/1e6;
+    return null;
+  };
+  const byStage=[];
+  for(const [st,list] of groups.entries()){
+    const models=[...new Set(list.map(a=>a.model||a.p_model).filter(Boolean))];
+    const providers=[...new Set(list.map(a=>a.provider||a.p_provider).filter(Boolean))];
+    const cacheRead=sumOrNull(list,a=>numField(a,"cachedInputTokens","cached_input_tokens"));
+    const cacheWrite=sumOrNull(list,a=>numField(a,"cacheWriteTokens","cache_write_tokens"));
+    const uncached=sumOrNull(list,a=>{
+      const u=numField(a,"uncachedInputTokens","uncached_input_tokens");
+      if(u!==null)return u;
+      const inp=numField(a,"inputTokens","input_tokens");
+      const rd=numField(a,"cachedInputTokens","cached_input_tokens")||0;
+      const wr=numField(a,"cacheWriteTokens","cache_write_tokens")||0;
+      return inp!==null?Math.max(0,inp-(rd+wr)):null;
+    });
+    const input=sumOrNull(list,a=>numField(a,"inputTokens","input_tokens"));
+    const output=sumOrNull(list,a=>numField(a,"outputTokens","output_tokens"));
+    const reasoning=sumOrNull(list,a=>numField(a,"reasoningTokens","reasoning_tokens"));
+    const cost=costSumOrNull(list,costField);
+    const eligible=(cacheRead||0)+(uncached||0);
+    const hitRatio=eligible>0&&cacheRead!==null?Math.round(((cacheRead||0)/eligible)*10000)/10000:null;
+
+    byStage.push({
+      stage:st,
+      model:models.length===1?models[0]:(models.length>1?models.join(","):null),
+      provider:providers.length===1?providers[0]:(providers.length>1?providers.join(","):null),
+      cacheReadTokens:cacheRead,
+      cacheWriteTokens:cacheWrite,
+      uncachedInputTokens:uncached,
+      inputTokens:input,
+      outputTokens:output,
+      reasoningTokens:reasoning,
+      costUsd:cost,
+      hitRatio,
+    });
+  }
+
+  const allModels=[...new Set(attempts.map(a=>a?.model||a?.p_model).filter(Boolean))];
+  const allProviders=[...new Set(attempts.map(a=>a?.provider||a?.p_provider).filter(Boolean))];
+  const totRead=sumOrNull(attempts,a=>numField(a,"cachedInputTokens","cached_input_tokens"));
+  const totWrite=sumOrNull(attempts,a=>numField(a,"cacheWriteTokens","cache_write_tokens"));
+  const totUncached=sumOrNull(attempts,a=>{
+    const u=numField(a,"uncachedInputTokens","uncached_input_tokens");
+    if(u!==null)return u;
+    const inp=numField(a,"inputTokens","input_tokens");
+    const rd=numField(a,"cachedInputTokens","cached_input_tokens")||0;
+    const wr=numField(a,"cacheWriteTokens","cache_write_tokens")||0;
+    return inp!==null?Math.max(0,inp-(rd+wr)):null;
+  });
+  const totInput=sumOrNull(attempts,a=>numField(a,"inputTokens","input_tokens"));
+  const totOutput=sumOrNull(attempts,a=>numField(a,"outputTokens","output_tokens"));
+  const totReasoning=sumOrNull(attempts,a=>numField(a,"reasoningTokens","reasoning_tokens"));
+  const totCost=costSumOrNull(attempts,costField);
+  const totEligible=(totRead||0)+(totUncached||0);
+  const totHitRatio=totEligible>0&&totRead!==null?Math.round(((totRead||0)/totEligible)*10000)/10000:null;
+
+  const total={
+    stage:"total",
+    model:allModels.length===1?allModels[0]:(allModels.length>1?allModels.join(","):null),
+    provider:allProviders.length===1?allProviders[0]:(allProviders.length>1?allProviders.join(","):null),
+    cacheReadTokens:totRead,
+    cacheWriteTokens:totWrite,
+    uncachedInputTokens:totUncached,
+    inputTokens:totInput,
+    outputTokens:totOutput,
+    reasoningTokens:totReasoning,
+    costUsd:totCost,
+    hitRatio:totHitRatio,
+  };
+
+  return {byStage,total};
+}
+
+module.exports={fileUsage,supabaseUsage,FAIL_CODE,stageUsageSummary,aggregateUsageByStage:stageUsageSummary};

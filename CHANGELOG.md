@@ -1,5 +1,74 @@
 # Changelog
 
+## 2.8.0.8 — 2026-10-10
+
+- 요약하지 못한 단원의 도표는 그 단원과 함께 뺀다. 어느 블록도 가리키지 않은 도표가 실패한 단원 구간에 있으면 마지막 단원 뒤로 몰려 노트 끝이 영어 도표 설명으로 채워졌다(실행 mis-sol-hai-14).
+
+## 2.8.0.7 — 2026-10-10
+
+- mis-sol-hai Sol 검수(렌더 HTML 입력)가 서버 상한을 넘지 않게 한다. 첫 섹션 통째 보존은 95,000바이트까지만 하고, 도표 SVG의 도형 좌표는 빼고 라벨만 남긴다. 실행 mis-sol-hai-14에서 검수 요청이 400 request_rejected로 거절돼 피드백 단계(D8)가 돌지 않았다.
+- 검수 실패 이벤트(REVIEW_FAILED)에 서버 detail(스키마 경로)을 함께 남긴다.
+
+## 2.8.0.6 — 2026-10-10
+
+- mis-sol-hai의 Mistral OCR 호출을 한 번에 하나씩 보낸다(프로파일 visionLanes 1). 비전 3레인과 서버 즉시 재시도가 겹쳐 모든 OCR 호출이 429였고 차단기가 열려 작업이 멈췄다(실행 mis-sol-hai-16, Mistral OCR 첫 실제 호출).
+- 서버는 Mistral 429에 Retry-After(없으면 1.5초)를 지켜 다시 시도하고, 소진되면 그 간격을 클라이언트 재시도에 넘긴다. 원장 error_code에 Mistral 실패 사유(type·code)를 덧붙인다.
+- e2e 하네스: 확장 재로드 직후 버전을 못 읽어 run이 실패하던 경합("running null")을 재시도로 막는다.
+
+## 2.8.0.5 — 2026-10-10
+
+- mis-sol-hai 작성(Haiku 5.5)의 추론 깊이를 effort low로 정한다. Haiku 5.5는 adaptive thinking만 받아 토큰 예산(2.8.0.4)이 먹히지 않았고, 실강의에서 추론이 11~22K토큰으로 출력 상한을 계속 먹었다(실행 mis-sol-hai-14).
+
+## 2.8.0.4 — 2026-10-10
+
+- mis-sol-hai 작성(Haiku 5.5)의 추론을 effort high 대신 예산 8,000토큰으로 직접 준다. OpenRouter는 Claude의 effort를 출력 상한 비율(high=0.8)로 바꾸는데, 실강의에서 추론이 상한 22,000토큰을 다 먹어 작성 호출의 약 4분의 3이 잘렸다(실행 mis-sol-hai-12, llm_output_truncated.long).
+
+## 2.8.0.3 — 2026-10-09
+
+- mis-sol-hai 작성·질문·수리(Haiku 5.5)는 strict response_format 대신 스키마를 system 메시지로 받는다. Anthropic 구조화 출력은 null 허용 칸을 요청당 16개까지만 받아(공식 문서) 약 48칸인 초안 스키마가 늘 400이었다(실행 mis-sol-hai-10, provider_http_400). 출력은 기존 계약 검증·형식 재시도가 보고, 코드 블록으로 감싼 JSON도 받는다.
+
+## 2.8.0.2 — 2026-10-09
+
+- mis-sol-hai 작성(Haiku 5.5)의 OpenRouter 공급자를 google-vertex/global로 고정한다. 요청은 고정 공급자·strict 구조화 출력·ZDR을 함께 요구하는데, Bedrock은 구조화 출력이 없고 Anthropic·Azure는 ZDR이 아니라 모든 작성 호출이 502였다(실행 mis-sol-hai-3·4·8).
+- 계획 보정이 빈 섹션을 버리고 번호를 다시 매기면 편집 계획의 섹션 id도 같은 대응으로 옮기고 합친다(remapEditorialSections). Sol은 보정 전 계획을 보고 편집 계획을 쓰므로 없는 섹션을 가리켜 EDITORIAL_PLAN_INVALID로 멈췄다(실행 mis-sol-hai-1·2). 편집 계획 검증 실패 시 오류 코드·id를 EDITORIAL_DETAIL로 남긴다.
+- mis-sol-hai 계획 지시: 제목만 있거나 내용이 없는 슬라이드는 다음 슬라이드의 섹션에 합친다.
+- 서버: /v1/runs가 저장에 성공해도 503(usage_store_failed)을 돌려주던 판정 오류를 고친다(2026-10-07부터). OPENROUTER_TIMEOUT_MS 120초 상한을 풀고(기본 120초 그대로) v2 계획·편집 계획 시간은 그 값과 145초 중 큰 쪽, 로컬 실행 시 HOST로 바인딩 주소를 바꿀 수 있다.
+
+## 2.8.0.1 — 2026-10-09
+
+- 서버: Claude Haiku 5.5의 OpenRouter 공급자 고정을 amazon-bedrock으로 바꾼다(amazon-bedrock/global 엔드포인트가 없어 모든 Haiku 호출이 공급자를 찾지 못했다).
+
+## 2.8.0 — 2026-10-09
+
+- 실험 모드 mis-sol-hai를 추가한다(숨은 설정 devNoteMode). 슬라이드마다 다음 슬라이드로 넘어가기 직전 프레임을 캡처해 교수 필기를 담고(재방문 시 이전 캡처를 지우고 다시 캡처, 마지막 슬라이드는 영상 끝 직전), Mistral OCR 4.1로 인식한 뒤 Sol(Liner 세션)이 예시 노트 블록 레이아웃으로 계획하고 Claude Haiku 5.5(OpenRouter)가 섹션 JSON을 쓴다. 검수는 Sol 세션에 축약 HTML을 보내 1회만 하고, 섹션 재작성은 영상 10분당 최대 1개다. 이 모드에서는 JEV 판정과 근거 지지 검사를 끈다. 기본 경로와 다른 실험 모드의 모델 배치는 그대로다.
+- 실험 모드를 프로파일 레지스트리(lib/note-profiles.js) 한 곳에서 정의한다 — 단계별 모델·전송 방식(session·independent·packet·dual)·프롬프트·옵션을 프로파일이 정하고 서버 라우팅도 같은 표를 읽는다.
+- 필기는 프레임 차이(ink-diff)로 찾아 OCR 블록에 ink 표시를 달고, OCR이 읽지 못한 필기 영역은 클라우드 인식에 동의한 유료 사용자에 한해 작성 모델에 이미지로 보내 해석한다(저장하지 않음). 필기 내용은 원본 이미지 없이 노트 문장으로 반영한다.
+- 강조는 결정적 신호(체류 시간·반복 횟수·강세 표현·재방문·필기 면적)로 정하고, 노트에는 굵게+형광 밑줄(강조), 점선 밑줄+펜 아이콘(필기), "슬라이드에 없는 설명" 상자(발화에만 있는 설명)로 표시한다. 시험 배지·반복 ×N·핵심어 첫 등장 굵게·조건/예외 표시·인과 흐름·대비 쌍·교수 발언 인용(40자)을 섹션별 상한 안에서 쓴다.
+- 노트 양식 문구를 자연스럽게 다듬고, B05 슬롯 라벨과 B08 의사결정 6칸 라벨은 화면에 표시하지 않는다(B08은 들여쓴 목록으로 구분).
+- 서버: Haiku 5.5 단가를 등록하고, MISTRAL_BASE_URL(기본 https://api.mistral.ai/v1, https만 허용)을 읽는다. 이미지가 실린 mis-sol-hai 작성 요청은 별도 본문 상한을 쓴다.
+
+## 2.7.1 — 2026-10-09
+
+- GPT-6 계열(Sol·Luna) 호출을 Liner 게이트웨이로 보낸다. 서버가 LINER_API_KEY·LINER_BASE_URL을 가지면 OpenRouter 요청을 Liner 모양으로 바꾼다(toLiner) — provider·prompt_cache_options·reasoning.context를 빼고 chat의 reasoning 객체는 reasoning_effort로 옮긴다. 판정·STT·비전 등 그 밖의 모델은 OpenRouter 그대로이고, 키가 없으면 변환하지 않는다. Liner의 데이터 보존 정책(ZDR)은 확인하지 못했다. 실강의 sol-luna-2로 끝까지 검증(총 $0.85, 핵심 22/22).
+- reasoning.context(all_turns/current_turn)는 계획→편집·실강의에서 커버리지 차이가 없었다.
+
+## 2.7.0 — 2026-10-08
+
+- 실험 모드 sol-luna-3을 추가한다(숨은 설정 devNoteMode, sol-luna-2와 같은 모델 배치·고정 접두 P에 개선안을 얹은 버전). 옵션 devNoteV3 {repair: packet|full-p, resume}로 비교군을 가른다(lib/note-v3.js). 기본 경로와 sol-luna-2·sol-fork-2의 모델 배치는 그대로다.
+- 검수 출력 계약과 적용기가 하나의 operation 표(REVIEW_OPS)를 공유한다 — relink_asset은 assetIds로 통일되고 term_fix·relation_fix의 from/to/value, 문장+근거를 함께 고치는 claim_edit이 정상 출력으로 끝까지 적용된다. 모든 변경은 baseRevision·대상 확인 → 임시 적용 → 필수 재검증 → 확정/원복을 거치고, 반려 사유와 제안/큐/실행/채택 건수를 내용 없는 숫자로 남긴다(필드: 계약에 맞는 relink_asset과 용어 치환 제안이 적용기에서 거절되고, 섹션 재작성이 큐에 들어간 것만으로 적용으로 집계됐다).
+- 복구 루프의 예산·오류 서명 제어가 실제 실행에 연결된다 — 시도 예약→실행→기록→확정/원복이 비용·서명·원인별 시도를 쌓아 동일 서명 반복에서 멈추고, loopMetrics가 실제 이벤트를 집계하며 수리 원인(writer_null·compiler_unmapped·schema·support·review_redo)을 분리해 센다(필드: record 호출이 없어 상한·서명 중단이 발동하지 않았고 BLOCKS_HELD의 loop 지표가 항상 0이었다).
+- sol-luna-3 수리는 기본으로 고정 접두 P 대신 작은 자급 패킷(대상 블록·인용 근거·완전한 인접 주장·오류 코드·허용 op·남은 예산)만 싣는 독립 Sol 요청이다. repair=full-p면 기존 경로 그대로다.
+- sol-luna-3 프롬프트를 단계별 역할 규칙으로 줄이고(plan·editorial·draft·review·questions 약 38~64% 축소) Luna draft·questions에 합성 정상/반례 예시를 고정 접두 위치에 둔다. Luna 요청은 공통 필드를 앞에 모아 공통 접두 비율을 늘린다. 다른 모드의 프롬프트는 검수 operation 문서 외 바이트 단위로 그대로다.
+- Luna 초안의 관계에 relationId·targetBlockId를 받아 지정한 계획 블록에 연결하고(없으면 기존 배열 순서), 모든 주장·관계의 included/merged/deferred/unmapped 원장을 남긴다. VisualSpec(argument_map·timeline·flow)을 원장에서 검증해 결정적 SVG로 그리는 모듈(lib/visual-spec.js)을 추가한다(아직 노트 렌더에는 연결하지 않는다).
+- sol-luna-3의 resume 옵션을 켜면 호출 결과를 입력 해시 키로 암호화 체크포인트(package-store, AES-GCM)에 두고 재사용한다. 계획·편집 계획 호출과 P는 저장하지 않고 항상 새로 낸다. 기본(꺼짐)은 기존 cold-run 그대로다.
+- 사용 기록에 캐시 읽기/쓰기·추론 토큰의 단계별 집계를 추가하고(미보고는 null), 실험 하네스가 repair·resume 비교군과 run당 $1.50 예산·중단 규칙을 코드로 지키며 보고서에 채택 수정당 비용·p50/p95 지연을 싣는다.
+
+## 2.6.1.2 — 2026-10-07
+
+- 실험 모드 sol-luna-2·sol-fork-2의 계획이 서버 대기 한도 안에 끝나도록 편집 계획(editorialPlan)을 plan 호출에서 떼어 같은 세션의 두 번째 Sol 호출(editorial 단계)로 나눈다. plan 응답은 구 계약 그대로({plan}, 이어 쓸 이력)이고, editorial 응답이 {editorialPlan}과 앵커로 끝나는 고정 접두 P를 돌려준다(필드: 한 호출에 합친 출력이 Sol 초당 약 60~95토큰으로 120~148초를 넘겨 pilot 계획이 세 번 모두 끊겼다, 추가 비용 약 $0.12×3). 기본 경로·구 모드는 그대로다.
+- 편집 계획 응답의 루트 형식 흔들림을 서버가 바로잡는다 — {editorialPlan:…}로 감싼 응답은 꺼내고, 계약 버전 v는 모델이 쓴 숫자와 무관하게 1로 맞춘다(필드: 모델이 v:2로 답해 편집 계획이 네 번 거절됐다). 스키마 위반에는 루트 키 이름과 v의 타입만 오류 상세로 남긴다(내용 없음).
+- 실험 하네스(tools/e2e-flow.cjs)가 잔여 offscreen.html 탭을 닫고(탭이 BG 메시지를 가로채 AUTH_TOKEN이 거부되고 패널이 유료 기능 잠금으로 보였다) 패널 로드·잠금 해제를 기다린다.
+
 ## 2.6.1.1 — 2026-10-08
 
 - 랜딩페이지 홈페이지 및 시연 데모 패널에 텍스트 선택 금지 스타일(user-select: none)을 적용하고 입력창(input·textarea·contenteditable)의 선택은 유지했다(필드: 랜딩페이지 탐색 및 데모 조작 중 본문 글자가 마우스 드래그로 선택되어 앱 화면 같은 둘러보기를 방해했다).

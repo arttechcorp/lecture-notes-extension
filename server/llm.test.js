@@ -37,3 +37,164 @@ test("cacheOf: 미보고·이상한 값은 null 을 유지한다", () => {
   assert.deepEqual(LLM.cacheOf({ prompt_tokens_details: { cached_tokens: 40.7 } }),
     { cached_input_tokens: 40, cache_write_tokens: null }, "소수는 내린다");
 });
+
+test("commonPrefixLength: 두 문자열의 공통 바이트 접두 길이를 정확히 측정", () => {
+  assert.equal(LLM.commonPrefixLength("abcdef", "abcxyz"), 3);
+  assert.equal(LLM.commonPrefixLength("hello", "world"), 0);
+  assert.equal(LLM.commonPrefixLength("same", "same"), 4);
+  assert.equal(LLM.commonPrefixLength("", "test"), 0);
+});
+
+test("orderUserPayload: independent(isV3=false)는 바이트 불변, v3(isV3=true)는 공통 키를 앞으로", () => {
+  const dynamicFirst = JSON.stringify({ section: { sectionId: "S1" }, concepts: [{ id: "C1" }], options: { x: 1 } });
+  // isV3 = false: 원본 문자열 불변
+  assert.equal(LLM.orderUserPayload(dynamicFirst, "draft", false), dynamicFirst);
+
+  // isV3 = true: concepts, options 가 section 보다 앞으로 재배치
+  const reordered = LLM.orderUserPayload(dynamicFirst, "draft", true);
+  const parsed = JSON.parse(reordered);
+  const keys = Object.keys(parsed);
+  assert.deepEqual(keys, ["concepts", "options", "section"]);
+});
+
+test("cachedUser (draft): v3 요청은 서로 다른 두 섹션의 공통 접두 길이가 기준 이상이며 동적 값이 없음", () => {
+  const model = "openai/gpt-6-luna@high";
+  const commonConcepts = [{ conceptId: "C1", name: "Entropy" }];
+  const commonOptions = { syntheticExamples: false };
+  const commonAllowedRefs = { targetIds: ["T_TARGET_1", "T_TARGET_2"] };
+
+  const s1Input = JSON.stringify({
+    section: { sectionId: "SECTION_ALPHA", title: "First Section" },
+    concepts: commonConcepts,
+    options: commonOptions,
+    allowedRefs: commonAllowedRefs,
+    evidence: [{ id: "U1.s1", text: "evidence 1" }],
+  });
+
+  const s2Input = JSON.stringify({
+    section: { sectionId: "SECTION_BETA", title: "Second Section" },
+    concepts: commonConcepts,
+    options: commonOptions,
+    allowedRefs: commonAllowedRefs,
+    evidence: [{ id: "U2.s1", text: "evidence 2" }],
+  });
+
+  // v3 캐시 처리
+  const s1Msg = LLM.cachedUser(model, s1Input, "draft", { isV3: true });
+  const s2Msg = LLM.cachedUser(model, s2Input, "draft", { isV3: true });
+
+  assert.equal(Array.isArray(s1Msg.content), true, "cachedUser should split into ephemeral head and tail");
+  assert.equal(Array.isArray(s2Msg.content), true);
+  assert.equal(s1Msg.content[0].type, "text");
+  assert.deepEqual(s1Msg.content[0].cache_control, { type: "ephemeral" });
+
+  // 공통 접두 텍스트가 정확히 일치해야 함
+  assert.equal(s1Msg.content[0].text, s2Msg.content[0].text);
+
+  // 공통 접두 블록에 동적 값(섹션 ID, 근거 ID)이 없음을 검증
+  const headText = s1Msg.content[0].text;
+  assert.ok(!headText.includes("SECTION_ALPHA"), "공통 접두에 SECTION_ALPHA 섹션 ID가 없어야 함");
+  assert.ok(!headText.includes("SECTION_BETA"), "공통 접두에 SECTION_BETA 섹션 ID가 없어야 함");
+  assert.ok(!headText.includes("U1.s1"), "공통 접두에 U1 근거 ID가 없어야 함");
+  assert.ok(!headText.includes("First Section"), "공통 접두에 섹션 타이틀이 없어야 함");
+  assert.ok(headText.includes("Entropy"), "공통 접두에 concepts가 포함되어야 함");
+
+  // 직렬화된 두 메시지의 공통 접두 길이 측정
+  const s1Json = JSON.stringify(s1Msg);
+  const s2Json = JSON.stringify(s2Msg);
+  const prefixLen = LLM.commonPrefixLength(s1Json, s2Json);
+
+  // 공통 접두 길이는 headText 길이를 온전히 포함해야 함
+  assert.ok(prefixLen >= headText.length, `공통 접두 길이(${prefixLen})가 headText 길이(${headText.length}) 이상이어야 함`);
+});
+
+test("cachedUser (questions): v3 요청은 섹션이 달라도 공통 문맥 접두를 온전히 공유", () => {
+  const model = "openai/gpt-6-luna@high";
+  const commonConcepts = [{ conceptId: "C1", name: "Physics" }];
+  const commonSections = [{ sectionId: "S1", title: "Summary of S1" }, { sectionId: "S2", title: "Summary of S2" }];
+  const commonOptions = { syntheticExamples: false };
+  const commonAllowedRefs = { targetIds: ["S1/B1"] };
+
+  const q1Input = JSON.stringify({
+    section: { sectionId: "S1" },
+    blockId: "S1/B14",
+    concepts: commonConcepts,
+    sections: commonSections,
+    options: commonOptions,
+    allowedRefs: commonAllowedRefs,
+  });
+
+  const q2Input = JSON.stringify({
+    section: { sectionId: "S2" },
+    blockId: "S2/B14",
+    concepts: commonConcepts,
+    sections: commonSections,
+    options: commonOptions,
+    allowedRefs: commonAllowedRefs,
+  });
+
+  const q1Msg = LLM.cachedUser(model, q1Input, "questions", { isV3: true });
+  const q2Msg = LLM.cachedUser(model, q2Input, "questions", { isV3: true });
+
+  assert.equal(Array.isArray(q1Msg.content), true);
+  assert.equal(Array.isArray(q2Msg.content), true);
+  assert.equal(q1Msg.content[0].text, q2Msg.content[0].text);
+
+  const headText = q1Msg.content[0].text;
+  assert.ok(!headText.includes("S1/B14"), "공통 접두에 blockId가 없어야 함");
+  assert.ok(!headText.includes("S2/B14"), "공통 접두에 blockId가 없어야 함");
+  assert.ok(headText.includes("Physics"), "공통 접두에 concepts가 포함되어야 함");
+  assert.ok(headText.includes("Summary of S1"), "공통 접두에 전체 sections 요약이 포함되어야 함");
+});
+
+test("toLiner: GPT-6 모델만 Liner 로 — provider·미지원 칸 제거, 키 교체, 그 외는 변환 없음",()=>{
+  const L={key:"k-liner",base:"https://liner.example/api/v1/"},hdr={authorization:"Bearer or",x:"1"};
+  const r=LLM.toLiner("https://openrouter.ai/api/v1/responses",{headers:hdr,body:JSON.stringify({model:"openai/gpt-6.1-sol",provider:{only:["azure"]},prompt_cache_options:{mode:"explicit"},reasoning:{effort:"medium",context:"all_turns"},session_id:"s"})},L);
+  assert.equal(r[0],"https://liner.example/api/v1/responses");
+  const b=JSON.parse(r[1].body);assert.deepEqual([b.provider,b.prompt_cache_options,b.reasoning.context,b.reasoning.effort,b.session_id],[undefined,undefined,undefined,"medium","s"]);
+  assert.equal(r[1].headers.authorization,"Bearer k-liner");assert.equal(r[1].headers.x,"1");
+  const c=LLM.toLiner("https://openrouter.ai/api/v1/chat/completions",{headers:hdr,body:JSON.stringify({model:"openai/gpt-6-luna",provider:{},prompt_cache_options:{mode:"explicit"},reasoning:{effort:"high"},response_format:{}})},L);
+  const cb=JSON.parse(c[1].body);assert.deepEqual([cb.provider,cb.reasoning,cb.prompt_cache_options,cb.reasoning_effort],[undefined,undefined,undefined,"high"]);
+  assert.equal(LLM.toLiner("https://openrouter.ai/api/v1/chat/completions",{headers:hdr,body:JSON.stringify({model:"xiaomi/mimo-v2.6-flash"})},L),null);
+  assert.equal(LLM.toLiner("https://openrouter.ai/api/v1/chat/completions",{headers:hdr,body:JSON.stringify({model:"openai/gpt-6-luna"})},{}),null);
+});
+
+test("toLiner: Liner 제공 모델 목록(mis-sol-hai D9) — 목록의 계열만 Liner, 나머지는 OpenRouter",()=>{
+  const L={key:"k",base:"https://liner.example/api/v1"},hdr={};
+  const call=m=>LLM.toLiner("https://openrouter.ai/api/v1/chat/completions",{headers:hdr,body:JSON.stringify({model:m})},L);
+  // 목록의 모델과 그 @effort 변형(등록 변형은 upstreamOf, 미등록 변형은 접미 절단으로)은 Liner.
+  for(const m of ["openai/gpt-6.1-sol","openai/gpt-6-luna","openai/gpt-6-luna@high","openai/gpt-6-luna@xhigh","openai/gpt-6-luna@low"])
+    assert.ok(call(m),`${m} → Liner`);
+  // 목록 밖: mis-sol-hai 작성 모델, 목록에 없는 gpt-6 변형, 다른 제공자는 모두 변환 없음.
+  for(const m of ["anthropic/claude-haiku-5.5","anthropic/claude-haiku-4.5","openai/gpt-6-sol","openai/gpt-5","xiaomi/mimo-v2.6-flash"])
+    assert.equal(call(m),null,`${m} → OpenRouter`);
+  // Liner 와 무관한 URL·본문 파손·모델 없는 본문도 변환 없음.
+  assert.equal(LLM.toLiner("https://example.com/x",{headers:hdr,body:"{}"},L),null);
+  assert.equal(call(null),null);
+});
+
+test("readChoice: 잘림·거부·미완료를 JSON 파싱보다 먼저 본다(Haiku 독립 호출, §4.5)",()=>{
+  assert.deepEqual(LLM.readChoice({choices:[{finish_reason:"length",message:{content:"{\"a\":"}}]}),{error:"truncated"});
+  assert.deepEqual(LLM.readChoice({choices:[{finish_reason:"stop",message:{refusal:"cannot",content:null}}]}),{error:"refused"});
+  assert.deepEqual(LLM.readChoice({choices:[{finish_reason:"stop",message:{content:"{\"ok\":1}"}}]}),{text:"{\"ok\":1}"});
+  assert.equal(LLM.readChoice({choices:[{finish_reason:"content_filter",message:{}}]}).error,"incomplete.content_filter");
+  assert.equal(LLM.readChoice({choices:[]}).error,"incomplete.none");
+  assert.equal(LLM.readChoice({choices:[{finish_reason:"stop",message:{}}]}).error,"empty");
+});
+
+test("userWithImages: 필기 영역 이미지는 근거 id 라벨과 image_url 파트로 붙는다(mis-sol-hai §4.2)",()=>{
+  const img=[{id:"U4.s2",image:"data:image/jpeg;base64,QUJD"}];
+  const m=LLM.userWithImages("{\"stage\":\"draft\"}",img);
+  assert.equal(m.role,"user");
+  assert.equal(m.content.length,3);
+  assert.equal(m.content[0].type,"text");
+  assert.equal(m.content[1].text,"[필기 이미지 — 근거 U4.s2]");
+  assert.deepEqual(m.content[2],{type:"image_url",image_url:{url:"data:image/jpeg;base64,QUJD"}});
+  // 캐시 분할 파트(배열 본문) 뒤에 붙고 중단점은 유지된다.
+  const c=LLM.userWithImages([{type:"text",text:"head",cache_control:{type:"ephemeral"}},{type:"text",text:"tail"}],img);
+  assert.equal(c.content[0].cache_control.type,"ephemeral");
+  assert.equal(c.content.at(-1).type,"image_url");
+  // 이미지 없으면 본문을 건드리지 않는다.
+  assert.deepEqual(LLM.userWithImages("x",[]),{role:"user",content:"x"});
+  assert.deepEqual(LLM.userWithImages("x",null),{role:"user",content:"x"});
+});

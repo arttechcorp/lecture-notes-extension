@@ -17,13 +17,15 @@
 // 요청 시간 예산(공유 c.timeout)에 남은 단계를 못 마치면 200 {pending:true,noteSession,...} 을 돌려주고
 // 클라이언트는 같은 stage·본문을 최신 history·새 requestId(-sN, 최대 3회)로 이어 보낸다 — Sol→Luna→Sol
 // 3회 완료를 가정하지 않고, pending 응답은 output/plan 으로 검증·캐시하지 않는다.
-const LLM=require("./llm.js"),Prompts=require("./prompts.js");
-const SOL="openai/gpt-6.1-sol",LUNA="openai/gpt-6-luna@high",TOOL="write_note";
+const LLM=require("./llm.js"),Prompts=require("./prompts.js"),NoteProfiles=require("../lib/note-profiles.js");
+const SOL=NoteProfiles.SOL,LUNA=NoteProfiles.LUNA,TOOL="write_note";
 //   sol-luna-2    : 계획·통합 검수(review)·전역·선택 수정은 Sol 이 고정 접두 P 를 이어 쓰고, draft·questions 는
 //                   noteSession 없는 독립 Luna High 요청이다(서버가 단계→모델 표를 강제한다).
+//   sol-luna-3    : sol-luna-2 와 같은 경로 — 개선 실험은 요청 계약이 아니라 클라이언트 옵션으로 가른다.
 //   sol-fork-2    : 모든 단계가 Sol. 계획 응답 이력 끝의 고정 앵커가 P 의 끝 — 작성 호출은 P+자기 작업만 보낸다.
-const MODES=["sol-session","sol-luna-tool","sol-fork","sol-luna-2","sol-fork-2"];
-const V2=["sol-luna-2","sol-fork-2"];
+// 세션 봉투를 쓰는 모드(session≠null)와 v2 계열(family==="v2")은 lib/note-profiles.js 의 표에서 파생한다.
+const MODES=NoteProfiles.ids().filter(id=>NoteProfiles.get(id).session!==null);
+const V2=NoteProfiles.ids().filter(NoteProfiles.isV2);
 const RESPONSES_ENDPOINT="https://openrouter.ai/api/v1/responses",CHAT_ENDPOINT="https://openrouter.ai/api/v1/chat/completions";
 const ID_RE=/^[A-Za-z0-9][A-Za-z0-9_-]{7,63}$/;
 // v2 공유 접두 P 의 끝을 표시하는 고정 user/input_text 앵커 — 텍스트가 모든 호출에서 바이트로 같아야 캐시 경계가 일정하다.
@@ -119,14 +121,24 @@ function validate(ns,stage){
     if(stage==="plan"){
       if(marks.length)return{error:REJ};
       for(let i=0;i<h.length;i++)if(h[i].role==="user"&&taskStage(h[i])!=="plan")return{error:REJ};
+    }else if(stage==="editorial"){
+      // 편집 계획은 계획 턴을 이어 쓰는 두 번째 Sol 턴이다 — 앵커는 아직 없고, 이력은 계획 작업+계획 출력(+재개 중이면 자기 작업).
+      if(marks.length)return{error:REJ};
+      const users=[];for(let i=0;i<h.length;i++)if(h[i].role==="user")users.push(i);
+      if(users[0]!==0||taskStage(h[0])!=="plan"||users.length>2)return{error:REJ};
+      const ptail=h[(users[1]??h.length)-1];
+      if(ptail.type!=="message"||ptail.role!=="assistant")return{error:REJ};
+      if(users.length>1&&(taskStage(h[users[1]])!=="editorial"||h.at(-1).type==="message"&&h.at(-1).role==="assistant"))return{error:REJ};
     }else{
-      if(marks.length!==1||marks[0]<2)return{error:REJ};
+      // 작성 이력 = P(계획 작업·계획 출력·편집 작업·편집 출력·앵커 하나) + 이 호출 자신의 턴.
+      if(marks.length!==1||marks[0]<4)return{error:REJ};
       const anchor=marks[0],ptail=h[anchor-1];
       if(ptail.type!=="message"||ptail.role!=="assistant")return{error:REJ};
       const users=[];for(let i=0;i<h.length;i++)if(h[i].role==="user"&&!isAnchor(h[i]))users.push(i);
-      if(users[0]!==0||taskStage(h[0])!=="plan"||users.length>2||users.some(i=>i>0&&i<anchor))return{error:REJ};
-      if(users.length>1){
-        if(taskStage(h[users[1]])!==stage)return{error:REJ};
+      const pre=users.filter(i=>i<anchor),post=users.filter(i=>i>anchor);
+      if(pre.length!==2||pre[0]!==0||taskStage(h[0])!=="plan"||taskStage(h[pre[1]])!=="editorial"||post.length>1)return{error:REJ};
+      if(post.length){
+        if(taskStage(h[post[0]])!==stage)return{error:REJ};
         if(h.at(-1).type==="message"&&h.at(-1).role==="assistant")return{error:REJ}; // 완료된 자기 턴의 재전송
       }else if(anchor!==h.length-1)return{error:REJ}; // 작업 없이 앵커 뒤에 잔여 아이템
     }
@@ -188,14 +200,17 @@ const keepItem=i=>{const ks=KEEP[i?.type];if(!ks)return null;const o={};for(cons
 // 업스트림이 400 으로 거절하고, parallel_tool_calls 는 Sol 엔드포인트의 supported_parameters 에 없어
 // require_parameters 가 전부 걸러 404(no_endpoints)가 된다(2026-10-07 실 라이브 측정). 호출 강제는 tool_choice
 // 하나로 충분하고 도구 응답이 하나뿐이라 병렬 허용 칸은 의미가 없다.
-function solBody({stage,system,items,params,providers,session,mode,choice}){
+// strictSchema: 프로파일이 단계에 단 표시(stages.<단계>.strict, lib/note-profiles.js)면 출력을 strict
+// json_schema 로 받는다 — Liner Responses 는 json_schema+strict 를 지원한다(기획 §3.3, mis-sol-hai 의 editorial·review).
+// 스키마는 요청 본문(호출마다 다른 칸)이라 P 접두를 깨지 않는다.
+function solBody({stage,system,items,params,providers,session,mode,choice,strictSchema}){
   const body={model:SOL,store:false,
     input:[{role:"developer",content:[{type:"input_text",text:system,prompt_cache_breakpoint:{mode:"explicit"}}]},...items],
     reasoning:{...(params.reasoning||{}),context:"all_turns"},
     include:["reasoning.encrypted_content"],
     prompt_cache_options:{mode:"explicit",ttl:"30m"},
     max_output_tokens:params.max_tokens,
-    text:{format:{type:"json_object"}},
+    text:{format:strictSchema?{type:"json_schema",name:"lecture_note_"+stage,strict:true,schema:strictSchema}:{type:"json_object"}},
     session_id:session.id,
     provider:{only:providers,require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}};
   if(mode==="sol-luna-tool"){body.tools=[TOOL_DEF];body.tool_choice=choice;}
@@ -230,7 +245,7 @@ async function run(ctx){
   let prefix=null;
   if(mode==="sol-fork"&&stage!=="plan"){const i=session.history.findIndex((it,j)=>j>0&&it.role==="user");prefix=i<0?session.history:session.history.slice(0,i);}
   // v2 작성 호출의 고정 접두 P: 들어온 이력에서 고정 앵커(포함)까지다 — 클라이언트 길이 힌트가 아니라 앵커로 찾는다.
-  if(v2&&stage!=="plan"){const i=history.findIndex(isAnchor);if(i<0)throw Object.assign(new Error("invalid_note_output"),{detail:"prefix_anchor_missing"});prefix=history.slice(0,i+1);}
+  if(v2&&stage!=="plan"&&stage!=="editorial"){const i=history.findIndex(isAnchor);if(i<0)throw Object.assign(new Error("invalid_note_output"),{detail:"prefix_anchor_missing"});prefix=history.slice(0,i+1);}
   // continuation — v2 는 앵커 아래 구간(이 호출의 자기 턴), 그 외는 이력 전체. 꼬리 상태 판정은 이 구간에서 한다.
   const cont=()=>prefix?history.slice(prefix.length):history;
   let amount=0,reported=true;
@@ -275,7 +290,8 @@ async function run(ctx){
   const solCall=async choice=>{
     const at=Date.now();
     const response=await ctx.fetcher(RESPONSES_ENDPOINT,{method:"POST",redirect:"error",signal:ctx.signal,headers:{authorization:"Bearer "+ctx.key,"content-type":"application/json"},body:JSON.stringify(
-      solBody({stage,system,items:history,params:ctx.params,providers:ctx.solProviders,session,mode,choice}))});
+      solBody({stage,system,items:history,params:ctx.params,providers:ctx.solProviders,session,mode,choice,
+        strictSchema:NoteProfiles.get(mode)?.stages?.[stage]?.strict===true?ctx.providerOut:null}))});
     // HTTP 거절: 4xx 는 라우팅 단계의 거절이라 생성 비용이 없다 — 이 요청의 첫 시도면 예약을 환불한다.
     // 5xx·전송 실패는 제공자 쪽에서 돈이 나갔는지 알 수 없어 예약을 그대로 둔다(보수적). 두 번째 이후 호출의 거절은 항상 과금 확정.
     if(!response.ok){const detail=await upstreamDetail(h,response);tries.push(h.attemptOf("a"+tries.length,Date.now()-at,null,detail,tag(null,SOL)));
@@ -299,9 +315,9 @@ async function run(ctx){
     push(items);
     // sol-fork·v2 성공 이력은 들어온 접두 P 다 — 누적 이력의 앞 P 구간이 바이트로 같은지 확인하고 이 단계의 턴은 돌려주지 않는다.
     if(prefix&&JSON.stringify(history.slice(0,prefix.length))!==JSON.stringify(prefix))throw invalid("prefix_changed");
-    // v2 계획 응답 이력의 끝에는 고정 앵커를 붙인다 — 이후 모든 작성 호출이 P=[…,앵커] 를 재사용한다.
-    if(v2&&stage==="plan")history.push(anchorItem());
-    const payload={...(stage==="plan"?(v2?{plan:fin.parsed?.plan,editorialPlan:fin.parsed?.editorialPlan}:{plan:fin.parsed}):{output:fin.parsed}),
+    // v2 편집 계획 응답 이력의 끝에는 고정 앵커를 붙인다 — 이후 모든 작성 호출이 P=[계획 턴, 편집 턴, 앵커] 를 재사용한다.
+    if(v2&&stage==="editorial")history.push(anchorItem());
+    const payload={...(stage==="plan"?{plan:fin.parsed}:stage==="editorial"?{editorialPlan:fin.parsed}:{output:fin.parsed}),
       ...(fin.salvaged?{salvaged:fin.salvaged,salvagedErrors:fin.salvagedErrors}:{}),
       usage:{...usage,costUsd:reported?amount:ctx.reserve/100},...versions(),noteSession:prefix?{v:1,id:session.id,mode,history:prefix}:snap()};
     return{amount,reported,attempts:tries,payload};
@@ -312,7 +328,7 @@ async function run(ctx){
   const task=taskItem(stage,rest,ctx.sourceLang,ctx.providerOut,
     v2?Prompts.systemFor(stage,ctx.options,ctx.sourceLang,rest.section?.worker,mode)
       :rest.section?.worker?Prompts.systemFor(stage,ctx.options,ctx.sourceLang,rest.section.worker):null,
-    v2&&stage!=="plan"?false:undefined),
+    v2&&stage!=="plan"&&stage!=="editorial"?false:undefined),
     left=()=>ctx.deadline-Date.now();
   const choice=stage==="plan"?"none":{type:"function",name:TOOL}; // 위임 턴만 도구 호출을 강제한다
   const unlock=await ctx.lock(session.id,ctx.signal);

@@ -13,6 +13,7 @@
 | `planner-output.json` | Planner 출력: 개념 7, 섹션 5, 전역 2 |
 | `writer-outputs.json` | 섹션별 1차 출력, repair 출력, 전역 출력, 악성 지시 시도 출력 |
 | `expected-note.json` | `assembleNote` 결과(골든). 재현성 기준 |
+| `expected-structure.json` | `expected-note.json` 렌더의 블록 순서·클래스 구조 스냅샷(§5 레이아웃 고정). 렌더 마크업이 바뀌면 같이 갱신한다 |
 
 ## 사례별 확인 항목 (`docs/note-contract.md` §16)
 

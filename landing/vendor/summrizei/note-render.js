@@ -43,6 +43,8 @@
       medium: o.medium === "print" ? "print" : "web",
       answers: o.answers === "inline" ? "inline" : "end",
       exam: !!o.exam, writing: !!o.writing,
+      // §4.6 강조 임계 — 근거 메타의 emphasis 수치가 이 값 이상인 주장을 강조 표시한다. 기본 null=끔.
+      emphasisMin: typeof o.emphasisMin === "number" && Number.isFinite(o.emphasisMin) ? o.emphasisMin : null,
     };
     const src = note && typeof note === "object" ? note : {};
     const n = { ...src, meta: src.meta || {}, global: arr(src.global), sections: arr(src.sections), registry: arr(src.registry), figures: arr(src.figures), notices: arr(src.notices) };
@@ -84,7 +86,7 @@
     // 본문 {{F#}} 참조(인라인)와 B10 식 행(디스플레이)은 같은 본체 규칙을 쓰고 KaTeX displayMode 만 다르다.
     const formulaBody = (e, id, display) => {
       const check = () => `<span class="note-f note-f-check">수식 확인 필요 <small>(${fmtTime(e.t0)})</small></span>`
-        + (typeof e.text === "string" && e.text.trim() ? ` <small class="note-f-ocr">인식 원문(미검증): ${esc(e.text)}</small>` : "");
+        + (typeof e.text === "string" && e.text.trim() ? ` <small class="note-f-ocr">인식한 원문(미검증): ${esc(e.text)}</small>` : "");
       const isMismatch = e?.checks && (e.checks.symbols === "mismatch" || e.checks.units === "mismatch" || e.checks.parse === "failed");
       if (isMismatch) {
         const img = crop(id, "수식");
