@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.8.0.4 — 2026-10-10
+
+- mis-sol-hai 작성(Haiku 5.5)의 추론을 effort high 대신 예산 8,000토큰으로 직접 준다. OpenRouter는 Claude의 effort를 출력 상한 비율(high=0.8)로 바꾸는데, 실강의에서 추론이 상한 22,000토큰을 다 먹어 작성 호출의 약 4분의 3이 잘렸다(실행 mis-sol-hai-12, llm_output_truncated.long).
+
 ## 2.8.0.3 — 2026-10-09
 
 - mis-sol-hai 작성·질문·수리(Haiku 5.5)는 strict response_format 대신 스키마를 system 메시지로 받는다. Anthropic 구조화 출력은 null 허용 칸을 요청당 16개까지만 받아(공식 문서) 약 48칸인 초안 스키마가 늘 400이었다(실행 mis-sol-hai-10, provider_http_400). 출력은 기존 계약 검증·형식 재시도가 보고, 코드 블록으로 감싼 JSON도 받는다.
