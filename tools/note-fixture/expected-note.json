@@ -1220,7 +1220,8 @@
       ],
       "chartData": null,
       "t0": 560,
-      "display": "check"
+      "display": "check",
+      "slideId": "sl-4"
     },
     {
       "id": "G2",
@@ -1230,7 +1231,8 @@
       "cells": null,
       "chartData": null,
       "t0": 900,
-      "display": "crop"
+      "display": "crop",
+      "slideId": "sl-5"
     }
   ],
   "sources": [

@@ -249,11 +249,14 @@
   // B02 한눈에 — 질문 아래 결론(conclusions)·열린 질문(issues) 최대 3건, 항목 끝에 대상 링크.
   const B02 = (b, h) => {
     const c = (b && b.content) || {};
-    const items = arr(c.items).map(it => `<div class="take"><p class="take-claim"><strong>${h.claim(it && it.claim, { tag: "span" })}</strong></p>`
+    // 첫 쪽 시각화: 질문(뿌리) → 결론 가지(번호·이유·대상 칩)로 그린 나무 도식이다.
+    const branches = arr(c.items).map((it, i) => `<li class="mm-branch"><span class="mm-no">${pad2(i + 1)}</span>`
+      + `<p class="take-claim"><strong>${h.claim(it && it.claim, { tag: "span" })}</strong></p>`
       + (it && it.reason ? h.claim(it.reason) : "")
-      + (links(h, it && it.targetIds) ? `<p class="goto">${links(h, it && it.targetIds)}</p>` : "") + "</div>").join("");
-    return `<section class="conclusion"><div class="kicker">${c.mode === "issues" ? "열린 질문" : "이 강의의 질문"}</div>`
-      + (c.question ? `<h3>${h.claim(c.question, { tag: "span" })}</h3>` : "") + items + "</section>";
+      + (links(h, it && it.targetIds) ? `<p class="goto">${links(h, it && it.targetIds)}</p>` : "") + "</li>").join("");
+    return `<section class="conclusion" data-view="mindmap"><div class="kicker">${c.mode === "issues" ? "열린 질문" : "이 강의의 질문"}</div>`
+      + (c.question ? `<div class="mm-root"><h3>${h.claim(c.question, { tag: "span" })}</h3></div>` : "")
+      + (branches ? `<ol class="mm-branches">${branches}</ol>` : "") + "</section>";
   };
 
   // B03 강의 지도 — 노드 칩 아래에 방향 관계 행(출발 →관계→ 도착)을 나열한다. 같은 행은 한 번만 싣고,
@@ -277,16 +280,22 @@
     }</p>${rows.length ? `<ul class="map-flow">${rows.join("")}</ul>` : ""}</div></section>`;
   };
 
-  // B05 개념 설명 — term(+원어) 머리, 완결된 정의, 그다음 슬롯 내용이 순서대로 문단으로 이어진다.
+  // B05 개념 설명 — "전공용어(번역)" 머리, 그 아래 ": 정의"(명사형 종결), 개념을 보여 주는 도표, 그다음 상세(중간점 목록).
   // 슬롯 라벨(쉬운 풀이·작동 원리·범위·예시)은 생성 때 내부 구조로만 쓰고 화면·PDF 에는 표시하지 않는다(기획 §5-6).
+  // 머리: 원어가 따로 있으면 "원어(용어)", 개념 이름이 이미 "원어(번역)" 꼴이면 그대로다.
   const B05 = (b, h) => {
     const c = (b && b.content) || {};
     // 같은 섹션의 앞 개념 블록이 이미 실은 문장은 다시 싣지 않는다(실행 mis-sol-hai-23: 두 B05 의 scope 가 같은 문장).
     const seen = h.seen || new Set();
-    const slots = [c.explanation, c.mechanism, ...arr(c.scope), ...arr(c.examples)]
-      .filter(x => x && !(x.text && seen.has(x.text)) && (seen.add(x.text), true)).map(x => h.claim(x)).join("");
-    return `<section class="concept"><div class="heading-bundle"><h3>${h.esc(c.term || "")}${c.original ? ` <small>${h.esc(c.original)}</small>` : ""}</h3>`
-      + `<p class="definition">${h.claim(c.definition, { tag: "span" })}</p></div>` + slots + "</section>";
+    const points = [c.explanation, c.mechanism, ...arr(c.scope), ...arr(c.examples)]
+      .filter(x => x && !(x.text && seen.has(x.text)) && (seen.add(x.text), true)).map(x => `<li>${h.claim(x, { tag: "span" })}</li>`).join("");
+    const term = String(c.term || ""), head = c.original && !term.includes("(") ? `${c.original}(${term})` : term;
+    // 정의는 "…방법이다." 대신 "…방법." 으로 끝낸다(노트 개조식).
+    const def = c.definition && typeof c.definition.text === "string" ? { ...c.definition, text: c.definition.text.replace(/이다\.\s*$/, ".") } : c.definition;
+    return `<section class="concept"><div class="heading-bundle"><h3>${h.esc(head)}</h3>`
+      + `<p class="definition"><span class="def-mark">:</span> ${h.claim(def, { tag: "span" })}</p></div>`
+      + (typeof h.figsIn === "function" ? h.figsIn(b && b.id) : "")
+      + (points ? `<ul class="concept-points">${points}</ul>` : "") + "</section>";
   };
 
   // B06 공통 축 비교 — 기준×대상 표. 비어 있는 칸은 "확인되지 않음"으로 두고 채우지 않는다(§9). td 의 data-label 은 좁은 화면 카드용.
@@ -455,23 +464,58 @@
       + trailingAnswer + `</div></div>`;
   };
 
+  // 같은 슬라이드에서 이어지는 도표는 강의안 배치를 따른다 — bbox 의 세로 구간이 겹치면 한 줄(가로로 나란히), 아니면 다음 줄.
+  // 도표를 한 장씩 따로 잘라 세로로만 쌓으면 2×2·좌우 비교 배치가 깨진다.
+  const figSet = (ids, h) => {
+    const byId = new Map(arr(h.note && h.note.figures).filter(f => f && f.id).map(f => [f.id, f])), out = [];
+    const box = id => { const b = byId.get(id) && byId.get(id).bbox; return b && [b.x, b.y, b.w, b.h].every(Number.isFinite) ? b : null; };
+    for (let i = 0; i < ids.length;) {
+      const sl = byId.get(ids[i]) && byId.get(ids[i]).slideId;
+      let j = i + 1;
+      while (j < ids.length && sl != null && box(ids[i]) && box(ids[j]) && byId.get(ids[j]).slideId === sl) j++;
+      const grp = ids.slice(i, j); i = j;
+      if (grp.length < 2) { out.push(h.figure(grp[0])); continue; }
+      const rows = [];
+      for (const id of [...grp].sort((a, z) => box(a).y - box(z).y || box(a).x - box(z).x)) {
+        const r = rows.find(r => r.some(o => box(id).y < box(o).y + box(o).h && box(o).y < box(id).y + box(id).h));
+        r ? r.push(id) : rows.push([id]);
+      }
+      out.push(`<div class="fig-set">${rows.map(r => `<div class="fig-row">${r.sort((a, z) => box(a).x - box(z).x).map(id => `<div class="fig-cell">${h.figure(id)}</div>`).join("")}</div>`).join("")}</div>`);
+    }
+    return out.join("");
+  };
+
   // §15 문서 순서: B01 → B18 공지 → 전역 블록(B02·B03) → 단원(B04 → 블록[B12는 앞 블록 옆, figureIds는 그 블록 뒤] → B17 확인)
   // → 전역 B13 → 자기 점검(문서 번호) → 정답과 해설(print+end, exam 이면 쪽 넘김) → 시스템 B17 → (writing)B16.
   const layout = (note, h) => {
     const secs = arr(note.sections);
     const b18 = []; // B18 은 작성 위치(단원)와 무관하게 문서 머리 뒤로 모은다(§9).
     for (const s of secs) for (const b of arr(s && s.blocks)) if (b && b.type === "B18") b18.push(b);
-    // §14: 어느 블록의 figureIds 도 가리키지 않은 도표는 t0 가 드는 단원의 블록 뒤(그 단원 B17 앞)에, 어디에도 안 들면 마지막 단원 뒤에 놓는다. 한 도표는 한 번만.
-    const cited = new Set(secs.flatMap(s => arr(s && s.blocks).flatMap(b => arr(b && b.content && b.content.figureIds))));
+    // 도표 자리(한 도표는 한 번만): ① 작성자 해설이 정한 블록(f.blockId) ② 그 도표를 figureIds 로 가리킨 블록
+    // ③ 같은 유닛(슬라이드) 근거를 인용한 그 단원의 블록 — 그래프·도식은 개념(B05) 정의 바로 아래, 표는 비교(B06)·계산(B10) 뒤
+    // ④ §14: 그래도 없으면 t0 가 드는 단원의 블록 뒤(그 단원 B17 앞)에, 어디에도 안 들면 마지막 단원 뒤.
+    const blockIds = new Set(secs.flatMap(s => arr(s && s.blocks).map(b => b && b.id)));
+    const evOf = node => { const out = []; (function walk(v) { if (Array.isArray(v)) v.forEach(walk); else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) k === "evidenceIds" && Array.isArray(x) ? out.push(...x) : walk(x); })(node); return out; };
+    const home = new Map();
+    for (const f of arr(note.figures)) if (f && f.blockId && blockIds.has(f.blockId)) home.set(f.id, f.blockId);
+    for (const s of secs) for (const b of arr(s && s.blocks)) for (const g of arr(b && b.content && b.content.figureIds)) if (!home.has(g)) home.set(g, b.id);
     // 요약하지 못한 단원(NOTE_SECTIONS_FAILED 구간)의 도표는 그 단원과 함께 뺀다 — 마지막 단원 뒤로 몰리면 흐름이 깨진다(실행 mis-sol-hai-14).
     const failed = arr(note.notices).filter(n => n && n.code === "NOTE_SECTIONS_FAILED").flatMap(n => arr(n.ranges));
     const orphan = new Map(), stray = [];
     for (const f of arr(note.figures)) {
-      if (!f || cited.has(f.id)) continue;
+      if (!f || home.has(f.id)) continue;
       const i = secs.findIndex(s => s && s.range && f.t0 >= s.range.t0 && f.t0 < s.range.t1);
-      if (i < 0) { if (!failed.some(r => r && f.t0 >= r.t0 && f.t0 < r.t1)) stray.push(f.id); }
+      const unit = typeof f.evidenceId === "string" ? f.evidenceId.split(".")[0] + "." : null;
+      // 표는 비교·계산 블록이, 그래프·도식은 개념 정의가 먼저다.
+      const cands = i < 0 || !unit ? [] : arr(secs[i].blocks).filter(b => b && evOf(b.content).some(e => String(e).startsWith(unit)));
+      const pick = (f.kind === "table" ? ["B06", "B10", "B05"] : ["B05", "B10", "B06"]).map(t => cands.find(b => b.type === t)).find(Boolean);
+      if (pick) home.set(f.id, pick.id);
+      else if (i < 0) { if (!failed.some(r => r && f.t0 >= r.t0 && f.t0 < r.t1)) stray.push(f.id); }
       else { const l = orphan.get(i) || []; l.push(f.id); orphan.set(i, l); }
     }
+    const fOrder = new Map(arr(note.figures).map((f, i) => [f && f.id, i]));
+    const figsOf = id => [...home].filter(([, b]) => b === id).map(([g]) => g).sort((a, z) => (fOrder.get(a) ?? 1e9) - (fOrder.get(z) ?? 1e9));
+    h.figsIn = id => figSet(figsOf(id), h);
     const pieces = [B01(null, h)];
     for (const b of b18) pieces.push(h.block(b));
     for (const g of arr(note.global)) if (g && g.type !== "B13") pieces.push(h.block(g));
@@ -488,13 +532,13 @@
             ? prev.slice(0, -"</div></div>".length) + blk + "</div></div>" // 이어지는 곁설명은 중첩하지 않고 같은 aside 단에 쌓는다
             : `<div class="with-aside">${prev}<div class="aside-col">${blk}</div></div>`;
         } else { last = body.length; body.push(blk); }
-        body.push(...arr(b.content && b.content.figureIds).map(g => h.figure(g)));
+        if (b.type !== "B05") body.push(figSet(figsOf(b.id), h)); // B05 는 정의 바로 아래에 직접 싣는다
       }
-      for (const g of orphan.get(si) || []) body.push(h.figure(g));
+      body.push(figSet(orphan.get(si) || [], h));
       for (const c of arr(s.checks)) body.push(templates.B17({ check: c }, h));
       pieces.push(`<section class="note-sec" id="${h.esc(s.sectionId)}">${B04({ sec: s }, h)}${body.join("")}</section>`);
     });
-    for (const g of stray) pieces.push(h.figure(g));
+    pieces.push(figSet(stray, h));
     for (const g of arr(note.global)) if (g && g.type === "B13") pieces.push(h.block(g));
     const groups = qgroups(note, h), qs = groups.flatMap(g => g.qs);
     if (qs.length) {
@@ -577,7 +621,14 @@
     `.note-fig-title{display:block;font-weight:600;color:var(--ink);margin-bottom:6px}`,
     `.note-fig-src{display:block;color:var(--muted);font:11px var(--mono);margin-top:6px}`,
     `.note-fig-check,.note-fig-missing{color:var(--accentText);margin:0}`,
-    `.note-fig-explanation{margin-top:8px;font-size:13px}`,
+    `.note-fig-explanation{display:block;margin-top:8px;font-size:13px;color:var(--ink)}.note-fig-explanation::before{content:"※ ";color:var(--muted)}`,
+    // 같은 슬라이드 도표 묶음 — 강의안의 가로 배치를 한 줄로 지킨다(좁은 화면에서는 세로로).
+    `.fig-set{margin:14px 0}.fig-row{display:flex;gap:10px;align-items:flex-start}.fig-cell{flex:1 1 0;min-width:0}.fig-cell .note-fig{margin:0 0 10px}.fig-cell .note-crop{max-width:100%}`,
+    // B05: ": 정의" 줄과 상세 중간점 목록.
+    `.concept .def-mark{color:var(--muted);font-weight:600}.concept-points{list-style:none;padding-left:0;margin:.4em 0}.concept-points li{position:relative;padding-left:1em;margin:.25em 0}.concept-points li::before{content:"·";position:absolute;left:.25em;color:var(--muted);font-weight:700}`,
+    // B02 첫 쪽 도식: 질문(뿌리) → 결론 가지.
+    `.conclusion[data-view="mindmap"] .mm-root{display:flex;justify-content:center;position:relative;padding-bottom:18px}.conclusion[data-view="mindmap"] .mm-root h3{margin:0;padding:10px 14px;border:2px solid var(--accent);background:var(--surface);border-radius:10px;text-align:center;max-width:36em}.conclusion[data-view="mindmap"] .mm-root::after{content:"";position:absolute;left:50%;bottom:0;height:18px;border-left:2px solid var(--accent)}`,
+    `.mm-branches{list-style:none;margin:0;padding:18px 0 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;border-top:2px solid var(--accent)}.mm-branch{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px}.mm-branch::before{content:"";position:absolute;left:50%;top:-20px;height:18px;border-left:2px solid var(--accent)}.mm-no{display:block;font:600 11px var(--mono);color:var(--accent)}`,
     `.note-table{border-collapse:collapse;width:100%;font-size:13px;line-height:1.55}`,
     `.note-table th,.note-table td{border:1px solid var(--line);padding:7px 8px;text-align:left;vertical-align:top}`,
     `.note-table thead th{background:var(--surfaceSubtle);font-weight:600}`,
@@ -673,6 +724,7 @@
     `.mk-chip-e{border:1px solid var(--line);border-radius:999px;padding:0 10px;font-size:12px;color:var(--ink);background:var(--surface)}`,
     `.mk-vs{font:600 12px var(--mono);color:var(--accentText)}`,
     // 좁은 화면(≤520px): 본문은 최소 16px, 곁설명은 위아래로, 표는 행 카드 + data-label 로 열 이름을 반복한다(thead 를 숨기기만 하지 않는다, §15).
+    `@media (max-width:520px){.fig-row{flex-direction:column}.mm-branches{grid-template-columns:1fr;border-top:0;border-left:2px solid var(--accent);padding:0 0 0 14px}.mm-branch::before{left:-16px;top:50%;width:14px;height:0;border-left:0;border-top:2px solid var(--accent)}}`,
     `@media (max-width:520px){.note{padding:18px 14px;font-size:16px}.concept .definition{font-size:16px}.with-aside{display:block}.with-aside>.aside-col{border-left:0;border-top:1px solid var(--line);padding:8px 0 0}`,
     `.note-table thead{display:none}`,
     `.note-table,.note-table tbody,.note-table tr,.note-table th,.note-table td{display:block}`,

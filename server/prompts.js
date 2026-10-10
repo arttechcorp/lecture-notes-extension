@@ -205,11 +205,13 @@ const STAGE_V3={
 const MSH={
   plan:[
     "[mis-sol-hai] 모든 슬라이드를 정확히 한 섹션에 배정한다 — 제목만 있거나 내용이 없는 슬라이드는 다음 슬라이드의 섹션에 합친다.",
+    "개념 이름(concepts[].name)은 강의 자료에 나온 전공 용어 원어를 앞에, 한국어 번역을 괄호에 쓴다 — 예: k-Fold Cross-Validation(k겹 교차검증), Over-fitting(과적합). 자료에 한국어 용어만 있으면 한국어만 쓴다.",
     "입력의 emphasis 는 유닛별 강조 신호(체류·핵심어 재등장·강조어·재방문·필기 면적)다 — 신호가 높은 자리의 블록에 곁설명(B12 hint·background)을 배정해 부가 설명을 붙이고, 슬라이드에 없이 말로만 한 내용에는 B12 블록을 배정한다(작성 단계가 kind slide_absent 로 채운다).",
   ],
   draft:[
     "[mis-sol-hai] 슬라이드에 없이 말로만 한 내용은 notes 관계의 kind \"slide_absent\"로 쓴다 — 그 관계의 주장은 발화 근거만 인용한다.",
     "입력의 images 는 OCR 이 읽지 못한 필기 영역 이미지다 — id 는 그 영역이 속한 근거다. 이미지에서 읽은 내용은 그 근거 id 를 인용하는 주장으로 쓰고, 읽히지 않는 필기는 쓰지 않는다.",
+    "figureNotes: 입력 figures 의 도표마다 하나씩 — figureId 는 그 도표 id(G#), claim 은 그 도표가 무엇을 보여 주고 강의에서 어떤 뜻인지(축·색·곡선이 무엇이고 어떤 추세가 무슨 결론을 받치는지) 1~2문장으로 쓴 claims 의 claimId 다. 그 주장은 도표 근거(figures 의 evidenceId)와 그 내용을 말한 슬라이드 글·발화를 인용하고, 근거 글에 없는 값·축 이름은 쓰지 않는다. blockId 는 그 도표를 둘 계획 블록 — 도표가 설명하는 개념의 B05, 계산·표 해석이면 B10 — 이고 맞는 블록이 없으면 null 이다.",
   ],
   review:[
     "[mis-sol-hai] 입력의 html 은 축약 렌더 HTML 이다 — data-block·data-claim 앵커가 블록·주장 id 다.",
@@ -266,8 +268,9 @@ const formulaStatus=Contracts.SCHEMAS.slideDoc.properties.formulas.items.propert
 const options=obj({syntheticExamples:{type:"boolean"},externalAugmentation:{type:"boolean"}});
 const registry=arr(obj({id:pat(IDS.formula),latex:{type:["string","null"],maxLength:4000},status:formulaStatus}),200);
 const figureKind={type:"string",enum:["table","chart","diagram"]};
-const figures=arr(obj({id:pat(IDS.figure),kind:figureKind,title:{type:["string","null"],maxLength:300},
-  cells:{type:["array","null"],maxItems:30,items:arr({type:"string",maxLength:200},6)}}),50);
+// evidenceId(선택): 그 도표의 근거 항목 id(U#.g#) — 작성자가 도표 해설(figureNotes)에서 인용한다.
+const figures=arr(opt({id:pat(IDS.figure),kind:figureKind,title:{type:["string","null"],maxLength:300},
+  cells:{type:["array","null"],maxItems:30,items:arr({type:"string",maxLength:200},6)},evidenceId:pat(IDS.evidence)},["evidenceId"]),50);
 const planSection=S.plan.properties.sections.items,planConcepts=S.plan.properties.concepts;
 // 섹션에 배정된 학습 항목(id·kind·importance·근거 유닛만 — 항목 텍스트나 처리 상태는 싣지 않는다).
 const learningItems=arr(obj({itemId:pat(IDS.learningItem),kind:{type:"string",enum:NoteContract.LEARNING_ITEM_KINDS},unitIds:arr(pat(IDS.unit),20,1),importance:{type:"string",enum:["core","supporting","minor"]}}),50);
@@ -375,7 +378,7 @@ function outputSchema(stage,body,sourceLang,mode){
   if(stage==="plan")return S.plannerOutput;
   if(stage==="editorial")return NoteContract.editorialPlanSchema;
   if(stage==="section")return src(NoteContract.sectionOutputSchemaFor(body.section,{gist:body.withGist,policy:body.options,allowedRefs:body.allowedRefs}));
-  if(stage==="draft")return SectionDraft.outputSchemaFor(body.section,{gist:body.withGist,policy:body.options,allowedRefs:body.allowedRefs,sourceLang,nullReasons:V2_MODES.includes(mode)});
+  if(stage==="draft")return SectionDraft.outputSchemaFor(body.section,{gist:body.withGist,policy:body.options,allowedRefs:body.allowedRefs,sourceLang,nullReasons:V2_MODES.includes(mode),figureNotes:NoteProfiles.get(mode)?.prompts==="msh"});
   if(stage==="repair")return src(NoteContract.repairOutputSchemaFor(body.section,[...new Set(body.repair.map(r=>r.blockId))],body.options,body.allowedRefs));
   if(stage==="global")return NoteContract.globalOutputSchemaFor(body.plan.global,body.allowedRefs);
   if(stage==="link")return NoteContract.linkOutputSchema;

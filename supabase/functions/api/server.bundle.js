@@ -777,6 +777,8 @@ const __defs = {
       })),
       t0: nonneg, display: en(["table", "chart", "crop", "check"]),
       explanation: orNull(claim),
+      blockId: pat(IDS.secBlock), slideId: str(64),
+      bbox: obj({ x: { type: "number" }, y: { type: "number" }, w: { type: "number" }, h: { type: "number" } }),
     }, ["id", "evidenceId", "kind", "title", "cells", "chartData", "t0", "display"]), 200),
     sources: arr(obj({ id: evId, kind: en(["slide", "speech", "figure", "handwriting"]), t0: nonneg, t1: nonneg, slideId: orNull(str(64)) }), 20000),
     // 근거 메타 사이드카(선택, mis-sol-hai §4.6): unitId → { source, ink, emphasis }.
@@ -1882,6 +1884,14 @@ const __defs = {
       claimInto(out.gist, "/gist", ctx, gerr);
       if (!gerr.length) gist = out.gist;
     }
+    // 도표 해설(mis-sol-hai figureNotes)도 gist 처럼 오류 없이 떨군다 — 이 섹션의 도표이고 주장 검사를 통과한 것만, 도표당 하나.
+    const figureNotes = [];
+    for (const n of Array.isArray(out?.figureNotes) ? out.figureNotes : []) {
+      if (!n || !ctx.figures.has(n.figureId) || figureNotes.some(x => x.figureId === n.figureId) || !Contracts.validate(claim, n.claim).ok) continue;
+      const ferr = [];
+      claimInto(n.claim, "/figureNotes", ctx, ferr);
+      if (!ferr.length) figureNotes.push({ figureId: n.figureId, blockId: plannedIds.has(n.blockId) ? n.blockId : null, claim: n.claim });
+    }
     // supported 가 아닌 블록은 이 섹션의 유효한 확인 항목이 가리켜야 한다(§9 B17).
     const explained = new Set(checks.flatMap(c => c.targetIds));
     for (const rec of [...staged.filter(r => r.type === "B10"), ...staged.filter(r => r.type !== "B10")]) {
@@ -1914,7 +1924,7 @@ const __defs = {
     return {
       sectionId, ok: !secErrs.length && staged.every(r => !r.errors.length), errors: secErrs, warnings, gist,
       blocks: staged.map(r => ({ id: r.id, type: r.type, envelope: r.envelope, errors: r.errors })),
-      checks, calc, cited,
+      checks, calc, cited, figureNotes,
     };
   }
 
@@ -2230,12 +2240,18 @@ const __defs = {
       const c = { ...d, unit: blank(d.unit), xLabel: blank(d.xLabel), yLabel: blank(d.yLabel) };
       return Contracts.validate(schemas.note.properties.figures.items.properties.chartData, c).ok ? c : null;
     };
+    // 작성자 도표 해설(figureNotes)이 있으면 그 주장이 설명이 되고, 그 도표를 둘 블록(살아남은 블록만)을 단다.
+    const fnote = new Map();
+    for (const r of results.values()) for (const n of r.figureNotes || []) if (!fnote.has(n.figureId)) fnote.set(n.figureId, n);
     const figs = figures.map(f => {
-      const chartData = chartOf(f.chartData);
+      const chartData = chartOf(f.chartData), n = fnote.get(f.id), explanation = n ? deep(n.claim) : f.explanation;
       return {
         id: f.id, evidenceId: f.evidenceId, kind: f.kind, title: blank(f.title), cells: f.cells ?? null,
         chartData, t0: f.t0, display: displayOf("figure", f.display === "chart" && !chartData ? {} : f, cropSet.has(f.id)),
-        ...(f.explanation ? { explanation: f.explanation } : {}),
+        ...(explanation ? { explanation } : {}),
+        ...(n?.blockId && live.has(n.blockId) ? { blockId: n.blockId } : {}),
+        // 같은 슬라이드 도표를 강의안 배치(가로·세로)대로 묶는 데 쓴다.
+        ...(f.slideId != null ? { slideId: String(f.slideId) } : {}), ...(f.bbox ? { bbox: f.bbox } : {}),
       };
     });
     const concepts = (plan.concepts || []).map(c => ({
@@ -2573,7 +2589,7 @@ if (typeof module !== "undefined") module.exports = api;
   // 요청별 초안 출력 스키마. relations 는 타입별 배열 — 같은 타입의 계획 블록에 계획 순서로 하나씩 대응한다
   // (초안은 블록 id 를 모른다). 관계 안의 주장 칸은 모두 로컬 키(claimId)다. strict 라 모든 칸이 필수 —
   // "없음"은 null·빈 배열로 표현한다.
-  function outputSchemaFor(planSection, { gist = true, policy = NoteContract.POLICY, allowedRefs = null, sourceLang, nullReasons = false, v3 = false, mode = null, explicitRelations = false } = {}) {
+  function outputSchemaFor(planSection, { gist = true, policy = NoteContract.POLICY, allowedRefs = null, sourceLang, nullReasons = false, v3 = false, mode = null, explicitRelations = false, figureNotes = false } = {}) {
     const isV3Mode = v3 === true || explicitRelations === true || (mode && NoteV3?.isV3?.(mode));
     const IDS = NoteContract.IDS;
     const evId = pat(IDS.evidence), conceptId = pat(IDS.concept), target = pat(IDS.target), claimId = pat(CLAIM_ID);
@@ -2639,10 +2655,14 @@ if (typeof module !== "undefined") module.exports = api;
       checks: arr(checkFor(ids), 6),
       // 작성자 null 의 사유 지도 — 키는 이 요청의 계획 블록, 값은 NULL_REASONS. 안 채운 블록은 null.
       ...(nullReasons === true ? { nullReasons: orNull(obj(Object.fromEntries(ids.map(id => [id, nullableEnum(NULL_REASONS)])))) } : {}),
+      // 도표 해설(mis-sol-hai): 도표마다 무엇을 보여 주고 강의에서 무슨 뜻인지 한 주장 + 그 도표를 둘 계획 블록.
+      ...(figureNotes === true ? { figureNotes: arr(obj({ figureId: pat(IDS.figure), blockId: orNull(pat(IDS.secBlock)), claim: claimId }), 12) } : {}),
     });
     if (sourceLang === "en") out = NoteContract.withSource(out); // gist·checks 안의 인라인 주장에 src — 초안 claims 는 위에서 직접 얹었다
     out = NoteContract.restrictBasis(out, policy);
     if (allowedRefs) out = restrictRefs(out, allowedRefs);
+    // figureNotes 는 선택 칸 — 빠뜨린 응답이 초안 전체를 실패시키지 않는다(Haiku 는 스키마를 프롬프트로 받아 strict 제약이 없다).
+    if (figureNotes === true) out = { ...out, required: out.required.filter(k => k !== "figureNotes") };
     return out;
   }
 
@@ -2986,8 +3006,12 @@ if (typeof module !== "undefined") module.exports = api;
     };
     ledger.relations = ledgerRelations;
 
+    // 도표 해설: 주장이 있는 항목만, 계획에 없는 블록은 null 로 — 검증(validateSection)이 근거·도표 id 를 다시 본다.
+    const planned = new Set(planBlocks.map(b => b.blockId));
+    const figureNotes = (Array.isArray(draft.figureNotes) ? draft.figureNotes : []).map(n => n && typeof n === "object" && typeof n.figureId === "string" && at(n.claim)
+      ? { figureId: n.figureId, blockId: planned.has(n.blockId) ? n.blockId : null, claim: at(n.claim) } : null).filter(Boolean);
     return { gist, blocks, checks: (Array.isArray(draft.checks) ? draft.checks : []).slice(0, 6), ledger,
-      ...(Object.keys(nullReasons).length ? { nullReasons } : {}) };
+      ...(Object.keys(nullReasons).length ? { nullReasons } : {}), ...(figureNotes.length ? { figureNotes } : {}) };
   }
 
   // 출력의 선택 실험 칸 nullReasons({<blockId>: 사유})를 읽는다 — 없거나 열거 밖 값은 unknown 으로 둔다.
@@ -4402,7 +4426,7 @@ function createServer(env=process.env,deps={}){
     // mis-sol-hai 초안·독립 수리: keyed 칸(nullReasons·blocks 맵)은 제공자 strict 스키마가 요구하는
     // 정적 배열 모양으로 내린다 — 응답은 검증 전 정규화가 다시 keyed 맵으로 돌린다(lib/section-draft.js).
     const providerOut=providerSchema(
-      msh&&stage==="draft"?SectionDraft.providerSchemaFor(rest.section,{gist:rest.withGist,policy:rest.options,allowedRefs:rest.allowedRefs,sourceLang,nullReasons:true})
+      msh&&stage==="draft"?SectionDraft.providerSchemaFor(rest.section,{gist:rest.withGist,policy:rest.options,allowedRefs:rest.allowedRefs,sourceLang,nullReasons:true,figureNotes:true})
       :msh&&stage==="repair"?REPAIR_PROVIDER_SCHEMA
       :outSchema,[]);
     // 배열로 내린 칸은 검증 전에 keyed 맵으로 되돌린다 — 세션(Sol 수리)·독립 경로 모두(실행 mis-sol-hai-23: 세션 경로가 빠져 required 실패).
@@ -5793,11 +5817,13 @@ const STAGE_V3={
 const MSH={
   plan:[
     "[mis-sol-hai] 모든 슬라이드를 정확히 한 섹션에 배정한다 — 제목만 있거나 내용이 없는 슬라이드는 다음 슬라이드의 섹션에 합친다.",
+    "개념 이름(concepts[].name)은 강의 자료에 나온 전공 용어 원어를 앞에, 한국어 번역을 괄호에 쓴다 — 예: k-Fold Cross-Validation(k겹 교차검증), Over-fitting(과적합). 자료에 한국어 용어만 있으면 한국어만 쓴다.",
     "입력의 emphasis 는 유닛별 강조 신호(체류·핵심어 재등장·강조어·재방문·필기 면적)다 — 신호가 높은 자리의 블록에 곁설명(B12 hint·background)을 배정해 부가 설명을 붙이고, 슬라이드에 없이 말로만 한 내용에는 B12 블록을 배정한다(작성 단계가 kind slide_absent 로 채운다).",
   ],
   draft:[
     "[mis-sol-hai] 슬라이드에 없이 말로만 한 내용은 notes 관계의 kind \"slide_absent\"로 쓴다 — 그 관계의 주장은 발화 근거만 인용한다.",
     "입력의 images 는 OCR 이 읽지 못한 필기 영역 이미지다 — id 는 그 영역이 속한 근거다. 이미지에서 읽은 내용은 그 근거 id 를 인용하는 주장으로 쓰고, 읽히지 않는 필기는 쓰지 않는다.",
+    "figureNotes: 입력 figures 의 도표마다 하나씩 — figureId 는 그 도표 id(G#), claim 은 그 도표가 무엇을 보여 주고 강의에서 어떤 뜻인지(축·색·곡선이 무엇이고 어떤 추세가 무슨 결론을 받치는지) 1~2문장으로 쓴 claims 의 claimId 다. 그 주장은 도표 근거(figures 의 evidenceId)와 그 내용을 말한 슬라이드 글·발화를 인용하고, 근거 글에 없는 값·축 이름은 쓰지 않는다. blockId 는 그 도표를 둘 계획 블록 — 도표가 설명하는 개념의 B05, 계산·표 해석이면 B10 — 이고 맞는 블록이 없으면 null 이다.",
   ],
   review:[
     "[mis-sol-hai] 입력의 html 은 축약 렌더 HTML 이다 — data-block·data-claim 앵커가 블록·주장 id 다.",
@@ -5854,8 +5880,9 @@ const formulaStatus=Contracts.SCHEMAS.slideDoc.properties.formulas.items.propert
 const options=obj({syntheticExamples:{type:"boolean"},externalAugmentation:{type:"boolean"}});
 const registry=arr(obj({id:pat(IDS.formula),latex:{type:["string","null"],maxLength:4000},status:formulaStatus}),200);
 const figureKind={type:"string",enum:["table","chart","diagram"]};
-const figures=arr(obj({id:pat(IDS.figure),kind:figureKind,title:{type:["string","null"],maxLength:300},
-  cells:{type:["array","null"],maxItems:30,items:arr({type:"string",maxLength:200},6)}}),50);
+// evidenceId(선택): 그 도표의 근거 항목 id(U#.g#) — 작성자가 도표 해설(figureNotes)에서 인용한다.
+const figures=arr(opt({id:pat(IDS.figure),kind:figureKind,title:{type:["string","null"],maxLength:300},
+  cells:{type:["array","null"],maxItems:30,items:arr({type:"string",maxLength:200},6)},evidenceId:pat(IDS.evidence)},["evidenceId"]),50);
 const planSection=S.plan.properties.sections.items,planConcepts=S.plan.properties.concepts;
 // 섹션에 배정된 학습 항목(id·kind·importance·근거 유닛만 — 항목 텍스트나 처리 상태는 싣지 않는다).
 const learningItems=arr(obj({itemId:pat(IDS.learningItem),kind:{type:"string",enum:NoteContract.LEARNING_ITEM_KINDS},unitIds:arr(pat(IDS.unit),20,1),importance:{type:"string",enum:["core","supporting","minor"]}}),50);
@@ -5963,7 +5990,7 @@ function outputSchema(stage,body,sourceLang,mode){
   if(stage==="plan")return S.plannerOutput;
   if(stage==="editorial")return NoteContract.editorialPlanSchema;
   if(stage==="section")return src(NoteContract.sectionOutputSchemaFor(body.section,{gist:body.withGist,policy:body.options,allowedRefs:body.allowedRefs}));
-  if(stage==="draft")return SectionDraft.outputSchemaFor(body.section,{gist:body.withGist,policy:body.options,allowedRefs:body.allowedRefs,sourceLang,nullReasons:V2_MODES.includes(mode)});
+  if(stage==="draft")return SectionDraft.outputSchemaFor(body.section,{gist:body.withGist,policy:body.options,allowedRefs:body.allowedRefs,sourceLang,nullReasons:V2_MODES.includes(mode),figureNotes:NoteProfiles.get(mode)?.prompts==="msh"});
   if(stage==="repair")return src(NoteContract.repairOutputSchemaFor(body.section,[...new Set(body.repair.map(r=>r.blockId))],body.options,body.allowedRefs));
   if(stage==="global")return NoteContract.globalOutputSchemaFor(body.plan.global,body.allowedRefs);
   if(stage==="link")return NoteContract.linkOutputSchema;

@@ -789,7 +789,7 @@ function createServer(env=process.env,deps={}){
     // mis-sol-hai 초안·독립 수리: keyed 칸(nullReasons·blocks 맵)은 제공자 strict 스키마가 요구하는
     // 정적 배열 모양으로 내린다 — 응답은 검증 전 정규화가 다시 keyed 맵으로 돌린다(lib/section-draft.js).
     const providerOut=providerSchema(
-      msh&&stage==="draft"?SectionDraft.providerSchemaFor(rest.section,{gist:rest.withGist,policy:rest.options,allowedRefs:rest.allowedRefs,sourceLang,nullReasons:true})
+      msh&&stage==="draft"?SectionDraft.providerSchemaFor(rest.section,{gist:rest.withGist,policy:rest.options,allowedRefs:rest.allowedRefs,sourceLang,nullReasons:true,figureNotes:true})
       :msh&&stage==="repair"?REPAIR_PROVIDER_SCHEMA
       :outSchema,[]);
     // 배열로 내린 칸은 검증 전에 keyed 맵으로 되돌린다 — 세션(Sol 수리)·독립 경로 모두(실행 mis-sol-hai-23: 세션 경로가 빠져 required 실패).
