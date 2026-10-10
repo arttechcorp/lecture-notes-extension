@@ -792,6 +792,10 @@ function createServer(env=process.env,deps={}){
       msh&&stage==="draft"?SectionDraft.providerSchemaFor(rest.section,{gist:rest.withGist,policy:rest.options,allowedRefs:rest.allowedRefs,sourceLang,nullReasons:true})
       :msh&&stage==="repair"?REPAIR_PROVIDER_SCHEMA
       :outSchema,[]);
+    // 배열로 내린 칸은 검증 전에 keyed 맵으로 되돌린다 — 세션(Sol 수리)·독립 경로 모두(실행 mis-sol-hai-23: 세션 경로가 빠져 required 실패).
+    const outPatch=msh&&stage==="draft"?p=>SectionDraft.normalizeNullReasons(p,(rest.section?.blocks??[]).map(b=>b.blockId))
+      :msh&&stage==="repair"?p=>normalizeRepairBlocks(p,[...new Set((rest.repair??[]).map(r=>r.blockId))])
+      :null;
     // 형식 실패 재시도분까지 예약하고 정산에서 되돌린다. 시스템 본문과 스키마도 입력 토큰이다.
     // 세션 모드는 요청 안에서 Sol·Luna 여러 호출이 돈다 — 도구 호출(Luna)과 Sol 이 도구 결과를 다시 읽는 입력까지 예약에 넣는다.
     const lunaProviders=c.providers[NoteSession.LUNA]??c.providers[upstreamOf(NoteSession.LUNA)],
@@ -809,7 +813,7 @@ function createServer(env=process.env,deps={}){
       // 세션 경로: 분야 분류(Jev)는 대화 이력에 넣지 않는다 — Sol·Luna 호출 전부가 이 예약·deadline 안에서 돌고
       // 시간이 모자라면 200 pending 으로 넘겨 클라이언트가 같은 단계를 다시 보낸다(최대 3요청은 클라이언트 계약).
       if(session)return await NoteSession.run({
-        stage,rest,session,sourceLang,options:opts,params,providerOut,outSchema,
+        stage,rest,session,sourceLang,options:opts,params,providerOut,outSchema,outPatch,
         noteSpecVersion:NoteContract.NOTE_SPEC_VERSION,schemaVersion:c.remoteConfig.schemaVersion,
         // sol-fork·v2 작성 호출은 같은 접두 P 만 읽는 독립 호출이라 세션 잠금 없이 병렬로 간다 — 접두를 만드는 계획 호출은 잠금을 유지한다.
         reserve,deadline,signal,fetcher,key:c.key,gens,lock:NoteProfiles.get(session.mode)?.session==="fork"&&stage!=="plan"&&stage!=="editorial"?async()=>()=>{}:sessionLock,
@@ -864,10 +868,7 @@ function createServer(env=process.env,deps={}){
           if(sel?.error)throw Object.assign(new Error("provider_output_incomplete"),{detail:sel.error});
           if(choice?.finish_reason!=="stop")throw Object.assign(new Error("provider_output_incomplete"),{detail:"incomplete."+String(choice?.finish_reason||"none").toLowerCase().replace(/[^a-z0-9_]/g,"").slice(0,30)});
           // mis-sol-hai 초안·수리 응답의 배열 칸(nullReasons·blocks)은 검증 전에 keyed 맵으로 돌리고 빠진 키는 null 로 채운다.
-          const fin=finalizeNote(stage,sel?sel.text:choice.message.content,outSchema,rest,
-            msh&&stage==="draft"?p=>SectionDraft.normalizeNullReasons(p,(rest.section?.blocks??[]).map(b=>b.blockId))
-            :msh&&stage==="repair"?p=>normalizeRepairBlocks(p,[...new Set((rest.repair??[]).map(r=>r.blockId))])
-            :null);
+          const fin=finalizeNote(stage,sel?sel.text:choice.message.content,outSchema,rest,outPatch);
           // 계획 호출이 끝난 뒤에만 분류 결과를 기다린다 — 앞서 병렬로 나간 호출이고 이미 끝났거나 5초 안에 끝난다.
           const classified=classifying?await classifying:null;
           if(classified){meta.subject=classified.subject;meta.subjectConf=classified.conf;}

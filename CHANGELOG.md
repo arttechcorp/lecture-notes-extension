@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.8.0.14 — 2026-10-10
+
+- mis-sol-hai Sol 세션 수리도 배열 blocks 응답을 keyed 맵으로 되돌린다. 세션 경로가 정규화를 거치지 않아 Sol 수리가 모두 required 로 실패했다(실행 mis-sol-hai-23).
+
 ## 2.8.0.13 — 2026-10-10
 
 - mis-sol-hai 작성(Haiku 5.5)의 추론을 끈다. effort low(2.8.0.5)도 추론이 10~18K토큰이라 출력 상한 22K에 걸려 초안 일부가 잘렸고(실행 mis-sol-hai-23, 5회 중 2회), 상한을 올리면 서버 시한 120초를 넘는다. OpenRouter 메타상 Haiku 5.5 추론은 선택이다. 계획·편집·검수·수리는 Sol이 맡는다.

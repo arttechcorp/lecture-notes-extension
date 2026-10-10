@@ -311,7 +311,7 @@ async function run(ctx){
   const push=items=>{for(const i of items){const k=keepItem(i);if(k)history.push(k);}};
   // 최종 출력: 파싱·id 정규화·salvage·strict 검사는 독립 경로와 같다 — 검증을 통과한 턴만 이력에 남긴다.
   const finish=(text,items)=>{
-    const fin=h.finalizeNote(stage,text,ctx.outSchema,rest);
+    const fin=h.finalizeNote(stage,text,ctx.outSchema,rest,ctx.outPatch);
     push(items);
     // sol-fork·v2 성공 이력은 들어온 접두 P 다 — 누적 이력의 앞 P 구간이 바이트로 같은지 확인하고 이 단계의 턴은 돌려주지 않는다.
     if(prefix&&JSON.stringify(history.slice(0,prefix.length))!==JSON.stringify(prefix))throw invalid("prefix_changed");

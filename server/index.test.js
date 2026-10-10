@@ -3795,6 +3795,17 @@ test("mis-sol-hai: 독립 수리(repair)는 blocks 를 {blockId,envelope}[] 로 
   }, env);
 });
 
+test("mis-sol-hai: 세션(Sol) 수리도 배열 blocks 응답을 keyed 맵으로 돌린다(실행 mis-sol-hai-23 required 실패)", async () => {
+  const HAIKU = "anthropic/claude-haiku-5.5", envl = noteWriter.sections.S1.first.blocks.S1_B3;
+  const env = { ...v2Env, ALLOWED_MODELS: JSON.stringify([model, SOL, LUNA2, HAIKU]), OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], [SOL]: ["azure", "azure/us"], "openai/gpt-6-luna": ["azure", "azure/us"], [HAIKU]: ["google-vertex/global"] }) };
+  await withNoteServer(async () => solReply(JSON.stringify({ blocks: [{ blockId: "S1_B3", envelope: envl }] })), async url => {
+    const res = await req(url, "/v1/write", "POST", repairIn({ model: SOL, requestId: "msh-ss", noteMode: "mis-sol-hai", noteSession: { v: 1, id: "mshss001", mode: "mis-sol-hai", history: fork2P() } }), tokenB);
+    const out = await res.json();
+    assert.equal(res.status, 200, JSON.stringify(out.error || ""));
+    assert.deepEqual(out.output, { blocks: { S1_B3: envl } });
+  }, env);
+});
+
 test("mis-sol-hai: 수리 응답의 봉투가 JSON 문자열이어도 객체로 풀어 받는다(블록 타입 오류로 수리 전체가 실패하지 않게)", async () => {
   const HAIKU = "anthropic/claude-haiku-5.5";
   const env = { ...v2Env, ALLOWED_MODELS: JSON.stringify([model, SOL, LUNA2, HAIKU]), OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], [SOL]: ["azure", "azure/us"], "openai/gpt-6-luna": ["azure", "azure/us"], [HAIKU]: ["google-vertex/global"] }) };
