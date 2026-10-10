@@ -3795,6 +3795,18 @@ test("mis-sol-hai: 독립 수리(repair)는 blocks 를 {blockId,envelope}[] 로 
   }, env);
 });
 
+test("mis-sol-hai: 수리 응답의 봉투가 JSON 문자열이어도 객체로 풀어 받는다(블록 타입 오류로 수리 전체가 실패하지 않게)", async () => {
+  const HAIKU = "anthropic/claude-haiku-5.5";
+  const env = { ...v2Env, ALLOWED_MODELS: JSON.stringify([model, SOL, LUNA2, HAIKU]), OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], [SOL]: ["azure", "azure/us"], "openai/gpt-6-luna": ["azure", "azure/us"], [HAIKU]: ["google-vertex/global"] }) };
+  const envl = noteWriter.sections.S1.first.blocks.S1_B3;
+  await withNoteServer(async () => noteReply({ blocks: [{ blockId: "S1_B3", envelope: JSON.stringify(envl) }] }), async url => {
+    const res = await req(url, "/v1/write", "POST", repairIn({ model: HAIKU, requestId: "msh-rs", stage: "repair", noteMode: "mis-sol-hai" }), tokenB);
+    const out = await res.json();
+    assert.equal(res.status, 200, JSON.stringify(out.error || ""));
+    assert.deepEqual(out.output, { blocks: { S1_B3: envl } });
+  }, env);
+});
+
 test("sol-luna-3: 수리 패킷은 세션 없는 Sol 독립 요청 — 짧은 수리 지시·낮은 출력 상한, 세션·다른 모드·칸 누락은 거절", async () => {
   const bodies = [];
   const packet = { v: 1, policyVersion: noteSpecVersion, baseRevision: 0, targets: ["S1_B3"], errorCodes: ["VAL_EVIDENCE_MISSING"], allowedOps: ["revise", "null"], neighborClaims: [], omittedIds: ["S1_B1"] };

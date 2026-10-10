@@ -563,6 +563,8 @@
     `.note-label-synthetic{background:var(--accentSubtle);color:var(--accentText)}`,
     `.note-label-external{border:1px solid var(--accent);color:var(--accentText)}`,
     `.note-f-img img,.note-crop{max-width:100%;vertical-align:middle}`,
+    // 도표 크롭은 원본(최대 1200px)이 단 너비를 다 채우면 한 장이 반 쪽을 넘어 쪽 넘김·빈 쪽이 생긴다(실행 21 PDF) — 높이를 묶고 가운데 둔다.
+    `.note-fig .note-crop{display:block;margin:0 auto;max-height:480px;width:auto;height:auto}`,
     `.note-f-label{margin-left:.3em;color:var(--muted);font-size:.75em}`,
     `.note-f-check{color:var(--accentText);background:var(--accentSubtle);padding:0 4px}`,
     `.note-f-ocr{color:var(--muted)}`,
@@ -683,6 +685,8 @@
     `.note .concept h3,.note .aside-note,.note .answer-compact{break-inside:avoid}`,
     // 작은 의미 단위 상자(B09 자료·B08 사례 자료)와 독립 수식 행도 한 쪽을 넘기지 않는다 — 긴 답·단원은 여전히 나뉜다.
     `.note .material-inner,.note .case-box,.note .equation{break-inside:avoid}`,
+    // 인쇄 도표: 크롭 높이 75mm(A4 본문 약 268mm 에 세 장)로 묶고 도표 상자는 쪽을 넘기지 않는다.
+    `.note .note-fig .note-crop{max-height:75mm}.note .note-fig{break-inside:avoid;padding:8px 10px;margin:10px 0}`,
     `.note .with-aside:has(.concept){break-inside:avoid}.note .with-aside>.aside-col{border-left:0}.note .answer .backlink{display:block;break-after:avoid}`,
     // .role 은 inline 칩이라 break-after 가 안 먹힌다 — 인쇄에서는 블록 배지로 내려 다음 제목과 묶이게 한다.
     `.note .role{display:block;width:max-content}`,

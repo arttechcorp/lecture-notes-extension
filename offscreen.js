@@ -126,7 +126,8 @@ async function cropRegions(blob,doc,ctx){
   let engine=null,engineTried=false;
   try{
     bail();
-    for(const {f,r} of pick(doc.figures,new Set(["table","chart","diagram"]),3)){
+    // 장당 도표 크롭 상한 6 — 3이면 그래프 4개를 나란히 둔 슬라이드(차수별 결정 경계 등)의 넷째부터 잘려 노트에 "도표 누락"으로 남았다(실행 mis-sol-hai-14·21, CROP_LIMIT).
+    for(const {f,r} of pick(doc.figures,new Set(["table","chart","diagram"]),6)){
       bail();
       const key=`${doc.slideId}/${f.id}`;
       crops[key]=await bytes(await Figures.cropFigure(bmp,f.bbox,{createCanvas:canvas}));bail();

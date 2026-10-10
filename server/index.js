@@ -962,7 +962,9 @@ const REPAIR_PROVIDER_SCHEMA={type:"object",additionalProperties:false,required:
 const normalizeRepairBlocks=(parsed,ids)=>{
   if(!parsed||typeof parsed!=="object"||!Array.isArray(parsed.blocks))return parsed;
   const blocks={};for(const id of ids)if(typeof id==="string")blocks[id]=null;
-  for(const e of parsed.blocks)if(e&&typeof e==="object"&&typeof e.blockId==="string")blocks[e.blockId]=e.envelope??null;
+  // 봉투를 JSON 문자열로 감싸 보내는 응답도 받는다 — 문자열은 salvage 가 못 비워 블록 단위 타입 오류로 수리 전체가 실패했다(실행 mis-sol-hai-21·22 Sol 수리).
+  const env=v=>{if(typeof v!=="string")return v??null;try{const o=JSON.parse(v);return o&&typeof o==="object"&&!Array.isArray(o)?o:null;}catch{return null;}};
+  for(const e of parsed.blocks)if(e&&typeof e==="object"&&typeof e.blockId==="string")blocks[e.blockId]=env(e.envelope);
   return {...parsed,blocks};
 };
 const finalizeNote=(stage,content,outSchema,rest,patch=null)=>{
