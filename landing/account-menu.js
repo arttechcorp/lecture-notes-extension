@@ -5,7 +5,7 @@
   if (!btn) return;
   const SDK = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js";
   const PLAN = { free: "Free", essential: "Essential", professional: "Pro" };
-  const support = (window.SUMMRIZEI_BILLING && window.SUMMRIZEI_BILLING.support) || "jihwanbu26@gmail.com";
+  const support = (window.SUMMRIZEI_BILLING && window.SUMMRIZEI_BILLING.support) || "summrizei.support@gmail.com";
 
   let clientP;
   const getClient = () => clientP || (clientP = new Promise((resolve) => {
@@ -64,6 +64,7 @@
     link("사용자 정보", "/account"),
     link("결제 정보", "/account/billing"),
     link("구독 설정", "/account/subscription"),
+    link("사용 방법 익히기", "/welcome"),
     footer,
   );
   dlg.append(head, userBox, list);

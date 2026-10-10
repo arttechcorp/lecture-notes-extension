@@ -168,8 +168,8 @@ site_url = "http://localhost:3000"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-# 마지막 두 항목은 개발용 확장 ID다(압축 해제 경로 /Users/giwook/Documents/lecture-summary/lecture-notes-extension, C:\Users\부지환\OneDrive\Desktop\vibe-coding\claude workspace\lecture-notes). 웹스토어 출시 때 스토어 ID를 더한다.
-additional_redirect_urls = ["http://localhost:8901/**", "https://summrizei.vercel.app/**", "https://gllijdanodakjamndimlpgmhokaakpod.chromiumapp.org/", "https://gibhonakailcjlgjnfgeggpoigdbieef.chromiumapp.org/"]
+# 마지막 두 항목은 개발용 확장 ID다(압축 해제 경로 /Users/giwook/Documents/lecture-summary/lecture-notes-extension, C:\Users\부지환\OneDrive\Desktop\vibe-coding\claude workspace\lecture-notes). kcogkkdonnpinicnjmbjgpkandbgglpo 는 웹스토어 ID다.
+additional_redirect_urls = ["http://localhost:8901/**", "https://summrizei.vercel.app/**", "https://gllijdanodakjamndimlpgmhokaakpod.chromiumapp.org/", "https://gibhonakailcjlgjnfgeggpoigdbieef.chromiumapp.org/", "https://kcogkkdonnpinicnjmbjgpkandbgglpo.chromiumapp.org/", "https://kcogkkdonnpinicnjmbjgpkandbgglpo.chromiumapp.org/**"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to auth.external_url.
