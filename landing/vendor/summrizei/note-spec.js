@@ -281,8 +281,10 @@
   // 슬롯 라벨(쉬운 풀이·작동 원리·범위·예시)은 생성 때 내부 구조로만 쓰고 화면·PDF 에는 표시하지 않는다(기획 §5-6).
   const B05 = (b, h) => {
     const c = (b && b.content) || {};
+    // 같은 섹션의 앞 개념 블록이 이미 실은 문장은 다시 싣지 않는다(실행 mis-sol-hai-23: 두 B05 의 scope 가 같은 문장).
+    const seen = h.seen || new Set();
     const slots = [c.explanation, c.mechanism, ...arr(c.scope), ...arr(c.examples)]
-      .filter(Boolean).map(x => h.claim(x)).join("");
+      .filter(x => x && !(x.text && seen.has(x.text)) && (seen.add(x.text), true)).map(x => h.claim(x)).join("");
     return `<section class="concept"><div class="heading-bundle"><h3>${h.esc(c.term || "")}${c.original ? ` <small>${h.esc(c.original)}</small>` : ""}</h3>`
       + `<p class="definition">${h.claim(c.definition, { tag: "span" })}</p></div>` + slots + "</section>";
   };
@@ -475,6 +477,7 @@
     for (const g of arr(note.global)) if (g && g.type !== "B13") pieces.push(h.block(g));
     secs.forEach((s, si) => {
       const body = [];
+      h.seen = new Set();
       let last = -1; // body 안 마지막 "블록"의 자리 — B12 곁설명은 그 블록만 묶고 뒤따른 도표는 밖에 둔다
       for (const b of arr(s && s.blocks)) {
         if (!b || b.type === "B14" || b.type === "B18") continue;
