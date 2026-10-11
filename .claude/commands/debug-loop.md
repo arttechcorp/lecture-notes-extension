@@ -4,6 +4,11 @@ description: 자동 디버깅 루프(테스트→진단→수정→재테스트)
 
 설계 근거는 `docs/superpowers/specs/2026-10-11-debug-loop-design.md`. 이 문서는 실행 절차다. `AGENTS.md`와 `memory.md`가 우선한다.
 
+## 실행 방법 (사람이 하는 일)
+- herdr 창에서 `SUMM_LOOP=1`로 orch를 **잠금 설정을 얹어** 띄운다: `claude --settings .claude/loop-settings.json`.
+- `.claude/settings.local.json`(항상 적용)은 push·main 전환·`reset --hard`·삭제·supabase만 막는다. 파일 잠금(§4)은 `loop-settings.json`에만 있어서, 일반 세션으로는 도구를 고칠 수 있다.
+- deny는 Bash로 파일을 쓰는 것(`node -e`, `sed`)까지 막지는 못한다. 그래서 매 리뷰 때 §4 파일의 `git diff --name-only`도 검사한다. 하나라도 걸리면 `git checkout -- <파일>`로 되돌리고 정지해 보고한다.
+
 ## 0. 시작 조건 (하나라도 실패하면 시작하지 않는다)
 - `HERDR_ENV=1`, `SUMM_LOOP=1`, 브랜치 `b/visual-verify`, `git status` 깨끗함.
 - 웜 Chrome :9333 응답, 확장 버전 = `manifest.json` 버전(다르면 드라이버가 재로드한다).
@@ -38,6 +43,7 @@ description: 자동 디버깅 루프(테스트→진단→수정→재테스트)
 ## 4. 잠근 파일 (수정 금지, diff 검사 대상)
 `tools/visual-verify-eval.mjs`, `tools/e2e-flow.cjs`, `tools/debug-loop-verdict.mjs`, `tools/debug-loop-verdict.test.mjs`, 이 문서, `AGENTS.md`, `.claude/**`.
 고쳐야 하는 이유가 생기면 정지하고 사용자에게 묻는다.
+이 목록은 `.claude/loop-settings.json`의 `Edit`/`Write` deny와 항상 같아야 한다.
 
 ## 5. 막힘 처리
 - fixer → orch: `escalate`, 같은 시그니처 2번 실패, 잠근 파일이 필요, herdr `blocked`/timeout. orch가 `herdr agent read`로 화면을 보고 systematic-debugging으로 직접 원인을 잡아 더 좁게 다시 맡기거나 직접 고친다. 워커가 두 번 실패하면 orch가 직접 하고 보고에 적는다.
