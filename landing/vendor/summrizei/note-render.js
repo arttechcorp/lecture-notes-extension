@@ -68,9 +68,14 @@
     // 본문 {{F#}} 는 같은 번호로 그 행에 링크해 식을 두 번 그리지 않는다. 내부 F# 는 eq-F# 앵커 속성에만 남고
     // 화면 텍스트에는 나오지 않는다.
     const eqNum = new Map();
-    for (const s of n.sections) for (const b of arr(s && s.blocks))
+    for (const s of n.sections) for (const b of arr(s && s.blocks)) {
       if (b && b.type === "B10") for (const id of arr(b.content && b.content.formulaIds))
         if (byId.has(id) && !eqNum.has(id)) eqNum.set(id, eqNum.size + 1);
+      // 작성자 해설이 둘 곳으로 정한 수식(formulaNotes → registry[].blockId)도 같은 문서 순서로 번호를 잇는다.
+      // 문서 흐름에 서지 않는 블록(B14·B18)은 홈이 될 수 없다 — 번호만 매기고 식이 안 그려지는 끊긴 앵커를 막는다.
+      if (b && b.type !== "B14" && b.type !== "B18")
+        for (const e of n.registry) if (e.blockId === b.id && byId.has(e.id) && !eqNum.has(e.id)) eqNum.set(e.id, eqNum.size + 1);
+    }
 
     const render = (latex, display) => {
       try { return katex.renderToString(String(latex ?? ""), { throwOnError: true, displayMode: display }); } catch { return null; }
@@ -126,7 +131,11 @@
       if (eqSeen.has(id))
         return `<div class="equation"><a class="eq-ref" href="#eq-${esc(id)}">식 ${m}</a><small class="eq-note"> — 앞에서 소개한 식</small></div>`;
       eqSeen.add(id);
-      return `<div class="equation" id="eq-${esc(id)}"><span class="eq-tag">식 ${m}</span>${formulaBody(byId.get(id), id, true)}</div>`;
+      // 수식 해설(도표의 note-fig-explanation 과 같은 자리): 그 식이 무엇을 뜻하는지 한 줄 — 작성자 주장이 있을 때만.
+      const e = byId.get(id);
+      const exp = e && e.explanation && typeof e.explanation === "object" && typeof e.explanation.text === "string" && e.explanation.text.trim()
+        ? `<figcaption class="eq-caption">${claim(e.explanation, { tag: "span" })}</figcaption>` : "";
+      return `<div class="equation" id="eq-${esc(id)}"><span class="eq-tag">식 ${m}</span>${formulaBody(e, id, true)}${exp}</div>`;
     };
     // §14: 간단한 표만 HTML 로 옮긴다 — 첫 행이 열 머리(thead), 첫 열이 행 머리(scope=row), 좁은 화면용 data-label.
     const figTable = (f, caption) => {

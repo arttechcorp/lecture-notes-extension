@@ -806,6 +806,8 @@ const __defs = {
       id: pat(IDS.formula), latex: orNull({ type: "string", maxLength: 4000 }), text: orNull({ type: "string", maxLength: 4000 }),
       status: en(["verified", "reread", "image", "unverified"]), slideId: str(64), t0: nonneg,
       display: en(["latex", "crop", "check"]),
+      // 작성자 수식 해설(formulaNotes)이 있으면 그 주장이 설명이 되고, 그 식을 둘 블록(살아남은 블록만)을 단다 — 도표의 explanation·blockId 와 같다.
+      explanation: orNull(claim), blockId: pat(IDS.secBlock),
       checks: obj({
         parse: en(["ok", "failed", "unchecked"]),
         symbols: en(["match", "mismatch", "unchecked"]),
@@ -1938,6 +1940,14 @@ const __defs = {
       claimInto(n.claim, "/figureNotes", ctx, ferr);
       if (!ferr.length) figureNotes.push({ figureId: n.figureId, blockId: plannedIds.has(n.blockId) ? n.blockId : null, claim: n.claim });
     }
+    // 수식 해설(mis-sol-hai formulaNotes)도 같은 규칙이다 — 이 섹션의 수식이고 주장 검사를 통과한 것만, 수식당 하나.
+    const formulaNotes = [];
+    for (const n of Array.isArray(out?.formulaNotes) ? out.formulaNotes : []) {
+      if (!n || !ctx.formulas.has(n.formulaId) || formulaNotes.some(x => x.formulaId === n.formulaId) || !Contracts.validate(claim, n.claim).ok) continue;
+      const ferr = [];
+      claimInto(n.claim, "/formulaNotes", ctx, ferr);
+      if (!ferr.length) formulaNotes.push({ formulaId: n.formulaId, blockId: plannedIds.has(n.blockId) ? n.blockId : null, claim: n.claim });
+    }
     // supported 가 아닌 블록은 이 섹션의 유효한 확인 항목이 가리켜야 한다(§9 B17).
     const explained = new Set(checks.flatMap(c => c.targetIds));
     for (const rec of [...staged.filter(r => r.type === "B10"), ...staged.filter(r => r.type !== "B10")]) {
@@ -1970,7 +1980,7 @@ const __defs = {
     return {
       sectionId, ok: !secErrs.length && staged.every(r => !r.errors.length), errors: secErrs, warnings, gist,
       blocks: staged.map(r => ({ id: r.id, type: r.type, envelope: r.envelope, errors: r.errors })),
-      checks, calc, cited, figureNotes,
+      checks, calc, cited, figureNotes, formulaNotes,
     };
   }
 
@@ -2274,11 +2284,19 @@ const __defs = {
     const sources = evidence.filter(e => finalCited.has(e.id))
       .map(e => ({ id: e.id, kind: e.kind, t0: e.t0, t1: e.t1, slideId: e.slideId ?? null }));
     const cropSet = new Set(crops);
-    const reg = registry.map(e => ({
-      id: e.id, latex: e.latex ?? null, text: e.text ?? null, status: e.status,
-      slideId: String(e.slideId ?? ""), t0: e.t0, display: displayOf("formula", e, cropSet.has(e.id)),
-      ...(e.checks ? { checks: e.checks } : {}),
-    }));
+    // 작성자 수식 해설(formulaNotes)도 도표 해설과 같다 — 그 주장이 식의 설명이 되고, 그 식을 둘 블록(살아남은 블록만)을 단다.
+    const mnote = new Map();
+    for (const r of results.values()) for (const n of r.formulaNotes || []) if (!mnote.has(n.formulaId)) mnote.set(n.formulaId, n);
+    const reg = registry.map(e => {
+      const n = mnote.get(e.id);
+      return {
+        id: e.id, latex: e.latex ?? null, text: e.text ?? null, status: e.status,
+        slideId: String(e.slideId ?? ""), t0: e.t0, display: displayOf("formula", e, cropSet.has(e.id)),
+        ...(n ? { explanation: deep(n.claim) } : {}),
+        ...(n?.blockId && live.has(n.blockId) ? { blockId: n.blockId } : {}),
+        ...(e.checks ? { checks: e.checks } : {}),
+      };
+    });
     // 비전 출력 스키마는 "" 와 빈 목록을 허용하지만 노트 스키마는 최소 1글자·1개다 — 빈 칸은 null, 그래도 안 맞는 그래프 값은 버린다(크롭·확인 표시로).
     const blank = v => typeof v === "string" && v.trim() ? v : null;
     const chartOf = d => {
@@ -2703,13 +2721,15 @@ if (typeof module !== "undefined") module.exports = api;
       // 작성자 null 의 사유 지도 — 키는 이 요청의 계획 블록, 값은 NULL_REASONS. 안 채운 블록은 null.
       ...(nullReasons === true ? { nullReasons: orNull(obj(Object.fromEntries(ids.map(id => [id, nullableEnum(NULL_REASONS)])))) } : {}),
       // 도표 해설(mis-sol-hai): 도표마다 무엇을 보여 주고 강의에서 무슨 뜻인지 한 주장 + 그 도표를 둘 계획 블록.
-      ...(figureNotes === true ? { figureNotes: arr(obj({ figureId: pat(IDS.figure), blockId: orNull(pat(IDS.secBlock)), claim: claimId }), 12) } : {}),
+      // 수식 해설도 같은 모양이다 — 수식마다 그 식이 무엇을 계산·표현하는지 한 주장 + 그 식을 둘 계획 블록.
+      ...(figureNotes === true ? { figureNotes: arr(obj({ figureId: pat(IDS.figure), blockId: orNull(pat(IDS.secBlock)), claim: claimId }), 12),
+        formulaNotes: arr(obj({ formulaId: pat(IDS.formula), blockId: orNull(pat(IDS.secBlock)), claim: claimId }), 12) } : {}),
     });
     if (sourceLang === "en") out = NoteContract.withSource(out); // gist·checks 안의 인라인 주장에 src — 초안 claims 는 위에서 직접 얹었다
     out = NoteContract.restrictBasis(out, policy);
     if (allowedRefs) out = restrictRefs(out, allowedRefs);
-    // figureNotes 는 선택 칸 — 빠뜨린 응답이 초안 전체를 실패시키지 않는다(Haiku 는 스키마를 프롬프트로 받아 strict 제약이 없다).
-    if (figureNotes === true) out = { ...out, required: out.required.filter(k => k !== "figureNotes") };
+    // figureNotes·formulaNotes 는 선택 칸 — 빠뜨린 응답이 초안 전체를 실패시키지 않는다(Haiku 는 스키마를 프롬프트로 받아 strict 제약이 없다).
+    if (figureNotes === true) out = { ...out, required: out.required.filter(k => k !== "figureNotes" && k !== "formulaNotes") };
     return out;
   }
 
@@ -3053,12 +3073,13 @@ if (typeof module !== "undefined") module.exports = api;
     };
     ledger.relations = ledgerRelations;
 
-    // 도표 해설: 주장이 있는 항목만, 계획에 없는 블록은 null 로 — 검증(validateSection)이 근거·도표 id 를 다시 본다.
+    // 도표·수식 해설: 주장이 있는 항목만, 계획에 없는 블록은 null 로 — 검증(validateSection)이 근거·도표·수식 id 를 다시 본다.
     const planned = new Set(planBlocks.map(b => b.blockId));
-    const figureNotes = (Array.isArray(draft.figureNotes) ? draft.figureNotes : []).map(n => n && typeof n === "object" && typeof n.figureId === "string" && at(n.claim)
-      ? { figureId: n.figureId, blockId: planned.has(n.blockId) ? n.blockId : null, claim: at(n.claim) } : null).filter(Boolean);
+    const notesOf = (list, key) => (Array.isArray(list) ? list : []).map(n => n && typeof n === "object" && typeof n[key] === "string" && at(n.claim)
+      ? { [key]: n[key], blockId: planned.has(n.blockId) ? n.blockId : null, claim: at(n.claim) } : null).filter(Boolean);
+    const figureNotes = notesOf(draft.figureNotes, "figureId"), formulaNotes = notesOf(draft.formulaNotes, "formulaId");
     return { gist, blocks, checks: (Array.isArray(draft.checks) ? draft.checks : []).slice(0, 6), ledger,
-      ...(Object.keys(nullReasons).length ? { nullReasons } : {}), ...(figureNotes.length ? { figureNotes } : {}) };
+      ...(Object.keys(nullReasons).length ? { nullReasons } : {}), ...(figureNotes.length ? { figureNotes } : {}), ...(formulaNotes.length ? { formulaNotes } : {}) };
   }
 
   // 출력의 선택 실험 칸 nullReasons({<blockId>: 사유})를 읽는다 — 없거나 열거 밖 값은 unknown 으로 둔다.
@@ -4521,22 +4542,26 @@ function createServer(env=process.env,deps={}){
       :msh&&stage==="repair"?REPAIR_PROVIDER_SCHEMA
       :outSchema,
       providerOut=providerSchema(shapeOut,[]),
+      // 세션 작업에 싣는 출력 스키마는 전송 틀과 다를 수 있다 — msh 수리는 실제 계약(keyed blocks·봉투 안 모양)을
+      // 보여 줘야 previous=null 재작성 대상이 뭘 채워야 하는지 안다(실행 mis-sol-hai-27: 수리 대부분 탈락).
+      sessionOut=msh&&stage==="repair"?providerSchema(outSchema,[]):providerOut,
       // Anthropic strict 한도(union≤16·선택 칸≤24·컴파일 문법 크기 — 2026-10-11 OpenRouter 실측): 초안은 변환해도 문법이 커져
       // strict 가 늘 400 이라 json_object+스키마 system 메시지로 받고, 작은 스키마(questions·repair)만 strict 로 내린다.
       // strict 로 가는 요청은 null 허용 칸을 선택 키·"none" 센티널·anyOf 로 낮춘 변환 스키마(NoteContract.optionalNulls)로 보낸다.
       optNull=optionalNulls(input.model),strict=!optNull||stage!=="draft";
     // 배열로 내린 칸은 검증 전에 keyed 맵으로 되돌린다 — 세션(Sol 수리)·독립 경로 모두(실행 mis-sol-hai-23: 세션 경로가 빠져 required 실패).
     // strict 변환 스키마로 받은 응답은 fillNulls 가 생략 칸·"none" 센티널을 원래 계약(null)으로 되돌린다.
+    // msh 수리는 모델과 무관하게 같은 정규화를 탄다 — 계약을 못 보고 쓴 응답도 nullable 칸 누락은 null 로 채워 살린다.
     const fill=o=>optNull&&strict?NoteContract.fillNulls(outSchema,o):o;
     const outPatch=msh&&stage==="draft"?p=>SectionDraft.normalizeNullReasons(p,(rest.section?.blocks??[]).map(b=>b.blockId))
-      :msh&&stage==="repair"?p=>fill(normalizeRepairBlocks(p,[...new Set((rest.repair??[]).map(r=>r.blockId))]))
+      :msh&&stage==="repair"?p=>NoteContract.fillNulls(outSchema,normalizeRepairBlocks(p,[...new Set((rest.repair??[]).map(r=>r.blockId))]))
       :optNull?p=>fill(p)
       :null;
     // 형식 실패 재시도분까지 예약하고 정산에서 되돌린다. 시스템 본문과 스키마도 입력 토큰이다.
     // 세션 모드는 요청 안에서 Sol·Luna 여러 호출이 돈다 — 도구 호출(Luna)과 Sol 이 도구 결과를 다시 읽는 입력까지 예약에 넣는다.
     const lunaProviders=c.providers[NoteSession.LUNA]??c.providers[upstreamOf(NoteSession.LUNA)],
       [lpi,lpo]=RATES[NoteSession.LUNA]||RATES[upstreamOf(NoteSession.LUNA)],lunaParams=session?.mode==="sol-luna-tool"?Prompts.modelParams(NoteSession.LUNA,stage):null,
-      solIn=session?Prompts.estimateTokens(NoteSession.systemFor(opts)+JSON.stringify(session.history)+JSON.stringify(rest)+JSON.stringify(providerOut)):0;
+      solIn=session?Prompts.estimateTokens(NoteSession.systemFor(opts)+JSON.stringify(session.history)+JSON.stringify(rest)+JSON.stringify(sessionOut)):0;
     const reserve=session?Math.ceil((2*(solIn*pi+params.max_tokens*po)/1e6
       +(lunaParams?(Prompts.estimateTokens(system+user+JSON.stringify(providerOut))*lpi+lunaParams.max_tokens*lpo+lunaParams.max_tokens*pi)/1e6:0))*100*1.2)
       :Math.ceil((Prompts.estimateTokens(system+JSON.stringify(outSchema)+userText)*pi+params.max_tokens*po)/1e6*100*1.2*attempts);
@@ -4549,7 +4574,7 @@ function createServer(env=process.env,deps={}){
       // 세션 경로: 분야 분류(Jev)는 대화 이력에 넣지 않는다 — Sol·Luna 호출 전부가 이 예약·deadline 안에서 돌고
       // 시간이 모자라면 200 pending 으로 넘겨 클라이언트가 같은 단계를 다시 보낸다(최대 3요청은 클라이언트 계약).
       if(session)return await NoteSession.run({
-        stage,rest,session,sourceLang,options:opts,params,providerOut,outSchema,outPatch,
+        stage,rest,session,sourceLang,options:opts,params,providerOut:sessionOut,outSchema,outPatch,
         noteSpecVersion:NoteContract.NOTE_SPEC_VERSION,schemaVersion:c.remoteConfig.schemaVersion,
         // sol-fork·v2 작성 호출은 같은 접두 P 만 읽는 독립 호출이라 세션 잠금 없이 병렬로 간다 — 접두를 만드는 계획 호출은 잠금을 유지한다.
         reserve,deadline,signal,fetcher,key:c.key,gens,lock:NoteProfiles.get(session.mode)?.session==="fork"&&stage!=="plan"&&stage!=="editorial"?async()=>()=>{}:sessionLock,
@@ -4577,7 +4602,8 @@ function createServer(env=process.env,deps={}){
           const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
             model:upModel,...params,...cacheFields,
             // strict 스키마를 못 거는 단계(Haiku 초안)는 스키마를 system 메시지로 주고 response_format json_object 로 받는다 — 출력은 아래 계약 검증이 본다.
-            messages:[cachedSystem(input.model,system),...(strict?[]:[{role:"system",content:"출력은 아래 JSON 스키마를 따르는 JSON 객체 하나뿐이다.\n"+JSON.stringify(shapeOut)}]),msh&&images?userWithImages(cachedUser(input.model,userText,stage).content,images):cachedUser(input.model,userText,stage)],
+            // msh 독립 수리는 strict 배열 틀만 내려가 봉투 안 모양이 안 보인다 — blockId 별 봉투 계약을 system 메시지로 알린다(실행 mis-sol-hai-27).
+            messages:[cachedSystem(input.model,system),...(msh&&stage==="repair"?[{role:"system",content:"각 항목의 envelope 은 아래 스키마에서 그 blockId 칸의 봉투 모양이다 — previous 가 null 인 항목도 이 모양대로 새로 쓰고, 채울 수 없으면 null 을 둔다.\n"+JSON.stringify(outSchema.properties.blocks?.properties)}]:(strict?[]:[{role:"system",content:"출력은 아래 JSON 스키마를 따르는 JSON 객체 하나뿐이다.\n"+JSON.stringify(shapeOut)}])),msh&&images?userWithImages(cachedUser(input.model,userText,stage).content,images):cachedUser(input.model,userText,stage)],
             ...(strict?{response_format:{type:"json_schema",json_schema:{name:"lecture_note_"+stage,strict:true,schema:optNull?NoteContract.optionalNulls(providerOut):providerOut}}}:(optNull?{response_format:{type:"json_object"}}:{})),
             // v2 표시 요청(sol-luna-2 의 Luna 독립 호출)은 sticky 라우팅을 끄는 order 를 빼고 only 만 둔다(spec 5.2·6).
             provider:{only:upProviders,...(v2?{}:{order:upProviders}),require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}
@@ -4697,12 +4723,22 @@ const shapeOf=v=>/^[A-Za-z]{1,3}[0-9]{0,4}([_\-/.][A-Za-z]{0,3}[0-9]{0,4}){0,2}$
 // 봉투 안 모양은 providerSchema 가 못 거는 블록 타입별 계약이라 서버가 검증한다 — 제공자 스키마는 배열 틀만 단다.
 const REPAIR_PROVIDER_SCHEMA={type:"object",additionalProperties:false,required:["blocks"],properties:{blocks:{type:"array",items:{type:"object",additionalProperties:false,required:["blockId","envelope"],properties:{blockId:{type:"string"},envelope:{type:["object","null"]}}}}}};
 const normalizeRepairBlocks=(parsed,ids)=>{
-  if(!parsed||typeof parsed!=="object"||!Array.isArray(parsed.blocks))return parsed;
+  if(!parsed||typeof parsed!=="object")return parsed;
   // 수리 출력은 blocks 하나, 요청한 블록만이다 — 섹션 출력을 흉내 낸 루트 checks·요청하지 않은 blockId 는 버린다(실행 mis-sol-hai-23 _checks·why_.extra).
   const blocks={};for(const id of ids)if(typeof id==="string")blocks[id]=null;
   // 봉투를 JSON 문자열로 감싸 보내는 응답도 받는다 — 문자열은 salvage 가 못 비워 블록 단위 타입 오류로 수리 전체가 실패했다(실행 mis-sol-hai-21·22 Sol 수리).
-  const env=v=>{if(typeof v!=="string")return v??null;try{const o=JSON.parse(v);return o&&typeof o==="object"&&!Array.isArray(o)?o:null;}catch{return null;}};
-  for(const e of parsed.blocks)if(e&&typeof e==="object"&&Object.hasOwn(blocks,e.blockId))blocks[e.blockId]=env(e.envelope);
+  const env=v=>{
+    // 봉투는 status 칸이 필수다 — 없는데 envelope 칸이 있으면 한 겹 포장({envelope:…}·{blockId,envelope})이라 벗긴다.
+    if(v&&typeof v==="object"&&!Array.isArray(v)&&!Object.hasOwn(v,"status")&&Object.hasOwn(v,"envelope"))v=v.envelope;
+    if(typeof v!=="string")return v??null;
+    try{const o=JSON.parse(v);return o&&typeof o==="object"&&!Array.isArray(o)?o:null;}catch{return null;}
+  };
+  // 배열·keyed 맵 어느 모양으로 와도 요청 블록의 keyed 맵으로 돌린다 — 빠진 블록은 null 로 채워 부분 응답도 살린다.
+  if(Array.isArray(parsed.blocks)){
+    for(const e of parsed.blocks)if(e&&typeof e==="object"&&Object.hasOwn(blocks,e.blockId))blocks[e.blockId]=env(e.envelope);
+  }else if(parsed.blocks&&typeof parsed.blocks==="object"){
+    for(const id of Object.keys(blocks))blocks[id]=env(parsed.blocks[id]);
+  }else return parsed;
   return {blocks};
 };
 const finalizeNote=(stage,content,outSchema,rest,patch=null)=>{
@@ -5717,7 +5753,7 @@ const NoteContract=require("../lib/note-contract.js"),Contracts=require("../lib/
 // 프롬프트 문구나 아래 규칙을 바꾸면 올린다. 응답에 실려 단계 캐시 키에 들어간다.
 const PROMPT_VERSION="note-v6";
 // 단계별 버전: 프롬프트 문구나 아래 규칙을 바꾸면 그 단계만 올린다 — plan 캐시가 section 의 본문 재배치에 휘말려 무효가 되지 않게.
-const PROMPT_VERSIONS={plan:"note-v6",global:"note-v6",link:"note-v6",section:"note-v7",draft:"note-v7",repair:"note-v7",review:"note-v7",editorial:"note-v7",questions:"note-v7"};
+const PROMPT_VERSIONS={plan:"note-v6",global:"note-v6",link:"note-v6",section:"note-v7",draft:"note-v8",repair:"note-v8",review:"note-v7",editorial:"note-v7",questions:"note-v7"};
 const STAGES=["plan","section","global","repair","link","questions","draft","review","editorial"];
 // 두 실험 모드 — plan 직후 editorial 단계(같은 세션의 두 번째 Sol 턴)가 편집 명세(editorialPlan)를 낸다. 한 호출에 합치면 Edge 150초를 넘는다.
 const V2_MODES=NoteContract.V2_MODES;
@@ -5832,7 +5868,7 @@ const WRITE_V2={
     "입력에 editorialPlan이 있으면 따른다 — glossary의 preferredTerm을 용어의 표준으로 쓰고, section(learningQuestion·mustExplain·owns·referencesOnly·visuals)이 이 섹션이 설명할 것과 맡을 개념이다. prerequisites는 앞 섹션에서 이미 검증된 핵심 주장이니 다시 정의하지 말고 참조만 한다. referencesOnly 개념은 짧게 언급만 한다.",
   ],
   repair:[
-    "repair 항목의 mode가 \"regenerate_missing\"이면 그 블록은 작성자가 null로 보류한 것이다 — previous는 null이고, 그 블록이 다룰 근거 항목 id가 evidenceIds에 정확히 담긴다. 계획의 purpose와 그 근거만으로 새로 쓰고, 근거가 부족하면 지어내지 말고 그대로 null로 둔다.",
+    "repair 항목의 mode가 \"regenerate_missing\"이면 그 블록은 작성자가 null로 보류한 것이다 — previous는 null이다. evidenceIds가 있으면 그 근거만으로, 없으면 입력의 evidence 목록에서 그 블록의 purpose에 맞는 근거를 골라 새로 쓴다. 근거가 부족하면 지어내지 말고 그대로 null로 둔다.",
   ],
   questions:[
     "입력에 editorialPlan이 있으면 그 glossary의 preferredTerm을 용어의 표준으로 쓴다 — 문항과 해설의 용어를 그에 맞춘다.",
@@ -5924,9 +5960,13 @@ const MSH={
     "[mis-sol-hai] 슬라이드에 없이 말로만 한 내용은 notes 관계의 kind \"slide_absent\"로 쓴다 — 그 관계의 주장은 발화 근거만 인용한다.",
     "입력의 images 는 OCR 이 읽지 못한 필기 영역 이미지다 — id 는 그 영역이 속한 근거다. 이미지에서 읽은 내용은 그 근거 id 를 인용하는 주장으로 쓰고, 읽히지 않는 필기는 쓰지 않는다.",
     "figureNotes: 입력 figures 의 도표마다 하나씩 — figureId 는 그 도표 id(G#), claim 은 그 도표가 무엇을 보여 주고 강의에서 어떤 뜻인지(축·색·곡선이 무엇이고 어떤 추세가 무슨 결론을 받치는지) 1~2문장으로 쓴 claims 의 claimId 다. 그 주장은 도표 근거(figures 의 evidenceId)와 그 내용을 말한 슬라이드 글·발화를 인용하고, 근거 글에 없는 값·축 이름은 쓰지 않는다. blockId 는 그 도표를 둘 계획 블록 — 도표가 설명하는 개념의 B05, 계산·표 해석이면 B10 — 이고 맞는 블록이 없으면 null 이다.",
+    "formulaNotes: 등록 수식(F#)에도 같은 규칙으로 하나씩 — formulaId 는 수식 id, claim 은 그 식이 무엇을 계산·표현하는지(변수가 아니라 식 전체의 뜻) 한 문장, blockId 는 식을 둘 계획 블록(B05 홈이면 상세 뒤에 식과 이 해설이 놓인다). 인용 규칙도 figureNotes 와 같다.",
   ],
   review:[
     "[mis-sol-hai] 입력의 html 은 축약 렌더 HTML 이다 — data-block·data-claim 앵커가 블록·주장 id 다.",
+  ],
+  repair:[
+    "[mis-sol-hai] 이 단계의 출력은 초안(claims·relations)이 아니라 블록 봉투다 — 작업이 싣고 있는 출력 스키마가 각 블록의 봉투 모양을 정한다.",
   ],
 };
 // 시스템 본문 = 공용 + 노트 규칙 + 단계 규칙 (+ 켠 생성 옵션 + 영어 규칙 + 전문 워커 지시). 같은 단계·옵션·worker 면 모든 호출이 같은 문자열이다.

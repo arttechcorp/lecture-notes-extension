@@ -837,22 +837,26 @@ function createServer(env=process.env,deps={}){
       :msh&&stage==="repair"?REPAIR_PROVIDER_SCHEMA
       :outSchema,
       providerOut=providerSchema(shapeOut,[]),
+      // 세션 작업에 싣는 출력 스키마는 전송 틀과 다를 수 있다 — msh 수리는 실제 계약(keyed blocks·봉투 안 모양)을
+      // 보여 줘야 previous=null 재작성 대상이 뭘 채워야 하는지 안다(실행 mis-sol-hai-27: 수리 대부분 탈락).
+      sessionOut=msh&&stage==="repair"?providerSchema(outSchema,[]):providerOut,
       // Anthropic strict 한도(union≤16·선택 칸≤24·컴파일 문법 크기 — 2026-10-11 OpenRouter 실측): 초안은 변환해도 문법이 커져
       // strict 가 늘 400 이라 json_object+스키마 system 메시지로 받고, 작은 스키마(questions·repair)만 strict 로 내린다.
       // strict 로 가는 요청은 null 허용 칸을 선택 키·"none" 센티널·anyOf 로 낮춘 변환 스키마(NoteContract.optionalNulls)로 보낸다.
       optNull=optionalNulls(input.model),strict=!optNull||stage!=="draft";
     // 배열로 내린 칸은 검증 전에 keyed 맵으로 되돌린다 — 세션(Sol 수리)·독립 경로 모두(실행 mis-sol-hai-23: 세션 경로가 빠져 required 실패).
     // strict 변환 스키마로 받은 응답은 fillNulls 가 생략 칸·"none" 센티널을 원래 계약(null)으로 되돌린다.
+    // msh 수리는 모델과 무관하게 같은 정규화를 탄다 — 계약을 못 보고 쓴 응답도 nullable 칸 누락은 null 로 채워 살린다.
     const fill=o=>optNull&&strict?NoteContract.fillNulls(outSchema,o):o;
     const outPatch=msh&&stage==="draft"?p=>SectionDraft.normalizeNullReasons(p,(rest.section?.blocks??[]).map(b=>b.blockId))
-      :msh&&stage==="repair"?p=>fill(normalizeRepairBlocks(p,[...new Set((rest.repair??[]).map(r=>r.blockId))]))
+      :msh&&stage==="repair"?p=>NoteContract.fillNulls(outSchema,normalizeRepairBlocks(p,[...new Set((rest.repair??[]).map(r=>r.blockId))]))
       :optNull?p=>fill(p)
       :null;
     // 형식 실패 재시도분까지 예약하고 정산에서 되돌린다. 시스템 본문과 스키마도 입력 토큰이다.
     // 세션 모드는 요청 안에서 Sol·Luna 여러 호출이 돈다 — 도구 호출(Luna)과 Sol 이 도구 결과를 다시 읽는 입력까지 예약에 넣는다.
     const lunaProviders=c.providers[NoteSession.LUNA]??c.providers[upstreamOf(NoteSession.LUNA)],
       [lpi,lpo]=RATES[NoteSession.LUNA]||RATES[upstreamOf(NoteSession.LUNA)],lunaParams=session?.mode==="sol-luna-tool"?Prompts.modelParams(NoteSession.LUNA,stage):null,
-      solIn=session?Prompts.estimateTokens(NoteSession.systemFor(opts)+JSON.stringify(session.history)+JSON.stringify(rest)+JSON.stringify(providerOut)):0;
+      solIn=session?Prompts.estimateTokens(NoteSession.systemFor(opts)+JSON.stringify(session.history)+JSON.stringify(rest)+JSON.stringify(sessionOut)):0;
     const reserve=session?Math.ceil((2*(solIn*pi+params.max_tokens*po)/1e6
       +(lunaParams?(Prompts.estimateTokens(system+user+JSON.stringify(providerOut))*lpi+lunaParams.max_tokens*lpo+lunaParams.max_tokens*pi)/1e6:0))*100*1.2)
       :Math.ceil((Prompts.estimateTokens(system+JSON.stringify(outSchema)+userText)*pi+params.max_tokens*po)/1e6*100*1.2*attempts);
@@ -865,7 +869,7 @@ function createServer(env=process.env,deps={}){
       // 세션 경로: 분야 분류(Jev)는 대화 이력에 넣지 않는다 — Sol·Luna 호출 전부가 이 예약·deadline 안에서 돌고
       // 시간이 모자라면 200 pending 으로 넘겨 클라이언트가 같은 단계를 다시 보낸다(최대 3요청은 클라이언트 계약).
       if(session)return await NoteSession.run({
-        stage,rest,session,sourceLang,options:opts,params,providerOut,outSchema,outPatch,
+        stage,rest,session,sourceLang,options:opts,params,providerOut:sessionOut,outSchema,outPatch,
         noteSpecVersion:NoteContract.NOTE_SPEC_VERSION,schemaVersion:c.remoteConfig.schemaVersion,
         // sol-fork·v2 작성 호출은 같은 접두 P 만 읽는 독립 호출이라 세션 잠금 없이 병렬로 간다 — 접두를 만드는 계획 호출은 잠금을 유지한다.
         reserve,deadline,signal,fetcher,key:c.key,gens,lock:NoteProfiles.get(session.mode)?.session==="fork"&&stage!=="plan"&&stage!=="editorial"?async()=>()=>{}:sessionLock,
@@ -893,7 +897,8 @@ function createServer(env=process.env,deps={}){
           const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
             model:upModel,...params,...cacheFields,
             // strict 스키마를 못 거는 단계(Haiku 초안)는 스키마를 system 메시지로 주고 response_format json_object 로 받는다 — 출력은 아래 계약 검증이 본다.
-            messages:[cachedSystem(input.model,system),...(strict?[]:[{role:"system",content:"출력은 아래 JSON 스키마를 따르는 JSON 객체 하나뿐이다.\n"+JSON.stringify(shapeOut)}]),msh&&images?userWithImages(cachedUser(input.model,userText,stage).content,images):cachedUser(input.model,userText,stage)],
+            // msh 독립 수리는 strict 배열 틀만 내려가 봉투 안 모양이 안 보인다 — blockId 별 봉투 계약을 system 메시지로 알린다(실행 mis-sol-hai-27).
+            messages:[cachedSystem(input.model,system),...(msh&&stage==="repair"?[{role:"system",content:"각 항목의 envelope 은 아래 스키마에서 그 blockId 칸의 봉투 모양이다 — previous 가 null 인 항목도 이 모양대로 새로 쓰고, 채울 수 없으면 null 을 둔다.\n"+JSON.stringify(outSchema.properties.blocks?.properties)}]:(strict?[]:[{role:"system",content:"출력은 아래 JSON 스키마를 따르는 JSON 객체 하나뿐이다.\n"+JSON.stringify(shapeOut)}])),msh&&images?userWithImages(cachedUser(input.model,userText,stage).content,images):cachedUser(input.model,userText,stage)],
             ...(strict?{response_format:{type:"json_schema",json_schema:{name:"lecture_note_"+stage,strict:true,schema:optNull?NoteContract.optionalNulls(providerOut):providerOut}}}:(optNull?{response_format:{type:"json_object"}}:{})),
             // v2 표시 요청(sol-luna-2 의 Luna 독립 호출)은 sticky 라우팅을 끄는 order 를 빼고 only 만 둔다(spec 5.2·6).
             provider:{only:upProviders,...(v2?{}:{order:upProviders}),require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}
@@ -1013,12 +1018,22 @@ const shapeOf=v=>/^[A-Za-z]{1,3}[0-9]{0,4}([_\-/.][A-Za-z]{0,3}[0-9]{0,4}){0,2}$
 // 봉투 안 모양은 providerSchema 가 못 거는 블록 타입별 계약이라 서버가 검증한다 — 제공자 스키마는 배열 틀만 단다.
 const REPAIR_PROVIDER_SCHEMA={type:"object",additionalProperties:false,required:["blocks"],properties:{blocks:{type:"array",items:{type:"object",additionalProperties:false,required:["blockId","envelope"],properties:{blockId:{type:"string"},envelope:{type:["object","null"]}}}}}};
 const normalizeRepairBlocks=(parsed,ids)=>{
-  if(!parsed||typeof parsed!=="object"||!Array.isArray(parsed.blocks))return parsed;
+  if(!parsed||typeof parsed!=="object")return parsed;
   // 수리 출력은 blocks 하나, 요청한 블록만이다 — 섹션 출력을 흉내 낸 루트 checks·요청하지 않은 blockId 는 버린다(실행 mis-sol-hai-23 _checks·why_.extra).
   const blocks={};for(const id of ids)if(typeof id==="string")blocks[id]=null;
   // 봉투를 JSON 문자열로 감싸 보내는 응답도 받는다 — 문자열은 salvage 가 못 비워 블록 단위 타입 오류로 수리 전체가 실패했다(실행 mis-sol-hai-21·22 Sol 수리).
-  const env=v=>{if(typeof v!=="string")return v??null;try{const o=JSON.parse(v);return o&&typeof o==="object"&&!Array.isArray(o)?o:null;}catch{return null;}};
-  for(const e of parsed.blocks)if(e&&typeof e==="object"&&Object.hasOwn(blocks,e.blockId))blocks[e.blockId]=env(e.envelope);
+  const env=v=>{
+    // 봉투는 status 칸이 필수다 — 없는데 envelope 칸이 있으면 한 겹 포장({envelope:…}·{blockId,envelope})이라 벗긴다.
+    if(v&&typeof v==="object"&&!Array.isArray(v)&&!Object.hasOwn(v,"status")&&Object.hasOwn(v,"envelope"))v=v.envelope;
+    if(typeof v!=="string")return v??null;
+    try{const o=JSON.parse(v);return o&&typeof o==="object"&&!Array.isArray(o)?o:null;}catch{return null;}
+  };
+  // 배열·keyed 맵 어느 모양으로 와도 요청 블록의 keyed 맵으로 돌린다 — 빠진 블록은 null 로 채워 부분 응답도 살린다.
+  if(Array.isArray(parsed.blocks)){
+    for(const e of parsed.blocks)if(e&&typeof e==="object"&&Object.hasOwn(blocks,e.blockId))blocks[e.blockId]=env(e.envelope);
+  }else if(parsed.blocks&&typeof parsed.blocks==="object"){
+    for(const id of Object.keys(blocks))blocks[id]=env(parsed.blocks[id]);
+  }else return parsed;
   return {blocks};
 };
 const finalizeNote=(stage,content,outSchema,rest,patch=null)=>{

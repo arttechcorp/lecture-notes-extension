@@ -566,8 +566,8 @@ test("existing modes immutability: sol-luna-2, sol-fork-2, independent, and unde
 });
 
 test("prompt size reporting: v3 reduces prompt bytes for plan, editorial, draft, review, questions", () => {
-  // 기준 plan 9,604(L3 emphasis 지시 추가) / editorial 7,894 / draft 10,087 / repair 8,116 / review 9,021(L1 전 모드 결함 수정 반영) / questions 7,745 (v2, ko, OFF)
-  const baselines = { plan: 9604, editorial: 7894, draft: 10087, repair: 8116, review: 9021, questions: 7745 };
+  // 기준 plan 9,604(L3 emphasis 지시 추가) / editorial 7,894 / draft 10,087 / repair 8,135(근거 문구 실제 계약에 맞춤) / review 9,021(L1 전 모드 결함 수정 반영) / questions 7,745 (v2, ko, OFF)
+  const baselines = { plan: 9604, editorial: 7894, draft: 10087, repair: 8135, review: 9021, questions: 7745 };
   for (const [st, baseSize] of Object.entries(baselines)) {
     const v2Size = Buffer.byteLength(Prompts.systemFor(st, OFF, undefined, undefined, "sol-luna-2"), "utf8");
     assert.equal(v2Size, baseSize, st + ": v2 기준 바이트 일치");
@@ -608,7 +608,7 @@ test("plan request contract accepts emphasis signal entries and rejects invalid 
 
 
 // ── mis-sol-hai: 모드 지시는 프로파일의 prompts 표시로만 켜지고, 이미지 근거 칸과 길이 상한 ──
-test("mis-sol-hai: plan·draft 에만 모드 지시가 붙고 다른 단계·모드는 바이트 불변", () => {
+test("mis-sol-hai: plan·draft·review·repair 에만 모드 지시가 붙고 다른 단계·모드는 바이트 불변", () => {
   const plan = Prompts.systemFor("plan", OFF, undefined, undefined, "mis-sol-hai");
   assert.match(plan, /\[mis-sol-hai\] 모든 슬라이드를 정확히 한 섹션에 배정한다/, "plan: 슬라이드 커버리지");
   assert.match(plan, /emphasis 는 유닛별 강조 신호/, "plan: 강조 신호 입력의 뜻");
@@ -620,8 +620,11 @@ test("mis-sol-hai: plan·draft 에만 모드 지시가 붙고 다른 단계·모
   // review 는 축약 HTML 입력 지시 한 줄이 붙는다(§4.7 D8 — L6 가 html 칸을 싣는다).
   const review = Prompts.systemFor("review", OFF, undefined, undefined, "mis-sol-hai");
   assert.match(review, /축약 렌더 HTML.*data-block·data-claim 앵커/, "review: 축약 HTML 입력 안내");
+  // repair 는 초안≠봉투 출력 안내 한 줄이 붙는다(§4.4 — 재작성 대상은 봉투 계약을 알아야 채운다).
+  const repair = Prompts.systemFor("repair", OFF, undefined, undefined, "mis-sol-hai");
+  assert.match(repair, /초안\(claims·relations\)이 아니라 블록 봉투다/, "repair: 봉투 출력 안내");
   // MSH 지시가 없는 단계는 v2 프롬프트와 같은 문자열이다.
-  for (const st of ["editorial", "global", "repair", "questions"])
+  for (const st of ["editorial", "global", "questions"])
     assert.equal(Prompts.systemFor(st, OFF, undefined, undefined, "mis-sol-hai"),
       Prompts.systemFor(st, OFF, undefined, undefined, "sol-luna-2"), st + ": v2 와 동일");
   // 기존 모드에는 MSH 지시가 붙지 않는다.
@@ -647,8 +650,8 @@ test("mis-sol-hai: draft 요청의 images 칸 — 필기 영역 이미지 근거
 });
 
 test("mis-sol-hai 프롬프트 길이 상한(기획 §7 — 버전과 함께 길이를 기록·리뷰한다)", () => {
-  // MSH 지시는 plan·draft 에만 있고 v2 본문 위에 짧게 얹는다 — 추가분과 총량 모두 상한을 둔다.
-  for (const st of ["plan", "draft"]) {
+  // MSH 지시는 plan·draft·review·repair 에만 있고 v2 본문 위에 짧게 얹는다 — 추가분과 총량 모두 상한을 둔다.
+  for (const st of ["plan", "draft", "review", "repair"]) {
     const msh = Buffer.byteLength(Prompts.systemFor(st, OFF, undefined, undefined, "mis-sol-hai"), "utf8");
     const v2 = Buffer.byteLength(Prompts.systemFor(st, OFF, undefined, undefined, "sol-luna-2"), "utf8");
     assert.ok(msh - v2 > 0, `${st}: MSH 지시가 붙는다`);

@@ -5,7 +5,7 @@ const NoteContract=require("../lib/note-contract.js"),Contracts=require("../lib/
 // 프롬프트 문구나 아래 규칙을 바꾸면 올린다. 응답에 실려 단계 캐시 키에 들어간다.
 const PROMPT_VERSION="note-v6";
 // 단계별 버전: 프롬프트 문구나 아래 규칙을 바꾸면 그 단계만 올린다 — plan 캐시가 section 의 본문 재배치에 휘말려 무효가 되지 않게.
-const PROMPT_VERSIONS={plan:"note-v6",global:"note-v6",link:"note-v6",section:"note-v7",draft:"note-v7",repair:"note-v7",review:"note-v7",editorial:"note-v7",questions:"note-v7"};
+const PROMPT_VERSIONS={plan:"note-v6",global:"note-v6",link:"note-v6",section:"note-v7",draft:"note-v8",repair:"note-v8",review:"note-v7",editorial:"note-v7",questions:"note-v7"};
 const STAGES=["plan","section","global","repair","link","questions","draft","review","editorial"];
 // 두 실험 모드 — plan 직후 editorial 단계(같은 세션의 두 번째 Sol 턴)가 편집 명세(editorialPlan)를 낸다. 한 호출에 합치면 Edge 150초를 넘는다.
 const V2_MODES=NoteContract.V2_MODES;
@@ -120,7 +120,7 @@ const WRITE_V2={
     "입력에 editorialPlan이 있으면 따른다 — glossary의 preferredTerm을 용어의 표준으로 쓰고, section(learningQuestion·mustExplain·owns·referencesOnly·visuals)이 이 섹션이 설명할 것과 맡을 개념이다. prerequisites는 앞 섹션에서 이미 검증된 핵심 주장이니 다시 정의하지 말고 참조만 한다. referencesOnly 개념은 짧게 언급만 한다.",
   ],
   repair:[
-    "repair 항목의 mode가 \"regenerate_missing\"이면 그 블록은 작성자가 null로 보류한 것이다 — previous는 null이고, 그 블록이 다룰 근거 항목 id가 evidenceIds에 정확히 담긴다. 계획의 purpose와 그 근거만으로 새로 쓰고, 근거가 부족하면 지어내지 말고 그대로 null로 둔다.",
+    "repair 항목의 mode가 \"regenerate_missing\"이면 그 블록은 작성자가 null로 보류한 것이다 — previous는 null이다. evidenceIds가 있으면 그 근거만으로, 없으면 입력의 evidence 목록에서 그 블록의 purpose에 맞는 근거를 골라 새로 쓴다. 근거가 부족하면 지어내지 말고 그대로 null로 둔다.",
   ],
   questions:[
     "입력에 editorialPlan이 있으면 그 glossary의 preferredTerm을 용어의 표준으로 쓴다 — 문항과 해설의 용어를 그에 맞춘다.",
@@ -212,9 +212,13 @@ const MSH={
     "[mis-sol-hai] 슬라이드에 없이 말로만 한 내용은 notes 관계의 kind \"slide_absent\"로 쓴다 — 그 관계의 주장은 발화 근거만 인용한다.",
     "입력의 images 는 OCR 이 읽지 못한 필기 영역 이미지다 — id 는 그 영역이 속한 근거다. 이미지에서 읽은 내용은 그 근거 id 를 인용하는 주장으로 쓰고, 읽히지 않는 필기는 쓰지 않는다.",
     "figureNotes: 입력 figures 의 도표마다 하나씩 — figureId 는 그 도표 id(G#), claim 은 그 도표가 무엇을 보여 주고 강의에서 어떤 뜻인지(축·색·곡선이 무엇이고 어떤 추세가 무슨 결론을 받치는지) 1~2문장으로 쓴 claims 의 claimId 다. 그 주장은 도표 근거(figures 의 evidenceId)와 그 내용을 말한 슬라이드 글·발화를 인용하고, 근거 글에 없는 값·축 이름은 쓰지 않는다. blockId 는 그 도표를 둘 계획 블록 — 도표가 설명하는 개념의 B05, 계산·표 해석이면 B10 — 이고 맞는 블록이 없으면 null 이다.",
+    "formulaNotes: 등록 수식(F#)에도 같은 규칙으로 하나씩 — formulaId 는 수식 id, claim 은 그 식이 무엇을 계산·표현하는지(변수가 아니라 식 전체의 뜻) 한 문장, blockId 는 식을 둘 계획 블록(B05 홈이면 상세 뒤에 식과 이 해설이 놓인다). 인용 규칙도 figureNotes 와 같다.",
   ],
   review:[
     "[mis-sol-hai] 입력의 html 은 축약 렌더 HTML 이다 — data-block·data-claim 앵커가 블록·주장 id 다.",
+  ],
+  repair:[
+    "[mis-sol-hai] 이 단계의 출력은 초안(claims·relations)이 아니라 블록 봉투다 — 작업이 싣고 있는 출력 스키마가 각 블록의 봉투 모양을 정한다.",
   ],
 };
 // 시스템 본문 = 공용 + 노트 규칙 + 단계 규칙 (+ 켠 생성 옵션 + 영어 규칙 + 전문 워커 지시). 같은 단계·옵션·worker 면 모든 호출이 같은 문자열이다.

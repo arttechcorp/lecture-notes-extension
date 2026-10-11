@@ -203,7 +203,9 @@ test("/v1/me exposes per-task promptVersions and the policy version in remote co
     const me = await (await req(url, "/v1/me")).json();
     // 클라이언트 캐시 키 계약: 단계별 노트 프롬프트 버전(입력 재배치는 섹션 계열만 v7), judge 는 원격 설정 버전.
     for (const s of ["plan", "global", "link"]) assert.equal(me.promptVersions[s], me.promptVersion, s);
-    for (const s of ["section", "draft", "repair", "questions"]) assert.equal(me.promptVersions[s], "note-v7", s);
+    for (const s of ["section", "questions"]) assert.equal(me.promptVersions[s], "note-v7", s);
+    assert.equal(me.promptVersions.repair, "note-v8", "수리 지시는 regenerate_missing 근거 문구·msh 봉투 안내를 고쳐 v8");
+    assert.equal(me.promptVersions.draft, "note-v8", "초안 지시는 수식 해설(formulaNotes) 칸을 더해 v8");
     assert.equal(me.promptVersions.judge, me.config.promptVersion);
     assert.equal(me.config.policyVersion, "v1");
     assert.equal(me.config.linkEditor, false, "linkEditor 기본값은 꺼짐");
@@ -3969,6 +3971,49 @@ test("mis-sol-hai: 세션(Sol) 수리도 배열 blocks 응답을 keyed 맵으로
     const out = await res.json();
     assert.equal(res.status, 200, JSON.stringify(out.error || ""));
     assert.deepEqual(out.output, { blocks: { S1_B3: envl } });
+  }, env);
+});
+
+test("mis-sol-hai: 세션(Sol) 수리 작업의 outputSchema 는 봉투 계약이다 — 전송 배열 틀이 아니다(실행 mis-sol-hai-27: previous=null 재작성 대부분 탈락)", async () => {
+  const HAIKU = "anthropic/claude-haiku-5.5", envl = noteWriter.sections.S1.first.blocks.S1_B3, bodies = [];
+  const env = { ...v2Env, ALLOWED_MODELS: JSON.stringify([model, SOL, LUNA2, HAIKU]), OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], [SOL]: ["azure", "azure/us"], "openai/gpt-6-luna": ["azure", "azure/us"], [HAIKU]: ["google-vertex/global"] }) };
+  await withNoteServer(async (_u, o) => { bodies.push(JSON.parse(o.body)); return solReply(JSON.stringify({ blocks: { S1_B3: envl } })); }, async url => {
+    const res = await req(url, "/v1/write", "POST", repairIn({ model: SOL, requestId: "msh-s2", noteMode: "mis-sol-hai", noteSession: { v: 1, id: "mshss002", mode: "mis-sol-hai", history: fork2P() } }), tokenB);
+    const out = await res.json();
+    assert.equal(res.status, 200, JSON.stringify(out.error || ""));
+    const task = JSON.parse(bodies.at(-1).input.at(-1).content[0].text);
+    assert.ok(task.outputSchema?.properties?.blocks?.properties?.S1_B3?.properties?.content,
+      "previous=null 재작성 대상도 봉투 안 모양(status·importance·emphasis·content)을 봐야 채울 수 있다 — keyed 계약 스키마를 싣는다");
+  }, env);
+});
+
+test("mis-sol-hai: 수리 응답이 keyed 맵이어도 요청 블록만 남기고 빠진 칸·넘친 키를 정규화한다", async () => {
+  const HAIKU = "anthropic/claude-haiku-5.5", envl = noteWriter.sections.S1.first.blocks.S1_B3;
+  const env = { ...v2Env, ALLOWED_MODELS: JSON.stringify([model, SOL, LUNA2, HAIKU]), OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], [SOL]: ["azure", "azure/us"], "openai/gpt-6-luna": ["azure", "azure/us"], [HAIKU]: ["google-vertex/global"] }) };
+  // 루트에 내끼낀 checks·요청하지 않은 블록 id·빠진 nullable 칸(mechanism·original)은 응답 전체를 죽이지 않는다.
+  const b1 = noteWriter.sections.S1.first.blocks.S1_B1, partial = JSON.parse(JSON.stringify(b1));
+  delete partial.content.mechanism; delete partial.content.original;
+  await withNoteServer(async () => noteReply({ blocks: { S1_B1: partial, S1_B9: envl }, checks: [] }), async url => {
+    const res = await req(url, "/v1/write", "POST", repairIn({ model: HAIKU, requestId: "msh-rk", stage: "repair", noteMode: "mis-sol-hai",
+      repair: [
+        { blockId: "S1_B1", previous: null, mode: "regenerate_missing", errors: [{ code: "VAL_BLOCK_DECLINED", detail: ["unknown"] }] },
+        { blockId: "S1_B3", previous: envl, errors: [{ code: "VAL_EVIDENCE_MISSING", detail: ["/content/note"] }] },
+      ] }), tokenB);
+    const out = await res.json();
+    assert.equal(res.status, 200, JSON.stringify(out.error || ""));
+    assert.deepEqual(out.output, { blocks: { S1_B1: b1, S1_B3: null } }, "nullable 칸은 null 로 채워 살리고 요청 밖 블록은 버린다");
+  }, env);
+});
+
+test("mis-sol-hai: 독립(Haiku) 수리는 봉투 안 모양을 system 메시지로 알린다 — strict 틀만으로는 previous=null 을 못 채운다", async () => {
+  const HAIKU = "anthropic/claude-haiku-5.5", envl = noteWriter.sections.S1.first.blocks.S1_B3, bodies = [];
+  const env = { ...v2Env, ALLOWED_MODELS: JSON.stringify([model, SOL, LUNA2, HAIKU]), OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], [SOL]: ["azure", "azure/us"], "openai/gpt-6-luna": ["azure", "azure/us"], [HAIKU]: ["google-vertex/global"] }) };
+  await withNoteServer(async (_u, o) => { bodies.push(JSON.parse(o.body)); return noteReply({ blocks: [{ blockId: "S1_B3", envelope: envl }] }); }, async url => {
+    const res = await req(url, "/v1/write", "POST", repairIn({ model: HAIKU, requestId: "msh-rh", stage: "repair", noteMode: "mis-sol-hai" }), tokenB);
+    assert.equal(res.status, 200, JSON.stringify((await res.json()).error || ""));
+    const msgs = bodies.at(-1).messages.filter(m => m.role === "system").map(m => typeof m.content === "string" ? m.content : JSON.stringify(m.content));
+    assert.ok(msgs.some(t => t.includes("envelope") && t.includes('"S1_B3"') && t.includes('"content"')),
+      "strict 배열 틀 외에 blockId 별 봉투 계약을 system 메시지로 알린다");
   }, env);
 });
 
