@@ -249,11 +249,11 @@
 
 **STT (유료)**
 - **공급자(D16)**: OpenRouter `POST /api/v1/audio/transcriptions`, 모델 `microsoft/mai-transcribe-2`(Azure). `response_format:"verbose_json"`, `timestamp_granularities:["segment","word"]`로 구간·단어 시각을 받는다. OpenRouter는 요청마다 상류 60초 제한이 있다.
-- 청크: **≤5분이면서 ≤8MB**. 경계는 목표 지점 근처의 무음에서 자르고(VAD), 앞뒤 1~3초를 겹친다. 단어 타임스탬프로 겹침 구간의 중복을 지운다.
+- 청크: **≤3분이면서 ≤8MB**. 경계는 목표 지점 근처의 무음에서 자르고(VAD), 앞뒤 1~3초를 겹친다. 단어 타임스탬프로 겹침 구간의 중복을 지운다.
 - **입력 형식(확인 필요)**:
   - 청크는 AAC를 재인코딩하지 않은 m4a다.
   - MAI-Transcribe 2 모델 카드는 WAV·MP3·FLAC만 적고, OpenRouter 문서는 m4a·aac도 받는다고 적는다. 실제로 받는지 Phase 0 A1에서 먼저 확인한다.
-  - 안 되면 오디오 디코더로 16kHz 모노 WAV를 만든다. 5분이면 약 9.6MB라 청크 상한을 다시 정한다.
+  - 안 되면 오디오 디코더로 16kHz 모노 WAV를 만든다. 3분이면 약 5.8MB라 청크 상한을 다시 정한다.
 - **VAD 게이트**: 무음이나 음악만 있는 구간은 보내지 않는다. 원가가 줄고 환각도 막힌다.
 - **환각 필터**:
   - 세그먼트 품질값을 본다(Whisper 기본 임계값: `no_speech_prob>0.6`이면서 `avg_logprob<-1.0`, 또는 `compression_ratio>2.4`). MAI-Transcribe 2는 이 값을 주지 않으므로(시각과 선택적 단어 신뢰도만) 이 규칙은 로컬 Whisper(Free)에만 남는다. 유료 경로는 VAD, 아래 문구 목록, 단어 신뢰도(올 때)로 거른다.
@@ -375,7 +375,7 @@
 | 단계 | 단위 | 병렬도(기본, 서버에서 원격 조정) | 경계 처리 |
 |---|---|---|---|
 | 미디어 수신 | 세그먼트 | 수신 4, 디코드 1~2 | 백프레셔, 즉시 해제, 정준 시각 |
-| STT | ≤5분 청크 | 4 | 무음 경계, 1~3초 겹침, 단어 타임스탬프로 중복 제거 |
+| STT | ≤3분 청크 | 4 | 무음 경계, 1~3초 겹침, 단어 타임스탬프로 중복 제거 |
 | 전환 판정 | 키프레임 | 디코드는 병렬, **비교는 순차** | 경계 누락 없음 |
 | 비전 | 안정 슬라이드 | 8 | 슬라이드끼리 독립 |
 | 판정 | 항목 묶음 | 2 | 독립 |
@@ -543,7 +543,7 @@
 | 라우트 | 입력 | 한도 | 출력 | 등급 |
 |---|---|---|---|---|
 | `GET /v1/me` | — | — | 등급, **기능 플래그**, 한도, 병렬도·처리량 설정, `minClientVersion`, 프롬프트·스키마 버전 | 전체 |
-| `POST /v1/stt` | m4a + `{t0, lang, prompt, requestId}` | ≤8MB, ≤5분 | `Transcript` 조각 | 유료 |
+| `POST /v1/stt` | m4a + `{t0, lang, prompt, requestId}` | ≤8MB, ≤3분 | `Transcript` 조각 | 유료 |
 | `POST /v1/vision` | JPEG + `{slideId, mode: full\|reread, region?, requestId}` | ≤1.5MB | `SlideDoc` | 유료 |
 | `POST /v1/judge` | `{task, items[≤200]}` | ≤64KB | `JudgeResult[]` | 유료 |
 | `POST /v1/plan` | IR + Note 스펙 버전 | ≤256KB | `Plan` | 전체(Free는 월 한도) |

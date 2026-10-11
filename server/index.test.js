@@ -188,7 +188,7 @@ test("/v1/me exposes merged remote config and global flags hide and block featur
     assert.deepEqual(me.features, [], "전역 스위치가 꺼진 기능은 계정 권한이 있어도 숨긴다");
     assert.equal(me.config.throughputMbps, 30);
     assert.equal(me.config.concurrency.vision, 2, "지정한 키만 기본값 위에 올라간다");
-    assert.equal(me.config.concurrency.stt, 2);
+    assert.equal(me.config.concurrency.stt, 6);
     assert.equal(me.config.minClientVersion, "0.0.0");
     const blocked = await req(url, "/v1/vision", "POST", visionBody({ requestId: "vision-flag", image: jpeg(64) }));
     assert.equal(blocked.status, 403, "전역 스위치가 꺼지면 계정 권한이 있어도 라우트가 막힌다");
@@ -523,6 +523,130 @@ test("stt bills the last segment end when the provider omits duration", async ()
   } finally { await close(server); removeTemp(root); }
 });
 
+test("stt falls back to the allowed fallback model on 5xx but not on deterministic 4xx", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  const env = { ...sttEnv(root), ALLOWED_STT_MODELS: JSON.stringify(["microsoft/mai-transcribe-2", "openai/whisper-large-v3-turbo"]) };
+  const sent = [];
+  let failStatus = 502;
+  const server = createServer(env, {
+    fetch: async (u, o) => {
+      sent.push(JSON.parse(o.body));
+      if (sent.length === 1) return { ok: false, status: failStatus, headers: { get: () => null } };
+      return { ok: true, json: async () => maiRaw() };
+    },
+  });
+  await new Promise(r => server.listen(0, "127.0.0.1", r));
+  const url = "http://127.0.0.1:" + server.address().port;
+  try {
+    const res = await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-fb" }));
+    assert.equal(res.status, 200);
+    assert.equal(sent.length, 2, "1순위 5xx 뒤 fallback 모델로 다시 부른다");
+    assert.equal(sent[0].model, "microsoft/mai-transcribe-2");
+    assert.equal(sent[1].model, "openai/whisper-large-v3-turbo");
+    assert.deepEqual(sent[1].provider, { zdr: true, data_collection: "deny" }, "fallback 은 ZDR·수집 거부로만 보낸다");
+    const data = await res.json();
+    assert.equal(data.transcript.model, "openai/whisper-large-v3-turbo");
+    const me = await (await req(url, "/v1/me")).json();
+    assert.equal(me.quota.requests, 1, "같은 requestId 라 한 건만 정산한다");
+    assert.equal(me.quota.spentCents, settle(0.004), "성공한 시도의 보고 비용만 청구한다");
+
+    // 결정적 4xx는 fallback 을 태우지 않는다 — 같은 본문이 다음 모델에서도 똑같이 거절된다.
+    failStatus = 400; sent.length = 0;
+    const bad = await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-fb-4xx" }));
+    assert.equal(bad.status, 502);
+    assert.equal((await bad.json()).error.code, "provider_failed_or_invalid_output");
+    assert.equal(sent.length, 1, "4xx 는 다시 부르지 않는다");
+  } finally { await close(server); removeTemp(root); }
+});
+
+test("stt attempt timeout falls back within the edge deadline; no fallback without an allowed fallback model", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  const env = { ...sttEnv(root), ALLOWED_STT_MODELS: JSON.stringify(["microsoft/mai-transcribe-2", "openai/whisper-large-v3-turbo"]) };
+  const sent = [];
+  const hang = o => new Promise((_, rej) => o.signal.addEventListener("abort", () => rej(new DOMException("취소됨", "AbortError"))));
+  const server = createServer(env, {
+    sttAttemptMs: 30,
+    fetch: async (u, o) => { sent.push(JSON.parse(o.body)); return sent.length === 1 ? hang(o) : { ok: true, json: async () => maiRaw() }; },
+  });
+  await new Promise(r => server.listen(0, "127.0.0.1", r));
+  const url = "http://127.0.0.1:" + server.address().port;
+  try {
+    const res = await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-fb-to" }));
+    assert.equal(res.status, 200);
+    assert.equal(sent.length, 2, "1순위 시도 타임아웃 뒤 fallback 으로 넘어간다");
+    assert.equal(sent[1].model, "openai/whisper-large-v3-turbo");
+
+    // fallback 모델이 allowlist 에 없으면 한 번만 부른다(기존 동작).
+    sent.length = 0;
+    const root2 = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+    const single = createServer(sttEnv(root2), { fetch: async () => { sent.push({}); return { ok: false, status: 502, headers: { get: () => null } }; } });
+    await new Promise(r => single.listen(0, "127.0.0.1", r));
+    const url2 = "http://127.0.0.1:" + single.address().port;
+    try {
+      const r2 = await req(url2, "/v1/stt", "POST", sttBody({ requestId: "stt-single" }));
+      assert.equal(r2.status, 502);
+      assert.equal(sent.length, 1);
+    } finally { await close(single); removeTemp(root2); }
+  } finally { await close(server); removeTemp(root); }
+});
+
+test("stt settle keeps reported cost of discarded attempts and only refunds when every attempt is provably unbilled", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  const env = { ...sttEnv(root), ALLOWED_STT_MODELS: JSON.stringify(["microsoft/mai-transcribe-2", "openai/whisper-large-v3-turbo"]) };
+  let ok = false;
+  const server = createServer(env, {
+    sttAttemptMs: 30,
+    // 첫 시도: 200 + 보고 비용이 있지만 계약을 어긴 본문(segments 없음) → 상류 과금은 나간 상태.
+    fetch: async () => ok ? { ok: true, json: async () => maiRaw() } : (ok = true, { ok: true, json: async () => ({ language: "ko", usage: { cost: 0.005 } }) }),
+  });
+  await new Promise(r => server.listen(0, "127.0.0.1", r));
+  const url = "http://127.0.0.1:" + server.address().port;
+  try {
+    const res = await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-spent" }));
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.ok(Math.abs(data.usage.costUsd - 0.009) < 1e-9, `버려진 첫 시도의 보고 비용(0.005) + 성공 시도(0.004), 실제 ${data.usage.costUsd}`);
+    const me1 = await (await req(url, "/v1/me")).json();
+    assert.ok(Math.abs(me1.quota.spentCents - settle(0.009)) < 0.001, `정산액은 보고 합계, 실제 ${me1.quota.spentCents}`);
+
+    // 첫 시도가 응답 없이 타임아웃(상류 과금 불확정) → 두 번째가 결정적 4xx여도 환불하지 않고 예약을 정산한다.
+    let first = true;
+    const hang2 = o => new Promise((_, rej) => o.signal.addEventListener("abort", () => rej(new DOMException("취소됨", "AbortError"))));
+    server.close();
+    const root2 = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+    const server2 = createServer({ ...sttEnv(root2), ALLOWED_STT_MODELS: JSON.stringify(["microsoft/mai-transcribe-2", "openai/whisper-large-v3-turbo"]) }, {
+      sttAttemptMs: 30,
+      fetch: async (u, o) => first ? (first = false, hang2(o)) : { ok: false, status: 400, headers: { get: () => null } },
+    });
+    await new Promise(r => server2.listen(0, "127.0.0.1", r));
+    const url2 = "http://127.0.0.1:" + server2.address().port;
+    try {
+      const r2 = await req(url2, "/v1/stt", "POST", sttBody({ requestId: "stt-norefund" }));
+      assert.equal(r2.status, 502, "4xx 는 provider_failed_or_invalid_output");
+      const me2 = await (await req(url2, "/v1/me")).json();
+      assert.ok(me2.quota.spentCents > 0, "첫 시도가 불확실하면 환불하지 않는다 — 예약이 정산된다");
+    } finally { await close(server2); removeTemp(root2); }
+  } finally { await close(server); removeTemp(root); }
+});
+
+test("stt answers a structured 504 inside its own budget, before the client's 120s abort races it", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
+  // 전역 타임아웃(기본 120s)보다 짧은 STT 전용 예산 — 클라이언트 perReq(120s)가 먼저 울려 AbortError 대신
+  // 재시도 가능한 구조화 오류가 나가야 한다(엣지 한도 ~150s 안).
+  const server = createServer(sttEnv(root), {
+    sttBudgetMs: 60,
+    fetch: (u, o) => new Promise((_, rej) => o.signal.addEventListener("abort", () => rej(new DOMException("취소됨", "AbortError")))),
+  });
+  await new Promise(r => server.listen(0, "127.0.0.1", r));
+  const url = "http://127.0.0.1:" + server.address().port;
+  try {
+    const res = await Promise.race([req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-budget" })), new Promise(r => setTimeout(() => r(null), 2000))]);
+    assert.ok(res, "자체 예산 안에 응답한다 — 2초 안에 못 오면 전역 타임아웃까지 매달린 것");
+    const e = await errorOf(res, 504, "request_cancelled_or_timed_out");
+    assert.equal(e.retryable, true);
+  } finally { await close(server); removeTemp(root); }
+});
+
 test("stt validates fields, audio size and the paid feature gate", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "summrizei-service-test-"));
   let calls = 0;
@@ -543,15 +667,15 @@ test("stt validates fields, audio size and the paid feature gate", async () => {
     const { prompt: _drop, ...missingPrompt } = sttBody({ requestId: "v-missing" });
     await expect(missingPrompt, 400, "unexpected_field");
     await expect(sttBody({ requestId: "v-extra", extra: 1 }), 400, "unexpected_field");
-    for (const [i, patch] of [{ durationSec: 0 }, { durationSec: 331 }, { t0: -1 }, { lang: "fr" }, { prompt: "x".repeat(1001) }].entries())
+    for (const [i, patch] of [{ durationSec: 0 }, { durationSec: 241 }, { t0: -1 }, { lang: "fr" }, { prompt: "x".repeat(1001) }].entries())
       await expect(sttBody({ requestId: "v-params-" + i, ...patch }), 400, "invalid_stt_params");
     await expect(sttBody({ requestId: "v-mime", audio: "data:image/jpeg;base64,AAAA" }), 400, "invalid_audio");
     await expect(sttBody({ requestId: "v-ogg", audio: "data:audio/ogg;base64,AAAA" }), 400, "invalid_audio");
     await expect(sttBody({ requestId: "v-garbage", audio: "not-audio" }), 400, "invalid_audio");
     assert.equal(calls, 0, "검증 실패는 제공자를 호출하지 않는다");
 
-    await expect(sttBody({ requestId: "v-big", audio: audio(12 * 1024 * 1024 + 1) }), 413, "audio_too_large");
-    assert.equal((await req(url, "/v1/stt", "POST", sttBody({ requestId: "v-max", audio: audio(12 * 1024 * 1024) }))).status, 200, "12 MiB 정확히는 통과한다");
+    await expect(sttBody({ requestId: "v-big", audio: audio(8 * 1024 * 1024 + 1) }), 413, "audio_too_large");
+    assert.equal((await req(url, "/v1/stt", "POST", sttBody({ requestId: "v-max", audio: audio(8 * 1024 * 1024) }))).status, 200, "8 MiB 정확히는 통과한다");
     const huge = await req(url, "/v1/stt", "POST", sttBody({ requestId: "v-huge", audio: audio(13 * 1024 * 1024) }));
     assert.equal(huge.status, 413);
     assert.equal((await huge.json()).error.code, "request_too_large", "17 MB 본문 상한이 먼저 걸린다");
@@ -2286,10 +2410,30 @@ test("a luna variant write acquires its global slot under a '@'-free key", async
 test("a 4xx provider rejection (no endpoint for the parameters) refunds the reservation — nothing was generated", async () => {
   await withSupabase(async ({ url, sb }) => {
     sb.other = async () => ({ ok: false, status: 404, json: async () => ({}) });
-    await errorOf(await req(url, "/v1/write", "POST", input, ec1()), 502, "provider_failed_or_invalid_output");
+    const e = await errorOf(await req(url, "/v1/write", "POST", input, ec1()), 502, "provider_failed_or_invalid_output");
+    assert.equal(e.retryable, false, "제공자 4xx 는 같은 요청을 다시 보내도 같은 거절이다 — 클라이언트가 재시도하지 않게 비재시도로 보낸다");
     assert.equal(settledOf(sb, 0).p_status, "refunded");
     assert.equal(settledOf(sb, 0).p_error_code, "provider_http_404");
   });
+});
+
+test("provider 4xx rejections are non-retryable on every route; 5xx stays retryable", async () => {
+  await withSupabase(async ({ url, sb }) => {
+    sb.other = async () => ({ ok: false, status: 404, headers: new Map(), json: async () => ({}) });
+    const jwt = ec1();
+    let e = await errorOf(await req(url, "/v1/stt", "POST", sttBody({ requestId: "det-stt" }), jwt), 502, "provider_failed_or_invalid_output");
+    assert.equal(e.retryable, false, "STT 제공자 404 — 같은 오디오를 다시 보내도 같은 거절");
+    assert.equal(settledOf(sb, 0).p_status, "refunded");
+    e = await errorOf(await req(url, "/v1/vision", "POST", visionBody({ requestId: "det-vis" }), jwt), 502, "provider_failed_or_invalid_output");
+    assert.equal(e.retryable, false);
+    assert.equal(settledOf(sb, 1).p_status, "refunded", "비전 4xx 도 첫 호출이라 생성이 없다 — 환불");
+    e = await errorOf(await req(url, "/v1/judge", "POST", judgeBody({ requestId: "det-jdg" }), jwt), 502, "provider_failed_or_invalid_output");
+    assert.equal(e.retryable, false);
+    // 5xx·전송 실패는 일시적 — 같은 요청의 재시도가 성공할 수 있으므로 기존대로 재시도 가능을 유지한다.
+    sb.other = async () => ({ ok: false, status: 500, headers: new Map(), json: async () => ({}) });
+    e = await errorOf(await req(url, "/v1/write", "POST", sectionIn({ requestId: "det-w5" }), jwt), 502, "provider_failed_or_invalid_output");
+    assert.equal(e.retryable, true);
+  }, { setup: sb => { sb.plan = "essential"; } });
 });
 
 test("a failed provider call still releases the global slot", async () => {
@@ -2474,7 +2618,7 @@ test("refund paths settle as refunded with no cost and no usage, and the same re
     assert.deepEqual(settledOf(sb, 0).p_attempts.map(({ latency_ms, ...a }) => a), [{
       attempt_id: "a0", status: "error", error_code: "provider_http_500", input_tokens: null, output_tokens: null,
       cached_input_tokens: null, cache_write_tokens: null, provider_reported_cost_micros: null,
-      cost_status: "unreported", cache_status: "not_applicable",
+      cost_status: "unreported", cache_status: "not_applicable", model: "microsoft/mai-transcribe-2",
     }]);
     mode = "busy";
     e = await errorOf(await req(url, "/v1/stt", "POST", sttBody({ requestId: "stt-r2" }), jwt), 429, "provider_busy");
@@ -2761,7 +2905,7 @@ test("/v1/me for a JWT user returns plan, features, DB limits, remote config and
     assert.deepEqual(me, {
       accountId: UID, plan: "free", models: [model], features: [],
       routeModels: { vision: ["google/gemini-2.5-flash-lite"], stt: ["microsoft/mai-transcribe-2"], judge: ["openai/gpt-4.1-nano"] },
-      config: { concurrency: { download: 4, decode: 1, stt: 2, vision: 3, judge: 2, write: 8 }, throughputMbps: 50, minClientVersion: "0.0.0", promptVersion: "v1", schemaVersion: 1, policyVersion: "v1", linkEditor: false, noteWriter: "blocks" },
+      config: { concurrency: { download: 4, decode: 1, stt: 6, vision: 3, judge: 2, write: 8 }, throughputMbps: 50, minClientVersion: "0.0.0", promptVersion: "v1", schemaVersion: 1, policyVersion: "v1", linkEditor: false, noteWriter: "blocks" },
       noteSpecVersion: NoteContract.NOTE_SPEC_VERSION, promptVersion: Prompts.PROMPT_VERSION,
       promptVersions: { ...Prompts.PROMPT_VERSIONS, judge: "v1" },
       quota: { month, requests: 3, maxRequests: 300, minutes: 7, maxMinutes: 600, spentCents: 12.3456, maxCents: 30 },
@@ -3540,6 +3684,13 @@ test("sol-fork: plan 응답이 공유 접두가 되고 작성은 developer+P+자
       assert.deepEqual(b.provider, { only: ["azure", "azure/us"], require_parameters: true, allow_fallbacks: false, zdr: true, data_collection: "deny" });
       assert.equal(b.session_id, "forkit01");
     }
+  }, solEnv);
+});
+
+test("sol-fork: 제공자 4xx 거절은 비재시도로 돌려준다 — 세션 경로도 같은 분류다", async () => {
+  await withNoteServer(async () => ({ ok: false, status: 404, headers: new Map(), json: async () => ({}) }), async url => {
+    const e = await errorOf(await req(url, "/v1/plan", "POST", planIn({ model: SOL, requestId: "det-pl", noteSession: { v: 1, id: "detfork01", mode: "sol-fork", history: [] } })), 502, "provider_failed_or_invalid_output");
+    assert.equal(e.retryable, false, "세션 호출의 4xx 도 같은 요청을 다시 보내도 같은 거절이다");
   }, solEnv);
 });
 

@@ -36,7 +36,22 @@ const authEvent=(error,extra)=>{if(error?.status!==401||!error?.tokenInfo)return
 // ponytail: 계획·작성 분담은 MiMo Pro/Flash 다(2026-10-04 결정).
 // 계획은 GPT-6.1 Sol(추론 medium) — 100초 안에 못 끝내면 stages가 작성 모델(Flash)로 한 번 다시 계획한다. MiMo Pro는 무료 Edge 150초 안에 못 끝내 뺐다(필드 3/3 시간 초과).
 const BG_MODELS={plan:"openai/gpt-6.1-sol",write:"xiaomi/mimo-v2.6-flash",writeAlt:"openai/gpt-6.1-sol",judge:"typesafe/jev-1.13",stt:"microsoft/mai-transcribe-2",vision:"openai/gpt-6-luna"};
-const bgMe=async(settings,signal)=>ServiceClient.me({baseUrl:settings.serviceUrl,token:await tokenProvider(settings.appSessionToken,settings.serviceUrl),timeoutMs:15000,signal});
+// /v1/me 는 시작·목록·실행 진입점이 몇 초 안에 같은 값을 묻는다(invoke_action·preflight·bg_start 의 BG_LIST·BG_RUN).
+// 진행 중인 조회를 공유하고 직전 응답을 짧게 재사용한다. 키는 주소+토큰 — 서버나 로그인 계정이 바뀌면 새로 묻는다.
+const ME_TTL_MS=30000;
+let meCache=null; // {key,at,value} — value 는 진행 중 약속 또는 결과. 실패하면 비워 다음 호출이 다시 묻는다
+const meShared=(baseUrl,token,signal)=>{
+  const key=baseUrl+" "+token,now=Date.now();
+  if(meCache?.key!==key||now-meCache.at>=ME_TTL_MS){
+    const value=ServiceClient.me({baseUrl,token,timeoutMs:15000});
+    meCache={key,at:now,value};
+    value.then(v=>{if(meCache?.value===value)meCache.value=v;},()=>{if(meCache?.value===value)meCache=null;});
+  }
+  // 호출자의 취소는 이 호출의 기다림만 끊는다 — 공유된 요청 자체는 끊지 않는다(다른 호출자가 같은 값을 기다릴 수 있다).
+  if(!signal)return meCache.value;
+  return Promise.race([meCache.value,new Promise((_,reject)=>{const f=()=>reject(Object.assign(new Error("취소됨"),{name:"AbortError"}));signal.aborted?f():signal.addEventListener("abort",f,{once:true});})]);
+};
+const bgMe=async(settings,signal)=>meShared(settings.serviceUrl,await tokenProvider(settings.appSessionToken,settings.serviceUrl),signal);
 // Referer 규칙은 background가 건다(DNR은 서비스 워커 몫). 새 호스트로 나가기 전에 그 호스트를 더해 달라고 하고 답을 기다린다 — 호스트마다 한 번, 차례로(규칙 갱신이 서로 덮어쓰지 않게).
 // ponytail: 리다이렉트로 호스트가 바뀌면 그 호스트는 규칙에 없어 Referer가 빠지고 SRC_AUTH_EXPIRED로 멈춘다. 필요하면 응답의 url을 보고 규칙을 늘린다.
 function refererFetch(referer){
@@ -99,7 +114,7 @@ const noteService=settings=>{
   const config=settingsOf(settings),token=()=>tokenProvider(config.appSessionToken,config.serviceUrl);
   const svc=name=>async o=>ServiceClient[name]({baseUrl:config.serviceUrl,token:await token(),...o});
   return {
-    me:async signal=>ServiceClient.me({baseUrl:config.serviceUrl,token:await token(),timeoutMs:15000,signal}),
+    me:async signal=>meShared(config.serviceUrl,await token(),signal),
     deps:(signal,me,stats)=>({service:{plan:svc("plan"),write:svc("write"),judge:svc("judge")},katex,events,signal,sleep:ms=>new Promise(r=>setTimeout(r,ms)),promptVersions:me?.promptVersions??null,cacheStats:stats??null,linkEditor:me?.config?.linkEditor===true,writer:me?.config?.noteWriter,noteMode:noteModeOf(settings),noteV3:settings?.devNoteV3,emphasisSignals:NP?.get(noteModeOf(settings))?.emphasisSignals===true}),
     // 로컬 결과 캐시 적중은 서버 원장에 안 보인다 — 내용 없는 수치(jobId·hit/miss·rerun 번호)만 모아 보낸다. 실패해도 노트 흐름을 막지 않는다.
     report:async(jobId,rerun,stats)=>{try{await ServiceClient.reportRun({baseUrl:config.serviceUrl,token:await token(),jobId,cacheHits:stats?.hits??0,cacheMisses:stats?.misses??0,rerun});}catch{}},
@@ -311,16 +326,19 @@ async function bgJob(job,source,settings,me,ctl){
 // 작업이 끝날 때마다(성공·실패·멈춤) 그 작업의 진단 기록을 보관함 폴더 diagnostics/ 에 남긴다(폴더를 못 쓰면 Downloads/Summrizei/diagnostics/) — 문의할 때 따로 내보내지 않고 바로 첨부하게.
 // 이벤트는 처음부터 내용 없는 코드·수치뿐이다(§10). 계정·환경 정보는 넣지 않는다 — 그건 설정의 "진단 내보내기"가 사용자가 누를 때만 모은다.
 async function writeJobDiag(jobId){
+  let wErr=null;
   try{
     await sink?.flush();
     const evs=(await (await storeP).readLogs()).filter(e=>e.jobId===jobId);
     if(!evs.length)return;
     const bundle=Diagnostics.exportBundle(evs,{version:await versionP});
     const text=JSON.stringify(bundle,null,2),day=new Date().toISOString().slice(0,10);
+    // 폴더에 못 쓰는 이유가 무엇이든(권한 없음·오래된 핸들의 NotFoundError 등) Downloads 대체로 내린다 — 코드 목록 밖 오류도 파일을 잃지 않게
     try{await LibraryFolder.writeFile((await storeP).adapter,`diagnostics/summrizei-diagnostic-${day}-${jobId}.json`,text);return;}
-    catch(e){if(!["no-folder","no-permission"].includes(e?.code))throw e;}
-    await chrome.runtime.sendMessage({target:"background",type:"DIAG_EXPORT",jobId,text});
-  }catch{events.emit({stage:"library",jobId,level:"warn",code:"DIAG_EXPORT_FAILED"});}
+    catch(e){wErr=e;}
+    const r=await chrome.runtime.sendMessage({target:"background",type:"DIAG_EXPORT",jobId,text});
+    if(r?.ok!==true)throw Object.assign(new Error("DIAG_EXPORT 응답 거절"),{code:"DIAG_REJECTED"});
+  }catch(e){const nm=x=>typeof x?.code==="string"?x.code:typeof x?.name==="string"?x.name:null;events.emit({stage:"library",jobId,level:"warn",code:"DIAG_EXPORT_FAILED",msg:[wErr,e].map(nm).filter(Boolean).join(">").slice(0,64)||"failed"});}
 }
 // 보관함 패키지의 저장 입력으로 노트를 다시 만든다(옵션 변경·인식만 끝난 강의의 노트화). background.js만 부를 수 있다(BG_*와 같다).
 // 원본 프레임은 없으니 크롭을 새로 자르지 않는다: input 의 figureData/formulaCrops 가 가리키는 `<pkg>:c:*` 블롭이 남아 있고,
@@ -424,13 +442,22 @@ async function bgMessage(message,sender){
     return {ok:true,...(found?{already:true,state:job.state}:{})};
   }catch(error){bg=null;throw error;}
 }
+// 진단 내보내기는 최근 작업 중심이다 — 오래 누적된 과거 작업의 대량 info 이벤트가 덤프를 삼키지 않게
+// 최신 작업 몇 개의 기록 전량 + 최근 창의 경고·오류·작업 없는 이벤트만 남긴다. 이벤트는 처음부터
+// 내용 없는 코드·수치뿐이라 줄이는 것이 내용이 아니라 개수·시간 상한이다.
+const DIAG_JOBS=4,DIAG_WINDOW_MS=72*3600*1000,DIAG_MAX=4000;
+function diagExportSlice(evs){
+  const order=[];for(const e of evs){const j=e.jobId;if(j&&!order.includes(j))order.push(j);} // 로그는 시간 순으로 읽힌다 — 마지막 것들이 최신 작업이다
+  const keep=new Set(order.slice(-DIAG_JOBS)),cut=Date.now()-DIAG_WINDOW_MS;
+  return evs.filter(e=>keep.has(e.jobId)||((e.ts??0)>=cut&&(!e.jobId||e.level==="warn"||e.level==="error"))).slice(-DIAG_MAX);
+}
 // ── 로컬 데이터 관리(options.html "데이터 관리" 카드) ──
 // 기기 키는 이 문서의 저장소 객체가 메모리에 쥐고 있고 로그 싱크와 백그라운드 작업도 그 객체를 쓴다. 그래서 삭제·열람은 options가 아니라 여기서 한다:
 // wipe()가 이 객체의 key를 새 키로 바꾸므로 옛 키는 어디에도 남지 않고, 싱크를 먼저 멈춰 삭제 뒤에 늦은 쓰기가 끼어들지 못한다. background.js만 보낼 수 있다(BG_*와 같다).
 async function localData(message,sender){
   if(!trusted(sender,["/background.js"]))throw new Error("허용되지 않은 요청입니다.");
   const store=await storeP;
-  if(message.type==="LOGS_READ"){await sink?.flush();return {ok:true,events:await store.readLogs()};}
+  if(message.type==="LOGS_READ"){await sink?.flush();return {ok:true,events:diagExportSlice(await store.readLogs())};}
   if(message.type==="LOGS_CLEAR"){await sink?.flush();await store.adapter.clear("logs");return {ok:true};}
   if(starting||archiveBusy||summaryController||bg||session&&!["completed","failed","disposed"].includes(session.status))throw new Error("캡처나 백그라운드 작업이 진행 중입니다. 끝난 뒤 다시 시도하세요.");
   if(message.dryRun)return {ok:true}; // 계정 삭제가 서버를 지우기 전에 이 기기를 지울 수 있는지만 본다
@@ -492,7 +519,7 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
         try{
           if(options.recognition==="cloud"){
             options.appSessionToken=await tokenProvider(config.appSessionToken,config.serviceUrl);
-            const me=await ServiceClient.me({baseUrl:config.serviceUrl,token:options.appSessionToken,timeoutMs:15000}),features=me?.features||[];
+            const me=await meShared(config.serviceUrl,options.appSessionToken),features=me?.features||[];
             if(!features.includes("vision")||!features.includes("stt"))throw Object.assign(new Error("현재 플랜은 서버 인식을 쓸 수 없습니다."),{code:"PLAN_NO_CLOUD"});
             if(globalThis.cloudRecognitionAllowed?.(message.settings)!==true)throw Object.assign(new Error("클라우드 인식 동의가 필요합니다."),{code:"CONSENT_CLOUD_REQUIRED"});
             Object.assign(options,{ocrEngine:"vision-cloud",ocrEnabled:true,whisperEnabled:true,sttEngine:"cloud",sttModel:BG_MODELS.stt,visionModel:BG_MODELS.vision});

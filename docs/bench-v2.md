@@ -25,10 +25,10 @@
 ```
 <강의>/
   audio/                     # stt-bench 의 골든 폴더
-    chunk-001.m4a            # 오디오 청크 (audio/mp4, 5분 이하, 8MB 이하)
+    chunk-001.m4a            # 오디오 청크 (audio/mp4, 3분 이하, 8MB 이하)
     chunk-001.txt            # 사람이 교정한 참조 전사 (필수)
     chunk-001.terms.txt      # (선택) 이 청크의 슬라이드 용어, 한 줄에 하나. 없으면 terms.txt
-    chunk-001.json           # (선택) {"t0":0,"durationSec":298.4,"lang":"ko"}
+    chunk-001.json           # (선택) {"t0":0,"durationSec":178.4,"lang":"ko"}
     terms.txt                # 강의 용어 목록 (슬라이드·과목 용어집)
     silence-001.m4a + silence-001.txt(빈 파일)   # 환각률 측정용 무음 청크 (3.A1)
   slides/                    # vision-bench 의 슬라이드 폴더: slide-001.jpg ... (가림 처리 전 원본 프레임, 긴 변 1280~1600px, 1.5MB 이하)
@@ -41,8 +41,8 @@
 
 ```bash
 cd ~/summrizei-golden/finance-4522310 && mkdir -p audio slides slides-ref judge
-# 5분 청크 (한 줄에 한 청크, 시작 초를 바꿔 반복). 강의당 최소 3청크(15분), 권장 4~6청크
-for i in 0 1 2 3; do n=$(printf "%03d" $((i+1))); ffmpeg -y -ss $((i*300)) -t 300 -i lecture.mp4 -vn -ac 1 -ar 16000 -c:a aac -b:a 64k audio/chunk-$n.m4a; done
+# 3분 청크 (한 줄에 한 청크, 시작 초를 바꿔 반복). 강의당 최소 5청크(15분), 권장 7~10청크
+for i in 0 1 2 3 4 5 6 7; do n=$(printf "%03d" $((i+1))); ffmpeg -y -ss $((i*180)) -t 180 -i lecture.mp4 -vn -ac 1 -ar 16000 -c:a aac -b:a 64k audio/chunk-$n.m4a; done
 # 무음 청크 (환각률용) 3개
 for i in 1 2 3; do ffmpeg -y -f lavfi -i anullsrc=r=16000:cl=mono -t 60 -c:a aac -b:a 64k audio/silence-00$i.m4a; : > audio/silence-00$i.txt; done
 # 슬라이드 프레임: 30초마다 한 장 (슬라이드 파일이 따로 있으면 그것을 JPEG 로 내보낸다)

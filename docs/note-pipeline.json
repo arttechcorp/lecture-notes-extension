@@ -15,7 +15,7 @@
           "vision",
           "stt"
         ],
-        "note": "Luna는 마스킹한 JPEG 한 장을 SlideDoc으로, MAI는 5분 이하 청크와 용어 힌트를 Transcript로 옮긴다. Free는 기기 안 PP-OCR·Whisper."
+        "note": "Luna는 마스킹한 JPEG 한 장을 SlideDoc으로, MAI는 3분 이하 청크와 용어 힌트를 Transcript로 옮긴다. Free는 기기 안 PP-OCR·Whisper."
       },
       {
         "id": "refine-judge",
@@ -94,7 +94,7 @@
       "id": "audio",
       "type": "frontend",
       "label": "오디오 청크",
-      "sublabel": "무음 경계 5분 이하",
+      "sublabel": "무음 경계 3분 이하",
       "stage": 0,
       "row": 2,
       "tag": "메모리"

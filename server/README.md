@@ -17,7 +17,7 @@ EXTENSION_ORIGIN=chrome-extension://<실제 32자 확장 ID>
 APP_TOKENS_JSON={"pilot-user":"<계정마다 고유한 32자 이상 난수 앱 토큰>"}
 ALLOWED_MODELS=["openai/gpt-6.1-sol","xiaomi/mimo-v2.6-pro","xiaomi/mimo-v2.6-flash","google/gemini-2.5-flash-lite"]
 ALLOWED_VISION_MODELS=["openai/gpt-6-luna"]
-ALLOWED_STT_MODELS=["microsoft/mai-transcribe-2"]
+ALLOWED_STT_MODELS=["microsoft/mai-transcribe-2","openai/whisper-large-v3-turbo"]
 ALLOWED_JUDGE_MODELS=["typesafe/jev-1.13"]
 OPENROUTER_PROVIDERS_JSON={"openai/gpt-6.1-sol":["azure","openai","azure/us","azure/eu"],"xiaomi/mimo-v2.6-pro":["deepinfra/fp8"],"xiaomi/mimo-v2.6-flash":["io-net/fp8","venice/fp8","deepinfra/fp8"],"google/gemini-2.5-flash-lite":["google-vertex"],"openai/gpt-6-luna":["azure"],"typesafe/jev-1.13":["typesafe"]}
 OPENROUTER_MANAGEMENT_KEY=<OpenRouter 관리 키 — 정산 때 /api/v1/generation 으로 생성별 실 청구액을 조회해 장부에 적는다. 없으면 응답 보고 비용·토큰 계산>
@@ -64,7 +64,7 @@ PLAN_FEATURES_JSON={"essential":{"features":["vision","stt","judge","background"
 
 현재 RATES는 2026-09-11 확인한 후보 단가다. 제공자 요금이 바뀌면 예약 계산을 갱신해야 한다. OpenRouter 키 자체에도 비용 한도를 설정해 이중으로 제한한다. 비용 상한은 결제 및 소매 단위 차감 시스템을 대신하지 않는다.
 
-`FEATURE_FLAGS_JSON`은 기능별 전역 스위치다. `false`로 지정한 기능은 계정 권한과 무관하게 `/v1/me` 목록과 라우트에서 꺼진다(기본 `{}` = 모두 켬). `REMOTE_CONFIG_JSON`은 클라이언트에 내려가는 원격 설정으로 기본값 `{concurrency:{download:4,decode:1,stt:4,vision:8,judge:2,write:8},throughputMbps:50,minClientVersion:"0.0.0",promptVersion:"v1",schemaVersion:1}` 위에 병합된다. 알 수 없는 키나 0 이하 수치는 기동을 거부한다. `minClientVersion`보다 낮은 `x-client-version` 헤더의 클라이언트는 426을 받는다. `ACCOUNT_CONCURRENCY`는 계정당 동시 진행 요청 상한(기본 12), `PROVIDER_CONCURRENCY_JSON`은 모델별 제공자 동시 슬롯(기본 16), `PROVIDER_QUEUE_MS`는 슬롯 대기 상한(기본 10000, 넘으면 `provider_busy`), `ACCOUNT_RATE_PER_MIN`은 계정당 분당 POST 상한(기본 300)이다. Supabase가 설정된 배포에서는 슬롯이 Postgres `provider_slots`로 전역이다 — Edge 워커가 몇이든 같은 상한을 나누고, 워커가 죽어도 슬롯은 요청 타임아웃+30초 뒤 만료로 회수된다. 정적·파일 장부 배포는 프로세스 안 상한만 쓴다.
+`FEATURE_FLAGS_JSON`은 기능별 전역 스위치다. `false`로 지정한 기능은 계정 권한과 무관하게 `/v1/me` 목록과 라우트에서 꺼진다(기본 `{}` = 모두 켬). `REMOTE_CONFIG_JSON`은 클라이언트에 내려가는 원격 설정으로 기본값 `{concurrency:{download:4,decode:1,stt:6,vision:3,judge:2,write:8},throughputMbps:50,minClientVersion:"0.0.0",promptVersion:"v1",schemaVersion:1,policyVersion:"v1",linkEditor:false,noteWriter:"blocks"}` 위에 병합된다. 알 수 없는 키나 0 이하 수치는 기동을 거부한다. `minClientVersion`보다 낮은 `x-client-version` 헤더의 클라이언트는 426을 받는다. `ACCOUNT_CONCURRENCY`는 계정당 동시 진행 요청 상한(기본 12), `PROVIDER_CONCURRENCY_JSON`은 모델별 제공자 동시 슬롯(기본 16), `PROVIDER_QUEUE_MS`는 슬롯 대기 상한(기본 10000, 넘으면 `provider_busy`), `ACCOUNT_RATE_PER_MIN`은 계정당 분당 POST 상한(기본 300)이다. Supabase가 설정된 배포에서는 슬롯이 Postgres `provider_slots`로 전역이다 — Edge 워커가 몇이든 같은 상한을 나누고, 워커가 죽어도 슬롯은 요청 타임아웃+30초 뒤 만료로 회수된다. 정적·파일 장부 배포는 프로세스 안 상한만 쓴다.
 
 ## Supabase Edge Function 배포 (확장만 불러와 테스트할 때)
 
@@ -85,7 +85,7 @@ supabase secrets set --env-file <저장소 밖의 env 파일>
 | `OPENROUTER_PROVIDERS_JSON` | 계획·작성·비전·판정 모델별 ZDR 공급자 태그(아래 "설정"과 같다) |
 | `ALLOWED_MODELS` | 계획·작성 모델 목록(JSON 배열) |
 | `ALLOWED_VISION_MODELS` | 비전 모델 목록 |
-| `ALLOWED_STT_MODELS` | `["microsoft/mai-transcribe-2"]` |
+| `ALLOWED_STT_MODELS` | `["microsoft/mai-transcribe-2","openai/whisper-large-v3-turbo"]`(두 번째는 1순위 fallback — 신형 서버 배포 확인 뒤에 추가할 것: 구버전은 `STT_RATES`에 없는 모델이 목록에 있으면 부팅을 거절한다) |
 | `ALLOWED_JUDGE_MODELS` | 선택. 판정 모델 |
 | `EXTENSION_ORIGIN` | `chrome-extension://gllijdanodakjamndimlpgmhokaakpod,chrome-extension://gibhonakailcjlgjnfgeggpoigdbieef`(쉼표로 구분한 정확한 출처 목록. 압축 해제 ID는 폴더 경로에서 나와 개발자마다 다르다 — 기욱 macOS, 지환 Windows. `chrome://extensions`에서 확인. 목록에 없는 출처의 POST는 403 `origin_not_allowed`) |
 | `USAGE_DIGEST_KEY` | 32자 이상 무작위 문자열(요청 본문 해시용 HMAC 키) |
@@ -220,15 +220,16 @@ supabase functions deploy billing-webhook --use-api
 
 ## 음성 인식(STT)
 
-`POST /v1/stt`는 OpenRouter `POST /api/v1/audio/transcriptions`에 `microsoft/mai-transcribe-2`로 오디오 청크를 넘겨 전사한다(설계 D16, 운영자 OpenRouter 키 하나로 된다). 본문은 정확히 `{model, requestId, t0, durationSec, lang, prompt, audio}`다. `audio`는 `data:audio/wav;base64,`(백그라운드 작업이 보내는 16 kHz 모노 WAV) 또는 `data:audio/mp4;base64,`(m4a) 한 덩어리(디코드 후 최대 12 MiB, 길이 최대 330초), `lang`은 `ko`/`en`, `prompt`는 1000자 이하(빈 문자열 허용), 요청 본문 상한은 17 MB다. 응답은 `{transcript, usage:{audioSec,costUsd}, promptVersion, schemaVersion}`이고 `transcript`는 `Contracts.SCHEMAS.transcript`다.
+`POST /v1/stt`는 OpenRouter `POST /api/v1/audio/transcriptions`에 `microsoft/mai-transcribe-2`로 오디오 청크를 넘겨 전사한다(설계 D16, 운영자 OpenRouter 키 하나로 된다). 본문은 정확히 `{model, requestId, t0, durationSec, lang, prompt, audio}`다. `audio`는 `data:audio/wav;base64,`(백그라운드 작업이 보내는 16 kHz 모노 WAV) 또는 `data:audio/mp4;base64,`(m4a) 한 덩어리(디코드 후 최대 8 MiB, 길이 최대 240초 — 3분 청크), `lang`은 `ko`/`en`, `prompt`는 1000자 이하(빈 문자열 허용), 요청 본문 상한은 17 MB다. 응답은 `{transcript, usage:{audioSec,costUsd}, promptVersion, schemaVersion}`이고 `transcript`는 `Contracts.SCHEMAS.transcript`다.
 
 - 공급자 요청: JSON `input_audio:{data(base64), format:"wav"|"m4a"}`, `response_format:"verbose_json"`, `timestamp_granularities:["segment","word"]`. 최상위 `prompt`는 이 모델이 무시하므로 보내지 않고, `prompt`의 쉼표 구분 용어를 `provider.options.azure.phraseList.phrases`(최대 100개·각 50자)로 보낸다.
 - 단어는 응답 최상위 배열로 오며 중간 시각을 품는 세그먼트에 붙인다. Whisper 품질값(`no_speech_prob` 등)은 없어 null이고, 환각 필터는 클라이언트의 VAD·문구 목록이 맡는다.
 - MAI 문서는 WAV·MP3·FLAC만 적는다. m4a는 받아 주는지 확인하지 못해, 백그라운드 작업은 WAV로 보낸다. OpenRouter 업로드 상한은 25 MB, 상류 처리 제한은 60초다.
+- **fallback**: 요청 모델이 시도 타임아웃(비마지막 후보 55초)·429·5xx·연결 실패·출력 계약 오류로 죽으면 같은 예약 안에서 `STT_FALLBACK` 표의 다음 모델로 넘어간다 — 후보는 `ALLOWED_STT_MODELS`에 실린 것만(`microsoft/mai-transcribe-2` → `openai/whisper-large-v3-turbo`). 결정적 4xx는 넘기지 않는다. Azure 계열에만 `phraseList`를 내리고, 그 외 모델은 `provider:{zdr:true,data_collection:"deny"}`로 보내 ZDR·수집 거부를 라우팅에 강제한다(전사 요청에서 `zdr`/`data_collection`은 적용되고 `order`/`only`는 적용되지 않는다 — OpenRouter 전사 API 기준). 시도마다 `usage_attempts[].model`에 실제 모델이 남는다.
 
-`ALLOWED_STT_MODELS`에는 `STT_RATES`에 단가가 있는 모델만 넣는다(`["microsoft/mai-transcribe-2"]`, $0.10/h). 비어 있으면(기본) `/v1/stt`는 어떤 모델에도 `invalid_model`로 답한다. 최소 청구 10초. 예약은 클라이언트 선언 `durationSec`으로 잡고, 정산은 응답의 `usage.cost`(USD)가 있으면 그 값, 없으면 `max(선언값, 제공자가 보고한 duration)` × 단가다.
+`ALLOWED_STT_MODELS`에는 `STT_RATES`에 단가가 있는 모델만 넣는다(`["microsoft/mai-transcribe-2","openai/whisper-large-v3-turbo"]` — mai $0.10/h, whisper-turbo $0.12/h). 비어 있으면(기본) `/v1/stt`는 어떤 모델에도 `invalid_model`로 답한다. 최소 청구 10초. 예약은 후보 중 가장 비싼 단가×클라이언트 선언 `durationSec`으로 잡고, 정산은 응답의 `usage.cost`(USD)가 있으면 그 값, 없으면 `max(선언값, 제공자가 보고한 duration)` × 성공 시도 모델의 단가다. STT 요청은 전역 타임아웃과 별개로 115초 예산으로 끊어(구조화된 504가 클라이언트 perReq 120초보다 먼저 도착한다) 엣지 한도 ~150초 안에 fallback 시도까지 끝낸다.
 
-오디오는 메모리에서만 다뤄져 OpenRouter로 전달되고 원장·로그·오류 본문에 남지 않는다(멱등 digest에는 base64의 sha256만 들어간다). OpenRouter의 공급자 라우팅 설정(ZDR 등)은 전사 요청에 적용되지 않으므로, 보존 조건은 OpenRouter·Azure의 정책으로 확인한다(`docs/policy-drafts-v2.md` §0). 제공자 HTTP 오류(429 `provider_busy` 포함)는 과금이 없다고 확정할 수 있어 예약을 정확히 되돌리고 같은 requestId를 재사용할 수 있다. 200인데 출력이 계약을 어기는 경우 등 그 밖의 실패는 예약을 유지한다.
+오디오는 메모리에서만 다뤄져 OpenRouter로 전달되고 원장·로그·오류 본문에 남지 않는다(멱등 digest에는 base64의 sha256만 들어간다). 제공자 HTTP 오류(429 `provider_busy` 포함)는 과금이 없다고 확정할 수 있어 예약을 정확히 되돌리고 같은 requestId를 재사용할 수 있다. 200인데 출력이 계약을 어기는 경우·타임아웃 등 그 밖의 실패는 예약을 유지한다(상류 처리 여부를 확정할 수 없어 보수적 과금).
 
 ## 판정(judge)
 

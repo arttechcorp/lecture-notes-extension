@@ -276,7 +276,7 @@ async function run(ctx){
       messages:[LLM.cachedSystem(ctx.luna.model,ctx.luna.system),LLM.cachedUser(ctx.luna.model,ctx.luna.user,stage)],
       response_format:{type:"json_schema",json_schema:{name:"lecture_note_"+stage,strict:true,schema:ctx.providerOut}},
       provider:{only:ctx.luna.providers,order:ctx.luna.providers,require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}})});
-    if(!response.ok){const detail=await upstreamDetail(h,response);tries.push(h.attemptOf("a"+tries.length,Date.now()-at,null,detail,tag(null,ctx.luna.model)));charge(Object.assign(new Error("provider_failed"),{detail}));}
+    if(!response.ok){const detail=await upstreamDetail(h,response);tries.push(h.attemptOf("a"+tries.length,Date.now()-at,null,detail,tag(null,ctx.luna.model)));charge(Object.assign(new Error("provider_failed"),{detail,...(response.status>=400&&response.status<500&&response.status!==429?{failExtra:{retryable:false}}:{})}));}
     const raw=await h.boundedResponse(response,1024*1024),u=raw.usage||{},choice=raw.choices?.[0];if(typeof raw.id==="string")ctx.gens.push(raw.id);
     if(!choice&&!raw.usage){tries.push(h.attemptOf("a"+tries.length,Date.now()-at,null,"provider_body_"+String(raw.error?.code??"empty").replace(/[^a-z0-9_]/gi,"_").slice(0,24),tag(raw,ctx.luna.model)));charge(Object.assign(new Error("provider_failed"),{detail:tries.at(-1).error}));}
     acc(u);{const c=h.costOf(u,...ctx.luna.rates,!choice?.message?.content&&choice?.finish_reason!=="length");if(c===null)reported=false;else amount+=c;}
@@ -295,7 +295,7 @@ async function run(ctx){
     // HTTP 거절: 4xx 는 라우팅 단계의 거절이라 생성 비용이 없다 — 이 요청의 첫 시도면 예약을 환불한다.
     // 5xx·전송 실패는 제공자 쪽에서 돈이 나갔는지 알 수 없어 예약을 그대로 둔다(보수적). 두 번째 이후 호출의 거절은 항상 과금 확정.
     if(!response.ok){const detail=await upstreamDetail(h,response);tries.push(h.attemptOf("a"+tries.length,Date.now()-at,null,detail,tag(null,SOL)));
-      const e=Object.assign(new Error("provider_failed"),{detail});
+      const e=Object.assign(new Error("provider_failed"),{detail,...(response.status>=400&&response.status<500&&response.status!==429?{failExtra:{retryable:false}}:{})});
       throw tries.length===1&&response.status>=400&&response.status<500?Object.assign(e,{refund:true,code:"provider_failed_or_invalid_output"}):failed(e);}
     const raw=await h.boundedResponse(response,1024*1024),u=raw.usage||{};if(typeof raw.id==="string")ctx.gens.push(raw.id);
     if(!raw.output?.length&&!raw.usage){tries.push(h.attemptOf("a"+tries.length,Date.now()-at,null,"provider_body_"+String(raw.error?.code??"empty").replace(/[^a-z0-9_]/gi,"_").slice(0,24),tag(raw,SOL)));
