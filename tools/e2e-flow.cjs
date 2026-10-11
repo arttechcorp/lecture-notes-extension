@@ -8,7 +8,11 @@
 //   node tools/e2e-flow.cjs --url <lecture url> [--url <lecture url> ...] [--headless]
 //                           [--flow live|bg] [--fresh] [--reload] [--mode slide|region|caption]
 //                           [--duration <sec>] [--note-timeout <sec>] [--bg-timeout <min>]
-//                           [--regenerate] [--write-model <id>]
+//                           [--regenerate] [--write-model <id>] [--inspect] [--synthetic-start]
+//   --synthetic-start: press 시작 with a script click (no user activation) so a revoked library-folder grant makes
+//   requestPermission throw (swallowed by ensureFolder) instead of opening a native prompt that waits for a human.
+//   --inspect: after the run, read the newest library note (admin.html), render it in sandbox.html and add
+//   report.inspect = counts only (render warnings, figure display kinds, formula markers) + figs/<id>.png.
 //                           [--profile <dir>] [--out <dir>]
 const fs = require('node:fs');
 const os = require('node:os');
@@ -16,7 +20,10 @@ const path = require('node:path');
 const { spawn, execFileSync } = require('node:child_process');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = path.resolve(__dirname, '..');
-const CHROME = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const CHROME = process.env.CHROME_PATH || (process.platform === 'win32' ? 'C:/Program Files/Google/Chrome/Application/chrome.exe' : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome');
+// Unpacked-extension id is derived from the load path (sha256 of the path as Chrome sees it: UTF-16LE on Windows, UTF-8 elsewhere → a-p).
+const extIdForPath = p => [...require('node:crypto').createHash('sha256').update(Buffer.from(p, process.platform === 'win32' ? 'utf16le' : 'utf8')).digest().subarray(0, 16)].map(b => 'abcdefghijklmnop'[b >> 4] + 'abcdefghijklmnop'[b & 15]).join('');
+const EXT_ID = extIdForPath(root);
 
 function parse(argv) {
   const args = { duration: 60, noteTimeout: 600, bgTimeout: 120, flow: 'live', urls: [] };
@@ -34,6 +41,8 @@ function parse(argv) {
     else if (a === '--write-model') args.writeModel = argv[++i];
     else if (a === '--fresh') args.fresh = true;
     else if (a === '--reload') args.reload = true;
+    else if (a === '--inspect') args.inspect = true;
+    else if (a === '--synthetic-start') args.syntheticStart = true;
     else if (a === '--profile') args.profile = argv[++i];
     else if (a === '--out') args.out = argv[++i];
     else throw new Error(`unknown arg: ${a}`);
@@ -48,6 +57,7 @@ const now = () => new Date().toISOString();
 // LearnUs credentials live in the macOS Keychain (service learnus-e2e) — read at
 // runtime only, never written to any artifact.
 const lmsCreds = () => {
+  if (process.platform === 'win32') throw Object.assign(new Error('LMS credentials come from the macOS Keychain — log in by hand in the warm Chrome (blocked on Windows)'), { blocked: true });
   const meta = execFileSync('security', ['find-generic-password', '-s', 'learnus-e2e'], { encoding: 'utf8' });
   const account = meta.match(/"acct"<blob>="([^"]*)"/)?.[1] || '';
   const password = execFileSync('security', ['find-generic-password', '-s', 'learnus-e2e', '-w'], { encoding: 'utf8' }).trim();
@@ -208,10 +218,10 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
       // folder FS grant / LMS session only live inside a running Chrome process —
       // so the human browser stays up and runs attach to it via :9333.
       // The extension id in the URL is path-derived and stable for this repo.
-      const extId = 'gllijdanodakjamndimlpgmhokaakpod';
+      const extId = EXT_ID;
       try { await fetch('http://127.0.0.1:9333/json/version').then(r => r.json()); console.log('Warm Chrome already listening on :9333 — nothing to do.'); return; } catch {}
       let pids = '';
-      try { pids = execFileSync('pgrep', ['-f', `user-data-dir=${args.profile}`], { encoding: 'utf8' }).trim(); } catch {}
+      if (process.platform !== 'win32') try { pids = execFileSync('pgrep', ['-f', `user-data-dir=${args.profile}`], { encoding: 'utf8' }).trim(); } catch {}
       if (pids) { console.error(`A Chrome is already running on ${args.profile} WITHOUT :9333 (pids ${pids.split('\n').join(',')}). Quit it first, then rerun --login.`); process.exit(1); }
       console.log(`Starting warm Chrome on ${args.profile} (debug port 9333) — LEAVE THIS WINDOW OPEN.`);
       console.log('One-time setup:');
@@ -220,7 +230,7 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
       console.log('  3) LMS tab: log in, open the lecture, play the video, open the panel from the toolbar icon,');
       console.log('     click 백그라운드로 처리 and Allow BOTH prompts (webRequest + folder), then cancel');
       const child = spawn(CHROME, [`--user-data-dir=${args.profile}`, '--remote-debugging-port=9333', '--enable-unsafe-extension-debugging',
-        '--no-first-run', '--no-default-browser-check', 'chrome://extensions', `chrome-extension://${extId}/sidepanel.html`, ...args.urls],
+        '--no-first-run', '--no-default-browser-check', '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding', 'chrome://extensions', `chrome-extension://${extId}/sidepanel.html`, ...args.urls],
         { detached: true, stdio: 'ignore' });
       child.unref();
       console.log(`spawned pid ${child.pid}. When setup is done, run the flow — it attaches to this Chrome.`);
@@ -241,7 +251,7 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
       // already matches the repo — every reload (loadUnpacked or
       // chrome.runtime.reload) REVOKES the session-scoped library-folder FS
       // grant, which needs a native-prompt re-grant. webRequest survives.
-        const extId = 'gllijdanodakjamndimlpgmhokaakpod';
+        const extId = EXT_ID;
         id = extId;
         const swTarget = async () => (await cdp.send('Target.getTargets')).targetInfos.find(t => t.type === 'service_worker' && t.url.startsWith(`chrome-extension://${id}/`));
         // grab whatever SW channel exists: Playwright worker or a CDP session on the target
@@ -333,6 +343,7 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
     }));
 
     const runUrl = async (url, i) => {
+      try { const u = new URL(url); if (/(^|.)youtube.com$/.test(u.hostname) && u.searchParams.has('list')) { u.searchParams.delete('list'); u.searchParams.delete('index'); url = u.href; } } catch {} // playlist auto-advance would swap the lecture mid-run; t= fixes the start
       const tag = `#${i + 1}`;
       let tabId, regenActive = false; // set when --regenerate clicked #notesBtn (bg_start or bg_progress)
       // v2.4 ready screen: mode cards (#viewMode) ↔ prep view (#viewPrep[data-mode]).
@@ -344,6 +355,46 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
         })).catch(() => ({}));
         if (v.prep && v.prep !== 'bg') await panel.click('#prepBack').catch(() => {});
         if (v.mode || (v.prep && v.prep !== 'bg')) { await panel.click('#pickBg').catch(() => {}); await panel.waitForTimeout(800); }
+      };
+      const playVideo = async rec => {
+        await lecture.bringToFront();
+        const videoT = f => f.evaluate(() => document.querySelector('video')?.currentTime || 0).catch(() => 0);
+        let method = null, frameUrl = null;
+        if (/(^|.)youtube.com$/.test(new URL(lecture.url()).hostname)) { // pre-roll ads share the <video>: skip when offered, else wait them out, before currentTime means anything
+          for (let i = 0; i < 60 && await lecture.evaluate(() => !!document.querySelector('.html5-video-player.ad-showing')).catch(() => false); i++) {
+            await lecture.locator('.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern').first().click({ timeout: 500 }).catch(() => {});
+            await lecture.waitForTimeout(1000);
+          }
+        }
+        const playing = async () => { for (const f of lecture.frames()) if (await videoT(f) > 0) { frameUrl = f.url(); return true; } return false; };
+        if (!(await playing())) {
+          // like a user: try the player's own control first (LearnUs nests it in iframes)
+          for (const f of lecture.frames()) {
+            for (const sel of ['.ytp-large-play-button', '.ytp-play-button', '.vjs-big-play-button', '.vjs-play-control', 'button[aria-label*="재생"]', 'button[aria-label*="Play"]', '.fp-play', '.play']) {
+              const loc = f.locator(sel).first();
+              if (await loc.isVisible().catch(() => false)) {
+                await loc.click().catch(() => {});
+                await lecture.waitForTimeout(1500);
+                if (await playing()) { method = `click ${sel}`; break; }
+              }
+            }
+            if (method) break;
+          }
+          if (!method) for (const f of lecture.frames()) { // last resort: direct play()
+            const ok = await f.evaluate(() => { const v = document.querySelector('video'); if (!v) return false; v.muted = true; return v.play().then(() => true).catch(() => false); }).catch(() => false);
+            if (ok) { method = 'video.play() fallback'; break; }
+          }
+        }
+        const deadline = Date.now() + 30000;
+        while (Date.now() < deadline) { if (await playing()) break; await lecture.waitForTimeout(1000); }
+        const s = await snap(lecture, 'play'); if (s) rec.screenshots.push(s);
+        if (!frameUrl) {
+          const st = await panelState().catch(() => ({ alerts: {} }));
+          const alert = Object.values(st.alerts || {}).join(' ');
+          if (/보호|DRM|차단/.test(alert)) { rec.status = 'blocked'; rec.detail = `protection message: ${alert}`; return; }
+          throw new Error(`no video with currentTime>0 within 30s (method=${method || 'none'}; lecture title="${await lecture.title().catch(() => '?')}")`);
+        }
+        rec.detail = `playing; method=${method || 'already playing'} frame=${stripUrl(frameUrl)}`;
       };
       try {
         // ---- open_lecture ----------------------------------------------------
@@ -470,40 +521,7 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
           }, true);
 
           // ---- play_video -----------------------------------------------------
-          await step('play_video' + tag, async rec => {
-            await lecture.bringToFront();
-            const videoT = f => f.evaluate(() => document.querySelector('video')?.currentTime || 0).catch(() => 0);
-            let method = null, frameUrl = null;
-            const playing = async () => { for (const f of lecture.frames()) if (await videoT(f) > 0) { frameUrl = f.url(); return true; } return false; };
-            if (!(await playing())) {
-              // like a user: try the player's own control first (LearnUs nests it in iframes)
-              for (const f of lecture.frames()) {
-                for (const sel of ['.vjs-big-play-button', '.vjs-play-control', 'button[aria-label*="재생"]', 'button[aria-label*="Play"]', '.fp-play', '.play']) {
-                  const loc = f.locator(sel).first();
-                  if (await loc.isVisible().catch(() => false)) {
-                    await loc.click().catch(() => {});
-                    await lecture.waitForTimeout(1500);
-                    if (await playing()) { method = `click ${sel}`; break; }
-                  }
-                }
-                if (method) break;
-              }
-              if (!method) for (const f of lecture.frames()) { // last resort: direct play()
-                const ok = await f.evaluate(() => { const v = document.querySelector('video'); if (!v) return false; v.muted = true; return v.play().then(() => true).catch(() => false); }).catch(() => false);
-                if (ok) { method = 'video.play() fallback'; break; }
-              }
-            }
-            const deadline = Date.now() + 30000;
-            while (Date.now() < deadline) { if (await playing()) break; await lecture.waitForTimeout(1000); }
-            const s = await snap(lecture, 'play'); if (s) rec.screenshots.push(s);
-            if (!frameUrl) {
-              const st = await panelState().catch(() => ({ alerts: {} }));
-              const alert = Object.values(st.alerts || {}).join(' ');
-              if (/보호|DRM|차단/.test(alert)) { rec.status = 'blocked'; rec.detail = `protection message: ${alert}`; return; }
-              throw new Error(`no video with currentTime>0 within 30s (method=${method || 'none'}; lecture title="${await lecture.title().catch(() => '?')}")`);
-            }
-            rec.detail = `playing; method=${method || 'already playing'} frame=${stripUrl(frameUrl)}`;
-          }, true);
+          await step('play_video' + tag, playVideo, true);
 
           // ---- bg_start --------------------------------------------------------
           await step('bg_start' + tag, async rec => {
@@ -588,6 +606,8 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
             throw new Error(`bg_progress timed out; last="${lastStage}"`);
           }, true);
         } else {
+          await step('play_video' + tag, playVideo, true);
+
           // ---- settings --------------------------------------------------------
           await step('settings' + tag, async rec => {
             let modeNote = '';
@@ -616,7 +636,8 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
               rec.detail = `startBtn disabled; readyAlert="${st.alerts.readyAlert || ''}"`;
               return;
             }
-            await panel.click('#startBtn');
+            rec.folder = await panel.evaluate(async () => LibraryFolder.status(await PackageStore.indexedDbAdapter()).then(s => s.state).catch(e => 'err:' + e.message)).catch(() => '?');
+            if (args.syntheticStart) await panel.evaluate(() => document.getElementById('startBtn').click()); else await panel.click('#startBtn');
             const deadline = Date.now() + 30000;
             while (Date.now() < deadline) {
               st = await panelState();
@@ -707,6 +728,8 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
           const hist = {};
           for (const e of evs) hist[`${e.stage}:${e.code || ''}`] = (hist[`${e.stage}:${e.code || ''}`] || 0) + 1;
           const top = Object.entries(hist).sort((a, z) => z[1] - a[1]).slice(0, 15).map(([k, v]) => `${k}×${v}`).join(', ');
+          const nums = code => { const e = [...evs].reverse().find(x => x.code === code); return e ? Object.fromEntries([...String(e.msg ?? '').matchAll(/(w+)=(-?d+)/g)].map(m => [m[1], Number(m[2])])) : null; };
+          report.funnel = nums('FIGURE_FUNNEL'); report.formulaChecks = nums('FORMULA_CHECKS'); report.diagErrors = evs.filter(e => e.level === 'error').length; // numbers only — no lecture content
           rec.detail += ` | keys=${Object.keys(b)} env=[${Object.keys(b.env || {})}] settings=[${Object.keys(b.env?.settings || {})}] auth.signedIn=${b.env?.auth?.signedIn} server.ok=${b.env?.server?.ok} server.httpStatus=${b.env?.server?.httpStatus} events=${evs.length} errors=${evs.filter(e => e.level === 'error').length} top=${top}`;
           const nm = evs.findLast?.(e => e.code === 'NOTE_MODELS') || [...evs].reverse().find(e => e.code === 'NOTE_MODELS');
           rec.detail += ` | noteModels=${nm ? JSON.stringify(String(nm.msg ?? '').slice(0, 160)) : 'none'} writeTimeout=${evs.filter(e => e.code === 'WRITE_TIMEOUT').length} altModel=${evs.filter(e => e.code === 'ALT_MODEL').length}`;
@@ -716,6 +739,46 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
         rec.status = 'fail'; rec.error = `no download; notice="${notice}"`;
       }
       const s = await snap(options, 'diagnostics'); if (s) rec.screenshots.push(s);
+    });
+
+    if (args.inspect) await step('inspect', async rec => {
+      const open = async url => { const p = await newPage(); for (let i = 0; i < 3; i++) { const e = await p.goto(url).catch(x => x); if (!(e instanceof Error)) break; if (i === 2) throw e; await p.waitForTimeout(2000); } hookPageErrors(p); return p; }; // ERR_BLOCKED_BY_CLIENT on extension pages is transient
+      const admin = await open(`chrome-extension://${id}/admin.html`);
+      const data = await admin.evaluate(async () => {
+        const store = await PackageStore.createStore(await PackageStore.indexedDbAdapter());
+        const [meta] = await NoteLibrary.list(store);
+        if (!meta) return null;
+        const d = await NoteLibrary.load(store, meta.packageId);
+        return { packageId: meta.packageId, note: d?.note || null, crops: d?.note ? await NoteLibrary.cropUrls(store, meta.packageId) : {} };
+      });
+      await admin.close(); opened.delete(admin);
+      if (!data) { rec.status = 'fail'; rec.error = 'library has no package'; return; }
+      if (!data.note) { rec.status = 'fail'; rec.error = 'newest package has no note (recognition-only?)'; return; }
+      const sb = await newPage(); // sandbox page posts RENDER_WARNINGS to window.parent (= itself when top-level), same as note-render-smoke.cjs
+      await sb.addInitScript(() => { window.__msgs = []; window.addEventListener('message', e => { if (e.data && e.data.type) window.__msgs.push({ type: e.data.type, w: e.data.warnings }); }); });
+      for (let i = 0; i < 3; i++) { const e = await sb.goto(`chrome-extension://${id}/sandbox.html`).catch(x => x); if (!(e instanceof Error)) break; if (i === 2) throw e; await sb.waitForTimeout(2000); }
+      await sb.evaluate(({ note, crops }) => window.postMessage({ type: 'RENDER_NOTE', note, crops, options: { answers: 'end' } }, '*'), { note: data.note, crops: data.crops });
+      await sb.waitForFunction(() => window.__msgs.some(m => m.type === 'RENDER_WARNINGS'), null, { timeout: 30000 });
+      const r = await sb.evaluate(() => {
+        const kind = fig => fig.querySelector('table') ? 'table' : fig.querySelector('svg') ? 'chart' : fig.querySelector('img') ? 'crop' : 'missing';
+        const figs = [...document.querySelectorAll('figure.note-fig')];
+        const kinds = {}; const ids = [];
+        for (const f of figs) { const k = kind(f); kinds[k] = (kinds[k] || 0) + 1; ids.push([f.dataset.fig, k]); }
+        return {
+          warnings: window.__msgs.find(m => m.type === 'RENDER_WARNINGS').w.map(w => ({ code: w.code, count: w.count })),
+          figures: figs.length, kinds, ids,
+          formula: { check: document.querySelectorAll('.note-f-check').length, missing: document.querySelectorAll('.note-f-missing').length, src: document.querySelectorAll('code.note-f-src').length },
+        };
+      });
+      fs.mkdirSync(outFile('figs'), { recursive: true });
+      for (const [fid] of r.ids) await sb.locator(`figure.note-fig[data-fig="${fid}"]`).first().screenshot({ path: outFile(`figs/${fid.replace(/[^A-Za-z0-9_-]/g, '_')}.png`) }).catch(() => {});
+      const s = await snap(sb, 'inspect-note'); if (s) rec.screenshots.push(s);
+      await sb.close(); opened.delete(sb);
+      delete r.ids;
+      report.inspect = r;
+      const bad = r.warnings.filter(w => /^RENDER_(FORMULA_FAILED|CHART_INVALID|TEMPLATE_FAILED|REF_UNKNOWN|SPEC_MISMATCH)$/.test(w.code));
+      rec.detail = JSON.stringify(r);
+      if (bad.length) rec.status = 'warn';
     });
 
     if (report.result === 'running') report.result = 'ok';
