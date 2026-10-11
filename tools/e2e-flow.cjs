@@ -349,24 +349,25 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
     }));
 
     const runUrl = async (url, i) => {
-      try { const u = new URL(url); if (/(^|.)youtube.com$/.test(u.hostname) && u.searchParams.has('list')) { u.searchParams.delete('list'); u.searchParams.delete('index'); url = u.href; } } catch {} // playlist auto-advance would swap the lecture mid-run; t= fixes the start
+      try { const u = new URL(url); if (/(^|\.)youtube\.com$/.test(u.hostname) && u.searchParams.has('list')) { u.searchParams.delete('list'); u.searchParams.delete('index'); url = u.href; } } catch {} // playlist auto-advance would swap the lecture mid-run; t= fixes the start
       const tag = `#${i + 1}`;
       let tabId, regenActive = false; // set when --regenerate clicked #notesBtn (bg_start or bg_progress)
       // v2.4 ready screen: mode cards (#viewMode) ↔ prep view (#viewPrep[data-mode]).
       // Enter the bg prep view like a user: back out of a live prep, then pick the bg card.
-      const toBgPrep = async () => {
+      const toPrep = async (mode, pick) => {
         const v = await panel.evaluate(() => ({
           prep: !document.getElementById('viewPrep')?.hidden ? document.getElementById('viewPrep').dataset.mode : null,
           mode: !document.getElementById('viewMode')?.hidden,
         })).catch(() => ({}));
-        if (v.prep && v.prep !== 'bg') await panel.click('#prepBack').catch(() => {});
-        if (v.mode || (v.prep && v.prep !== 'bg')) { await panel.click('#pickBg').catch(() => {}); await panel.waitForTimeout(800); }
+        if (v.prep && v.prep !== mode) await panel.click('#prepBack').catch(() => {});
+        if (v.mode || (v.prep && v.prep !== mode)) { await panel.click(pick).catch(() => {}); await panel.waitForTimeout(800); }
       };
+      const toBgPrep = () => toPrep('bg', '#pickBg'), toLivePrep = () => toPrep('live', '#pickLive');
       const playVideo = async rec => {
         await lecture.bringToFront();
         const videoT = f => f.evaluate(() => document.querySelector('video')?.currentTime || 0).catch(() => 0);
         let method = null, frameUrl = null;
-        if (/(^|.)youtube.com$/.test(new URL(lecture.url()).hostname)) { // pre-roll ads share the <video>: skip when offered, else wait them out, before currentTime means anything
+        if (/(^|\.)youtube\.com$/.test(new URL(lecture.url()).hostname)) { // pre-roll ads share the <video>: skip when offered, else wait them out, before currentTime means anything
           for (let i = 0; i < 60 && await lecture.evaluate(() => !!document.querySelector('.html5-video-player.ad-showing')).catch(() => false); i++) {
             await lecture.locator('.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern').first().click({ timeout: 500 }).catch(() => {});
             await lecture.waitForTimeout(1000);
@@ -465,8 +466,10 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
           const stray = strayIds.length;
           if (stray) ev({ kind: 'stray-offscreen-tabs-closed', n: stray });
           await lecture.bringToFront();
+          // Several tabs can share the lecture URL (leftovers from earlier runs): the one just brought to front is the active one — target it by tab id, never by URL alone.
+          const wantId = await workerEval(u => chrome.tabs.query({}).then(ts => (ts.find(t => t.url === u && t.active) || ts.find(t => t.url === u))?.id), lecture.url());
           const { targetInfos } = await cdp.send('Target.getTargets', { filter: [{ type: 'tab', exclude: false }] });
-          const tab = targetInfos.find(t => t.url === lecture.url());
+          const tab = targetInfos.find(t => t.tabId === wantId) || targetInfos.find(t => t.url === lecture.url());
           if (!tab) throw new Error('no CDP tab target for lecture page');
           let actionErr = null;
           try { await cdp.send('Extensions.triggerAction', { id, targetId: tab.targetId }); }
@@ -480,7 +483,7 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
           // fallback route (openCaptureWindow popup), same as extension-capture-smoke.cjs.
           tabId = await workerEval(async pageUrl => {
             const tabs = await chrome.tabs.query({});
-            const hit = tabs.find(t => t.url === pageUrl) || tabs.find(t => t.active);
+            const hit = tabs.find(t => t.url === pageUrl && t.active) || tabs.find(t => t.url === pageUrl) || tabs.find(t => t.active);
             if (!hit) return null;
             await openCaptureWindow(await chrome.tabs.get(hit.id));
             return hit.id;
@@ -637,12 +640,21 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
           await step('start' + tag, async rec => {
             let st = await panelState();
             if (st.stage === 'onboard') { rec.status = 'blocked'; rec.detail = 'onboarding/consent screen is showing — needs a human'; return; }
+            if (st.stage === 'stageDone') { // a finished session from the previous run is still held by offscreen — dismiss it like a user (다시)
+              await panel.click('#againBtn').catch(() => {}); await panel.waitForTimeout(1500); st = await panelState();
+            }
+            if (st.stage === 'stageReady') await toLivePrep(); // mode cards → live prep view, like a user
             if (await panel.locator('#startBtn').isDisabled()) {
               rec.status = st.alerts.readyAlert ? 'blocked' : 'fail';
               rec.detail = `startBtn disabled; readyAlert="${st.alerts.readyAlert || ''}"`;
               return;
             }
             rec.folder = await panel.evaluate(async () => LibraryFolder.status(await PackageStore.indexedDbAdapter()).then(s => s.state).catch(e => 'err:' + e.message)).catch(() => '?');
+            // activeTab (needed by tabCapture) is dropped by navigation and by time on busy SPAs like YouTube — grant it again right before 시작.
+            await lecture.bringToFront();
+            const infos = (await cdp.send('Target.getTargets', { filter: [{ type: 'tab', exclude: false }] })).targetInfos;
+            const grantTab = infos.find(t => t.tabId === tabId) || infos.find(t => t.url === lecture.url());
+            if (grantTab) await cdp.send('Extensions.triggerAction', { id, targetId: grantTab.targetId }).catch(e => ev({ kind: 'regrant-failed', error: e.message.split('\n')[0] }));
             await panel.click('#startBtn');
             const deadline = Date.now() + 30000;
             while (Date.now() < deadline) {
@@ -734,7 +746,7 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
           const hist = {};
           for (const e of evs) hist[`${e.stage}:${e.code || ''}`] = (hist[`${e.stage}:${e.code || ''}`] || 0) + 1;
           const top = Object.entries(hist).sort((a, z) => z[1] - a[1]).slice(0, 15).map(([k, v]) => `${k}×${v}`).join(', ');
-          const nums = code => { const e = [...evs].reverse().find(x => x.code === code); return e ? Object.fromEntries([...String(e.msg ?? '').matchAll(/(w+)=(-?d+)/g)].map(m => [m[1], Number(m[2])])) : null; };
+          const nums = code => { const e = [...evs].reverse().find(x => x.code === code); return e ? Object.fromEntries([...String(e.msg ?? '').matchAll(/(\w+)=(-?\d+)/g)].map(m => [m[1], Number(m[2])])) : null; };
           report.funnel = nums('FIGURE_FUNNEL'); report.formulaChecks = nums('FORMULA_CHECKS'); report.diagErrors = evs.filter(e => e.level === 'error').length; // numbers only — no lecture content
           rec.detail += ` | keys=${Object.keys(b)} env=[${Object.keys(b.env || {})}] settings=[${Object.keys(b.env?.settings || {})}] auth.signedIn=${b.env?.auth?.signedIn} server.ok=${b.env?.server?.ok} server.httpStatus=${b.env?.server?.httpStatus} events=${evs.length} errors=${evs.filter(e => e.level === 'error').length} top=${top}`;
           const nm = evs.findLast?.(e => e.code === 'NOTE_MODELS') || [...evs].reverse().find(e => e.code === 'NOTE_MODELS');
@@ -755,9 +767,10 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
         const [meta] = await NoteLibrary.list(store);
         if (!meta) return null;
         const d = await NoteLibrary.load(store, meta.packageId);
-        return { packageId: meta.packageId, note: d?.note || null, crops: d?.note ? await NoteLibrary.cropUrls(store, meta.packageId) : {} };
+        return { packageId: meta.packageId, updatedAt: meta.updatedAt || '', note: d?.note || null, crops: d?.note ? await NoteLibrary.cropUrls(store, meta.packageId) : {} };
       });
       await admin.close(); opened.delete(admin);
+      if (data && data.updatedAt < report.startedAt) { rec.status = 'fail'; rec.error = 'newest library package predates this run — no note was saved'; return; }
       if (!data) { rec.status = 'fail'; rec.error = 'library has no package'; return; }
       if (!data.note) { rec.status = 'fail'; rec.error = 'newest package has no note (recognition-only?)'; return; }
       const sb = await newPage(); // sandbox page posts RENDER_WARNINGS to window.parent (= itself when top-level), same as note-render-smoke.cjs
