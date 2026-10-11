@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "deny": [
+      "Edit(tools/visual-verify-eval.mjs)",
+      "Edit(tools/e2e-flow.cjs)",
+      "Edit(tools/debug-loop-verdict.mjs)",
+      "Edit(tools/debug-loop-verdict.test.mjs)",
+      "Edit(AGENTS.md)",
+      "Edit(.claude/**)",
+      "Write(tools/visual-verify-eval.mjs)",
+      "Write(tools/e2e-flow.cjs)",
+      "Write(tools/debug-loop-verdict.mjs)",
+      "Write(tools/debug-loop-verdict.test.mjs)",
+      "Write(AGENTS.md)",
+      "Write(.claude/**)"
+    ]
+  }
+}
