@@ -79,7 +79,8 @@ async function ensureLibraryKey(){
 }
 // 사용자 클릭 안에서만 부른다: 권한만 거둬졌으면 다시 허용, 아니면 폴더 선택 창. 취소(AbortError)는 조용히 넘긴다.
 // 시작·이어하기 클릭 안에서 부른다: 고른 폴더의 권한이 거둬졌으면 조용히 다시 허용받아, 끝난 노트가 폴더에 바로 저장되게 한다(실패는 무시).
-async function ensureFolder(){try{const a=await PackageStore.indexedDbAdapter();if((await LibraryFolder.status(a)).state==='needs-permission')await LibraryFolder.regrant(a);}catch{}}
+// devSkipFolder: e2e 루프 전용(압축 풀린 빌드에서만, UI 없음). 권한을 거둔 폴더의 requestPermission은 제스처가 없으면 던지지 않고 네이티브 프롬프트에서 사람을 기다린다 — 켜면 건드리지 않고 저장은 no-folder 로 남는다.
+async function ensureFolder(){try{if(!('update_url'in chrome.runtime.getManifest())&&(await chrome.storage.local.get('devSkipFolder')).devSkipFolder===true)return;const a=await PackageStore.indexedDbAdapter();if((await LibraryFolder.status(a)).state==='needs-permission')await LibraryFolder.regrant(a);}catch{}}
 async function chooseFolder(){
   const adapter=await PackageStore.indexedDbAdapter();
   try{

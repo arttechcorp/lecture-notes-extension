@@ -8,9 +8,10 @@
 //   node tools/e2e-flow.cjs --url <lecture url> [--url <lecture url> ...] [--headless]
 //                           [--flow live|bg] [--fresh] [--reload] [--mode slide|region|caption]
 //                           [--duration <sec>] [--note-timeout <sec>] [--bg-timeout <min>]
-//                           [--regenerate] [--write-model <id>] [--inspect] [--synthetic-start]
-//   --synthetic-start: press 시작 with a script click (no user activation) so a revoked library-folder grant makes
-//   requestPermission throw (swallowed by ensureFolder) instead of opening a native prompt that waits for a human.
+//                           [--regenerate] [--write-model <id>] [--inspect] [--skip-folder]
+//   --skip-folder: set the dev-only devSkipFolder flag for this run (removed in teardown). A revoked library-folder
+//   grant otherwise opens a native permission prompt that waits for a human (spiked 2026-10-11: no throw, even
+//   without user activation). Notes then stay in the encrypted local store (saved=no-folder).
 //   --inspect: after the run, read the newest library note (admin.html), render it in sandbox.html and add
 //   report.inspect = counts only (render warnings, figure display kinds, formula markers) + figs/<id>.png.
 //                           [--profile <dir>] [--out <dir>]
@@ -42,7 +43,7 @@ function parse(argv) {
     else if (a === '--fresh') args.fresh = true;
     else if (a === '--reload') args.reload = true;
     else if (a === '--inspect') args.inspect = true;
-    else if (a === '--synthetic-start') args.syntheticStart = true;
+    else if (a === '--skip-folder') args.skipFolder = true;
     else if (a === '--profile') args.profile = argv[++i];
     else if (a === '--out') args.out = argv[++i];
     else throw new Error(`unknown arg: ${a}`);
@@ -327,6 +328,11 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
     if (args.writeModel) {
       try { await workerEval(m => chrome.storage.local.set({ devWriteModel: m }), args.writeModel); report.writeModel = args.writeModel; ev({ kind: 'write-model', id: args.writeModel }); }
       catch (e) { ev({ kind: 'write-model-error', error: e.message }); }
+    }
+
+    if (args.skipFolder) {
+      try { await workerEval(() => chrome.storage.local.set({ devSkipFolder: true })); report.skipFolder = true; ev({ kind: 'skip-folder' }); }
+      catch (e) { ev({ kind: 'skip-folder-error', error: e.message }); }
     }
 
     // helpers for panel state (panel is rebound per URL)
@@ -637,7 +643,7 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
               return;
             }
             rec.folder = await panel.evaluate(async () => LibraryFolder.status(await PackageStore.indexedDbAdapter()).then(s => s.state).catch(e => 'err:' + e.message)).catch(() => '?');
-            if (args.syntheticStart) await panel.evaluate(() => document.getElementById('startBtn').click()); else await panel.click('#startBtn');
+            await panel.click('#startBtn');
             const deadline = Date.now() + 30000;
             while (Date.now() < deadline) {
               st = await panelState();
@@ -784,6 +790,10 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
     if (report.result === 'running') report.result = 'ok';
   } finally {
     if (report.result === 'running') report.result = 'aborted';
+    if (report.skipFolder) {
+      try { await workerEval(() => chrome.storage.local.remove('devSkipFolder')); ev({ kind: 'skip-folder-removed' }); }
+      catch (e) { ev({ kind: 'skip-folder-remove-error', error: e.message }); }
+    }
     if (report.writeModel) { // --write-model: never leave the dev key behind
       try { await workerEval(() => chrome.storage.local.remove('devWriteModel')); ev({ kind: 'write-model-removed' }); }
       catch (e) { ev({ kind: 'write-model-remove-error', error: e.message }); }
