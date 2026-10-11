@@ -7,7 +7,7 @@
 //   node tools/e2e-flow.cjs --login [--url <lms url>]
 //   node tools/e2e-flow.cjs --url <lecture url> [--url <lecture url> ...] [--headless]
 //                           [--flow live|bg] [--fresh] [--reload] [--mode slide|region|caption]
-//                           [--duration <sec>] [--note-timeout <sec>] [--bg-timeout <min>]
+//                           [--duration <sec>] [--note-timeout <sec>] [--bg-timeout <min>] [--stop-timeout <sec>]
 //                           [--regenerate] [--write-model <id>] [--inspect] [--skip-folder]
 //   --skip-folder: set the dev-only devSkipFolder flag for this run (removed in teardown). A revoked library-folder
 //   grant otherwise opens a native permission prompt that waits for a human (spiked 2026-10-11: no throw, even
@@ -27,7 +27,7 @@ const extIdForPath = p => [...require('node:crypto').createHash('sha256').update
 const EXT_ID = extIdForPath(root);
 
 function parse(argv) {
-  const args = { duration: 60, noteTimeout: 600, bgTimeout: 120, flow: 'live', urls: [] };
+  const args = { duration: 60, noteTimeout: 600, bgTimeout: 120, stopTimeout: 240, flow: 'live', urls: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--login') args.login = true;
@@ -38,6 +38,7 @@ function parse(argv) {
     else if (a === '--duration') args.duration = Number(argv[++i]);
     else if (a === '--note-timeout') args.noteTimeout = Number(argv[++i]);
     else if (a === '--bg-timeout') args.bgTimeout = Number(argv[++i]);
+    else if (a === '--stop-timeout') args.stopTimeout = Number(argv[++i]);
     else if (a === '--regenerate') args.regenerate = true;
     else if (a === '--write-model') args.writeModel = argv[++i];
     else if (a === '--fresh') args.fresh = true;
@@ -690,7 +691,8 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
           await step('stop' + tag, async rec => {
             if (await panel.locator('#stopBtn').isDisabled().catch(() => true)) { rec.status = 'warn'; rec.detail = 'stopBtn not enabled — session may have ended already'; return; }
             await panel.click('#stopBtn');
-            const deadline = Date.now() + 60000;
+            // 중지 뒤에는 인식 백로그(서버 호출당 8~23초)를 다 비워야 완료 화면이 나온다 — 구간이 길수록 늘어난다(2분 캡처에서 60초 초과).
+            const deadline = Date.now() + args.stopTimeout * 1000;
             while (Date.now() < deadline) {
               const st = await panelState();
               if (st.stage === 'stageDone') { rec.detail = `pill="${st.donePill}" ${st.doneSummary || ''} alert="${st.alerts.doneAlert}"`; if (st.alerts.doneAlert) rec.status = 'warn'; return; }
@@ -742,7 +744,8 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
         rec.detail = `saved ${file} (${fs.statSync(file).size} bytes)`;
         try { // agent-facing aggregate only — diagnostics are content-free by design
           const b = JSON.parse(fs.readFileSync(file, 'utf8'));
-          const evs = b.events || [];
+          const since = Date.parse(report.startedAt); // the diagnostic log outlives runs — count only this run's events, or old errors fail every later verdict
+          const evs = (b.events || []).filter(e => e.ts >= since);
           const hist = {};
           for (const e of evs) hist[`${e.stage}:${e.code || ''}`] = (hist[`${e.stage}:${e.code || ''}`] || 0) + 1;
           const top = Object.entries(hist).sort((a, z) => z[1] - a[1]).slice(0, 15).map(([k, v]) => `${k}×${v}`).join(', ');

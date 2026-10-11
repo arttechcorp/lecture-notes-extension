@@ -236,3 +236,14 @@ Sonnet 세션 규칙:
 - AGENTS.md, memory.md, 이 문서를 읽는다.
 - 각 Phase가 끝날 때마다 사용자에게 보고하고 승인을 받은 뒤 다음으로 넘어간다: 무엇을 바꿨는지, 검증 결과, 다음 단계, 막힌 점.
 - 로컬 커밋까지만 한다. push·배포·DB 변경은 하지 않는다.
+
+---
+
+## 실행 방법 — 잠금은 루프 전용 설정으로 (2026-10-11 결정)
+
+- `.claude/settings.local.json`(항상 적용)에는 되돌리기 어려운 명령 차단만 둔다: `git push`, `main` 전환, `reset --hard`, `rm -rf`, `supabase`(Bash·PowerShell 양쪽).
+- §4-B의 **잠근 파일 `Edit`/`Write` deny는 `.claude/loop-settings.json`에만** 둔다. 루프 본 실행 때만 얹는다:
+  `SUMM_LOOP=1 claude --settings .claude/loop-settings.json` (herdr 창 안, `HERDR_ENV=1`). 사람이 일반 세션에서 도구를 고칠 때는 잠기지 않는다.
+- `.git/hooks/pre-push`는 `SUMM_LOOP=1`이면 push를 거부한다(버전 관리 밖). orch·워커 창 모두 `SUMM_LOOP=1`로 띄운다.
+- **Edit/Write deny는 Bash 쓰기(`node -e`, `sed`)를 막지 못한다**(Phase 3 검증 중 확인: 이 세션이 Bash로 잠긴 도구 파일을 고칠 수 있었다). 그래서 반복마다 orch가 `git diff --name-only HEAD`를 잠금 목록과 대조하고, 걸리면 되돌린 뒤 정지·보고한다. deny는 실수를 막는 안전벨트이고, 실제 방어선은 이 diff 검사다.
+- 그림이 나오는 기준 구간과 `--stop-timeout`(기본 240초)은 Phase 4 dry run 전에 정한다.
