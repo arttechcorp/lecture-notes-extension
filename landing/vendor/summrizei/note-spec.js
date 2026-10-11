@@ -5,7 +5,7 @@
   const NoteContract = globalThis.NoteContract || (typeof require !== "undefined" ? require("./note-contract.js") : null);
   const NOTE_SPEC_VERSION = NoteContract.NOTE_SPEC_VERSION;
   // 마크업·CSS 가 바뀌면 올린다 — 디자인만 바뀐 재렌더는 H 단계만 다시 한다(§13).
-  const RENDER_VERSION = "render-6";
+  const RENDER_VERSION = "render-8";
 
   const arr = v => (Array.isArray(v) ? v : []);
   // 한 시간 미만 m:ss, 이상 h:mm:ss — 고지 구간 표기용(엔진의 h.time 과 같은 규칙).
@@ -80,11 +80,117 @@
   const pointClue = (h, i, c) => `<p class="point-line"><span class="point point-clue">Point ${i + 1}</span>${h.claim(c, { tag: "span" })}</p>`;
   const pointRead = (h, b, i, c) => `<p class="point-line" id="${h.esc(b.id)}-P${i + 1}"><span class="point">Point ${i + 1}</span>${h.claim(c, { tag: "span" })}</p>`;
 
+  // ── mis-sol-hai 표시 규칙(기획 §4.6·§5): 렌더러가 근거·신호 데이터로 표시를 계산한다 — 모델 텍스트에
+  // 마크업을 허용하지 않는다(이스케이프는 그대로). 새 데이터(근거 메타 사이드카·필기 근거·인용/반복 강조)가
+  // 전혀 없는 노트는 표시가 하나도 켜지지 않아 기존 렌더와 같다(보관 형식 호환).
+  const PEN = '<svg class="mk-pen" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 13.5 3.2 10.4 10.8 2.8 13.2 5.2 5.6 12.8Z M9.4 4.2 11.8 6.6"/></svg>';
+  const MIC = '<svg class="mk-mic" viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="1.5" width="5" height="8" rx="2.5"/><path d="M3 7.5a5 5 0 0 0 10 0M8 12.5v2"/></svg>';
+
+  // 렌더 한 번의 표시 상태 — 문서 전체 용어 첫 등장과 단원별 상한을 여기서 센다. h 는 renderNote 마다 새로 생긴다.
+  // 표시는 근거 메타 사이드카가 있는 노트에만 켠다(evidenceMeta — NOTE_SCHEMA_VERSION 과 같은 수명의 필드).
+  const sess = h => {
+    if (h.__mk) return h.__mk;
+    const n = h.note || {};
+    const meta = n.evidenceMeta && typeof n.evidenceMeta === "object" ? n.evidenceMeta : null;
+    const srcById = new Map(arr(n.sources).map(x => [x && x.id, x]));
+    return (h.__mk = {
+      meta, srcById, seen: new Set(), caps: new Map(), on: !!meta,
+      terms: arr(n.concepts).filter(c => c && c.depth === "defined" && typeof c.name === "string").map(c => c.name),
+    });
+  };
+
+  // note-claim 요소 하나씩 안쪽을 fn 으로 바꾼다 — claim 안의 note-label 같은 같은 태그 중첩은 깊이로 센다.
+  const eachClaim = (html, fn) => {
+    let out = "", i = 0;
+    const OPEN = /<(span|p) class="note-claim"([^>]*)>/g;
+    for (;;) {
+      OPEN.lastIndex = i;
+      const m = OPEN.exec(html);
+      if (!m) break;
+      const tag = m[1], attrs = m[2], start = m.index + m[0].length;
+      const TAG = new RegExp(`<(/?)${tag}\\b[^>]*>`, "g");
+      TAG.lastIndex = start;
+      let depth = 1, t = null;
+      while ((t = TAG.exec(html))) { depth += t[1] ? -1 : 1; if (depth === 0) break; }
+      if (!t) break;
+      const inner = html.slice(start, t.index), repl = fn(attrs, inner);
+      out += html.slice(i, m.index) + `<${tag} class="note-claim"${attrs}>` + (repl ?? inner) + `</${tag}>`;
+      i = t.index + t[0].length;
+    }
+    return out + html.slice(i);
+  };
+  const evOf = attrs => { const m = /data-ev="([^"]*)"/.exec(attrs); return m ? m[1].split(" ") : []; };
+
+  // 블록 렌더 결과에 표시를 얹는다 — 템플릿을 감싸는 래퍼다(시안 build.cjs 래퍼를 양식으로 옮긴 것).
+  // 상한은 규칙 문장이 아니라 여기서 코드로 강제한다. 굵은 표시는 주장당 하나: 1B 강조 > 핵심 용어.
+  const decorate = (type, b, h, html) => {
+    const s = sess(h);
+    if (!s.on || !html) return html;
+    const em = arr(b && b.emphasis);
+    const stress = em.filter(e => e && e.kind === "stress");
+    const stressIds = new Set(stress.flatMap(e => arr(e && e.evidenceIds)));
+    const secKey = typeof (b && b.sectionId) === "string" ? b.sectionId : "";
+    if (!s.caps.has(secKey)) s.caps.set(secKey, { exam: 0, rep: 0, cond: 0, quote: 0 });
+    const caps = s.caps.get(secKey);
+    const metaOf = id => (s.meta && s.meta[String(id).split(".")[0]]) || null;
+    const kindOf = id => (s.srcById.get(id) || {}).kind;
+    const isInk = id => kindOf(id) === "handwriting" || !!(metaOf(id) || {}).ink;
+    const min = h.opts && typeof h.opts.emphasisMin === "number" ? h.opts.emphasisMin : null;
+    const isHot = id => stressIds.has(id)
+      || (min != null && typeof (metaOf(id) || {}).emphasis === "number" && metaOf(id).emphasis >= min);
+
+    // 주장 단위: 조건·예외 칩(X4), 필기 점선(2B), 강조(1B) — 1B 가 붙으면 용어 굵게(X3)는 끈다.
+    html = eachClaim(html, (attrs, inner) => {
+      const ids = evOf(attrs), hot = ids.some(isHot), ink = ids.some(isInk);
+      let pre = "", body = inner;
+      const m = /^(단[,\s]|다만|예외)/.exec(inner);
+      if (m && caps.cond < 3) { caps.cond++; pre = `<span class="mk-cond">${m[1].startsWith("예외") ? "예외" : "조건"}</span> `; }
+      if (!hot && !inner.includes("<")) {
+        for (const n of s.terms) {
+          const t = h.esc(n);
+          if (!s.seen.has(n) && body.includes(t)) {
+            s.seen.add(n);
+            body = body.replace(t, () => `<strong class="mk-term">${t}</strong>`);
+          }
+        }
+      }
+      if (ink) body = `<span class="mk-2B">${PEN}${body}</span>`;
+      if (hot) body = `<strong class="mk-1B">${body}</strong>`;
+      return pre + body;
+    });
+
+    // 교수 강조 인용(X7): stress 의 발화 원문 한 줄 — 단원당 1개.
+    // 치환은 전부 함수형 — 치환 문자열의 $&·$` 같은 패턴이 매치로 확장되지 않게 한다.
+    const q = (stress.find(e => e && typeof e.quote === "string" && e.quote) || {}).quote;
+    if (q && caps.quote < 1) {
+      caps.quote++;
+      html = html.includes("</h3>")
+        ? html.replace("</h3>", () => `</h3><p class="mk-quote">“${h.esc(q)}”</p>`)
+        : `<p class="mk-quote">“${h.esc(q)}”</p>` + html;
+    }
+    // 시험 배지(X1)·반복 ×N(X2): 블록당 1개씩, 단원당 2개 이하.
+    const tags = [];
+    if (em.some(e => e && e.kind === "exam") && caps.exam < 2) { caps.exam++; tags.push('<span class="mk-exam">시험</span>'); }
+    const rep = Math.max(0, ...stress.map(e => (typeof e.repeat === "number" ? e.repeat
+      : arr(e.evidenceIds).filter(id => kindOf(id) === "speech").length)));
+    if (rep >= 2 && caps.rep < 2) { caps.rep++; tags.push(`<span class="mk-rep">×${rep}</span>`); }
+    if (tags.length) {
+      const t = `<span class="mk-tags">${tags.join("")}</span>`;
+      html = html.includes("<h3>") ? html.replace("<h3>", () => t + "<h3>") : t + html;
+    }
+    // 대비 쌍(X6): 비교 대상이 정확히 둘일 때 표 위에 한 줄.
+    if (type === "B06" && arr(b && b.content && b.content.entities).length === 2) {
+      const [e0, e1] = b.content.entities;
+      html = html.replace("<table", () => `<p class="mk-pair"><span class="mk-chip-e">${h.esc(e0.label)}</span><span class="mk-vs">↔</span><span class="mk-chip-e">${h.esc(e1.label)}</span></p><table`);
+    }
+    return html;
+  };
+
   // B01 강의 머리 — meta·status 에서 투영(코드 블록).
   const B01 = (b, h) => {
     const m = (h.note && h.note.meta) || {};
     const bits = [m.course, m.session, m.lectureDate].filter(x => typeof x === "string" && x).map(x => `<span>${h.esc(x)}</span>`);
-    if (m.processed) bits.push(`<span>처리 구간 ${h.esc(h.time(m.processed.t0, m.processed.t1))}</span>`);
+    if (m.processed) bits.push(`<span>담은 구간 ${h.esc(h.time(m.processed.t0, m.processed.t1))}</span>`);
     const gen = typeof m.generatedAt === "string" && m.generatedAt.slice(0, 10);
     if (gen) bits.push(`<span>작성 ${h.esc(gen)}</span>`);
     if (h.note && h.note.status === "partial") bits.push(`<span class="note-badge">일부 누락</span>`);
@@ -127,7 +233,7 @@
     if (b.sys) {
       const lines = arr(h.note && h.note.notices)
         .map(x => (x && x.code && !String(x.code).startsWith("NOTE_ADVISORY_") && !HIDDEN.has(x.code)) ? h.notice(x) : "").filter(Boolean);
-      return lines.length ? `<aside class="note-check note-sys"><h4>처리 고지</h4><ul>${lines.map(t => `<li>${t}</li>`).join("")}</ul></aside>` : "";
+      return lines.length ? `<aside class="note-check note-sys"><h4>처리 참고</h4><ul>${lines.map(t => `<li>${t}</li>`).join("")}</ul></aside>` : "";
     }
     const c = b.check || {}, corr = c.kind === "correction";
     if (!corr) return ""; // [인식 확인 필요]·[자료 충돌]·[확인 필요] 상자는 띄우지 않는다(사용자 결정) — 노트 데이터에는 남는다. 강의 중 정정은 강의 내용이라 둔다.
@@ -171,16 +277,14 @@
     }</p>${rows.length ? `<ul class="map-flow">${rows.join("")}</ul>` : ""}</div></section>`;
   };
 
-  // B05 개념 설명 — term(+원어) 머리, 완결된 정의, dl 슬롯(쉬운 풀이·작동 원리·범위·예시).
+  // B05 개념 설명 — term(+원어) 머리, 완결된 정의, 그다음 슬롯 내용이 순서대로 문단으로 이어진다.
+  // 슬롯 라벨(쉬운 풀이·작동 원리·범위·예시)은 생성 때 내부 구조로만 쓰고 화면·PDF 에는 표시하지 않는다(기획 §5-6).
   const B05 = (b, h) => {
     const c = (b && b.content) || {};
-    const rows = (c.explanation ? dd("쉬운 풀이", h.claim(c.explanation, { tag: "span" })) : "")
-      + (c.mechanism ? dd("작동 원리", h.claim(c.mechanism, { tag: "span" })) : "")
-      + arr(c.scope).map(x => dd("범위", h.claim(x, { tag: "span" }))).join("")
-      + arr(c.examples).map(x => dd("예시", h.claim(x, { tag: "span" }))).join("");
+    const slots = [c.explanation, c.mechanism, ...arr(c.scope), ...arr(c.examples)]
+      .filter(Boolean).map(x => h.claim(x)).join("");
     return `<section class="concept"><div class="heading-bundle"><h3>${h.esc(c.term || "")}${c.original ? ` <small>${h.esc(c.original)}</small>` : ""}</h3>`
-      + `<p class="definition">${h.claim(c.definition, { tag: "span" })}</p></div>`
-      + (rows ? `<dl class="slots">${rows}</dl>` : "") + "</section>";
+      + `<p class="definition">${h.claim(c.definition, { tag: "span" })}</p></div>` + slots + "</section>";
   };
 
   // B06 공통 축 비교 — 기준×대상 표. 비어 있는 칸은 "확인되지 않음"으로 두고 채우지 않는다(§9). td 의 data-label 은 좁은 화면 카드용.
@@ -197,35 +301,41 @@
   };
 
   // B07 논리 연결 — 전제→결과 사슬. 생략된 추론은 missingLinks 에서 "연결 설명 확인 필요"로 달아 둔다(§9).
+  // 인과(causal)는 새 표시 데이터가 있는 노트에서 짧으면 한 줄 흐름으로 낸다(시안 X5) — 4단계 초과면 기존 사슬.
   const B07 = (b, h) => {
-    const c = (b && b.content) || {};
-    const li = arr(c.steps).map((s, i) => `<li><strong>${pad2(i + 1)} ${h.esc(ROLE7[s && s.role] || (s && s.role) || "단계")}</strong> ${h.claim(s && s.claim, { tag: "span" })}</li>`);
-    for (const m of arr(c.missingLinks)) li.push(`<li class="relation">↓ 연결 설명 확인 필요 · ${h.claim(m, { tag: "span" })}</li>`);
+    const c = (b && b.content) || {}, steps = arr(c.steps), missing = arr(c.missingLinks);
+    const roleOf = s => h.esc(ROLE7[s && s.role] || (s && s.role) || "단계");
+    const miss = missing.map(m => `<li class="relation">↓ 연결 설명 없음 · ${h.claim(m, { tag: "span" })}</li>`).join("");
     // 제목 묶음은 첫 문단(단원 질문)까지 품어야 인쇄에서 제목만 페이지 끝에 남지 않는다.
-    return `<section><div class="heading-bundle"><span class="role">${h.esc(RELTYPE7[c.relationType] || "논증")}</span><h3>${h.esc(c.title || "")}</h3>`
-      + (c.question ? `<p class="unit-q">${h.claim(c.question, { tag: "span" })}</p>` : "")
-      + `</div><ol class="chain">${li.join("")}</ol></section>`;
+    const head = `<section><div class="heading-bundle"><span class="role">${h.esc(RELTYPE7[c.relationType] || "논증")}</span><h3>${h.esc(c.title || "")}</h3>`
+      + (c.question ? `<p class="unit-q">${h.claim(c.question, { tag: "span" })}</p>` : "") + `</div>`;
+    if (sess(h).on && c.relationType === "causal" && steps.length <= 4) {
+      const flow = steps.map(s => `<span class="mk-step"><small>${roleOf(s)}</small> ${h.claim(s && s.claim, { tag: "span" })}</span>`)
+        .join('<span class="mk-arrow">→</span>');
+      return head + `<p class="mk-flow">${flow}</p>` + (miss ? `<ul class="chain">${miss}</ul>` : "") + "</section>";
+    }
+    const li = steps.map((s, i) => `<li><strong>${pad2(i + 1)} ${roleOf(s)}</strong> ${h.claim(s && s.claim, { tag: "span" })}</li>`);
+    for (const m of missing) li.push(`<li class="relation">↓ 연결 설명 없음 · ${h.claim(m, { tag: "span" })}</li>`);
+    return head + `<ol class="chain">${li.join("")}</ol></section>`;
   };
 
   // B08 사례와 적용 — 사례(흰 면)와 해석(회색 면)을 Point 번호로 짝짓는다. 판단의 pointRefs 는 그 앵커로 링크.
+  // 의사결정 칸 라벨(행위자·목표·대안·기준·상충·부족한 자료)만 숨긴다 — 칸마다 한 항목의 들여쓴 목록으로 구분이 남는다(§5-6).
   const B08 = (b, h) => {
     const c = (b && b.content) || {}, pts = arr(c.points), j = c.judgment, dec = c.decision;
-    const decl = dec ? (dec.actor ? dd("행위자", h.claim(dec.actor, { tag: "span" })) : "")
-      + (dec.goal ? dd("목표", h.claim(dec.goal, { tag: "span" })) : "")
-      + arr(dec.alternatives).map(x => dd("대안", h.claim(x, { tag: "span" }))).join("")
-      + arr(dec.criteria).map(x => dd("기준", h.claim(x, { tag: "span" }))).join("")
-      + arr(dec.tradeoffs).map(x => dd("상충", h.claim(x, { tag: "span" }))).join("")
-      + arr(dec.missingData).map(x => dd("부족한 자료", h.claim(x, { tag: "span" }))).join("") : "";
+    const decl = dec ? [dec.actor && [dec.actor], dec.goal && [dec.goal], arr(dec.alternatives), arr(dec.criteria), arr(dec.tradeoffs), arr(dec.missingData)]
+      .filter(a => a && a.length)
+      .map(f => `<li>${f.map(x => h.claim(x, { tag: "span" })).join(" · ")}</li>`).join("") : "";
     return `<section><div class="heading-bundle"><span class="role apply">적용</span><h3>${h.esc(c.caseTitle || "")}</h3></div>`
       + `<div class="case-box"><h4>${c.source === "material_case" ? "자료 속 사례" : "강의 사례"}</h4>${h.claim(c.situation)}`
       + pts.map((p, i) => pointClue(h, i, p && p.clue)).join("") + "</div>"
-      + `<div class="analysis-box"><h4>단서에 근거한 해석</h4>` + pts.map((p, i) => pointRead(h, b, i, p && p.reading)).join("")
+      + `<div class="analysis-box"><h4>단서로 본 해석</h4>` + pts.map((p, i) => pointRead(h, b, i, p && p.reading)).join("")
       + (j ? `<p><strong>판단</strong> · ${h.claim(j.claim, { tag: "span" })} ${arr(j.pointRefs).map(r =>
         Number.isInteger(r) && r >= 1 && r <= pts.length
           ? `<a href="#${h.esc(b.id)}-P${r}">Point ${r}</a>`
           : `<span class="point">Point ${h.esc(r)}</span>`).join(" ")}</p>` : "")
       + (arr(c.limits).length ? `<p><strong>범위</strong> · ${arr(c.limits).map(x => h.claim(x, { tag: "span" })).join(" · ")}</p>` : "")
-      + "</div>" + (decl ? `<dl class="slots">${decl}</dl>` : "") + "</section>";
+      + "</div>" + (decl ? `<ul class="decision">${decl}</ul>` : "") + "</section>";
   };
 
   // B09 자료 읽기 — 자료(흰 면)와 해석(회색 면)을 나누고, 저자 주장과 강의의 해석은 다른 칸에 둔다(§9).
@@ -280,6 +390,9 @@
   // B12 곁설명 — 앞 블록 옆에 붙는 한 단락 보충(종류 라벨 + note). 띄우는 건 layout 의 with-aside.
   const B12 = (b, h) => {
     const c = (b && b.content) || {};
+    // "슬라이드에 없는 설명"(slide_absent): 발화 근거뿐인 내용 — 연한 배경+마이크 아이콘(시안 3B, 흑백은 굵은 왼쪽 테두리).
+    if (c.kind === "slide_absent")
+      return `<aside class="aside-note mk-3B"><strong>${MIC}슬라이드에 없는 설명</strong>${h.claim(c.note)}</aside>`;
     return `<aside class="aside-note"><strong>곁설명 · ${h.esc(KIND12[c.kind] || "보충")}</strong>${h.claim(c.note)}</aside>`;
   };
 
@@ -297,14 +410,15 @@
       dd(h.esc(TOPIC18[x && x.topic] || "공지"), h.claim(x && x.claim, { tag: "span" }) + (x && x.due ? ` <small>· ${h.esc(x.due)}</small>` : ""))).join("")
     + "</dl></section>";
 
-  const templates = {
+  // 모든 블록 렌더는 decorate 를 지난다 — 새 표시 데이터가 없으면 그대로 통과시켜 기존 렌더와 같다.
+  const templates = Object.fromEntries(Object.entries({
     B01, B02, B03, B04,
     B05, B06, B07, B08, B09, B10,
     B11, B12, B13,
     // B14 의 문항 마크업은 layout 의 question 과 하나다 — h.block 으로 직접 불릴 때도 같은 양식을 쓴다.
     B14: (b, h) => arr(b && b.content && b.content.items).map((item, i) => question({ item, n: pad2(h.qno(b.id, i) ?? i + 1) }, h)).join(""),
     B15, B16, B17, B18,
-  };
+  }).map(([t, fn]) => [t, (b, h) => decorate(t, b, h, fn(b, h))]));
 
   // B14 문항을 블록(단원)별로 묶되 번호는 문서 전체에서 이어진다(§15). h.qno(blockId, index) 가 1 기반 번호를 준다.
   const qgroups = (note, h) => {
@@ -347,11 +461,13 @@
     for (const s of secs) for (const b of arr(s && s.blocks)) if (b && b.type === "B18") b18.push(b);
     // §14: 어느 블록의 figureIds 도 가리키지 않은 도표는 t0 가 드는 단원의 블록 뒤(그 단원 B17 앞)에, 어디에도 안 들면 마지막 단원 뒤에 놓는다. 한 도표는 한 번만.
     const cited = new Set(secs.flatMap(s => arr(s && s.blocks).flatMap(b => arr(b && b.content && b.content.figureIds))));
+    // 요약하지 못한 단원(NOTE_SECTIONS_FAILED 구간)의 도표는 그 단원과 함께 뺀다 — 마지막 단원 뒤로 몰리면 흐름이 깨진다(실행 mis-sol-hai-14).
+    const failed = arr(note.notices).filter(n => n && n.code === "NOTE_SECTIONS_FAILED").flatMap(n => arr(n.ranges));
     const orphan = new Map(), stray = [];
     for (const f of arr(note.figures)) {
       if (!f || cited.has(f.id)) continue;
       const i = secs.findIndex(s => s && s.range && f.t0 >= s.range.t0 && f.t0 < s.range.t1);
-      if (i < 0) stray.push(f.id);
+      if (i < 0) { if (!failed.some(r => r && f.t0 >= r.t0 && f.t0 < r.t1)) stray.push(f.id); }
       else { const l = orphan.get(i) || []; l.push(f.id); orphan.set(i, l); }
     }
     const pieces = [B01(null, h)];
@@ -400,10 +516,10 @@
   const TEXT = {
     NOTE_CAPTURE_GAP: c => `인식하지 못한 구간 ${c}곳`,
     NOTE_SECTIONS_FAILED: c => `요약하지 못한 단원 ${c}개`,
-    NOTE_BLOCKS_DROPPED: c => `검증을 통과하지 못해 뺀 내용 ${c}건`,
-    NOTE_UNITS_UNCITED: c => `노트에 반영되지 않은 강의 구간 ${c}곳`,
+    NOTE_BLOCKS_DROPPED: c => `확인하지 못해 뺀 내용 ${c}건`,
+    NOTE_UNITS_UNCITED: c => `노트에 들지 않은 강의 구간 ${c}곳`,
     NOTE_GLOBAL_FAILED: () => "강의 전체 요약을 만들지 못했습니다",
-    NOTE_JUDGE_SKIPPED: () => "중요도 판정 없이 만들었습니다",
+    NOTE_JUDGE_SKIPPED: () => "중요도를 가리지 않고 만들었습니다",
     NOTE_CLAIMS_UNSUPPORTED: c => `강의 근거가 부족해 보류한 내용 ${c}건`,
     NOTE_ITEMS_PRUNED: c => `연결된 내용이 빠져 함께 뺀 항목 ${c}건`,
     NOTE_FORMULAS_CHECK: c => `확인이 필요한 수식 ${c}개`,
@@ -414,7 +530,7 @@
   };
   const notice = n => {
     const code = String(n && n.code || ""), c = n && n.count != null ? n.count : 1;
-    let t = TEXT[code] ? TEXT[code](c) : `기타 고지: ${code}×${c}`;
+    let t = TEXT[code] ? TEXT[code](c) : `기타 참고: ${code}×${c}`;
     const rs = arr(n && n.ranges);
     if (rs.length) t += ` (${rs.slice(0, 3).map(r => `${fmt(r.t0)}–${fmt(r.t1)}`).join(", ")}${rs.length > 3 ? ` 외 ${rs.length - 3}곳` : ""})`;
     return t;
@@ -499,6 +615,7 @@
     `.point-clue{background:var(--dark);border-color:var(--dark);color:#fff}`,
     `.material-inner{border:1px solid var(--line);background:var(--surface);padding:12px 14px}`,
     `.interpretation{background:var(--surfaceSubtle);padding:10px 12px;margin-top:10px}`,
+    `.decision{margin:8px 0;padding-left:22px}.decision li{margin:.15em 0}`,
     `.quote{border-left:2px solid var(--line);padding-left:12px;margin:8px 0;font-family:var(--serif)}`,
     `.equation{font-size:15px;margin:10px 0;overflow-x:auto}`,
     `.eq-tag{display:block;font:500 10px var(--mono);color:var(--muted);margin-bottom:2px}`,
@@ -529,6 +646,27 @@
     `.memo-row{display:flex;gap:12px;margin:12px 0;align-items:flex-start}`,
     `.memo-label{flex:0 0 90px;color:var(--muted);font-size:11px;padding-top:4px}`,
     `.memo-grid{flex:1;height:110px;border:1px solid var(--line);background-color:var(--surface);background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:5mm 5mm}`,
+    // mis-sol-hai 표시(시안 확정 1B·2B·3B + 추가 7종) — 기존 토큰만 쓴다.
+    `.note .mk-tags{display:flex;gap:6px;margin:0 0 4px}`,
+    `.mk-1B{font-weight:700;color:var(--ink);background:linear-gradient(transparent 56%,color-mix(in srgb,var(--accent) 30%,transparent) 56%,color-mix(in srgb,var(--accent) 30%,transparent) 94%,transparent 94%)}`,
+    `.mk-2B{position:relative;display:inline;padding-left:18px;text-decoration:underline dotted var(--muted);text-decoration-thickness:1.5px;text-underline-offset:4px}`,
+    `.mk-pen{position:absolute;left:0;top:.25em;width:13px;height:13px;fill:none;stroke:var(--accentText);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}`,
+    `.mk-3B{background:var(--accentSubtle);border-color:var(--accent)}`,
+    `.mk-mic{display:inline-block;width:12px;height:12px;margin-right:4px;vertical-align:-2px;fill:none;stroke:var(--accentText);stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}`,
+    `.mk-3B strong{color:var(--accentText)}`,
+    `.mk-exam,.mk-rep{font:500 10px/1.8 var(--mono);border-radius:999px;padding:0 8px;vertical-align:.1em}`,
+    `.mk-exam{background:var(--ink);color:var(--canvas)}`,
+    `.mk-rep{border:1px solid var(--ink);color:var(--ink)}`,
+    `.mk-term{font-weight:700;color:var(--ink)}`,
+    `.mk-cond{font:500 10px/1.8 var(--mono);color:var(--accentText);border:1px solid var(--accentText);border-radius:4px;padding:0 5px;margin-right:2px}`,
+    `.mk-flow{margin:6px 0;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px}`,
+    `.mk-step{border-left:2px solid var(--line);padding-left:8px}`,
+    `.mk-step small{font:500 10px var(--mono);color:var(--muted)}`,
+    `.mk-arrow{font:600 14px var(--mono);color:var(--accentText)}`,
+    `.mk-quote{margin:.4em 0;font-family:var(--serif);font-style:italic;color:var(--ink);border-left:2px solid var(--accent);padding-left:10px}`,
+    `.mk-pair{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0}`,
+    `.mk-chip-e{border:1px solid var(--line);border-radius:999px;padding:0 10px;font-size:12px;color:var(--ink);background:var(--surface)}`,
+    `.mk-vs{font:600 12px var(--mono);color:var(--accentText)}`,
     // 좁은 화면(≤520px): 본문은 최소 16px, 곁설명은 위아래로, 표는 행 카드 + data-label 로 열 이름을 반복한다(thead 를 숨기기만 하지 않는다, §15).
     `@media (max-width:520px){.note{padding:18px 14px;font-size:16px}.concept .definition{font-size:16px}.with-aside{display:block}.with-aside>.aside-col{border-left:0;border-top:1px solid var(--line);padding:8px 0 0}`,
     `.note-table thead{display:none}`,
@@ -557,6 +695,12 @@
     `.note.print-rearrange-units .with-aside{display:block}.note.print-rearrange-units .with-aside>.aside-col{border-left:0;border-top:1px solid var(--line);padding:8px 0 0}`,
     `.note.print-allow-splits .note-table{break-inside:auto}.note.print-allow-splits .equation{overflow-x:visible}`,
     `.print-warning-notice{display:block;border:1px dashed var(--accent);color:var(--accentText);padding:6px 10px;font-size:11px;margin:8px 0;background:var(--accentSubtle)}`,
+    // 흑백 인쇄 대체(시안): 색·배경 대신 선·글자로 구분한다.
+    `.note .mk-1B{background:none;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}`,
+    `.note .mk-2B{text-decoration:underline dashed #000;text-decoration-thickness:2px;text-underline-offset:4px}.note .mk-2B .mk-pen{stroke:#000}`,
+    `.note .mk-3B{background:none;border-color:#000;border-left:4px solid #000;padding-left:10px}.note .mk-3B .mk-mic{stroke:#000}`,
+    `.note .mk-exam{background:#000;color:#fff}`,
+    `.note .mk-quote{border-left-color:#000}`,
     `.note .page-break{break-before:page}`,
     `.note details{display:block}.note details:not([open])>:not(summary){display:block!important}.note details::details-content{content-visibility:visible!important;display:block!important}}`,
   ].join("\n");

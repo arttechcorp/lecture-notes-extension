@@ -1097,6 +1097,61 @@ grant execute on function apply_billing_event(text, text, uuid, text, boolean, t
 revoke all on function edu_eligible() from public, anon;
 grant execute on function edu_eligible() to authenticated;
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 8. 엔진 e2e 실행 모니터 (landing/engine-debug)
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 로컬 e2e run 폴더(~/.lecture-e2e/runs/<run>)의 스냅샷을 운영자가 tools/e2e-sync-runs.mjs 로 올린다.
+-- 내용 없는 메타데이터만: 단계 상태·시각, 디버그 기록, 로그 꼬리, UI 상태 이벤트. 노트 본문·강의 원문·스크린샷 없음.
+create table if not exists engine_runs (
+  name text primary key check (name ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$'),
+  started_at timestamptz,
+  ended_at timestamptz,            -- null = 진행 중(result 없음). 원장 시간 창의 끝은 coalesce(ended_at, now())
+  version text,
+  result text check (result is null or result ~ '^[a-z][a-z0-9_-]{0,31}$'),
+  report jsonb,                    -- report.json 에서 스크린샷 경로만 제거한 것
+  debug_md text,                   -- debug.md (가설·원인·조치·결과)
+  log_tail text,                   -- <run>.log 마지막 20줄
+  events_tail jsonb,               -- events.ndjson 마지막 몇 개 (파싱된 객체 배열)
+  has_note_pdf boolean not null default false,
+  updated_at timestamptz not null default now()
+);
+alter table engine_runs enable row level security;
+revoke all on engine_runs from public, anon, authenticated;
+
+-- 목록(p_name null → 최신순 요약 배열) 또는 단일 run 상세 + 그 시간대의 모델 호출 원장(usage_attempts).
+create or replace function engine_debug(p_name text default null)
+returns json
+language plpgsql
+security definer
+stable
+set search_path = public
+as $$
+begin
+  if not is_admin() then
+    raise exception 'not_admin' using errcode = '42501';
+  end if;
+  if p_name is null then
+    return coalesce((select json_agg(t order by t.started_at desc nulls last) from (
+      select name, started_at, ended_at, version, result, has_note_pdf, updated_at
+      from engine_runs) t), '[]'::json);
+  end if;
+  return (select json_build_object(
+      'name', r.name, 'started_at', r.started_at, 'ended_at', r.ended_at,
+      'version', r.version, 'result', r.result, 'report', r.report,
+      'debug_md', r.debug_md, 'log_tail', r.log_tail, 'events_tail', r.events_tail,
+      'has_note_pdf', r.has_note_pdf, 'updated_at', r.updated_at,
+      'ledger', coalesce((select json_agg(a order by a.created_at) from (
+        select stage, model, status, coalesce(error_code, '-') error_code,
+               input_tokens, output_tokens, reasoning_tokens, latency_ms, created_at
+          from usage_attempts
+         where r.started_at is not null
+           and created_at between r.started_at and coalesce(r.ended_at, now())) a), '[]'::json))
+    from engine_runs r where r.name = p_name);
+end;
+$$;
+revoke all on function engine_debug(text) from public, anon;
+grant execute on function engine_debug(text) to authenticated;
+
 -- 자체 점검: 경계(RLS·정책 0개·실행 권한)와 어드민 게이트가 의도대로인지 확인한다. 데이터는 남기지 않는다.
 do $$
 declare
@@ -1104,7 +1159,7 @@ declare
   f regprocedure;
 begin
   foreach t in array array['plans', 'global_caps', 'global_usage', 'profiles', 'entitlements', 'monthly_usage',
-                           'usage_reservations', 'usage_events', 'usage_attempts', 'run_reports', 'vault_objects', 'feedback', 'billing_events', 'provider_slots'] loop
+                           'usage_reservations', 'usage_events', 'usage_attempts', 'run_reports', 'vault_objects', 'feedback', 'billing_events', 'provider_slots', 'engine_runs'] loop
     if not (select relrowsecurity from pg_class where oid = ('public.' || t)::regclass) then
       raise exception 'FAIL: % 의 RLS가 꺼져 있다', t;
     end if;
@@ -1141,9 +1196,16 @@ begin
   exception
     when sqlstate '42501' then null;
   end;
+  begin
+    perform engine_debug();
+    raise exception 'FAIL: 비관리자가 엔진 모니터를 읽었다';
+  exception
+    when sqlstate '42501' then null;
+  end;
 
   perform set_config('request.jwt.claims', json_build_object('email', 'jihwanbu26@gmail.com')::text, true);
   perform admin_usage();
+  perform engine_debug();
 
   raise notice 'OK: v2 테이블 RLS·실행 권한·admin_usage/admin_grant_plan 게이트 점검 통과';
 end $$;

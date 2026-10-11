@@ -11,6 +11,7 @@
 //   sol-luna-2    : Sol 계획({plan, editorialPlan, noteSession P}) → Luna High 독립 섹션 작성(draft, noteSession 없음) →
 //                   Sol 통합 편집 검수(review, 접두 P) → Luna High 문항 작성(questions, noteSession 없음) →
 //                   Sol 전역/복구(접두 P). writer=draft 경로 전용, link 대신 review 사용.
+//   sol-luna-3    : sol-luna-2 와 같은 경로 — 개선 실험 옵션은 cfg.noteV3(deps.noteV3 → stages ctx.v3)로 내린다.
 //   sol-fork-2    : 모든 단계(plan, draft, review, questions, global, repair)를 Sol 이 수행.
 //                   계획 응답 P(고정 anchor 포함)를 고정 접두로 공유하며 매 호출 P + 자기 작업으로 실행.
 // 제공자(OpenRouter)는 절대 직접 부르지 않는다 — 모든 모델 호출은 SERVICE_URL 서비스를 거친다.
@@ -40,19 +41,25 @@ const LLM = require("../server/llm.js");
 const { RATES } = require("../server/index.js");
 const katex = require("../lib/vendor/katex/katex.min.js");
 const NoteSession = (() => { try { return require("../server/note-session.js"); } catch { return {}; } })();
+const NoteV3 = require("../lib/note-v3.js");
+const NoteProfiles = require("../lib/note-profiles.js");
 
 // offscreen 이 manifest.json 을 SUMMRIZEI_VERSION 에 두는 것과 같다 — 서버 minClientVersion 검사용.
 globalThis.SUMMRIZEI_VERSION ??= require("../manifest.json").version;
 
-export const SOL = "openai/gpt-6.1-sol", LUNA_HIGH = "openai/gpt-6-luna@high";
-export const MODES = ["independent", "sol-session", "sol-luna-tool", "sol-fork", "sol-luna-2", "sol-fork-2"];
-export const SESSION_MODES = new Set(["sol-session", "sol-luna-tool", "sol-fork", "sol-luna-2", "sol-fork-2"]);
+// 모드 목록·분류는 lib/note-profiles.js 의 프로파일 표가 단일 출처다 — 여기서는 파생만 한다.
+export const SOL = NoteProfiles.SOL, LUNA_HIGH = NoteProfiles.LUNA;
+// arm 실행 순서: 계열 순(independent→session→v2), 같은 계열에서 실험 옵션을 갖는 변형(sol-luna-3)은 맨 뒤 — 기존 arm 순서와 같다.
+export const MODES = [...NoteProfiles.ids()].sort((a, b) =>
+  (({ independent: 0, session: 1, v2: 2 })[NoteProfiles.get(a).family] * 2 + (NoteProfiles.get(a).options ? 1 : 0)) -
+  (({ independent: 0, session: 1, v2: 2 })[NoteProfiles.get(b).family] * 2 + (NoteProfiles.get(b).options ? 1 : 0)));
+export const SESSION_MODES = new Set(NoteProfiles.ids().filter(id => NoteProfiles.get(id).session !== null));
 // 연쇄 모드: 응답 history 를 다음 호출이 이어 붙이는 세션 — 호출 직렬화가 계약이다.
-export const CHAINED_MODES = new Set(["sol-session", "sol-luna-tool"]);
+export const CHAINED_MODES = new Set(NoteProfiles.ids().filter(id => NoteProfiles.get(id).session === "chain"));
 // 고정 접두 P 를 사용하는 포크 계열 모드 (쓰기 응답이 접두를 대체하지 않음)
-export const FORK_MODES = new Set(["sol-fork", "sol-fork-2", "sol-luna-2"]);
+export const FORK_MODES = new Set(NoteProfiles.ids().filter(id => NoteProfiles.get(id).session === "fork"));
 // v2 신규 비교군
-export const V2_MODES = new Set(["sol-luna-2", "sol-fork-2"]);
+export const V2_MODES = new Set(NoteProfiles.ids().filter(NoteProfiles.isV2));
 
 // 고정 캐시 앵커 텍스트 (server/note-session.js 가 내보내는 ANCHOR_TEXT 와 일치)
 export const ANCHOR_TEXT = NoteSession.ANCHOR_TEXT ?? "--- sol-v2-cache-anchor ---";
@@ -65,11 +72,27 @@ const USAGE_FIELDS = ["promptTokens", "completionTokens", "reasoningTokens", "ca
 export const expErr = (code, detail) => Object.assign(new Error(detail ? `${code}:${detail}` : code), { code, retryable: false });
 const bytesOf = v => Buffer.byteLength(JSON.stringify(v));
 
+// §9.4 예산 규칙: run당 기본 $1.50, 합성 probe 총 $0.05
+export const DEFAULT_MAX_USD = 1.50;
+export const PROBE_MAX_USD = 0.05;
+
+// arm 설정 해시 계산: 동일 설정의 실패 arm 변경 없는 재실행 가드용
+export function armConfigHash(arm = {}) {
+  const str = JSON.stringify({
+    mode: arm.mode,
+    noteV3: arm.noteV3 ?? null,
+    writer: arm.writer ?? null,
+    planComparison: arm.planComparison ?? null,
+    fixtureAlias: arm.fixtureAlias ?? null,
+  });
+  return crypto.createHash("sha256").update(str).digest("hex").slice(0, 16);
+}
+
 // ── 비용·요청 상한: 모든 군·재실행이 하나의 예산을 나눈다 ──────────────────────
-// 명시적 maxCostUsd 필수: 미제공 시 실행 거부.
+// 명시적 maxCostUsd 필수: 미제공 시 기본 $1.50 적용.
 // 호출 전 예약액(in-flight reserved) + 이미 보고된 비용(reported)을 함께 검사해 초과 호출을 차단한다.
 export class Budget {
-  constructor({ maxCostUsd = 3, maxRequests = 400 } = {}) {
+  constructor({ maxCostUsd = DEFAULT_MAX_USD, maxRequests = 400 } = {}) {
     const cost = Number(maxCostUsd);
     if (!Number.isFinite(cost) || cost <= 0) {
       throw expErr("experiment_budget", "explicit_max_cost_usd_required");
@@ -145,29 +168,26 @@ export function estCostUsd(route, model, body) {
 export const newSession = (mode, rand = crypto.randomBytes(12).toString("hex")) =>
   ({ v: 1, id: `ns-${rand}`, mode, history: [], ...(FORK_MODES.has(mode) ? { prefix: null } : {}) });
 
-// sol-luna-2 에서 Luna High 로 나가는 단계는 세션 봉투가 없는 독립 호출이다.
-export const isLunaStage = (mode, stage) => mode === "sol-luna-2" && (stage === "draft" || stage === "questions");
+// Luna 계열 v2 에서 Luna High 로 나가는 단계는 세션 봉투가 없는 독립 호출이다(레지스트리의 transport 독립 단계).
+export const isLunaStage = (mode, stage) => NoteProfiles.isLunaV2(mode) && NoteProfiles.get(mode)?.stages?.[stage]?.transport === "independent";
 
-// 모드별 단계 모델 조회
-export const modelForStage = (mode, stage) => {
-  if (mode === "independent") return stage === "plan" ? SOL : LUNA_HIGH;
-  if (mode === "sol-luna-2") return isLunaStage(mode, stage) ? LUNA_HIGH : SOL;
-  return SOL; // sol-session, sol-luna-tool, sol-fork, sol-fork-2
-};
+// 모드별 단계 모델 조회 — 레지스트리의 단계→모델 표와 같다(모르는 모드·단계는 Sol).
+export const modelForStage = (mode, stage) => NoteProfiles.stageModel(mode, stage) ?? SOL;
 
 // 세션 본문 생성: sol-fork/sol-fork-2/sol-luna-2 쓰기 단계는 고정 접두 P 만 싣는다.
 export const sessionBody = (s, phase, stage) => {
   if (!s) return null;
   if (isLunaStage(s.mode, stage)) return null; // sol-luna-2 의 draft/questions 는 독립 호출
   const isFork = FORK_MODES.has(s.mode);
-  const history = isFork && phase === "write" ? s.prefix : s.history;
-  if (isFork && phase === "write" && !history?.length) throw expErr("note_session_no_prefix");
+  const history = isFork && phase === "write" && stage !== "editorial" ? s.prefix : s.history; // editorial 은 plan 응답 이력을 이어 쓰는 두 번째 턴
+  if (isFork && phase === "write" && stage !== "editorial" && !history?.length) throw expErr("note_session_no_prefix");
   return { v: 1, id: s.id, mode: s.mode, history };
 };
 
 // 응답의 noteSession 을 검사하고 history 를 갱신한다.
 // fork 계열 모드에서는 계획 응답만 고정 접두 P 로 채택하고, 쓰기 응답은 접두를 변경하지 않는다.
-export function applySessionReply(session, res, { plan = false } = {}) {
+// v2 모드의 접두 P 는 editorial 응답(앵커 포함)이 채택하고, plan 응답은 이어 쓸 이력일 뿐이다. sol-fork 는 plan 응답이 접두다.
+export function applySessionReply(session, res, { plan = false, editorial = false } = {}) {
   const ns = res?.noteSession;
   if (ns === undefined || ns === null) throw expErr("note_session_unsupported", "no noteSession in response");
   if (typeof ns !== "object" || ns.v !== 1 || ns.id !== session.id || ns.mode !== session.mode || !Array.isArray(ns.history))
@@ -175,8 +195,8 @@ export function applySessionReply(session, res, { plan = false } = {}) {
   const bytes = bytesOf(ns.history);
   if (ns.history.length > HISTORY_MAX_ITEMS || bytes > HISTORY_MAX_BYTES) throw expErr("note_session_too_large");
   const isFork = FORK_MODES.has(session.mode);
-  if (isFork ? plan : true) session.history = ns.history;
-  if (isFork && plan) session.prefix = ns.history;
+  if (isFork ? plan || editorial : true) session.history = ns.history;
+  if (isFork && (V2_MODES.has(session.mode) ? editorial : plan)) session.prefix = ns.history;
   return { items: ns.history.length, bytes };
 }
 
@@ -275,6 +295,8 @@ export function makePost({ baseUrl, token, fetchImpl = fetch }) {
 export function makeService({ post, session = null, calls = [], budget = null, capture = null }) {
   // 고정 접두 캐시 웜업 게이트: 첫 쓰기 호출이 고정 접두를 쓸 때까지 나머지를 잡는다.
   let forkGate = null;
+  // §9.4 규칙: 연속 상류 429 2회 추적
+  let consecutive429 = 0;
   const send = (route, body, o) => {
     const isForkSession = session?.mode === "sol-fork" || session?.mode === "sol-fork-2";
     if (!isForkSession || route !== "/v1/write") return post(route, body, { signal: o.signal, timeoutMs: o.timeoutMs });
@@ -312,6 +334,7 @@ export function makeService({ post, session = null, calls = [], budget = null, c
     const at = Date.now();
     try {
       const r = await send(route, body, o);
+      consecutive429 = 0; // 성공 시 429 카운터 리셋
       m.latencyMs = Date.now() - at;
       const u = r?.usage || {};
       for (const k of USAGE_FIELDS) if (u[k] !== undefined) m.usage[k] = u[k];
@@ -345,13 +368,13 @@ export function makeService({ post, session = null, calls = [], budget = null, c
 
       // 봉투 갱신: plan 및 sol-fork/sol-fork-2/sol-session write 호출
       if (session && (route === "/v1/plan" || (route === "/v1/write" && !isLunaStage(session.mode, stage)))) {
-        m.session = { ...applySessionReply(session, r, { plan: route === "/v1/plan" }), sentItems: m.sessionSentItems };
+        m.session = { ...applySessionReply(session, r, { plan: route === "/v1/plan", editorial: route === "/v1/write" && stage === "editorial" }), sentItems: m.sessionSentItems };
       }
 
       if (route === "/v1/plan" && capture) {
         capture.planRaw = r?.plan ?? null;
-        capture.editorialPlan = r?.editorialPlan ?? null;
       }
+      if (route === "/v1/write" && stage === "editorial" && capture) capture.editorialPlan = r?.editorialPlan ?? null;
       m.ok = true;
       calls.push(m);
       if (o.noteSession?.mode && r?.noteSession && r.noteSession.mode !== o.noteSession.mode) {
@@ -368,6 +391,28 @@ export function makeService({ post, session = null, calls = [], budget = null, c
       };
       reservation?.commit(null); // 실패 호출도 예산 요청 수 및 추정액에 계상
       calls.push(m);
+
+      // §9.4 규칙: 연속 상류 429 2회 → 중단
+      const is429 = e?.status === 429 || e?.code === "provider_busy" || e?.code === "rate_limited" || m.error.status === 429;
+      if (is429) {
+        consecutive429++;
+        if (consecutive429 >= 2) {
+          throw expErr("consecutive_upstream_429", "upstream 429 received twice consecutively");
+        }
+      } else {
+        consecutive429 = 0;
+      }
+
+      // §9.4 규칙: plan/editorial 실패 1회 → 중단 (재시도 없이 즉시 중단)
+      if (route === "/v1/plan" || stage === "editorial") {
+        if (e && typeof e === "object") {
+          e.retryable = false;
+          if (!e.code) e.code = "plan_editorial_failed";
+          throw e;
+        }
+        throw expErr("plan_editorial_failed", `${stage || "plan"}_failed: ${e?.message || "error"}`);
+      }
+
       throw e;
     }
   };
@@ -385,7 +430,7 @@ export function makeService({ post, session = null, calls = [], budget = null, c
           session.prefix = o.noteSession.history;
         }
       }
-      const model = (session?.mode === "sol-luna-2") ? modelForStage(session.mode, stage) : (o.model || modelForStage(session?.mode, stage));
+      const model = NoteV3.isLunaV2(session?.mode) ? modelForStage(session.mode, stage) : (o.model || modelForStage(session?.mode, stage));
       return call("/v1/write", { ...o, model }, stage, writeBody({ ...o, model }, session));
     },
     judge: o => call("/v1/judge", o, "judge." + String(o.task ?? "?"), judgeBody(o)),
@@ -537,7 +582,7 @@ export async function runArm({ mode, loaded, cfg = {}, budget = null, post }) {
   const service = makeService({ post, session, calls, budget, capture });
 
   const isV2 = V2_MODES.has(mode);
-  const writeModel = (mode === "independent" || mode === "sol-luna-2") ? LUNA_HIGH : SOL;
+  const writeModel = NoteProfiles.get(mode).clientModels.write;
 
   const models = {
     plan: SOL,
@@ -557,6 +602,7 @@ export async function runArm({ mode, loaded, cfg = {}, budget = null, post }) {
     writer: isV2 ? "draft" : (cfg.writer ?? "blocks"),
     linkEditor: isV2 ? false : (cfg.linkEditor === true && cfg.writer === "draft"),
     noteMode: mode, // production wiring (deps.noteMode)
+    noteV3: cfg.noteV3, // sol-luna-3 개선 실험 옵션 → stages ctx.v3
     // v2 사전검사(stages.js)는 서버 프롬프트 버전(review)을 본다. noteMode 가 있으면 단계·호출 캐시는 어차피 꺼지므로 넘겨도 로컬 캐시 우회는 그대로다.
     ...(isV2 ? { promptVersions: cfg.promptVersions ?? { review: "preflight" } } : {}),
     cacheStats: { hits: 0, misses: 0 },
@@ -658,7 +704,7 @@ export function toSpec11ResultRow({
     planComparison: fixedPlan ? "fixedPlan" : "endToEnd",
     rendererVersion: String(rendererVersion),
     actualModels: armResult.mode === "independent" ? "plan:openai/gpt-6.1-sol,write:openai/gpt-6-luna@high"
-      : armResult.mode === "sol-luna-2" ? "plan:openai/gpt-6.1-sol,draft:openai/gpt-6-luna@high,review:openai/gpt-6.1-sol"
+      : NoteV3.isLunaV2(armResult.mode) ? "plan:openai/gpt-6.1-sol,draft:openai/gpt-6-luna@high,review:openai/gpt-6.1-sol"
       : "openai/gpt-6.1-sol",
     providerCallCount: t.sent ?? armResult.calls.length,
     retries: armResult.calls.filter(c => c.ok === false).length,
@@ -691,11 +737,12 @@ export function toSpec11ResultRow({
 
 // ── dry-run: 네트워크 없이 군별 설정과 입력 요약만 만든다 ──────────────────────
 export function planArms(cfg = {}) {
+  const noteV3 = cfg.noteV3 ?? NoteV3.v3Options({ repair: cfg.repair, resume: cfg.resume === "on" || cfg.resume === true });
   return MODES.map(mode => ({
     mode,
     models: {
       plan: SOL,
-      write: (mode === "independent" || mode === "sol-luna-2") ? LUNA_HIGH : SOL,
+      write: NoteProfiles.get(mode).clientModels.write,
       writeAlt: null,
       judge: cfg.judge ?? null,
       noteMode: mode,
@@ -707,6 +754,7 @@ export function planArms(cfg = {}) {
     writer: V2_MODES.has(mode) ? "draft" : (cfg.writer ?? "blocks"),
     writeLane: CHAINED_MODES.has(mode) ? 1 : "default(8)",
     localOutputCache: "disabled", altModelFallback: "disabled",
+    ...(NoteV3.isV3(mode) ? { noteV3 } : {}),
   }));
 }
 
@@ -714,12 +762,16 @@ export function planArms(cfg = {}) {
 async function main() {
   const { values: v } = parseArgs({
     options: {
-      mode: { type: "string", default: "all" },                    // independent | sol-session | sol-luna-tool | sol-fork | sol-luna-2 | sol-fork-2 | all
+      mode: { type: "string", default: "all" },                    // independent | sol-session | sol-luna-tool | sol-fork | sol-luna-2 | sol-luna-3 | sol-fork-2 | all
       input: { type: "string", default: "tools/note-fixture/input.json" },
       repeat: { type: "string", default: "1" },
-      "max-cost-usd": { type: "string" },                          // 명시적 예산 상한 USD (필수)
+      "max-cost-usd": { type: "string" },                          // 명시적 예산 상한 USD (기본 $1.50)
       "max-cost": { type: "string" },                              // 레거시 호환 별칭
+      "max-usd": { type: "string" },                               // §9.4 예산 별칭
       "max-requests": { type: "string", default: "400" },
+      repair: { type: "string", default: "packet" },               // packet | full-p
+      resume: { type: "string", default: "off" },                  // on | off
+      force: { type: "boolean", default: false },                  // 실패한 동일 arm 재실행 허용 플래그
       judge: { type: "string" },
       "no-judge": { type: "boolean", default: false },
       writer: { type: "string", default: "blocks" },               // blocks | draft (v2 모드는 자동으로 draft 강제)
@@ -738,14 +790,18 @@ async function main() {
     process.exit(2);
   }
 
-  // 명시적 --max-cost-usd 검증 (dry-run 이 아닌 경우 필수)
-  const rawCost = v["max-cost-usd"] ?? v["max-cost"];
-  if (!v["dry-run"] && (rawCost === undefined || rawCost === null)) {
-    console.error("오류: 명시적 --max-cost-usd 가 필요합니다 (예산 없는 실행 거부).");
+  if (!["packet", "full-p"].includes(v.repair)) {
+    console.error("--repair must be packet|full-p");
     process.exit(2);
   }
+  if (!["on", "off"].includes(v.resume)) {
+    console.error("--resume must be on|off");
+    process.exit(2);
+  }
+  const noteV3 = NoteV3.v3Options({ repair: v.repair, resume: v.resume === "on" });
 
-  const maxCostUsd = Number(rawCost ?? "3");
+  const rawCost = v["max-cost-usd"] ?? v["max-cost"] ?? v["max-usd"];
+  const maxCostUsd = Number(rawCost ?? DEFAULT_MAX_USD);
   const repeat = Number(v.repeat), maxRequests = Number(v["max-requests"]);
   if (!Number.isInteger(repeat) || repeat < 1 || !Number.isFinite(maxCostUsd) || maxCostUsd <= 0 || !Number.isInteger(maxRequests) || maxRequests <= 0) {
     console.error("--repeat/--max-requests need positive integers, --max-cost-usd a positive number");
@@ -759,7 +815,7 @@ async function main() {
     input: { file: v.input, slides: loaded.raw.slides.length, units: loaded.units, evidence: loaded.evidenceTotal, tier: loaded.raw.tier },
     confounds: [
       "각 군은 같은 원입력·옵션을 쓰지만 계획(plan)은 군마다 새 호출이다 — 계획 차이를 모드 효과로만 읽으면 안 된다.",
-      "sol-luna-2 는 Sol 계획·검수 + Luna High 섹션 작성(draft)이다. sol-fork-2 는 전 단계 Sol(P 고정)이다.",
+      "sol-luna-2 는 Sol 계획·검수 + Luna High 섹션 작성(draft)이다. sol-luna-3 은 같은 경로다. sol-fork-2 는 전 단계 Sol(P 고정)이다.",
       "연쇄 세션 군은 쓰기가 직렬이다(write lane 1). sol-fork 및 sol-fork-2 는 병렬 쓰기지만 첫 쓰기 웜업 게이트가 있다.",
       "로컬 출력 캐시는 모든 군에서 꺼져 있다 — 같은 접두 재사용은 서버·제공자 프롬프트 캐시만 관측한다.",
       "usage.costUsd 는 서버 보고값이며 미보고는 null 로 남기고 0으로 치환하지 않는다.",
@@ -771,7 +827,7 @@ async function main() {
   };
 
   if (v["dry-run"]) {
-    report.arms = planArms({ judge: v["no-judge"] ? null : (v.judge ?? "<auto: me.routeModels.judge[0]>"), writer: v.writer });
+    report.arms = planArms({ judge: v["no-judge"] ? null : (v.judge ?? "<auto: me.routeModels.judge[0]>"), writer: v.writer, repair: v.repair, resume: v.resume, noteV3 });
     console.log(JSON.stringify(report, null, 2));
     return;
   }
@@ -802,20 +858,41 @@ async function main() {
   const judge = v["no-judge"] ? null : (v.judge ?? ((me.features ?? []).includes("judge") ? me.routeModels?.judge?.[0] ?? null : null));
 
   for (const mode of modes) {
-    const need = (mode === "independent" || mode === "sol-luna-2") ? [SOL, LUNA_HIGH] : [SOL];
+    const need = [...new Set(Object.values(NoteProfiles.get(mode).stages).map(s => s.model))];
     for (const m of need) if (!accountModels.includes(m)) console.error(`warning: ${mode} needs ${m} not in account models`);
+  }
+
+  // 이전 실패 arm 해시 수집 (동일 설정 변경 없는 재실행 가드)
+  const failedHashes = new Set();
+  if (v.out && fs.existsSync(v.out)) {
+    try {
+      const prior = JSON.parse(fs.readFileSync(v.out, "utf8"));
+      for (const a of prior.arms ?? []) {
+        if (a.status === "failed") {
+          failedHashes.add(armConfigHash({ mode: a.mode, noteV3: a.cfg?.noteV3, writer: v.writer, planComparison: v["plan-comparison"], fixtureAlias: v["fixture-alias"] }));
+        }
+      }
+    } catch {}
   }
 
   const budget = new Budget({ maxCostUsd, maxRequests });
 
   for (const mode of modes) for (let run = 0; run < repeat; run++) {
     if (budget.exhausted) { report.arms.push({ mode, run, status: "skipped_budget" }); continue; }
-    const jobId = `nsx-${mode}-${run}-${crypto.randomBytes(4).toString("hex")}`;
+    const armCfg = { jobId: `nsx-${mode}-${run}-${crypto.randomBytes(4).toString("hex")}`, judge, writer: v.writer, linkEditor: v["link-editor"], run, promptVersions: me.promptVersions, noteV3 };
+    const cfgHash = armConfigHash({ mode, noteV3: mode === "sol-luna-3" ? noteV3 : null, writer: v.writer, planComparison: v["plan-comparison"], fixtureAlias: v["fixture-alias"] });
+    if (failedHashes.has(cfgHash) && !v.force) {
+      console.warn(`[가드] 실패한 동일 arm(${mode}, hash=${cfgHash}) 변경 없는 재실행 거부 (--force 필요)`);
+      report.arms.push({ mode, run, status: "skipped_guard", reason: "duplicate_failed_arm_without_changes" });
+      continue;
+    }
+
     const arm = await runArm({
       mode, loaded,
-      cfg: { jobId, judge, writer: v.writer, linkEditor: v["link-editor"], run, promptVersions: me.promptVersions },
+      cfg: armCfg,
       budget, post,
     });
+    if (arm.status === "failed") failedHashes.add(cfgHash);
     report.arms.push(arm);
     const row = toSpec11ResultRow({
       armResult: arm,
