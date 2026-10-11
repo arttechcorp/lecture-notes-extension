@@ -491,7 +491,7 @@ Block = { id: blockId, type, sectionId: sectionId?, status, importance, emphasis
 - 크롭이 없다고 클라우드로 자동 전환하지 않는다(불변식). 그래프도 임의로 복원하지 않는다.
 - **도표 배치는 Planner가 정한다.** 계획 블록의 `figureIds`에 든 도표는 그 블록 바로 뒤에 표시한다. B10 내용의 `figureIds`는 본문에서 다루는 도표다. 고지는 이 둘에 든 도표만 센다.
 
-## 15. 답안 공개와 PDF 분할 (렌더 계약 — `lib/note-spec.js` `layout`·`templates`·`css`, `RENDER_VERSION = "render-8"`)
+## 15. 답안 공개와 PDF 분할 (렌더 계약 — `lib/note-spec.js` `layout`·`templates`·`css`, `RENDER_VERSION = "render-9"`)
 
 **근거 기반 표시(mis-sol-hai §4.6 — 렌더러가 데이터로 계산, 모델은 마크업을 쓰지 않는다):**
 - 표시는 `evidenceMeta`가 있는 노트에만 켠다. 사이드카가 없는 노트(기존 노트 포함)는 표시가 하나도 나지 않아 기존 렌더와 같다. B12 `slide_absent`의 "슬라이드에 없는 설명" 라벨은 블록 종류 자체의 표시라 이 스위치와 무관하다.

@@ -5,7 +5,7 @@
   const NoteContract = globalThis.NoteContract || (typeof require !== "undefined" ? require("./note-contract.js") : null);
   const NOTE_SPEC_VERSION = NoteContract.NOTE_SPEC_VERSION;
   // 마크업·CSS 가 바뀌면 올린다 — 디자인만 바뀐 재렌더는 H 단계만 다시 한다(§13).
-  const RENDER_VERSION = "render-8";
+  const RENDER_VERSION = "render-10";
 
   const arr = v => (Array.isArray(v) ? v : []);
   // 한 시간 미만 m:ss, 이상 h:mm:ss — 고지 구간 표기용(엔진의 h.time 과 같은 규칙).
@@ -76,9 +76,18 @@
     const r = resolveRef(h.note, id);
     return r && r.href ? `<a href="#${h.esc(r.href)}">${h.esc(text)}</a>` : h.esc(text);
   };
-  // Point 한 쌍 — 자료(채움 칩)와 해설(테두리 칩)이 같은 번호를 쓴다(§5). 앵커는 해설 줄에 단다(§15).
-  const pointClue = (h, i, c) => `<p class="point-line"><span class="point point-clue">Point ${i + 1}</span>${h.claim(c, { tag: "span" })}</p>`;
-  const pointRead = (h, b, i, c) => `<p class="point-line" id="${h.esc(b.id)}-P${i + 1}"><span class="point">Point ${i + 1}</span>${h.claim(c, { tag: "span" })}</p>`;
+  // Point 한 쌍 — 자료(채움 칩)와 해설(테두리 칩)이 같은 번호를 쓴다(§5). 앵커는 처음 보이는 쪽 줄에 단다(§15).
+  const pointClue = (h, anchor, i, c) => `<p class="point-line"${anchor ? ` id="${h.esc(anchor)}"` : ""}><span class="point point-clue">Point ${i + 1}</span>${h.claim(c, { tag: "span" })}</p>`;
+  const pointRead = (h, anchor, i, c) => `<p class="point-line"${anchor ? ` id="${h.esc(anchor)}"` : ""}><span class="point">Point ${i + 1}</span>${h.claim(c, { tag: "span" })}</p>`;
+  // 한 블록 안에서 앞 슬롯이 이미 실은 문장은 뒤 슬롯이 다시 싣지 않는다(B05 의 h.seen 과 같은 규칙).
+  const fresh = (seen, x) => { const t = x && x.text; return t && !seen.has(t) ? (seen.add(t), x) : null; };
+  // Point 두 면(단서·해석): 같은 문장은 앞 줄만 남기고, Point 앵커는 남은 첫 해석 줄에 둔다 —
+  // 해석 줄이 빠졌으면 단서 줄로, 둘 다 빠지면 사례 상자 자리에 스텁을 둔다(mis-sol-hai-28).
+  const pointPair = (h, b, i, clue, read) => {
+    const id = `${b.id}-P${i + 1}`;
+    if (read) return { clue: clue ? pointClue(h, null, i, clue) : "", read: pointRead(h, id, i, read) };
+    return { clue: clue ? pointClue(h, id, i, clue) : `<span id="${h.esc(id)}"></span>`, read: "" };
+  };
 
   // ── mis-sol-hai 표시 규칙(기획 §4.6·§5): 렌더러가 근거·신호 데이터로 표시를 계산한다 — 모델 텍스트에
   // 마크업을 허용하지 않는다(이스케이프는 그대로). 새 데이터(근거 메타 사이드카·필기 근거·인용/반복 강조)가
@@ -333,35 +342,53 @@
 
   // B08 사례와 적용 — 사례(흰 면)와 해석(회색 면)을 Point 번호로 짝짓는다. 판단의 pointRefs 는 그 앵커로 링크.
   // 의사결정 칸 라벨(행위자·목표·대안·기준·상충·부족한 자료)만 숨긴다 — 칸마다 한 항목의 들여쓴 목록으로 구분이 남는다(§5-6).
+  // 같은 문장을 두 슬롯이 나눠 쓴 경우 앞 슬롯만 싣는다(mis-sol-hai-28: 사례 상자와 해석 상자가 같은 문장을 반복).
   const B08 = (b, h) => {
     const c = (b && b.content) || {}, pts = arr(c.points), j = c.judgment, dec = c.decision;
+    const seen = h.seen || new Set();
+    const keep = x => fresh(seen, x);
+    const situation = keep(c.situation);
+    const clues = pts.map(p => keep(p && p.clue)), reads = pts.map(p => keep(p && p.reading));
+    const pairs = pts.map((p, i) => pointPair(h, b, i, clues[i], reads[i]));
+    const jclaim = j && keep(j.claim);
+    const jlinks = j ? arr(j.pointRefs).map(r =>
+      Number.isInteger(r) && r >= 1 && r <= pts.length
+        ? `<a href="#${h.esc(b.id)}-P${r}">Point ${r}</a>`
+        : `<span class="point">Point ${h.esc(r)}</span>`).join(" ") : "";
+    const lims = arr(c.limits).map(keep).filter(Boolean);
     const decl = dec ? [dec.actor && [dec.actor], dec.goal && [dec.goal], arr(dec.alternatives), arr(dec.criteria), arr(dec.tradeoffs), arr(dec.missingData)]
       .filter(a => a && a.length)
+      .map(f => f.map(keep).filter(Boolean)).filter(f => f.length)
       .map(f => `<li>${f.map(x => h.claim(x, { tag: "span" })).join(" · ")}</li>`).join("") : "";
     return `<section><div class="heading-bundle"><span class="role apply">적용</span><h3>${h.esc(c.caseTitle || "")}</h3></div>`
-      + `<div class="case-box"><h4>${c.source === "material_case" ? "자료 속 사례" : "강의 사례"}</h4>${h.claim(c.situation)}`
-      + pts.map((p, i) => pointClue(h, i, p && p.clue)).join("") + "</div>"
-      + `<div class="analysis-box"><h4>단서로 본 해석</h4>` + pts.map((p, i) => pointRead(h, b, i, p && p.reading)).join("")
-      + (j ? `<p><strong>판단</strong> · ${h.claim(j.claim, { tag: "span" })} ${arr(j.pointRefs).map(r =>
-        Number.isInteger(r) && r >= 1 && r <= pts.length
-          ? `<a href="#${h.esc(b.id)}-P${r}">Point ${r}</a>`
-          : `<span class="point">Point ${h.esc(r)}</span>`).join(" ")}</p>` : "")
-      + (arr(c.limits).length ? `<p><strong>범위</strong> · ${arr(c.limits).map(x => h.claim(x, { tag: "span" })).join(" · ")}</p>` : "")
+      + `<div class="case-box"><h4>${c.source === "material_case" ? "자료 속 사례" : "강의 사례"}</h4>${h.claim(situation)}`
+      + pairs.map(p => p.clue).join("") + "</div>"
+      + `<div class="analysis-box"><h4>단서로 본 해석</h4>` + pairs.map(p => p.read).join("")
+      + (j && (jclaim || jlinks) ? `<p><strong>판단</strong> · ${jclaim ? h.claim(jclaim, { tag: "span" }) + " " : ""}${jlinks}</p>` : "")
+      + (lims.length ? `<p><strong>범위</strong> · ${lims.map(x => h.claim(x, { tag: "span" })).join(" · ")}</p>` : "")
       + "</div>" + (decl ? `<ul class="decision">${decl}</ul>` : "") + "</section>";
   };
 
   // B09 자료 읽기 — 자료(흰 면)와 해석(회색 면)을 나누고, 저자 주장과 강의의 해석은 다른 칸에 둔다(§9).
+  // 같은 문장을 두 슬롯이 나눠 쓴 경우 앞 슬롯만 싣는다(B08 과 같은 규칙).
   const B09 = (b, h) => {
     const c = (b && b.content) || {}, pts = arr(c.points), q = c.quote;
+    const seen = h.seen || new Set();
+    const keep = x => fresh(seen, x);
+    const gist = keep(c.gist);
+    const clues = pts.map(p => keep(p && p.clue)), reads = pts.map(p => keep(p && p.reading));
+    const pairs = pts.map((p, i) => pointPair(h, b, i, clues[i], reads[i]));
+    const authorClaim = keep(c.authorClaim), lecturerReading = keep(c.lecturerReading);
+    const lims = arr(c.limits).map(keep).filter(Boolean);
     return `<section class="material-block"><span class="role material">자료 읽기</span><div class="material-inner">`
       + `<div class="heading-bundle"><h3>${h.esc(c.sourceTitle || "")}</h3><p class="source">${h.esc(KIND9[c.sourceKind] || "자료")}</p></div>`
       + (q && typeof q.text === "string" && q.text ? `<blockquote class="quote">${h.esc(q.text)}</blockquote>` : "")
-      + `<p><strong>자료 요지</strong> · ${h.claim(c.gist, { tag: "span" })}</p>`
-      + pts.map((p, i) => pointClue(h, i, p && p.clue)).join("")
-      + `<div class="interpretation"><h4>해석</h4>` + pts.map((p, i) => pointRead(h, b, i, p && p.reading)).join("")
-      + (c.authorClaim ? `<p><strong>저자의 주장:</strong> ${h.claim(c.authorClaim, { tag: "span" })}</p>` : "")
-      + (c.lecturerReading ? `<p><strong>강의의 해석:</strong> ${h.claim(c.lecturerReading, { tag: "span" })}</p>` : "")
-      + (arr(c.limits).length ? `<p><strong>확인할 것:</strong> ${arr(c.limits).map(x => h.claim(x, { tag: "span" })).join(" · ")}</p>` : "")
+      + `<p><strong>자료 요지</strong> · ${h.claim(gist, { tag: "span" })}</p>`
+      + pairs.map(p => p.clue).join("")
+      + `<div class="interpretation"><h4>해석</h4>` + pairs.map(p => p.read).join("")
+      + (authorClaim ? `<p><strong>저자의 주장:</strong> ${h.claim(authorClaim, { tag: "span" })}</p>` : "")
+      + (lecturerReading ? `<p><strong>강의의 해석:</strong> ${h.claim(lecturerReading, { tag: "span" })}</p>` : "")
+      + (lims.length ? `<p><strong>확인할 것:</strong> ${lims.map(x => h.claim(x, { tag: "span" })).join(" · ")}</p>` : "")
       + "</div></div></section>";
   };
 
@@ -372,7 +399,7 @@
     arr(c.steps).forEach((x, i) => { vals["c" + (i + 1)] = x; });
     const ref = k => { const v = vals[k]; return v ? fmtN(v.value, v && v.digits) + h.esc(v.unit || "") : h.esc(k); };
     const vars = arr(c.variables).map(v => dd(h.esc(v && v.symbol), h.claim(v && v.meaning, { tag: "span" }) + (v && v.unit ? ` <small>(${h.esc(v.unit)})</small>` : ""))).join("");
-    const eqPart = arr(c.formulaIds).map(id => h.equation(id)).join("")
+    const eqPart = (typeof h.equations === "function" ? h.equations(arr(c.formulaIds)) : arr(c.formulaIds).map(id => h.equation(id)).join(""))
       + arr(c.derived).map(t => `<div class="equation">${h.math(t, { display: true })}</div>`).join("");
     const eqBundle = (eqPart || vars) ? `<div class="eq-bundle">${eqPart}${vars ? `<dl class="slots">${vars}</dl>` : ""}</div>` : "";
     // 제목 묶음은 첫 문단(가정·목표)까지 품는다 — 식+변수 설명은 eq-bundle 이 따로 묶는다.
@@ -526,7 +553,7 @@
       return arr(note.registry).filter(e => e && e.blockId === id && !own.has(e.id)).map(e => e.id)
         .sort((a, z) => (rOrder.get(a) ?? 1e9) - (rOrder.get(z) ?? 1e9));
     };
-    h.eqsIn = id => eqsOf(id).map(f => h.equation(f)).join("");
+    h.eqsIn = id => (typeof h.equations === "function" ? h.equations(eqsOf(id)) : eqsOf(id).map(f => h.equation(f)).join(""));
     const pieces = [B01(null, h)];
     for (const b of b18) pieces.push(h.block(b));
     for (const g of arr(note.global)) if (g && g.type !== "B13") pieces.push(h.block(g));
@@ -685,6 +712,9 @@
     `.decision{margin:8px 0;padding-left:22px}.decision li{margin:.15em 0}`,
     `.quote{border-left:2px solid var(--line);padding-left:12px;margin:8px 0;font-family:var(--serif)}`,
     `.equation{font-size:15px;margin:10px 0;overflow-x:auto}`,
+    // 끊을 곳이 없는 긴 식의 단계 축소(note-render 의 eq-shrink 래퍼) — KaTeX 는 em 상대 크기라
+    // 래퍼 font-size 하나로 통째로 줄고, 70% 가 읽기 하한이다.
+    `.eq-shrink{display:inline-block}.eq-shrink-90{font-size:90%}.eq-shrink-80{font-size:80%}.eq-shrink-70{font-size:70%}`,
     `.eq-tag{display:block;font:500 10px var(--mono);color:var(--muted);margin-bottom:2px}`,
     `.eq-ref{font-weight:600}`,
     `.eq-note{color:var(--muted)}`,
@@ -753,17 +783,25 @@
     `.note .material-inner,.note .case-box,.note .equation{break-inside:avoid}`,
     // 인쇄 도표: 크롭 높이 75mm(A4 본문 약 268mm 에 세 장)로 묶고 도표 상자는 쪽을 넘기지 않는다.
     `.note .note-fig .note-crop{max-height:75mm}.note .note-fig{break-inside:avoid;padding:8px 10px;margin:10px 0}`,
-    `.note .with-aside:has(.concept){break-inside:avoid}.note .with-aside>.aside-col{border-left:0}.note .answer .backlink{display:block;break-after:avoid}`,
+    // 표를 품은 도표는 표 자체가 행에서 나뉜다 — 상자의 회피를 풀어 흐르게 하고 제목만 표 머리와 묶는다(mis-sol-hai-28).
+    `.note .note-fig:has(.note-table){break-inside:auto}.note .note-fig-title{break-after:avoid}`,
+    `.note .with-aside>.aside-col{border-left:0}.note .answer .backlink{display:block;break-after:avoid}`,
     // .role 은 inline 칩이라 break-after 가 안 먹힌다 — 인쇄에서는 블록 배지로 내려 다음 제목과 묶이게 한다.
     `.note .role{display:block;width:max-content}`,
     `.note p,.note li{orphans:2;widows:2}`,
     `.note .answer-space,.note .map-edge,.note .answer-rubric,.note .answer-alt,.note .slots,.note .memo-row{break-inside:avoid}`,
     `.note tr{break-inside:avoid}.note thead{display:table-header-group}`,
     `.note .heading-bundle,.note .eq-bundle,.note .qa-bundle{break-inside:avoid}`,
-    `.note.print-trim-whitespace .note-block{margin:10px 0}.note.print-trim-whitespace .unit-head{margin:16px 0 6px}.note.print-trim-whitespace .note-checklist,.note.print-trim-whitespace .note-answers{margin-top:16px}`,
-    `.note.print-tighten-leading{line-height:1.55}.note.print-tighten-leading p{margin:.25em 0}`,
-    `.note.print-rearrange-units .with-aside{display:block}.note.print-rearrange-units .with-aside>.aside-col{border-left:0;border-top:1px solid var(--line);padding:8px 0 0}`,
-    `.note.print-allow-splits .note-table{break-inside:auto}.note.print-allow-splits .equation{overflow-x:visible}`,
+    // 재조판 클래스는 노트의 조상(#noteContent·#content 래퍼)에 붙는다 — .note.print-* 형태는
+    // 클래스가 .note 자체에 있을 때만 먹히므로 조상 선택자로 쓴다(실측 mis-sol-hai-28).
+    `.print-trim-whitespace .note-block{margin:10px 0}.print-trim-whitespace .unit-head{margin:16px 0 6px}.print-trim-whitespace .note-checklist,.print-trim-whitespace .note-answers{margin-top:16px}`,
+    `.print-tighten-leading .note{line-height:1.55}.print-tighten-leading p{margin:.25em 0}`,
+    `.print-rearrange-units .with-aside{display:block}.print-rearrange-units .with-aside>.aside-col{border-left:0;border-top:1px solid var(--line);padding:8px 0 0}`,
+    // 분할 허용 단계: flex 묶음은 인쇄에서 통째로만 넘어가므로(실측 mis-sol-hai-28) 블록으로 바꿔
+    // 도표는 그림 단위로, 곁설명 묶음은 블록 사이로 흐르게 한다 — 각 .note-fig·.note-claim 단은 그대로 묶인다.
+    `.print-allow-splits .note-table{break-inside:auto}.print-allow-splits .equation{overflow-x:visible}`,
+    `.print-allow-splits .fig-row{display:block}.print-allow-splits .with-aside{display:block}`,
+    `.print-allow-splits .with-aside>.aside-col{border-top:1px solid var(--line);padding:8px 0 0}`,
     `.print-warning-notice{display:block;border:1px dashed var(--accent);color:var(--accentText);padding:6px 10px;font-size:11px;margin:8px 0;background:var(--accentSubtle)}`,
     // 흑백 인쇄 대체(시안): 색·배경 대신 선·글자로 구분한다.
     `.note .mk-1B{background:none;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}`,

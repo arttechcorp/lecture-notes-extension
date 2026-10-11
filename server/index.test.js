@@ -204,8 +204,8 @@ test("/v1/me exposes per-task promptVersions and the policy version in remote co
     // 클라이언트 캐시 키 계약: 단계별 노트 프롬프트 버전(입력 재배치는 섹션 계열만 v7), judge 는 원격 설정 버전.
     for (const s of ["plan", "global", "link"]) assert.equal(me.promptVersions[s], me.promptVersion, s);
     for (const s of ["section", "questions"]) assert.equal(me.promptVersions[s], "note-v7", s);
-    assert.equal(me.promptVersions.repair, "note-v8", "수리 지시는 regenerate_missing 근거 문구·msh 봉투 안내를 고쳐 v8");
-    assert.equal(me.promptVersions.draft, "note-v8", "초안 지시는 수식 해설(formulaNotes) 칸을 더해 v8");
+    assert.equal(me.promptVersions.repair, "note-v9", "수리 지시는 msh 의 B10 보류/계산 공존 금지·B14 참조 범위 안내를 고쳐 v9");
+    assert.equal(me.promptVersions.draft, "note-v10", "초안 지시는 B06 비교표의 열별 고유 claimId 규칙(같은 문장 칸 재사용 금지)을 더해 v10");
     assert.equal(me.promptVersions.judge, me.config.promptVersion);
     assert.equal(me.config.policyVersion, "v1");
     assert.equal(me.config.linkEditor, false, "linkEditor 기본값은 꺼짐");

@@ -1787,6 +1787,15 @@ const __defs = {
       c.criteria.forEach((cr, i) => {
         if (cr.cells.length !== c.entities.length) pushErr(errs, "VAL_TABLE_SHAPE", [`/content/criteria/${i}/cells`]);
         if (cr.cells.every(x => x == null)) pushErr(errs, "VAL_TABLE_EMPTY_ROW", [`/content/criteria/${i}`]);
+        // 같은 기준 행에서 서로 다른 대상 칸이 같은 문장이면 비교가 아니다 — 작성자가 한 claimId 를 열마다 재사용한
+        // 경우다(실행 mis-sol-hai-28: 3열이 같은 문장). 대상 공통 사실은 common 에 두어야 한다.
+        const seen = new Set();
+        for (const x of cr.cells) {
+          if (x == null) continue;
+          const k = normSub(x.text);
+          if (seen.has(k)) { pushErr(errs, "VAL_TABLE_DUP_CELL", [`/content/criteria/${i}`]); break; }
+          seen.add(k);
+        }
       });
       pushErr(errs, "VAL_CONCEPT_REF", c.entities.map(e => e.conceptId).filter(id => id != null && !ctx.concepts.has(id)));
     } else if (t === "B03") {
@@ -1866,6 +1875,25 @@ const __defs = {
       for (const it of c.items || []) if (Array.isArray(it.targetIds))
         pushErr(errs, "VAL_REF_UNKNOWN", it.targetIds.filter(id => !ctx.targetOk(id)));
   }
+
+  // 스키마를 통과한 봉투의 구조 정규화 — 모델이 만든 모순·참조 실수 가운데 코드가 확정적으로 펼 수 있는 것만
+  // 검사 전에 고친다(모델 호출 없는 정규화, §12.1 repair 전 단계):
+  //   B10 은 steps 와 withheld 을 함께 쓸 수 없다 — 계산 값이 있으면 검산 대상인 계산을 살리고 보류 문구를 뺀다.
+  //   B03 지도는 중복 노드 키를 첫 항목으로 좁히고 없는 노드를 가리키는 간선을 버린다. 정리해도 계약 최소
+  //       (노드 2·간선 1)가 안 서면 손대지 않는다 — 지도 아닌 잔해를 살리지 않는다.
+  const normalizeContent = rec => {
+    const env = rec.envelope, c = env?.content;
+    if (!c || typeof c !== "object") return;
+    if (rec.type === "B10" && c.withheld != null && Array.isArray(c.steps) && c.steps.length)
+      rec.envelope = { ...env, content: { ...c, withheld: null } };
+    else if (rec.type === "B03" && Array.isArray(c.nodes) && Array.isArray(c.edges)) {
+      const seen = new Set(), nodes = c.nodes.filter(n => typeof n?.key === "string" && !seen.has(n.key) && seen.add(n.key));
+      const keys = new Set(nodes.map(n => n.key));
+      const edges = c.edges.filter(e => keys.has(e?.from) && keys.has(e?.to));
+      if ((nodes.length !== c.nodes.length || edges.length !== c.edges.length) && nodes.length >= 2 && edges.length)
+        rec.envelope = { ...env, content: { ...c, nodes, edges } };
+    }
+  };
 
   // §10: 섹션 Writer 출력의 코드 검사. 한 블록의 오류가 다른 블록 검사를 막지 않는다.
   // assembleNote 에서 두 번 불린다 — 1차로 각 섹션의 정정 지도를 모으고 2차에서 합쳐진 지도를
@@ -1952,6 +1980,7 @@ const __defs = {
     const explained = new Set(checks.flatMap(c => c.targetIds));
     for (const rec of [...staged.filter(r => r.type === "B10"), ...staged.filter(r => r.type !== "B10")]) {
       if (!rec.envelope || rec.errors.length) continue;
+      normalizeContent(rec);
       if (rec.envelope.status !== "supported" && !explained.has(rec.id)) pushErr(rec.errors, "VAL_STATUS_UNEXPLAINED");
       inspectBlock(rec, ctx);
       if (rec.type === "B10" && !rec.errors.length) {
@@ -2012,9 +2041,10 @@ const __defs = {
           const v = Contracts.validate(envelopeSchema(g.type, POLICY, emphasisWide), env);
           if (!v.ok) pushErr(rec.errors, "VAL_SCHEMA", v.errors.map(e => e.path));
           else {
+            normalizeContent(rec);
             inspectBlock(rec, ctx);
             // 전역 출력에는 확인 항목 칸이 없다 — supported 가 아니면 설명할 방법이 없다.
-            if (env.status !== "supported") pushErr(rec.errors, "VAL_STATUS_UNEXPLAINED");
+            if (rec.envelope.status !== "supported") pushErr(rec.errors, "VAL_STATUS_UNEXPLAINED");
           }
         }
         return { id: rec.id, type: rec.type, envelope: rec.envelope, errors: rec.errors };
@@ -3078,6 +3108,16 @@ if (typeof module !== "undefined") module.exports = api;
     const notesOf = (list, key) => (Array.isArray(list) ? list : []).map(n => n && typeof n === "object" && typeof n[key] === "string" && at(n.claim)
       ? { [key]: n[key], blockId: planned.has(n.blockId) ? n.blockId : null, claim: at(n.claim) } : null).filter(Boolean);
     const figureNotes = notesOf(draft.figureNotes, "figureId"), formulaNotes = notesOf(draft.formulaNotes, "formulaId");
+    // 수식 해설의 홈 — 해설 주장이 다루는 개념(conceptIds)의 B05 가 있으면 그 개념 블록이 홈이다
+    // (개념 → 정의 → 상세 → 식 → 수식 해설). 작성자가 고른 블록보다 이 대응이 앞선다 — 홈을 B10 으로 쓴
+    // 초안도 개념이 설명하는 식은 개념 안으로 들어간다(실행 mis-sol-hai-28). 개념 연결이 없으면 작성자 블록 그대로.
+    const b05home = new Map();
+    for (const pb of planBlocks) if (pb.type === "B05")
+      for (const cid of Array.isArray(pb.conceptIds) ? pb.conceptIds : []) if (!b05home.has(cid)) b05home.set(cid, pb.blockId);
+    for (const n of formulaNotes) {
+      const b05 = (srcOf.get(n.claim)?.conceptIds || []).map(cid => b05home.get(cid)).find(Boolean);
+      if (b05) n.blockId = b05;
+    }
     return { gist, blocks, checks: (Array.isArray(draft.checks) ? draft.checks : []).slice(0, 6), ledger,
       ...(Object.keys(nullReasons).length ? { nullReasons } : {}), ...(figureNotes.length ? { figureNotes } : {}), ...(formulaNotes.length ? { formulaNotes } : {}) };
   }
@@ -5753,7 +5793,7 @@ const NoteContract=require("../lib/note-contract.js"),Contracts=require("../lib/
 // 프롬프트 문구나 아래 규칙을 바꾸면 올린다. 응답에 실려 단계 캐시 키에 들어간다.
 const PROMPT_VERSION="note-v6";
 // 단계별 버전: 프롬프트 문구나 아래 규칙을 바꾸면 그 단계만 올린다 — plan 캐시가 section 의 본문 재배치에 휘말려 무효가 되지 않게.
-const PROMPT_VERSIONS={plan:"note-v6",global:"note-v6",link:"note-v6",section:"note-v7",draft:"note-v8",repair:"note-v8",review:"note-v7",editorial:"note-v7",questions:"note-v7"};
+const PROMPT_VERSIONS={plan:"note-v6",global:"note-v6",link:"note-v6",section:"note-v7",draft:"note-v10",repair:"note-v9",review:"note-v7",editorial:"note-v7",questions:"note-v7"};
 const STAGES=["plan","section","global","repair","link","questions","draft","review","editorial"];
 // 두 실험 모드 — plan 직후 editorial 단계(같은 세션의 두 번째 Sol 턴)가 편집 명세(editorialPlan)를 낸다. 한 호출에 합치면 Edge 150초를 넘는다.
 const V2_MODES=NoteContract.V2_MODES;
@@ -5849,6 +5889,7 @@ const STAGE={
     "설명 순서는 강의 유형을 따라간다 — 개념형은 정의→직관→원리→조건·예외→적용, 논증형은 주장–근거–숨은 전제–반론–한계, 경영형은 정의–작동–가정–비교–사례·의사결정. 역사·철학처럼 원리가 해당 없으면 mechanism 주장을 지어내지 않는다.",
     "재료가 없는 관계·칸은 만들지 않는다 — 확인되지 않은 칸에 넣을 주장을 지어내지 않고 null·빈 배열로 둔다. 근거가 부족해 계획한 블록의 재료를 만들 수 없으면 그 타입의 관계를 만들지 않는다.",
     "calcs 관계의 주장이 같은 계산의 입력·단계 값을 가리킬 때는 evidenceIds에 그 계산 안의 참조(\"i1\" 입력, \"c2\" 단계)를 적는다 — 코드가 블록 id를 붙인다.",
+    "comparisons 의 한 기준 행에서 서로 다른 열 칸은 그 열 대상에 맞는 고유 주장을 쓴다 — 같은 claimId 를 여러 열에 재사용하면 검증이 거절한다. 모든 대상에 공통인 사실은 칸이 아니라 common 에 둔다.",
     "참조 id는 칸마다 허용 범위가 다르다 — 요청 본문의 allowedRefs 배열이 그 목록이다(섹션 작성과 같다). links 명제와 maps 노드의 targetIds·targetId에는 allowedRefs.targetIds의 id만 쓴다. 확인 항목(checks)의 targetIds에는 이 요청에 계획된 블록 id만 쓴다. 섹션 유닛의 절반 이상이 어떤 주장의 근거로 인용되어야 한다. 잡담, 출석, 인사는 다루지 않는다.",
   ],
   review:[
@@ -5960,13 +6001,15 @@ const MSH={
     "[mis-sol-hai] 슬라이드에 없이 말로만 한 내용은 notes 관계의 kind \"slide_absent\"로 쓴다 — 그 관계의 주장은 발화 근거만 인용한다.",
     "입력의 images 는 OCR 이 읽지 못한 필기 영역 이미지다 — id 는 그 영역이 속한 근거다. 이미지에서 읽은 내용은 그 근거 id 를 인용하는 주장으로 쓰고, 읽히지 않는 필기는 쓰지 않는다.",
     "figureNotes: 입력 figures 의 도표마다 하나씩 — figureId 는 그 도표 id(G#), claim 은 그 도표가 무엇을 보여 주고 강의에서 어떤 뜻인지(축·색·곡선이 무엇이고 어떤 추세가 무슨 결론을 받치는지) 1~2문장으로 쓴 claims 의 claimId 다. 그 주장은 도표 근거(figures 의 evidenceId)와 그 내용을 말한 슬라이드 글·발화를 인용하고, 근거 글에 없는 값·축 이름은 쓰지 않는다. blockId 는 그 도표를 둘 계획 블록 — 도표가 설명하는 개념의 B05, 계산·표 해석이면 B10 — 이고 맞는 블록이 없으면 null 이다.",
-    "formulaNotes: 등록 수식(F#)에도 같은 규칙으로 하나씩 — formulaId 는 수식 id, claim 은 그 식이 무엇을 계산·표현하는지(변수가 아니라 식 전체의 뜻) 한 문장, blockId 는 식을 둘 계획 블록(B05 홈이면 상세 뒤에 식과 이 해설이 놓인다). 인용 규칙도 figureNotes 와 같다.",
+    "formulaNotes: 수식(F#)마다 — claim=식 전체 뜻 한 문장, blockId=홈(개념 설명 식은 그 B05, 계산 식은 B10, 없으면 null). 인용은 figureNotes 준용.",
   ],
   review:[
     "[mis-sol-hai] 입력의 html 은 축약 렌더 HTML 이다 — data-block·data-claim 앵커가 블록·주장 id 다.",
   ],
   repair:[
     "[mis-sol-hai] 이 단계의 출력은 초안(claims·relations)이 아니라 블록 봉투다 — 작업이 싣고 있는 출력 스키마가 각 블록의 봉투 모양을 정한다.",
+    "B10 은 계산을 채웠으면 withheld 은 null 이고, 못 채웠으면 steps 는 빈 배열이다 — 둘을 함께 두지 않는다.",
+    "B14 의 evidenceIds·answer.reviewIds 는 이 요청의 evidence·allowedRefs 목록 안에서만 고른다 — 목록에 없는 근거 id 를 지어내지 않고, 지금 repair 대상인 같은 섹션 B10 의 계산 참조(S#_B#.c#·i#)는 아직 유효하지 않으므로 인용하지 않는다(calc 문항이 그 참조를 필요로 하면 다른 kind 로 바꾸거나 블록을 null 로 둔다).",
   ],
 };
 // 시스템 본문 = 공용 + 노트 규칙 + 단계 규칙 (+ 켠 생성 옵션 + 영어 규칙 + 전문 워커 지시). 같은 단계·옵션·worker 면 모든 호출이 같은 문자열이다.
