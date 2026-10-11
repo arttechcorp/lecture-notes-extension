@@ -566,8 +566,8 @@ test("existing modes immutability: sol-luna-2, sol-fork-2, independent, and unde
 });
 
 test("prompt size reporting: v3 reduces prompt bytes for plan, editorial, draft, review, questions", () => {
-  // 기준 plan 9,604(L3 emphasis 지시 추가) / editorial 7,894 / draft 10,348(B06 열별 고유 주장 규칙) / repair 8,135(근거 문구 실제 계약에 맞춤) / review 9,021(L1 전 모드 결함 수정 반영) / questions 7,745 (v2, ko, OFF)
-  const baselines = { plan: 9604, editorial: 7894, draft: 10348, repair: 8135, review: 9021, questions: 7745 };
+  // 기준 plan 9,604(L3 emphasis 지시 추가) / editorial 7,894 / draft 10,741(B06 표 전체 칸 중복·희소 표 지시) / repair 8,135(근거 문구 실제 계약에 맞춤) / review 9,021(L1 전 모드 결함 수정 반영) / questions 7,745 (v2, ko, OFF)
+  const baselines = { plan: 9604, editorial: 7894, draft: 10741, repair: 8135, review: 9021, questions: 7745 };
   for (const [st, baseSize] of Object.entries(baselines)) {
     const v2Size = Buffer.byteLength(Prompts.systemFor(st, OFF, undefined, undefined, "sol-luna-2"), "utf8");
     assert.equal(v2Size, baseSize, st + ": v2 기준 바이트 일치");

@@ -1232,6 +1232,9 @@
   const EMPHASIS_WORDS = { stress: /중요|핵심|꼭|반드시|기억|\b(important|crucial|essential|remember|key point)/i, exam: /시험|출제|중간고사|기말고사|퀴즈|\b(exams?|midterm|final exam|quiz)/i };
   // 원어·인용·기한의 원문 대조는 NFC + 공백 접기 + 대소문자 무시로 한다(§9).
   const normSub = s => String(s ?? "").normalize("NFC").replace(/\s+/g, " ").toLowerCase();
+  // 노트 언어(한국어+영어 병기) 판별: 한자 통합·확장A·호환 + 가나(히라·카타·확장·반각), 한글 음절·자모·호환 자모.
+  const CJK_RUN = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\u3040-\u30FF\u31F0-\u31FF\uFF66-\uFF9F]/;
+  const HANGUL_RUN = /[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\uA960-\uA97F\uD7B0-\uD7FF]/;
   const isClaim = v => !!v && typeof v === "object" && !Array.isArray(v)
     && Object.keys(v).length === 3 && ["text", "evidenceIds", "basis"].every(k => Object.hasOwn(v, k));
 
@@ -1312,6 +1315,10 @@
   // 주장 하나의 규칙(§6·§10). pedagogical 은 정해진 슬롯에만 있을 수 있고 숫자 검사를 건너뛴다 —
   // 의도적으로 틀린 문장이라 근거에 없는 수치가 정상이다. 정정된 근거는 after 와 함께 인용해야 한다.
   function claimInto(cl, path, ctx, errs) {
+    // 노트 언어 밖 문장(실행 mis-sol-hai-29 GB1 B02 question 이 중국어로 출력): 한자·가나가 있고 한글이
+    // 하나도 없는 주장은 거절한다. 영어 병기·수식 기호·고유명사는 한자·가나가 없으므로 통과 — 漢字 병기처럼
+    // 한글과 섞인 한자도 허용이다.
+    if (CJK_RUN.test(cl.text) && !HANGUL_RUN.test(cl.text)) pushErr(errs, "VAL_LANG", [`${path}:cjk`]);
     const evRefs = [], calcRefs = [], unknown = [], fresh = [];
     for (const r of cl.evidenceIds) {
       if (EV_RE.test(r)) { evRefs.push(r); if (!ctx.evById.has(r)) (ctx.global ? fresh : unknown).push(r); }
@@ -1430,19 +1437,30 @@
         ctx.evById.has(r) && normSub(ctx.evById.get(r).text).includes(normSub(c.original))))
         pushErr(errs, "VAL_ORIGINAL_UNSUPPORTED", ["/content/original"]);
     } else if (t === "B06") {
+      // 칸 중복은 행 안뿐 아니라 표 안 어디든 안 된다 — 같은 문장이 두 칸에 나오면 비교가 아니다.
+      // 작성자가 한 claimId 를 열마다(실행 mis-sol-hai-28) 또는 열 하나의 행마다(실행 mis-sol-hai-29:
+      // 열마다 개념 정의 claim 재사용) 재사용한 경우다. 대상 공통 사실은 common 에 두어야 한다.
+      const cellSeen = new Set();
+      let dupRow = -1, nulls = 0, total = 0;
       c.criteria.forEach((cr, i) => {
         if (cr.cells.length !== c.entities.length) pushErr(errs, "VAL_TABLE_SHAPE", [`/content/criteria/${i}/cells`]);
         if (cr.cells.every(x => x == null)) pushErr(errs, "VAL_TABLE_EMPTY_ROW", [`/content/criteria/${i}`]);
-        // 같은 기준 행에서 서로 다른 대상 칸이 같은 문장이면 비교가 아니다 — 작성자가 한 claimId 를 열마다 재사용한
-        // 경우다(실행 mis-sol-hai-28: 3열이 같은 문장). 대상 공통 사실은 common 에 두어야 한다.
-        const seen = new Set();
         for (const x of cr.cells) {
-          if (x == null) continue;
+          total++;
+          if (x == null) { nulls++; continue; }
           const k = normSub(x.text);
-          if (seen.has(k)) { pushErr(errs, "VAL_TABLE_DUP_CELL", [`/content/criteria/${i}`]); break; }
-          seen.add(k);
+          if (cellSeen.has(k) && dupRow < 0) dupRow = i;
+          cellSeen.add(k);
         }
       });
+      if (dupRow >= 0) pushErr(errs, "VAL_TABLE_DUP_CELL", [`/content/criteria/${dupRow}`]);
+      // 한 열이 모두 비면 그 대상은 근거가 없어 비교 대상이 아니다 — 열을 빼고 다시 쓴다.
+      c.entities.forEach((e, j) => {
+        if (c.criteria.length && c.criteria.every(cr => (cr && Array.isArray(cr.cells) ? cr.cells[j] : null) == null))
+          pushErr(errs, "VAL_TABLE_EMPTY_COL", [`/content/entities/${j}`]);
+      });
+      // '확인되지 않음' 이 절반을 넘는 표는 비교가 아니다 — 행·열을 줄이거나 블록을 보류하게 한다.
+      if (total && nulls > total / 2) pushErr(errs, "VAL_TABLE_SPARSE", [`${nulls}/${total}`]);
       pushErr(errs, "VAL_CONCEPT_REF", c.entities.map(e => e.conceptId).filter(id => id != null && !ctx.concepts.has(id)));
     } else if (t === "B03") {
       const keys = new Set();

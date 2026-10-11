@@ -1586,6 +1586,9 @@ const __defs = {
   const EMPHASIS_WORDS = { stress: /중요|핵심|꼭|반드시|기억|\b(important|crucial|essential|remember|key point)/i, exam: /시험|출제|중간고사|기말고사|퀴즈|\b(exams?|midterm|final exam|quiz)/i };
   // 원어·인용·기한의 원문 대조는 NFC + 공백 접기 + 대소문자 무시로 한다(§9).
   const normSub = s => String(s ?? "").normalize("NFC").replace(/\s+/g, " ").toLowerCase();
+  // 노트 언어(한국어+영어 병기) 판별: 한자 통합·확장A·호환 + 가나(히라·카타·확장·반각), 한글 음절·자모·호환 자모.
+  const CJK_RUN = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\u3040-\u30FF\u31F0-\u31FF\uFF66-\uFF9F]/;
+  const HANGUL_RUN = /[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\uA960-\uA97F\uD7B0-\uD7FF]/;
   const isClaim = v => !!v && typeof v === "object" && !Array.isArray(v)
     && Object.keys(v).length === 3 && ["text", "evidenceIds", "basis"].every(k => Object.hasOwn(v, k));
 
@@ -1666,6 +1669,10 @@ const __defs = {
   // 주장 하나의 규칙(§6·§10). pedagogical 은 정해진 슬롯에만 있을 수 있고 숫자 검사를 건너뛴다 —
   // 의도적으로 틀린 문장이라 근거에 없는 수치가 정상이다. 정정된 근거는 after 와 함께 인용해야 한다.
   function claimInto(cl, path, ctx, errs) {
+    // 노트 언어 밖 문장(실행 mis-sol-hai-29 GB1 B02 question 이 중국어로 출력): 한자·가나가 있고 한글이
+    // 하나도 없는 주장은 거절한다. 영어 병기·수식 기호·고유명사는 한자·가나가 없으므로 통과 — 漢字 병기처럼
+    // 한글과 섞인 한자도 허용이다.
+    if (CJK_RUN.test(cl.text) && !HANGUL_RUN.test(cl.text)) pushErr(errs, "VAL_LANG", [`${path}:cjk`]);
     const evRefs = [], calcRefs = [], unknown = [], fresh = [];
     for (const r of cl.evidenceIds) {
       if (EV_RE.test(r)) { evRefs.push(r); if (!ctx.evById.has(r)) (ctx.global ? fresh : unknown).push(r); }
@@ -1784,19 +1791,30 @@ const __defs = {
         ctx.evById.has(r) && normSub(ctx.evById.get(r).text).includes(normSub(c.original))))
         pushErr(errs, "VAL_ORIGINAL_UNSUPPORTED", ["/content/original"]);
     } else if (t === "B06") {
+      // 칸 중복은 행 안뿐 아니라 표 안 어디든 안 된다 — 같은 문장이 두 칸에 나오면 비교가 아니다.
+      // 작성자가 한 claimId 를 열마다(실행 mis-sol-hai-28) 또는 열 하나의 행마다(실행 mis-sol-hai-29:
+      // 열마다 개념 정의 claim 재사용) 재사용한 경우다. 대상 공통 사실은 common 에 두어야 한다.
+      const cellSeen = new Set();
+      let dupRow = -1, nulls = 0, total = 0;
       c.criteria.forEach((cr, i) => {
         if (cr.cells.length !== c.entities.length) pushErr(errs, "VAL_TABLE_SHAPE", [`/content/criteria/${i}/cells`]);
         if (cr.cells.every(x => x == null)) pushErr(errs, "VAL_TABLE_EMPTY_ROW", [`/content/criteria/${i}`]);
-        // 같은 기준 행에서 서로 다른 대상 칸이 같은 문장이면 비교가 아니다 — 작성자가 한 claimId 를 열마다 재사용한
-        // 경우다(실행 mis-sol-hai-28: 3열이 같은 문장). 대상 공통 사실은 common 에 두어야 한다.
-        const seen = new Set();
         for (const x of cr.cells) {
-          if (x == null) continue;
+          total++;
+          if (x == null) { nulls++; continue; }
           const k = normSub(x.text);
-          if (seen.has(k)) { pushErr(errs, "VAL_TABLE_DUP_CELL", [`/content/criteria/${i}`]); break; }
-          seen.add(k);
+          if (cellSeen.has(k) && dupRow < 0) dupRow = i;
+          cellSeen.add(k);
         }
       });
+      if (dupRow >= 0) pushErr(errs, "VAL_TABLE_DUP_CELL", [`/content/criteria/${dupRow}`]);
+      // 한 열이 모두 비면 그 대상은 근거가 없어 비교 대상이 아니다 — 열을 빼고 다시 쓴다.
+      c.entities.forEach((e, j) => {
+        if (c.criteria.length && c.criteria.every(cr => (cr && Array.isArray(cr.cells) ? cr.cells[j] : null) == null))
+          pushErr(errs, "VAL_TABLE_EMPTY_COL", [`/content/entities/${j}`]);
+      });
+      // '확인되지 않음' 이 절반을 넘는 표는 비교가 아니다 — 행·열을 줄이거나 블록을 보류하게 한다.
+      if (total && nulls > total / 2) pushErr(errs, "VAL_TABLE_SPARSE", [`${nulls}/${total}`]);
       pushErr(errs, "VAL_CONCEPT_REF", c.entities.map(e => e.conceptId).filter(id => id != null && !ctx.concepts.has(id)));
     } else if (t === "B03") {
       const keys = new Set();
@@ -2921,11 +2939,15 @@ if (typeof module !== "undefined") module.exports = api;
       },
       B06: pb => {
         const r = next("comparisons", pb); if (!r) return null;
-        const entities = (Array.isArray(r.entities) ? r.entities : []).map(e => ({ label: e.label, conceptId: e.conceptId ?? null }));
+        const ents = (Array.isArray(r.entities) ? r.entities : []).map(e => ({ label: e.label, conceptId: e.conceptId ?? null }));
         const criteria = (Array.isArray(r.criteria) ? r.criteria : [])
           .map(cr => ({ label: cr.label, cells: (Array.isArray(cr.cells) ? cr.cells : []).map(id => id == null ? null : at(id)) }))
           .filter(cr => cr.cells.some(Boolean)); // 셀이 전부 null 인 행은 계약 위반(VAL_TABLE_EMPTY_ROW)이다 — 미리 뺀다
-        return entities.length >= 2 && criteria.length ? { title: r.title, entities, criteria, common: list(r.common, 4), discriminator: at(r.discriminator) } : null;
+        // 셀이 전부 null 인 열도 계약 위반(VAL_TABLE_EMPTY_COL)이다 — 근거 없는 대상을 빼고 표를 줄인다. 남은 대상이 둘 미만이면 보류.
+        const keep = ents.map((e, j) => j).filter(j => criteria.some(cr => cr.cells[j] != null));
+        const entities = keep.map(j => ents[j]);
+        const rows = criteria.map(cr => ({ label: cr.label, cells: keep.map(j => cr.cells[j] ?? null) }));
+        return entities.length >= 2 && rows.length ? { title: r.title, entities, criteria: rows, common: list(r.common, 4), discriminator: at(r.discriminator) } : null;
       },
       B07: pb => {
         const r = next("arguments", pb); if (!r) return null;
@@ -5793,7 +5815,7 @@ const NoteContract=require("../lib/note-contract.js"),Contracts=require("../lib/
 // 프롬프트 문구나 아래 규칙을 바꾸면 올린다. 응답에 실려 단계 캐시 키에 들어간다.
 const PROMPT_VERSION="note-v6";
 // 단계별 버전: 프롬프트 문구나 아래 규칙을 바꾸면 그 단계만 올린다 — plan 캐시가 section 의 본문 재배치에 휘말려 무효가 되지 않게.
-const PROMPT_VERSIONS={plan:"note-v6",global:"note-v6",link:"note-v6",section:"note-v7",draft:"note-v10",repair:"note-v9",review:"note-v7",editorial:"note-v7",questions:"note-v7"};
+const PROMPT_VERSIONS={plan:"note-v6",global:"note-v7",link:"note-v6",section:"note-v7",draft:"note-v10",repair:"note-v9",review:"note-v7",editorial:"note-v7",questions:"note-v7"};
 const STAGES=["plan","section","global","repair","link","questions","draft","review","editorial"];
 // 두 실험 모드 — plan 직후 editorial 단계(같은 세션의 두 번째 Sol 턴)가 편집 명세(editorialPlan)를 낸다. 한 호출에 합치면 Edge 150초를 넘는다.
 const V2_MODES=NoteContract.V2_MODES;
@@ -5867,6 +5889,7 @@ const STAGE={
   global:[
     "단계: 전체 글. 입력은 노트 계획의 전역 블록(plan.global), 개념 목록, 검증을 통과한 섹션 요약(sections: 섹션별 블록과 그 주장, 각 주장의 evidenceIds)이다.",
     "전역 블록만 새로 쓴다. 주장의 evidenceIds는 sections의 주장이 이미 인용한 id 중에서만 고르고 새 근거를 만들지 않는다. 섹션 결과에 없는 사실은 쓰지 않는다. B02는 강의 전체를 아우르는 질문에 답한다 — 앞쪽 섹션만이 아니라 살아남은 모든 섹션의 재료를 두루 쓴다. targetIds·targetId에는 입력에 있는 문서 id만 쓴다 — sections의 sectionId·blockId, 개념 id, 계획된 전역 블록 id(GB#), 사례·자료 블록의 단서 위치(\"S3_B3/P1\"); 입력의 allowedRefs.targetIds가 그 목록이다. 지도 노드 key(n1 등)는 B03 간선의 끝 표시일 뿐 문서 참조가 아니다.",
+    "출력의 모든 문장은 한국어다(영어 용어 병기는 허용) — 한자·가나로만 이뤄진 중국어·일본어 문장은 쓰지 않는다. 그런 문장은 검증이 거절해 블록째 버려진다.",
   ],
   link:[
     "단계: 연결 편집. 입력은 검증을 통과한 섹션들(sections: 섹션별 블록과 그 주장, 각 주장의 evidenceIds)이다 — 각 주장에는 봉투 안 경로(path)가 붙어 있다. 근거 원문은 없고, 본문을 새로 쓰지 않는다.",
@@ -5889,7 +5912,7 @@ const STAGE={
     "설명 순서는 강의 유형을 따라간다 — 개념형은 정의→직관→원리→조건·예외→적용, 논증형은 주장–근거–숨은 전제–반론–한계, 경영형은 정의–작동–가정–비교–사례·의사결정. 역사·철학처럼 원리가 해당 없으면 mechanism 주장을 지어내지 않는다.",
     "재료가 없는 관계·칸은 만들지 않는다 — 확인되지 않은 칸에 넣을 주장을 지어내지 않고 null·빈 배열로 둔다. 근거가 부족해 계획한 블록의 재료를 만들 수 없으면 그 타입의 관계를 만들지 않는다.",
     "calcs 관계의 주장이 같은 계산의 입력·단계 값을 가리킬 때는 evidenceIds에 그 계산 안의 참조(\"i1\" 입력, \"c2\" 단계)를 적는다 — 코드가 블록 id를 붙인다.",
-    "comparisons 의 한 기준 행에서 서로 다른 열 칸은 그 열 대상에 맞는 고유 주장을 쓴다 — 같은 claimId 를 여러 열에 재사용하면 검증이 거절한다. 모든 대상에 공통인 사실은 칸이 아니라 common 에 둔다.",
+    "comparisons 의 한 기준 행에서 서로 다른 열 칸은 그 열 대상에 맞는 고유 주장을 쓴다 — 같은 claimId 를 여러 열에 재사용하면 검증이 거절한다. 모든 대상에 공통인 사실은 칸이 아니라 common 에 둔다. 각 칸은 그 기준에 대해 그 대상만이 갖는 사실이어야 한다 — 같은 열의 서로 다른 행 칸에도 같은 claimId·같은 문장을 쓰면 검증이 거절한다(개념 정의를 표 칸에 재사용 금지). 비교할 근거가 부족하면 그 기준 행이나 대상 열을 빼고, 그래도 남는 비교가 없으면 그 타입의 관계를 만들지 않는다.",
     "참조 id는 칸마다 허용 범위가 다르다 — 요청 본문의 allowedRefs 배열이 그 목록이다(섹션 작성과 같다). links 명제와 maps 노드의 targetIds·targetId에는 allowedRefs.targetIds의 id만 쓴다. 확인 항목(checks)의 targetIds에는 이 요청에 계획된 블록 id만 쓴다. 섹션 유닛의 절반 이상이 어떤 주장의 근거로 인용되어야 한다. 잡담, 출석, 인사는 다루지 않는다.",
   ],
   review:[

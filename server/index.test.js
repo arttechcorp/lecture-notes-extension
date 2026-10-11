@@ -202,7 +202,8 @@ test("/v1/me exposes per-task promptVersions and the policy version in remote co
   try {
     const me = await (await req(url, "/v1/me")).json();
     // 클라이언트 캐시 키 계약: 단계별 노트 프롬프트 버전(입력 재배치는 섹션 계열만 v7), judge 는 원격 설정 버전.
-    for (const s of ["plan", "global", "link"]) assert.equal(me.promptVersions[s], me.promptVersion, s);
+    for (const s of ["plan", "link"]) assert.equal(me.promptVersions[s], me.promptVersion, s);
+    assert.equal(me.promptVersions.global, "note-v7", "전역 지시는 한국어 전용 문장 규칙(한자·가나 문장 금지)을 더해 v7");
     for (const s of ["section", "questions"]) assert.equal(me.promptVersions[s], "note-v7", s);
     assert.equal(me.promptVersions.repair, "note-v9", "수리 지시는 msh 의 B10 보류/계산 공존 금지·B14 참조 범위 안내를 고쳐 v9");
     assert.equal(me.promptVersions.draft, "note-v10", "초안 지시는 B06 비교표의 열별 고유 claimId 규칙(같은 문장 칸 재사용 금지)을 더해 v10");

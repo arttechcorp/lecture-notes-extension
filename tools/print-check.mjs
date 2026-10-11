@@ -392,13 +392,15 @@ export function buildGeometryProbeHtml() {
   parts.push(`<div class="answer"><div class="answer-head" style="height:30px">h</div>${spacer(300)}<div class="answer-body"><p style="height:20px">a</p></div></div>`);
   parts.push(spacer(895));                                       // y≈5045, 쪽5 경계(5070) 근처
   parts.push(`<table class="note-table"><tbody><tr><td style="height:60px">r</td></tr></tbody></table>`); // 행이 5070을 가로지름
-  parts.push(`<p style="font-size:10px">x</p>`);
+  parts.push(`<p><span class="note-claim" style="font-size:10px">x</span></p>`); // 본문 주장 10px -> FONT_SIZE_VIOLATION
+  parts.push(`<p class="source"><span class="note-claim" style="font-size:11px">aux</span></p>`); // 양식상 보조 줄(11px) — 위반이 아니다
   parts.push(`<span class="katex-error">x</span>`);
   parts.push(`<img src="${gif}" data-decode-failed="true" alt="">`);
   parts.push(`<table class="note-table" style="width:${PW + 100}px"><tbody><tr><td>w</td><td>w</td></tr></tbody></table>`); // 가로 넘침
   parts.push(spacer(840));                                       // 쪽6 경계(6084) 직전으로 배치
   parts.push(`<figure class="note-fig" data-fig="G_SPLIT" id="S1_FIG_SPLIT" style="height:150px"><span class="note-fig-title" style="display:block;height:30px">도표 제목</span><img src="${gif}" style="display:block;height:80px" alt=""><div class="note-fig-explanation" style="display:block;height:40px"><p>도표 해설</p></div></figure>`); // 6084 경계를 걸침 -> FIGURE_UNIT_SPLIT
   parts.push(`<figure class="note-fig" data-fig="G_TALL" data-allow-split="true" style="height:${PH + 100}px"><span class="note-fig-title" style="display:block;height:30px">거대 도표</span><div style="height:${PH}px"></div></figure>`); // 1쪽 초과 + 분할 허용 -> 예외 허용
+  parts.push(`<figure class="note-fig" data-fig="G_TABLE"><table class="note-table"><thead><tr><th>c</th></tr></thead><tbody>${"<tr><td style=\"height:120px\">c</td></tr>".repeat(12)}</tbody></table></figure>`); // 1쪽 초과 표 도표 — 표는 행에서 나뉘므로 atomic 이 아니다(mis-sol-hai-28 G3)
 
   return `<!doctype html>
 <html lang="ko">
@@ -984,17 +986,22 @@ export async function runPrintCheckCI() {
   //    print media(가능 시) 적용 DOM의 top/pageHeight 근사 판정이다.
   console.log("\n▶ [3/3] Headless Chromium 인쇄 기하 실측 (DOM 프리플라이트 + PDF bbox)");
 
-  // 검출기 자기 검증 probe가 유발해야 하는 코드 — 어느 하나라도 빠지면 측정 경로가 고장 난 것
+  // 검출기 자기 검증 probe가 유발해야 하는 결함 코드 — 이슈로 세는 검증 가능한 결함.
+  // 쪽 경계 걸침 4종은 DOM 모델로는 실제 단편화를 알 수 없어 metrics 로만 센다 — 진짜
+  // 쪽 분할 검증은 PDF bbox(print_pagination) 경로가 한다.
   const EXPECTED_PROBE_CODES = [
     PrintCheck.CODES.OVERFLOW_X,
     PrintCheck.CODES.OVERFLOW_Y,
-    PrintCheck.CODES.HEADING_ORPHAN,
-    PrintCheck.CODES.ANSWER_SPLIT,
-    PrintCheck.CODES.TABLE_ROW_CLIPPED,
     PrintCheck.CODES.FONT_SIZE_VIOLATION,
     PrintCheck.CODES.KATEX_ERROR,
     PrintCheck.CODES.IMAGE_FAILED,
-    PrintCheck.CODES.FIGURE_UNIT_SPLIT,
+  ];
+  // 경계 걸침 계열은 이슈가 아니라 측정값으로 나와야 한다 — 어댑터가 안 재면 측정 경로 고장.
+  const EXPECTED_PROBE_METRICS = [
+    "headingOrphanCount",
+    "answerSplitCount",
+    "tableRowClippedCount",
+    "figureUnitSplitCount",
   ];
 
   let domProbe = { measured: false, media: null, reason: "chromium-unavailable", check: null, representativePages: null };
@@ -1011,10 +1018,11 @@ export async function runPrintCheckCI() {
       const got = new Set(domProbe.check.issues.map(i => i.code));
       console.log(`   - probe 실측(${domProbe.media} media): 이슈 ${domProbe.check.issues.length}건, 코드: ${[...got].sort().join(", ")}`);
       const missing = EXPECTED_PROBE_CODES.filter(c => !got.has(c));
-      if (missing.length > 0) {
-        throw new Error(`기하 검출기 자기 검증 실패: probe 문서에서 감지되지 않은 코드 ${missing.join(", ")}`);
+      const missingMetrics = EXPECTED_PROBE_METRICS.filter(k => !(domProbe.check.metrics?.[k] > 0));
+      if (missing.length > 0 || missingMetrics.length > 0) {
+        throw new Error(`기하 검출기 자기 검증 실패: 미검출 결함 ${missing.join(", ") || "없음"}, 미측정 경계 지표 ${missingMetrics.join(", ") || "없음"}`);
       }
-      console.log("   ✅ probe: 의도된 결함 전부 실측 검출");
+      console.log("   ✅ probe: 의도된 결함 전부 실측 검출 + 경계 지표 전부 측정");
     } else {
       console.log(`   ⚠️ probe 기하 미측정(미검증): ${domProbe.reason}`);
     }

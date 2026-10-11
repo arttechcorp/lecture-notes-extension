@@ -5,7 +5,7 @@
   const NoteContract = globalThis.NoteContract || (typeof require !== "undefined" ? require("./note-contract.js") : null);
   const NOTE_SPEC_VERSION = NoteContract.NOTE_SPEC_VERSION;
   // 마크업·CSS 가 바뀌면 올린다 — 디자인만 바뀐 재렌더는 H 단계만 다시 한다(§13).
-  const RENDER_VERSION = "render-10";
+  const RENDER_VERSION = "render-11";
 
   const arr = v => (Array.isArray(v) ? v : []);
   // 한 시간 미만 m:ss, 이상 h:mm:ss — 고지 구간 표기용(엔진의 h.time 과 같은 규칙).
@@ -102,8 +102,20 @@
     const n = h.note || {};
     const meta = n.evidenceMeta && typeof n.evidenceMeta === "object" ? n.evidenceMeta : null;
     const srcById = new Map(arr(n.sources).map(x => [x && x.id, x]));
+    // 단원마다 슬라이드 근거 중 필기 비율 — 40% 를 넘으면 그 단원의 개별 표식은 변별력이
+    // 없다(전환·애니메이션 오탐이거나 온통 필기 — mis-sol-hai-29: 거의 모든 문장에 ✎).
+    const inkTot = new Map(), inkN = new Map();
+    for (const [id, src] of srcById) {
+      const k = src && src.kind;
+      if (k !== "slide" && k !== "handwriting") continue;
+      const u = String(id).split(".")[0];
+      inkTot.set(u, (inkTot.get(u) || 0) + 1);
+      if (k === "handwriting") inkN.set(u, (inkN.get(u) || 0) + 1);
+    }
+    const inkHeavy = new Set();
+    for (const [u, n2] of inkTot) if (n2 >= 3 && (inkN.get(u) || 0) / n2 > 0.4) inkHeavy.add(u); // 표본 3 미만의 필기 표식은 변별이 된다
     return (h.__mk = {
-      meta, srcById, seen: new Set(), caps: new Map(), on: !!meta,
+      meta, srcById, seen: new Set(), caps: new Map(), on: !!meta, inkHeavy,
       terms: arr(n.concepts).filter(c => c && c.depth === "defined" && typeof c.name === "string").map(c => c.name),
     });
   };
@@ -143,7 +155,10 @@
     const caps = s.caps.get(secKey);
     const metaOf = id => (s.meta && s.meta[String(id).split(".")[0]]) || null;
     const kindOf = id => (s.srcById.get(id) || {}).kind;
-    const isInk = id => kindOf(id) === "handwriting" || !!(metaOf(id) || {}).ink;
+    // 필기 표시는 "ink:true(handwriting) 근거를 인용한 주장"에만 단다(기획 §4.6) — 단원에 필기가
+    // 하나라도 있으면 그 단원의 아무 근거나 인용한 주장 전부에 달던 단원 폴백을 뺐고,
+    // 변별력 없는 무거운 단원(sess 의 inkHeavy)은 개별 표식을 끈다(mis-sol-hai-29).
+    const isInk = id => kindOf(id) === "handwriting" && !s.inkHeavy.has(String(id).split(".")[0]);
     const min = h.opts && typeof h.opts.emphasisMin === "number" ? h.opts.emphasisMin : null;
     const isHot = id => stressIds.has(id)
       || (min != null && typeof (metaOf(id) || {}).emphasis === "number" && metaOf(id).emphasis >= min);
@@ -257,16 +272,27 @@
 
   // B02 한눈에 — 질문 아래 결론(conclusions)·열린 질문(issues) 최대 3건, 항목 끝에 대상 링크.
   const B02 = (b, h) => {
-    const c = (b && b.content) || {};
+    const c = (b && b.content) || {}, seen = seenOf(h);
+    const keep = x => fresh(seen, x);
     // 첫 쪽 시각화: 질문(뿌리) → 결론 가지(번호·이유·대상 칩)로 그린 나무 도식이다.
-    const branches = arr(c.items).map((it, i) => `<li class="mm-branch"><span class="mm-no">${pad2(i + 1)}</span>`
-      + `<p class="take-claim"><strong>${h.claim(it && it.claim, { tag: "span" })}</strong></p>`
-      + (it && it.reason ? h.claim(it.reason) : "")
-      + (links(h, it && it.targetIds) ? `<p class="goto">${links(h, it && it.targetIds)}</p>` : "") + "</li>").join("");
+    // 같은 결론 문장의 가지는 두 번 그리지 않고, 이유가 앞 문장과 같으면 이유 줄은 뺀다 — 번호는 살아남은 것만 센다.
+    let no = 0;
+    const branches = arr(c.items).map(it => {
+      const itClaim = it && it.claim && keep(it.claim);
+      if (it && it.claim && !itClaim) return "";
+      const itReason = it && it.reason && keep(it.reason);
+      return `<li class="mm-branch"><span class="mm-no">${pad2(++no)}</span>`
+        + `<p class="take-claim"><strong>${h.claim(itClaim, { tag: "span" })}</strong></p>`
+        + (itReason ? h.claim(itReason) : "")
+        + (links(h, it && it.targetIds) ? `<p class="goto">${links(h, it && it.targetIds)}</p>` : "") + "</li>";
+    }).join("");
     return `<section class="conclusion" data-view="mindmap"><div class="kicker">${c.mode === "issues" ? "열린 질문" : "이 강의의 질문"}</div>`
       + (c.question ? `<div class="mm-root"><h3>${h.claim(c.question, { tag: "span" })}</h3></div>` : "")
       + (branches ? `<ol class="mm-branches">${branches}</ol>` : "") + "</section>";
   };
+  // 문서 앞 전역 블록과 섹션 블록이 같은 seen 규칙을 쓴다 — 이미 실은 문장은 뒤 슬롯이 다시 싣지 않는다(mis-sol-hai-29).
+  const seenOf = h => h.seen || new Set();
+  const seenDoc = h => h.seenDoc || h.seen || new Set();
 
   // B03 강의 지도 — 노드 칩 아래에 방향 관계 행(출발 →관계→ 도착)을 나열한다. 같은 행은 한 번만 싣고,
   // 끝점을 모르는 관계는 라벨을 지어낼 수 없으므로 뺀다(§9). 화살표가 없는 노드를 뿌리로 표시한다.
@@ -275,14 +301,16 @@
     const byKey = new Map(nodes.filter(n => n && typeof n.key === "string").map(n => [n.key, n]));
     const inbound = new Set(arr(c.edges).map(e => e && e.to));
     const name = n => (n && n.targetId ? refLink(h, n.targetId, n.label) : h.esc(n && n.label));
-    const seen = new Set(), rows = [];
+    const seen = new Set(), docSeen = seenOf(h), rows = [];
     for (const e of arr(c.edges)) {
       const a = byKey.get(e && e.from), t = byKey.get(e && e.to);
       if (!a || !t) continue;
       const k = `${e.from}|${e.to}|${e.relation}|${(e.claim && e.claim.text) || ""}`;
       if (seen.has(k)) continue;
       seen.add(k);
-      rows.push(`<li class="map-edge"><span class="edge-src">${name(a)}</span><span class="edge-rel">${h.esc(REL3[e.relation] || e.relation || "관계")}</span><span class="edge-dst">${name(t)}</span>${e.claim ? `<small class="edge-claim">${h.claim(e.claim, { tag: "span" })}</small>` : ""}</li>`);
+      // 간선 주석 문장이 앞에서 이미 실은 문장이면 뺀다 — 관계 행(출발·관계·도착)은 남는다.
+      const eClaim = e.claim && fresh(docSeen, e.claim);
+      rows.push(`<li class="map-edge"><span class="edge-src">${name(a)}</span><span class="edge-rel">${h.esc(REL3[e.relation] || e.relation || "관계")}</span><span class="edge-dst">${name(t)}</span>${eClaim ? `<small class="edge-claim">${h.claim(eClaim, { tag: "span" })}</small>` : ""}</li>`);
     }
     return `<section><span class="role">구조</span><h3>${h.esc(c.title || "")}</h3><div class="map"><p class="map-nodes">${
       nodes.map(n => `<span class="map-node${n && !inbound.has(n.key) ? " map-root" : ""}">${name(n)}</span>`).join("")
@@ -310,14 +338,18 @@
 
   // B06 공통 축 비교 — 기준×대상 표. 비어 있는 칸은 "확인되지 않음"으로 두고 채우지 않는다(§9). td 의 data-label 은 좁은 화면 카드용.
   const B06 = (b, h) => {
-    const c = (b && b.content) || {}, ents = arr(c.entities);
+    const c = (b && b.content) || {}, ents = arr(c.entities), seen = seenOf(h);
+    const keep = x => fresh(seen, x);
     const rows = arr(c.criteria).map(r => `<tr><th scope="row">${h.esc(r && r.label)}</th>`
+      // 칸의 문장은 지운다 — 같은 문장이라도 칸이 '확인되지 않음'으로 바뀌면 안 된다(mis-sol-hai-29: 칸은 의미를 잃지 않게).
       + ents.map((e, j) => { const x = arr(r && r.cells)[j]; return `<td data-label="${h.esc(e && e.label)}">${x ? h.claim(x, { tag: "span" }) : `<span class="empty">확인되지 않음</span>`}</td>`; }).join("")
       + "</tr>").join("");
+    const common = arr(c.common).map(keep).filter(Boolean);
+    const disc = c.discriminator && keep(c.discriminator);
     return `<section><span class="role">비교</span><h3>${h.esc(c.title || "")}</h3>`
       + `<table class="note-table"><thead><tr><th scope="col">기준</th>${ents.map(e => `<th scope="col">${h.esc(e && e.label)}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>`
-      + (arr(c.common).length ? `<div class="common"><strong>공통</strong> · ${arr(c.common).map(x => h.claim(x, { tag: "span" })).join(" · ")}</div>` : "")
-      + (c.discriminator ? `<div class="common"><strong>구분</strong> · ${h.claim(c.discriminator, { tag: "span" })}</div>` : "")
+      + (common.length ? `<div class="common"><strong>공통</strong> · ${common.map(x => h.claim(x, { tag: "span" })).join(" · ")}</div>` : "")
+      + (disc ? `<div class="common"><strong>구분</strong> · ${h.claim(disc, { tag: "span" })}</div>` : "")
       + "</section>";
   };
 
@@ -325,11 +357,14 @@
   // 인과(causal)는 새 표시 데이터가 있는 노트에서 짧으면 한 줄 흐름으로 낸다(시안 X5) — 4단계 초과면 기존 사슬.
   const B07 = (b, h) => {
     const c = (b && b.content) || {}, steps = arr(c.steps), missing = arr(c.missingLinks);
+    const seen = seenOf(h);
+    // 단원 질문이 앞 블록이 실은 문장(예: 개념 정의)과 같으면 다시 싣지 않는다 — 사슬·빠진 고리는 구조라 그대로다.
+    const q = c.question && fresh(seen, c.question);
     const roleOf = s => h.esc(ROLE7[s && s.role] || (s && s.role) || "단계");
     const miss = missing.map(m => `<li class="relation">↓ 연결 설명 없음 · ${h.claim(m, { tag: "span" })}</li>`).join("");
     // 제목 묶음은 첫 문단(단원 질문)까지 품어야 인쇄에서 제목만 페이지 끝에 남지 않는다.
     const head = `<section><div class="heading-bundle"><span class="role">${h.esc(RELTYPE7[c.relationType] || "논증")}</span><h3>${h.esc(c.title || "")}</h3>`
-      + (c.question ? `<p class="unit-q">${h.claim(c.question, { tag: "span" })}</p>` : "") + `</div>`;
+      + (q ? `<p class="unit-q">${h.claim(q, { tag: "span" })}</p>` : "") + `</div>`;
     if (sess(h).on && c.relationType === "causal" && steps.length <= 4) {
       const flow = steps.map(s => `<span class="mk-step"><small>${roleOf(s)}</small> ${h.claim(s && s.claim, { tag: "span" })}</span>`)
         .join('<span class="mk-arrow">→</span>');
@@ -418,28 +453,45 @@
   };
 
   // B11 헷갈리기 쉬운 점 — 오해·구분·조건. structural_check 는 "구분 점검"으로 표시한다(§9).
+  // 앞 블록이 이미 실은 문장과 같은 슬롯은 뺀다 — 전부 같으면 상자째 안 낸다(mis-sol-hai-29).
   const B11 = (b, h) => {
-    const c = (b && b.content) || {};
+    const c = (b && b.content) || {}, seen = seenOf(h);
+    const keep = x => fresh(seen, x);
+    const lines = [];
+    const mis = c.misconception && keep(c.misconception);
+    const corr = c.correction && keep(c.correction);
+    const conds = arr(c.conditions).map(keep).filter(Boolean);
+    if (mis) lines.push(`<p><strong>오해:</strong> ${h.claim(mis, { tag: "span" })}</p>`);
+    if (corr) lines.push(`<p><strong>구분:</strong> ${h.claim(corr, { tag: "span" })}</p>`);
+    for (const x of conds) lines.push(`<p><strong>조건:</strong> ${h.claim(x, { tag: "span" })}</p>`);
+    if (!lines.length) return "";
     return `<aside class="warning"><h4>${c.origin === "structural_check" ? "[구분 점검]" : "[주의]"} 헷갈리기 쉬운 점</h4>`
-      + `<p><strong>오해:</strong> ${h.claim(c.misconception, { tag: "span" })}</p>`
-      + `<p><strong>구분:</strong> ${h.claim(c.correction, { tag: "span" })}</p>`
-      + arr(c.conditions).map(x => `<p><strong>조건:</strong> ${h.claim(x, { tag: "span" })}</p>`).join("") + "</aside>";
+      + lines.join("") + "</aside>";
   };
 
   // B12 곁설명 — 앞 블록 옆에 붙는 한 단락 보충(종류 라벨 + note). 띄우는 건 layout 의 with-aside.
+  // 앞 블록이 이미 실은 문장이면 곁설명은 낼 것이 없다 — 빈 라벨 상자를 두지 않는다(mis-sol-hai-29).
   const B12 = (b, h) => {
-    const c = (b && b.content) || {};
+    const c = (b && b.content) || {}, seen = seenOf(h);
+    const note = c.note && fresh(seen, c.note);
+    if (!note) return "";
     // "슬라이드에 없는 설명"(slide_absent): 발화 근거뿐인 내용 — 연한 배경+마이크 아이콘(시안 3B, 흑백은 굵은 왼쪽 테두리).
     if (c.kind === "slide_absent")
-      return `<aside class="aside-note mk-3B"><strong>${MIC}슬라이드에 없는 설명</strong>${h.claim(c.note)}</aside>`;
-    return `<aside class="aside-note"><strong>곁설명 · ${h.esc(KIND12[c.kind] || "보충")}</strong>${h.claim(c.note)}</aside>`;
+      return `<aside class="aside-note mk-3B"><strong>${MIC}슬라이드에 없는 설명</strong>${h.claim(note)}</aside>`;
+    return `<aside class="aside-note"><strong>곁설명 · ${h.esc(KIND12[c.kind] || "보충")}</strong>${h.claim(note)}</aside>`;
   };
 
   // B13 연결 정리 — 관계 라벨 + 명제 + 대상 링크.
+  // 문서 맨 뒤라 문서 전체에서 이미 실은 명제는 문장을 빼고 관계·링크만 남긴다(mis-sol-hai-29).
   const B13 = (b, h) => {
-    const c = (b && b.content) || {};
-    const items = arr(c.propositions).map(p => `<li><strong>${h.esc(REL13[p && p.relation] || (p && p.relation) || "")}:</strong> ${h.claim(p && p.claim, { tag: "span" })}`
-      + (links(h, p && p.targetIds) ? ` <small class="goto">${links(h, p && p.targetIds)}</small>` : "") + "</li>").join("");
+    const c = (b && b.content) || {}, seen = seenDoc(h);
+    const items = arr(c.propositions).map(p => {
+      const rel = h.esc(REL13[p && p.relation] || (p && p.relation) || "");
+      const cl = p && p.claim && fresh(seen, p.claim);
+      const ls = links(h, p && p.targetIds);
+      if (!cl && !ls) return "";
+      return `<li><strong>${rel}:</strong> ${cl ? h.claim(cl, { tag: "span" }) : ""}${ls ? ` <small class="goto">${ls}</small>` : ""}</li>`;
+    }).join("");
     return `<section class="synthesis"><h3>${h.esc(c.title || "연결 정리")}</h3><ol>${items}</ol></section>`;
   };
 
@@ -556,25 +608,33 @@
     h.eqsIn = id => (typeof h.equations === "function" ? h.equations(eqsOf(id)) : eqsOf(id).map(f => h.equation(f)).join(""));
     const pieces = [B01(null, h)];
     for (const b of b18) pieces.push(h.block(b));
+    // seen: 현재 맥락에서 이미 실은 문장 — 뒤 슬롯이 같은 문장을 다시 싣지 않게 한다(mis-sol-hai-29).
+    // 문서 앞 전역 블록의 문장(seenHead)은 각 섹션의 씨앗이고, 문서 누적(seenDoc)은 맨 뒤 B13 이 본다.
+    h.seenHead = new Set(); h.seenDoc = new Set(); h.seen = h.seenHead;
     for (const g of arr(note.global)) if (g && g.type !== "B13") pieces.push(h.block(g));
+    for (const t of h.seenHead) h.seenDoc.add(t);
     secs.forEach((s, si) => {
       const body = [];
-      h.seen = new Set();
+      h.seen = new Set(h.seenHead);
+      // 단원 헤더(요지)는 본문보다 먼저 나온다 — 같은 문장의 중복 판단도 보이는 순서대로 하려고 먼저 그린다.
+      const secHead = B04({ sec: s }, h);
       let last = -1; // body 안 마지막 "블록"의 자리 — B12 곁설명은 그 블록만 묶고 뒤따른 도표는 밖에 둔다
       for (const b of arr(s && s.blocks)) {
         if (!b || b.type === "B14" || b.type === "B18") continue;
         const blk = h.block(b);
-        if (b.type === "B12" && last >= 0) {
+        if (b.type === "B12" && last >= 0 && blk) {
           const prev = body[last];
           body[last] = prev.startsWith('<div class="with-aside">')
             ? prev.slice(0, -"</div></div>".length) + blk + "</div></div>" // 이어지는 곁설명은 중첩하지 않고 같은 aside 단에 쌓는다
             : `<div class="with-aside">${prev}<div class="aside-col">${blk}</div></div>`;
-        } else { last = body.length; body.push(blk); }
+        } else if (blk) { last = body.length; body.push(blk); }
+        // 중복 억제로 빈 블록(B11·B12 전부 중복)은 넣지 않는다 — 도표·수식은 단원 근거라 그 자리에 둔다.
         if (b.type !== "B05") { body.push(figSet(figsOf(b.id), h)); body.push(h.eqsIn(b.id)); } // B05 는 정의 바로 아래·상세 끝에 직접 싣는다
       }
       body.push(figSet(orphan.get(si) || [], h));
       for (const c of arr(s.checks)) body.push(templates.B17({ check: c }, h));
-      pieces.push(`<section class="note-sec" id="${h.esc(s.sectionId)}">${B04({ sec: s }, h)}${body.join("")}</section>`);
+      for (const t of h.seen) h.seenDoc.add(t);
+      pieces.push(`<section class="note-sec" id="${h.esc(s.sectionId)}">${secHead}${body.join("")}</section>`);
     });
     pieces.push(figSet(stray, h));
     for (const g of arr(note.global)) if (g && g.type === "B13") pieces.push(h.block(g));
