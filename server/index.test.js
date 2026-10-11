@@ -3898,7 +3898,8 @@ test("mis-sol-hai: Haiku draft 는 strict response_format 대신 스키마를 �
     const out = await res.json();
     assert.equal(res.status, 200, JSON.stringify(out.error || ""));
     const body = bodies.at(-1);
-    assert.equal(body.response_format, undefined);
+    // 초안 스키마는 Anthropic strict 컴파일 문법 크기를 넘어 strict 를 못 건다 — json_object 로 JSON 만 보장하고 스키마는 프롬프트로 준다(2026-10-11 실측).
+    assert.deepEqual(body.response_format, { type: "json_object" });
     assert.equal(body.provider.require_parameters, true);
     assert.deepEqual(body.reasoning, { enabled: false }, "Haiku 5.5 추론은 끈다 — effort low 도 추론이 출력 상한을 먹어 초안이 잘렸다");
     assert.ok(body.max_tokens >= 14000, "본문 상한은 그대로 둔다");
@@ -3937,11 +3938,14 @@ test("mis-sol-hai: 독립 수리(repair)는 blocks 를 {blockId,envelope}[] 로 
     const out = await res.json();
     assert.equal(res.status, 200, JSON.stringify(out.error || ""));
     assert.deepEqual(out.output, { blocks: { S1_B3: noteWriter.sections.S1.first.blocks.S1_B3 } }, "배열 응답이 keyed 맵으로 되돌아온다");
-    // Anthropic strict 스키마는 null 허용(union) 칸을 16개까지만 받는다 — Haiku 는 response_format 없이 스키마를 마지막 system 메시지로 받는다.
-    assert.equal(bodies.at(-1).response_format, undefined, "Haiku 요청에는 strict response_format 이 없다");
-    const sch = schemaMessage(bodies.at(-1));
+    // 수리 스키마는 작아 strict 로 간다 — null 허용 칸은 anyOf [T,null] 로 낮춘 변환 스키마다(Anthropic union·선택 칸 한도).
+    const rf = bodies.at(-1).response_format;
+    assert.equal(rf.type, "json_schema", "Haiku 수리는 strict response_format 을 쓴다");
+    assert.equal(rf.json_schema.strict, true);
+    const sch = rf.json_schema.schema;
     assert.equal(sch.properties.blocks.type, "array", "제공자 스키마의 blocks 는 배열이다");
     assert.ok(sch.properties.blocks.items.required.includes("blockId") && sch.properties.blocks.items.required.includes("envelope"));
+    assert.ok(Array.isArray(sch.properties.blocks.items.properties.envelope.anyOf), "envelope 는 anyOf [object,null] 이다");
     assert.ok(!("noteSession" in bodies.at(-1)) || bodies.at(-1).noteSession === undefined, "독립 호출에는 세션 봉투가 없다");
   }, env);
 });

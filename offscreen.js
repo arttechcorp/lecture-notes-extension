@@ -149,7 +149,7 @@ async function cropRegions(blob,doc,ctx){
       const c=canvas(9,8),g=c.getContext("2d",{willReadFrequently:true});
       g.drawImage(bmp,r.sx,r.sy,r.sw,r.sh,0,0,9,8);
       hashes[key]=Figures.dHash({width:9,height:8,data:g.getImageData(0,0,9,8).data,channels:4});
-      if(r.lowRes){lowRes.push(key);warn("CROP_LOW_RES",{unit:key});continue;}
+      if(r.lowRes){lowRes.push(key);continue;}
       if(!engineTried){engineTried=true;engine=await Figures.cropOcr();bail();if(!engine)warn("CROP_OCR_UNAVAILABLE",{unit:key});}
       if(!engine)continue;
       let cb=null;
@@ -166,8 +166,11 @@ async function cropRegions(blob,doc,ctx){
       const cut=await Figures.cropFigure(bmp,f.bbox,{createCanvas:canvas,maxSide:900});bail();
       crops[key]=await bytes(cut);bail();
       formulas.push(key);
-      if(r.lowRes){lowRes.push(key);warn("CROP_LOW_RES",{unit:key});}
+      if(r.lowRes)lowRes.push(key);
     }
+    // 저해상도 크롭은 슬라이드당 한 건으로 모은다 — 개별 키는 반환값 lowRes(→ figureData)에 그대로 있다.
+    // 후보가 전부 lowRes 면 소스 프레임 자체가 작은 이상 상황이라 warn, 일부면 정상 범위의 품질 표시(info)다.
+    if(lowRes.length)events.emit({stage:"crop",level:lowRes.length===Object.keys(crops).length?"warn":"info",code:"CROP_LOW_RES",...(jobId?{jobId}:{}),unit:doc.slideId,msg:`count=${lowRes.length}`});
   }finally{bmp.close();}
   return {crops,hashes,formulas,ocr,lowRes};
 }
@@ -457,7 +460,7 @@ function diagExportSlice(evs){
 async function localData(message,sender){
   if(!trusted(sender,["/background.js"]))throw new Error("허용되지 않은 요청입니다.");
   const store=await storeP;
-  if(message.type==="LOGS_READ"){await sink?.flush();return {ok:true,events:diagExportSlice(await store.readLogs())};}
+  if(message.type==="LOGS_READ"){await sink?.flush();const all=await store.readLogs();return {ok:true,events:diagExportSlice(all),rawCount:all.length};}
   if(message.type==="LOGS_CLEAR"){await sink?.flush();await store.adapter.clear("logs");return {ok:true};}
   if(starting||archiveBusy||summaryController||bg||session&&!["completed","failed","disposed"].includes(session.status))throw new Error("캡처나 백그라운드 작업이 진행 중입니다. 끝난 뒤 다시 시도하세요.");
   if(message.dryRun)return {ok:true}; // 계정 삭제가 서버를 지우기 전에 이 기기를 지울 수 있는지만 본다

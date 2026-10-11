@@ -606,6 +606,52 @@ const __defs = {
     return out;
   }
 
+  // 제공자 strict 스키마용 null 인코딩(Anthropic strict 컴파일러 — union 칸 ≤16·선택 칸 ≤24·문법 크기 상한, 2026-10-11 OpenRouter 실측):
+  //   enum 에 null 이 있는 칸은 센티널 PROVIDER_NULL("none") 값 하나로 — union·선택 칸을 늘리지 않는다.
+  //   enum 없는 string 칸은 선택 키로 바꾼다(키 생략 = null) — 패턴 id 칸이 대부분이라 union 예산을 아낀다.
+  //   그 외(object·array·number) 칸과 배열 items 의 null 허용은 anyOf [T,null] — 생략이 불가한 자리는 union 으로 둔다.
+  // 응답은 fillNulls 가 원래 계약(키 있음·null·센티널 해제)으로 되돌린다. enum 에 "none" 이 있는 계약에는 쓸 수 없다.
+  const PROVIDER_NULL = "none";
+  const nullable = s => (Array.isArray(s?.type) && s.type.includes("null")) || (Array.isArray(s?.enum) && s.enum.includes(null));
+  const stripNull = s => {
+    const o = { ...s };
+    if (Array.isArray(o.type)) { const t = o.type.filter(x => x !== "null"); o.type = t.length === 1 ? t[0] : t; }
+    if (Array.isArray(o.enum)) o.enum = o.enum.filter(v => v !== null);
+    return o;
+  };
+  function optionalNulls(schema) {
+    if (!schema || typeof schema !== "object") return schema;
+    const out = { ...schema };
+    if (out.properties) {
+      const props = {}, optional = [];
+      for (const [k, p] of Object.entries(out.properties)) {
+        if (!nullable(p)) { props[k] = optionalNulls(p); continue; }
+        if (Array.isArray(p.enum)) props[k] = optionalNulls({ ...stripNull(p), enum: [...stripNull(p).enum, PROVIDER_NULL] });
+        else if ((Array.isArray(p.type) ? p.type : [p.type]).includes("string")) { props[k] = optionalNulls(stripNull(p)); optional.push(k); }
+        else props[k] = { anyOf: [optionalNulls(stripNull(p)), { type: "null" }] };
+      }
+      out.properties = props;
+      if (Array.isArray(out.required)) out.required = out.required.filter(k => !optional.includes(k));
+    }
+    if (out.items) out.items = nullable(out.items) ? { anyOf: [optionalNulls(stripNull(out.items)), { type: "null" }] } : optionalNulls(out.items);
+    return out;
+  }
+  // optionalNulls 인코딩의 역변환 — 로컬 스키마(원래 계약)를 따라 내려가며 생략된 칸을 null 로 채우고 센티널을 null 로 돌린다.
+  // anyOf 는 원래 계약도 같은 두 값을 받으므로 손댈 게 없다. 검증 전·id 정규화 전에 적용한다(배열 칸은 먼저 keyed 로 돌린다).
+  function fillNulls(schema, value) {
+    if (!value || typeof value !== "object") return value;
+    if (Array.isArray(value)) return value.map(v => fillNulls(schema?.items, v));
+    const props = schema?.properties;
+    if (!props) return value;
+    const out = { ...value };
+    for (const [k, p] of Object.entries(props)) {
+      if (out[k] === undefined && nullable(p)) out[k] = null;
+      else if (out[k] === PROVIDER_NULL && Array.isArray(p?.enum) && p.enum.includes(null)) out[k] = null;
+      else if (out[k] !== undefined) out[k] = fillNulls(p, out[k]);
+    }
+    return out;
+  }
+
   // 공통 봉투는 코드가 검증한다(§3.1). content 스키마가 없는 타입(B01·B04·B15·B16·B17)은 Writer 슬롯이 없다.
   // emSchema: 제공자 출력 스키마는 strict emphasis(기본). 코드 검증(validateSection·validateGlobal)은
   // 선택 필드를 받는 emphasisWide 를 넘긴다 — 파이프라인이 검증을 지나 주입한 quote·repeat 도 통과한다.
@@ -2424,6 +2470,7 @@ const __defs = {
     schemas, envelopeSchema, sectionOutputSchemaFor, repairOutputSchemaFor, globalOutputSchemaFor, linkOutputSchema,
     normalizePlan, repairPlan, canonicalPlanIds, canonicalMapKeys, checkCalc, displayOf, citedRefs, validateSection, validateGlobal, assembleNote, restrictBasis, policyOf, AUG, withSource, measurePlanCaps,
     V2_MODES, EDITORIAL_ROLES, VISUAL_KINDS, REVIEW_OPS, editorialPlanSchema, plannerOutputV2, reviewOutputSchema, validateEditorialPlan, remapEditorialSections,
+    PROVIDER_NULL, optionalNulls, fillNulls,
   });
   globalThis.NoteContract = api;
   if (typeof module !== "undefined") module.exports = api;
@@ -3751,7 +3798,7 @@ VISION_BLOCKS.items={...VISION_BLOCKS.items,properties:{...VISION_BLOCKS.items.p
 // 필기 표시(ink)는 제공자가 모르는 후처리 메타다 — 제공자 스키마에서만 빼고 서버가 null 로 둔다.
 delete VISION_BLOCKS.items.properties.ink;
 const VISION_SCHEMA=providerSchema({type:"object",additionalProperties:false,required:["blocks","formulas","figures"],properties:{blocks:VISION_BLOCKS,formulas:Contracts.SCHEMAS.slideDoc.properties.formulas,figures:Contracts.SCHEMAS.slideDoc.properties.figures}},["id","status"]);
-const {cachedSystem,cachedUser,cacheModeOf,parseNote,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cacheOf,upstreamOf,toLiner,userWithImages,readChoice,schemaInPrompt}=require("./llm.js");
+const {cachedSystem,cachedUser,cacheModeOf,parseNote,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cacheOf,upstreamOf,toLiner,userWithImages,readChoice,optionalNulls}=require("./llm.js");
 const SectionDraft=require("../lib/section-draft.js");
 const NoteSession=require("./note-session.js");
 const safePart=x=>{if(typeof x!=="string"||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(x))throw new Error("invalid_id");return x;};
@@ -4470,13 +4517,20 @@ function createServer(env=process.env,deps={}){
     const cacheMode=cacheModeOf(input.model),cacheFields=cacheMode==="openai-explicit"?{prompt_cache_options:{mode:"explicit",ttl:"30m"},...(input.jobId?{prompt_cache_key:`${stage}:${crypto.createHash("sha256").update(String(input.jobId)).digest("hex").slice(0,32)}`}:{})}:{};
     // mis-sol-hai 초안·독립 수리: keyed 칸(nullReasons·blocks 맵)은 제공자 strict 스키마가 요구하는
     // 정적 배열 모양으로 내린다 — 응답은 검증 전 정규화가 다시 keyed 맵으로 돌린다(lib/section-draft.js).
-    const providerOut=providerSchema(
-      msh&&stage==="draft"?SectionDraft.providerSchemaFor(rest.section,{gist:rest.withGist,policy:rest.options,allowedRefs:rest.allowedRefs,sourceLang,nullReasons:true,figureNotes:true})
+    const shapeOut=msh&&stage==="draft"?SectionDraft.providerSchemaFor(rest.section,{gist:rest.withGist,policy:rest.options,allowedRefs:rest.allowedRefs,sourceLang,nullReasons:true,figureNotes:true})
       :msh&&stage==="repair"?REPAIR_PROVIDER_SCHEMA
-      :outSchema,[]);
+      :outSchema,
+      providerOut=providerSchema(shapeOut,[]),
+      // Anthropic strict 한도(union≤16·선택 칸≤24·컴파일 문법 크기 — 2026-10-11 OpenRouter 실측): 초안은 변환해도 문법이 커져
+      // strict 가 늘 400 이라 json_object+스키마 system 메시지로 받고, 작은 스키마(questions·repair)만 strict 로 내린다.
+      // strict 로 가는 요청은 null 허용 칸을 선택 키·"none" 센티널·anyOf 로 낮춘 변환 스키마(NoteContract.optionalNulls)로 보낸다.
+      optNull=optionalNulls(input.model),strict=!optNull||stage!=="draft";
     // 배열로 내린 칸은 검증 전에 keyed 맵으로 되돌린다 — 세션(Sol 수리)·독립 경로 모두(실행 mis-sol-hai-23: 세션 경로가 빠져 required 실패).
+    // strict 변환 스키마로 받은 응답은 fillNulls 가 생략 칸·"none" 센티널을 원래 계약(null)으로 되돌린다.
+    const fill=o=>optNull&&strict?NoteContract.fillNulls(outSchema,o):o;
     const outPatch=msh&&stage==="draft"?p=>SectionDraft.normalizeNullReasons(p,(rest.section?.blocks??[]).map(b=>b.blockId))
-      :msh&&stage==="repair"?p=>normalizeRepairBlocks(p,[...new Set((rest.repair??[]).map(r=>r.blockId))])
+      :msh&&stage==="repair"?p=>fill(normalizeRepairBlocks(p,[...new Set((rest.repair??[]).map(r=>r.blockId))]))
+      :optNull?p=>fill(p)
       :null;
     // 형식 실패 재시도분까지 예약하고 정산에서 되돌린다. 시스템 본문과 스키마도 입력 토큰이다.
     // 세션 모드는 요청 안에서 Sol·Luna 여러 호출이 돈다 — 도구 호출(Luna)과 Sol 이 도구 결과를 다시 읽는 입력까지 예약에 넣는다.
@@ -4522,9 +4576,9 @@ function createServer(env=process.env,deps={}){
           const at=Date.now();
           const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
             model:upModel,...params,...cacheFields,
-            // Haiku 등 schemaInPrompt 모델: strict response_format 대신 스키마를 system 메시지로 준다(server/llm.js) — 출력은 아래 계약 검증이 본다.
-            messages:[cachedSystem(input.model,system),...(schemaInPrompt(input.model)?[{role:"system",content:"출력은 아래 JSON 스키마를 따르는 JSON 객체 하나뿐이다.\n"+JSON.stringify(providerOut)}]:[]),msh&&images?userWithImages(cachedUser(input.model,userText,stage).content,images):cachedUser(input.model,userText,stage)],
-            ...(schemaInPrompt(input.model)?{}:{response_format:{type:"json_schema",json_schema:{name:"lecture_note_"+stage,strict:true,schema:providerOut}}}),
+            // strict 스키마를 못 거는 단계(Haiku 초안)는 스키마를 system 메시지로 주고 response_format json_object 로 받는다 — 출력은 아래 계약 검증이 본다.
+            messages:[cachedSystem(input.model,system),...(strict?[]:[{role:"system",content:"출력은 아래 JSON 스키마를 따르는 JSON 객체 하나뿐이다.\n"+JSON.stringify(shapeOut)}]),msh&&images?userWithImages(cachedUser(input.model,userText,stage).content,images):cachedUser(input.model,userText,stage)],
+            ...(strict?{response_format:{type:"json_schema",json_schema:{name:"lecture_note_"+stage,strict:true,schema:optNull?NoteContract.optionalNulls(providerOut):providerOut}}}:(optNull?{response_format:{type:"json_object"}}:{})),
             // v2 표시 요청(sol-luna-2 의 Luna 독립 호출)은 sticky 라우팅을 끄는 order 를 빼고 only 만 둔다(spec 5.2·6).
             provider:{only:upProviders,...(v2?{}:{order:upProviders}),require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}
           })});
@@ -5008,9 +5062,10 @@ const MODELS={
   // reasoning 끔: Haiku 5.5 는 adaptive thinking 만 받아 토큰 예산으로 못 묶고(공식 문서), effort high 는 추론 15~22K·low 도 10~18K 로
   // 출력 상한(22K)을 먹어 초안이 잘렸다(mis-sol-hai-12·14·23). 상한을 올리면 서버 시한(120초)에 걸린다 — 22K 에 약 90초.
   // OpenRouter 메타상 Haiku 5.5 추론은 선택(mandatory:false)이다. 계획·검수·수리는 Sol 이 맡고 Haiku 는 정해진 블록 본문만 쓴다.
-  // schemaInPrompt: Anthropic strict json_schema 는 null 허용(union) 칸을 요청당 16개까지만 받아(공식 문서, 초과 시 400) 초안 스키마(약 48칸)가 늘 거절된다 —
-  // response_format 없이 스키마를 system 메시지로 주고 서버 계약 검증·형식 재시도로 받는다.
-  "anthropic/claude-haiku-5.5":{tags:["google-vertex/global"],reasoning:{enabled:false},maxTokens:32768,temperature:false,cache:true,schemaInPrompt:true},
+  // optionalNulls: Anthropic strict json_schema 는 null 허용 칸을 union(≤16)·선택 칸(≤24)·컴파일 문법 크기로 세어 거절한다(2026-10-11 실측) —
+  // 스키마가 작은 단계(questions·repair)는 null 칸을 선택 키·"none" 센티널·anyOf 로 낮춘 변환 스키마(NoteContract.optionalNulls)로 strict 를 쓰고,
+  // 변환해도 문법 크기가 상한을 넘는 초안은 response_format json_object + 스키마 system 메시지로 받는다(server/index.js).
+  "anthropic/claude-haiku-5.5":{tags:["google-vertex/global"],reasoning:{enabled:false},maxTokens:32768,temperature:false,cache:true,optionalNulls:true},
   "xiaomi/mimo-v2.6-pro":{tags:["deepinfra/fp8"],reasoning:{effort:"low"},reasoningBudget:4000,maxTokens:32768},
   "xiaomi/mimo-v2.6-flash":{tags:["io-net/fp8","venice/fp8","deepinfra/fp8"],reasoning:{enabled:false},maxTokens:32768},
 };
@@ -5077,7 +5132,7 @@ const parseNote=text=>{
   const tryAll=x=>{try{return JSON.parse(x,rev);}catch(e){const y=esc(x);if(y===x)throw e;return JSON.parse(y,rev);}};
   try{return tryAll(t);}catch(e){const i=t.indexOf("{"),j=t.lastIndexOf("}");if(i<0||j<=i||(i===0&&j===t.length-1))throw e;return tryAll(t.slice(i,j+1));}
 };
-const schemaInPrompt=model=>!!MODELS[model]?.schemaInPrompt;
+const optionalNulls=model=>!!MODELS[model]?.optionalNulls;
 // 이미지 근거(mis-sol-hai 필기 해석, 기획 §4.2): user 텍스트 뒤에 근거 id 라벨과 image_url 파트를 번갈아 붙인다.
 // 이미지는 이 요청 안에서만 산다 — 문자열이든 캐시 분할 파트든 그 뒤에 덧붙이고, 호출 뒤에는 버린다(저장 금지).
 const userWithImages=(user,images)=>{
@@ -5123,7 +5178,7 @@ function toLiner(url,init,liner){
   else if(b.reasoning){if(b.reasoning.effort)b.reasoning_effort=b.reasoning.effort;delete b.reasoning;}
   return[liner.base.replace(/\/+$/,"")+"/"+m[1],{...init,body:JSON.stringify(b),headers:{...init.headers,authorization:"Bearer "+liner.key}}];
 }
-module.exports={schemaInPrompt,toLiner,MODELS,LINER_MODELS,upstreamOf,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cachedSystem,cachedUser,cacheModeOf,parseNote,cacheOf,commonPrefixLength,orderUserPayload,SHARED_HEAD,userWithImages,readChoice};
+module.exports={optionalNulls,toLiner,MODELS,LINER_MODELS,upstreamOf,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cachedSystem,cachedUser,cacheModeOf,parseNote,cacheOf,commonPrefixLength,orderUserPayload,SHARED_HEAD,userWithImages,readChoice};
 
 },
 "server/note-session.js": function (module, exports, require, __filename, __dirname) {

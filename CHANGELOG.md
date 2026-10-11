@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.8.0.20 — 2026-10-11
+
+- Haiku 5.5 초안·질문·수리가 OpenRouter ZDR 경로에서 통과하게 했다. 초안은 strict 스키마가 문법 크기 한도를 넘어 불가능해 json_object+스키마 지시로 받고, 질문·수리는 null 칸을 선택 키·"none" 센티널·anyOf로 바꾼 strict 스키마로 보낸 뒤 원래 계약(null)으로 복원한다. (필드: Haiku 초안 provider_http_404 ×21, Vertex 400 'Enum value … does not match' · 'too many union parameters')
+- 첫 STT 청크가 정산되기 전에는 새 vision 유닛을 보내지 않는다(오디오 없음·STT 스킵·이어받은 전사가 있으면 바로 열림). STT가 죽은 실행에서 vision 18건($0.09)을 태우던 낭비를 막는다. 보류 중 새 수락이 끼어들어 제출 순서가 깨지던 교착도 고쳤다.
+- CROP_LOW_RES 경고를 슬라이드당 1건으로 집계(일부만 저해상도면 info)하고, 진단 내보내기에 슬라이스 전 총 이벤트 수(rawCount)를 남긴다.
+
 ## 2.8.0.19 — 2026-10-11
 
 - STT 1순위(Azure mai-transcribe-2)가 죽어도 같은 요청 안에서 openai/whisper-large-v3-turbo(ZDR)로 넘어간다. 시도당 55초·서버 총 115초 예산이라 엣지 한도 안에 구조화된 504가 나간다. (필드: mis-sol-hai-26 STT 120초 매달림 → paused:network)

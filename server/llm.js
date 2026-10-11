@@ -23,9 +23,10 @@ const MODELS={
   // reasoning 끔: Haiku 5.5 는 adaptive thinking 만 받아 토큰 예산으로 못 묶고(공식 문서), effort high 는 추론 15~22K·low 도 10~18K 로
   // 출력 상한(22K)을 먹어 초안이 잘렸다(mis-sol-hai-12·14·23). 상한을 올리면 서버 시한(120초)에 걸린다 — 22K 에 약 90초.
   // OpenRouter 메타상 Haiku 5.5 추론은 선택(mandatory:false)이다. 계획·검수·수리는 Sol 이 맡고 Haiku 는 정해진 블록 본문만 쓴다.
-  // schemaInPrompt: Anthropic strict json_schema 는 null 허용(union) 칸을 요청당 16개까지만 받아(공식 문서, 초과 시 400) 초안 스키마(약 48칸)가 늘 거절된다 —
-  // response_format 없이 스키마를 system 메시지로 주고 서버 계약 검증·형식 재시도로 받는다.
-  "anthropic/claude-haiku-5.5":{tags:["google-vertex/global"],reasoning:{enabled:false},maxTokens:32768,temperature:false,cache:true,schemaInPrompt:true},
+  // optionalNulls: Anthropic strict json_schema 는 null 허용 칸을 union(≤16)·선택 칸(≤24)·컴파일 문법 크기로 세어 거절한다(2026-10-11 실측) —
+  // 스키마가 작은 단계(questions·repair)는 null 칸을 선택 키·"none" 센티널·anyOf 로 낮춘 변환 스키마(NoteContract.optionalNulls)로 strict 를 쓰고,
+  // 변환해도 문법 크기가 상한을 넘는 초안은 response_format json_object + 스키마 system 메시지로 받는다(server/index.js).
+  "anthropic/claude-haiku-5.5":{tags:["google-vertex/global"],reasoning:{enabled:false},maxTokens:32768,temperature:false,cache:true,optionalNulls:true},
   "xiaomi/mimo-v2.6-pro":{tags:["deepinfra/fp8"],reasoning:{effort:"low"},reasoningBudget:4000,maxTokens:32768},
   "xiaomi/mimo-v2.6-flash":{tags:["io-net/fp8","venice/fp8","deepinfra/fp8"],reasoning:{enabled:false},maxTokens:32768},
 };
@@ -92,7 +93,7 @@ const parseNote=text=>{
   const tryAll=x=>{try{return JSON.parse(x,rev);}catch(e){const y=esc(x);if(y===x)throw e;return JSON.parse(y,rev);}};
   try{return tryAll(t);}catch(e){const i=t.indexOf("{"),j=t.lastIndexOf("}");if(i<0||j<=i||(i===0&&j===t.length-1))throw e;return tryAll(t.slice(i,j+1));}
 };
-const schemaInPrompt=model=>!!MODELS[model]?.schemaInPrompt;
+const optionalNulls=model=>!!MODELS[model]?.optionalNulls;
 // 이미지 근거(mis-sol-hai 필기 해석, 기획 §4.2): user 텍스트 뒤에 근거 id 라벨과 image_url 파트를 번갈아 붙인다.
 // 이미지는 이 요청 안에서만 산다 — 문자열이든 캐시 분할 파트든 그 뒤에 덧붙이고, 호출 뒤에는 버린다(저장 금지).
 const userWithImages=(user,images)=>{
@@ -138,4 +139,4 @@ function toLiner(url,init,liner){
   else if(b.reasoning){if(b.reasoning.effort)b.reasoning_effort=b.reasoning.effort;delete b.reasoning;}
   return[liner.base.replace(/\/+$/,"")+"/"+m[1],{...init,body:JSON.stringify(b),headers:{...init.headers,authorization:"Bearer "+liner.key}}];
 }
-module.exports={schemaInPrompt,toLiner,MODELS,LINER_MODELS,upstreamOf,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cachedSystem,cachedUser,cacheModeOf,parseNote,cacheOf,commonPrefixLength,orderUserPayload,SHARED_HEAD,userWithImages,readChoice};
+module.exports={optionalNulls,toLiner,MODELS,LINER_MODELS,upstreamOf,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cachedSystem,cachedUser,cacheModeOf,parseNote,cacheOf,commonPrefixLength,orderUserPayload,SHARED_HEAD,userWithImages,readChoice};

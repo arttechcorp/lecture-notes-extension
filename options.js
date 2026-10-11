@@ -121,7 +121,7 @@ async function deleteAccount(){
 const jwtExpSec=t=>{try{const b=String(t).split('.')[1].replace(/-/g,'+').replace(/_/g,'/'),p=JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(b.padEnd(Math.ceil(b.length/4)*4,'=')),c=>c.charCodeAt(0))));return Number.isFinite(p?.exp)?Math.round(p.exp-Date.now()/1000):null;}catch{return null;}}; // 페이로드만 읽는다 — 토큰 자체는 어디에도 싣지 않는다
 const clean=o=>Object.fromEntries(Object.entries(o).filter(([,v])=>v!==undefined));
 async function exportDiagnostics(){
-  const {events}=await local('LOGS_READ');
+  const {events,rawCount}=await local('LOGS_READ');
   if(!events.length)return '내보낼 진단 로그가 없습니다.';
   const env={};
   try{const app={version:chrome.runtime.getManifest?.()?.version??null,extensionId:chrome.runtime.id??null};try{const self=await chrome.management?.getSelf?.();if(self?.installType)app.installType=self.installType;}catch{}env.app=app;}catch{}
@@ -139,7 +139,7 @@ async function exportDiagnostics(){
     try{const me=await ServiceClient.me({baseUrl:s.serviceUrl,token:await serviceToken(s),timeoutMs:15000});
       env.server={ok:true,ms:Date.now()-t0,plan:me?.plan??null,minutesUsed:me?.quota?.minutes??null,minutesLimit:me?.quota?.maxMinutes??null,currentPeriodEnd:me?.current_period_end??null,cancelAtPeriodEnd:me?.cancel_at_period_end??null};
     }catch(e){env.server={ok:false,ms:Date.now()-t0,code:typeof e?.code==='string'?e.code:null,httpStatus:typeof e?.status==='number'?e.status:null};}}catch{}
-  try{env.logs={count:events.length,firstTs:events[0]?.ts??null,lastTs:events.at(-1)?.ts??null};}catch{}
+  try{env.logs={count:events.length,rawCount:typeof rawCount==='number'?rawCount:events.length,firstTs:events[0]?.ts??null,lastTs:events.at(-1)?.ts??null};}catch{}
   const version=chrome.runtime.getManifest?.()?.version??null;
   const bundle=await Diagnostics.exportBundle(events,{version,env:Object.keys(env).length?env:null}),a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([JSON.stringify(bundle,null,2)],{type:'application/json'}));

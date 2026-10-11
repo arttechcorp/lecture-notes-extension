@@ -114,7 +114,7 @@ VISION_BLOCKS.items={...VISION_BLOCKS.items,properties:{...VISION_BLOCKS.items.p
 // 필기 표시(ink)는 제공자가 모르는 후처리 메타다 — 제공자 스키마에서만 빼고 서버가 null 로 둔다.
 delete VISION_BLOCKS.items.properties.ink;
 const VISION_SCHEMA=providerSchema({type:"object",additionalProperties:false,required:["blocks","formulas","figures"],properties:{blocks:VISION_BLOCKS,formulas:Contracts.SCHEMAS.slideDoc.properties.formulas,figures:Contracts.SCHEMAS.slideDoc.properties.figures}},["id","status"]);
-const {cachedSystem,cachedUser,cacheModeOf,parseNote,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cacheOf,upstreamOf,toLiner,userWithImages,readChoice,schemaInPrompt}=require("./llm.js");
+const {cachedSystem,cachedUser,cacheModeOf,parseNote,reasoningFor,reasoningBudgetFor,maxTokensFor,noTemperature,cacheOf,upstreamOf,toLiner,userWithImages,readChoice,optionalNulls}=require("./llm.js");
 const SectionDraft=require("../lib/section-draft.js");
 const NoteSession=require("./note-session.js");
 const safePart=x=>{if(typeof x!=="string"||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(x))throw new Error("invalid_id");return x;};
@@ -833,13 +833,20 @@ function createServer(env=process.env,deps={}){
     const cacheMode=cacheModeOf(input.model),cacheFields=cacheMode==="openai-explicit"?{prompt_cache_options:{mode:"explicit",ttl:"30m"},...(input.jobId?{prompt_cache_key:`${stage}:${crypto.createHash("sha256").update(String(input.jobId)).digest("hex").slice(0,32)}`}:{})}:{};
     // mis-sol-hai 초안·독립 수리: keyed 칸(nullReasons·blocks 맵)은 제공자 strict 스키마가 요구하는
     // 정적 배열 모양으로 내린다 — 응답은 검증 전 정규화가 다시 keyed 맵으로 돌린다(lib/section-draft.js).
-    const providerOut=providerSchema(
-      msh&&stage==="draft"?SectionDraft.providerSchemaFor(rest.section,{gist:rest.withGist,policy:rest.options,allowedRefs:rest.allowedRefs,sourceLang,nullReasons:true,figureNotes:true})
+    const shapeOut=msh&&stage==="draft"?SectionDraft.providerSchemaFor(rest.section,{gist:rest.withGist,policy:rest.options,allowedRefs:rest.allowedRefs,sourceLang,nullReasons:true,figureNotes:true})
       :msh&&stage==="repair"?REPAIR_PROVIDER_SCHEMA
-      :outSchema,[]);
+      :outSchema,
+      providerOut=providerSchema(shapeOut,[]),
+      // Anthropic strict 한도(union≤16·선택 칸≤24·컴파일 문법 크기 — 2026-10-11 OpenRouter 실측): 초안은 변환해도 문법이 커져
+      // strict 가 늘 400 이라 json_object+스키마 system 메시지로 받고, 작은 스키마(questions·repair)만 strict 로 내린다.
+      // strict 로 가는 요청은 null 허용 칸을 선택 키·"none" 센티널·anyOf 로 낮춘 변환 스키마(NoteContract.optionalNulls)로 보낸다.
+      optNull=optionalNulls(input.model),strict=!optNull||stage!=="draft";
     // 배열로 내린 칸은 검증 전에 keyed 맵으로 되돌린다 — 세션(Sol 수리)·독립 경로 모두(실행 mis-sol-hai-23: 세션 경로가 빠져 required 실패).
+    // strict 변환 스키마로 받은 응답은 fillNulls 가 생략 칸·"none" 센티널을 원래 계약(null)으로 되돌린다.
+    const fill=o=>optNull&&strict?NoteContract.fillNulls(outSchema,o):o;
     const outPatch=msh&&stage==="draft"?p=>SectionDraft.normalizeNullReasons(p,(rest.section?.blocks??[]).map(b=>b.blockId))
-      :msh&&stage==="repair"?p=>normalizeRepairBlocks(p,[...new Set((rest.repair??[]).map(r=>r.blockId))])
+      :msh&&stage==="repair"?p=>fill(normalizeRepairBlocks(p,[...new Set((rest.repair??[]).map(r=>r.blockId))]))
+      :optNull?p=>fill(p)
       :null;
     // 형식 실패 재시도분까지 예약하고 정산에서 되돌린다. 시스템 본문과 스키마도 입력 토큰이다.
     // 세션 모드는 요청 안에서 Sol·Luna 여러 호출이 돈다 — 도구 호출(Luna)과 Sol 이 도구 결과를 다시 읽는 입력까지 예약에 넣는다.
@@ -885,9 +892,9 @@ function createServer(env=process.env,deps={}){
           const at=Date.now();
           const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
             model:upModel,...params,...cacheFields,
-            // Haiku 등 schemaInPrompt 모델: strict response_format 대신 스키마를 system 메시지로 준다(server/llm.js) — 출력은 아래 계약 검증이 본다.
-            messages:[cachedSystem(input.model,system),...(schemaInPrompt(input.model)?[{role:"system",content:"출력은 아래 JSON 스키마를 따르는 JSON 객체 하나뿐이다.\n"+JSON.stringify(providerOut)}]:[]),msh&&images?userWithImages(cachedUser(input.model,userText,stage).content,images):cachedUser(input.model,userText,stage)],
-            ...(schemaInPrompt(input.model)?{}:{response_format:{type:"json_schema",json_schema:{name:"lecture_note_"+stage,strict:true,schema:providerOut}}}),
+            // strict 스키마를 못 거는 단계(Haiku 초안)는 스키마를 system 메시지로 주고 response_format json_object 로 받는다 — 출력은 아래 계약 검증이 본다.
+            messages:[cachedSystem(input.model,system),...(strict?[]:[{role:"system",content:"출력은 아래 JSON 스키마를 따르는 JSON 객체 하나뿐이다.\n"+JSON.stringify(shapeOut)}]),msh&&images?userWithImages(cachedUser(input.model,userText,stage).content,images):cachedUser(input.model,userText,stage)],
+            ...(strict?{response_format:{type:"json_schema",json_schema:{name:"lecture_note_"+stage,strict:true,schema:optNull?NoteContract.optionalNulls(providerOut):providerOut}}}:(optNull?{response_format:{type:"json_object"}}:{})),
             // v2 표시 요청(sol-luna-2 의 Luna 독립 호출)은 sticky 라우팅을 끄는 order 를 빼고 only 만 둔다(spec 5.2·6).
             provider:{only:upProviders,...(v2?{}:{order:upProviders}),require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}
           })});
