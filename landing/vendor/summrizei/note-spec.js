@@ -5,7 +5,7 @@
   const NoteContract = globalThis.NoteContract || (typeof require !== "undefined" ? require("./note-contract.js") : null);
   const NOTE_SPEC_VERSION = NoteContract.NOTE_SPEC_VERSION;
   // 마크업·CSS 가 바뀌면 올린다 — 디자인만 바뀐 재렌더는 H 단계만 다시 한다(§13).
-  const RENDER_VERSION = "render-11";
+  const RENDER_VERSION = "render-12";
 
   const arr = v => (Array.isArray(v) ? v : []);
   // 한 시간 미만 m:ss, 이상 h:mm:ss — 고지 구간 표기용(엔진의 h.time 과 같은 규칙).

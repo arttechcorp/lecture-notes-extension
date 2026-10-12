@@ -39,7 +39,7 @@ Rules for Codex, Claude Code, Antigravity, Devin.
   - `qnwlghks` (Jihwan) -> `b`
   - Fallback: ask user if neither matches.
 - New branch only when the user asks, or when work must be isolated (risky refactor, parallel spike). Then use `<initial>/<task-slug>` (no agent segment) and delete it after merge.
-- Never commit directly to `main`; merge via PR from `<initial>/dev`.
+- Direct pushes to `main` are allowed; a PR from `<initial>/dev` is optional.
 - Use Conventional Commits (`feat:`, `fix:`).
 
 ### Versioning & releases

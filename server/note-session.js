@@ -203,8 +203,10 @@ const keepItem=i=>{const ks=KEEP[i?.type];if(!ks)return null;const o={};for(cons
 // strictSchema: 프로파일이 단계에 단 표시(stages.<단계>.strict, lib/note-profiles.js)면 출력을 strict
 // json_schema 로 받는다 — Liner Responses 는 json_schema+strict 를 지원한다(기획 §3.3, mis-sol-hai 의 editorial·review).
 // 스키마는 요청 본문(호출마다 다른 칸)이라 P 접두를 깨지 않는다.
-function solBody({stage,system,items,params,providers,session,mode,choice,strictSchema}){
-  const body={model:SOL,store:false,
+// model: 단계→모델 표(lib/note-profiles.js)가 고른 실제 호출 모델 — @effort 별칭은 서버 안 식별자라
+// 업스트림엔 base 만 나간다(upstreamOf). 생략은 Sol — 모드 이름 하드코딩은 없다.
+function solBody({stage,system,items,params,providers,session,mode,choice,strictSchema,model}){
+  const body={model:LLM.upstreamOf(model||SOL),store:false,
     input:[{role:"developer",content:[{type:"input_text",text:system,prompt_cache_breakpoint:{mode:"explicit"}}]},...items],
     reasoning:{...(params.reasoning||{}),context:"all_turns"},
     include:["reasoning.encrypted_content"],
@@ -240,6 +242,9 @@ async function run(ctx){
   const {stage,rest,session}=ctx,h=ctx.deps,mode=session.mode,v2=V2.includes(mode);
   // v2 모드는 고정된 짧은 지시(V2_DEV)가 developer 접두다 — 전 단계 지시를 이어붙인 systemFor 는 쓰지 않는다.
   const system=v2?V2_DEV:systemFor(ctx.options),history=[...session.history],tries=[],usage={promptTokens:0,completionTokens:0};
+  // 이 호출의 실제 세션 모델 — 단계→모델 표(lib/note-profiles.js)가 정한다. mis-luna-legacy 같은 프로파일은
+  // 세션 단계도 Luna 별칭을 고르며, Sol 을 상수로 박지 않는다. 시도 기록의 model 도 이 값으로 라벨한다(보고 모델이 우선).
+  const selModel=NoteProfiles.stageModel(mode,stage)||SOL;
   // sol-fork 작성 호출의 고정 접두 P: 들어온 history 의 두 번째 user(이 호출 자신의 작업) 앞까지다.
   // 성공 응답의 history 는 이 P 를 그대로 돌려준다 — 이 단계의 턴은 접두에 붙지 않아 입력 크기가 단계 수와 무관하게 일정하다.
   let prefix=null;
@@ -248,7 +253,7 @@ async function run(ctx){
   if(v2&&stage!=="plan"&&stage!=="editorial"){const i=history.findIndex(isAnchor);if(i<0)throw Object.assign(new Error("invalid_note_output"),{detail:"prefix_anchor_missing"});prefix=history.slice(0,i+1);}
   // continuation — v2 는 앵커 아래 구간(이 호출의 자기 턴), 그 외는 이력 전체. 꼬리 상태 판정은 이 구간에서 한다.
   const cont=()=>prefix?history.slice(prefix.length):history;
-  let amount=0,reported=true;
+  let amount=0,reported=true,resolvedModel=null,reportedEffort=null; // 업스트림이 응답에 되돌려준 모델·effort — 미보고면 null(추정하지 않는다)
   // 시도별 행의 실제 호출 식별 — 응답이 provider·model 을 싣지 않으면 미보고 null(추정하지 않는다).
   const tag=(raw,m)=>({model:typeof raw?.model==="string"?raw.model:m,provider:typeof raw?.provider==="string"?raw.provider.slice(0,64):null,stage:stage==="plan"?"plan":"write."+stage});
   const snap=()=>({v:1,id:session.id,mode,history});
@@ -261,7 +266,10 @@ async function run(ctx){
   const acc=u=>{usage.promptTokens+=Number(u.prompt_tokens??u.input_tokens)||0;usage.completionTokens+=Number(u.completion_tokens??u.output_tokens)||0;};
   const versions=()=>({promptVersion:Prompts.PROMPT_VERSIONS[stage]||Prompts.PROMPT_VERSION,schemaVersion:ctx.schemaVersion,noteSpecVersion:ctx.noteSpecVersion});
   // 시간 예산에 남은 단계를 못 마칠 때의 명시적 연속 응답 — 계약상 200 성공이고 output/plan 은 없다.
-  const pendingResult=kind=>({amount,reported,attempts:tries,payload:{pending:true,stage,kind,noteSession:snap(),usage:{...usage,costUsd:reported?amount:ctx.reserve/100},...versions()}});
+  // 응답이 되돌려준 호출 식별(model·effort)을 하나로 모은다 — Responses 모양(reasoning.effort)과 chat 모양(reasoning_effort) 둘 다 받는다.
+  const report=raw=>{if(typeof raw?.model==="string")resolvedModel=raw.model;
+    if(typeof raw?.reasoning?.effort==="string")reportedEffort=raw.reasoning.effort;else if(typeof raw?.reasoning_effort==="string")reportedEffort=raw.reasoning_effort;};
+  const pendingResult=kind=>({amount,reported,attempts:tries,resolvedModel,reportedEffort,payload:{pending:true,stage,kind,noteSession:snap(),usage:{...usage,costUsd:reported?amount:ctx.reserve/100},...versions()}});
   // 도구 실행(Luna) — 현재 검증된 요청의 시스템·본문·스키마를 그대로 쓴다. 도구 결과를 무료로 두지 않는다:
   // 이 호출도 usage·시도·비용에 그대로 센다. chat/completions 경로는 운영 작성 호출과 같은 모양이다.
   const lunaCall=async()=>{
@@ -277,7 +285,7 @@ async function run(ctx){
       response_format:{type:"json_schema",json_schema:{name:"lecture_note_"+stage,strict:true,schema:ctx.providerOut}},
       provider:{only:ctx.luna.providers,order:ctx.luna.providers,require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}})});
     if(!response.ok){const detail=await upstreamDetail(h,response);tries.push(h.attemptOf("a"+tries.length,Date.now()-at,null,detail,tag(null,ctx.luna.model)));charge(Object.assign(new Error("provider_failed"),{detail,...(response.status>=400&&response.status<500&&response.status!==429?{failExtra:{retryable:false}}:{})}));}
-    const raw=await h.boundedResponse(response,1024*1024),u=raw.usage||{},choice=raw.choices?.[0];if(typeof raw.id==="string")ctx.gens.push(raw.id);
+    const raw=await h.boundedResponse(response,1024*1024),u=raw.usage||{},choice=raw.choices?.[0];if(typeof raw.id==="string")ctx.gens.push(raw.id);report(raw);
     if(!choice&&!raw.usage){tries.push(h.attemptOf("a"+tries.length,Date.now()-at,null,"provider_body_"+String(raw.error?.code??"empty").replace(/[^a-z0-9_]/gi,"_").slice(0,24),tag(raw,ctx.luna.model)));charge(Object.assign(new Error("provider_failed"),{detail:tries.at(-1).error}));}
     acc(u);{const c=h.costOf(u,...ctx.luna.rates,!choice?.message?.content&&choice?.finish_reason!=="length");if(c===null)reported=false;else amount+=c;}
     tries.push(h.attemptOf("a"+tries.length,Date.now()-at,u,null,tag(raw,ctx.luna.model)));
@@ -286,23 +294,23 @@ async function run(ctx){
     return choice.message.content;
     }finally{release();}
   };
-  // Sol(Responses) 호출 — 입력은 developer 블록 + 이력 전체(서버 작업·공급자 아이템·도구 결과).
+  // 세션(Responses) 호출 — 입력은 developer 블록 + 이력 전체(서버 작업·공급자 아이템·도구 결과). 실제 모델은 selModel.
   const solCall=async choice=>{
     const at=Date.now();
     const response=await ctx.fetcher(RESPONSES_ENDPOINT,{method:"POST",redirect:"error",signal:ctx.signal,headers:{authorization:"Bearer "+ctx.key,"content-type":"application/json"},body:JSON.stringify(
-      solBody({stage,system,items:history,params:ctx.params,providers:ctx.solProviders,session,mode,choice,
+      solBody({stage,system,items:history,params:ctx.params,providers:ctx.solProviders,session,mode,choice,model:selModel,
         strictSchema:NoteProfiles.get(mode)?.stages?.[stage]?.strict===true?ctx.providerOut:null}))});
     // HTTP 거절: 4xx 는 라우팅 단계의 거절이라 생성 비용이 없다 — 이 요청의 첫 시도면 예약을 환불한다.
     // 5xx·전송 실패는 제공자 쪽에서 돈이 나갔는지 알 수 없어 예약을 그대로 둔다(보수적). 두 번째 이후 호출의 거절은 항상 과금 확정.
-    if(!response.ok){const detail=await upstreamDetail(h,response);tries.push(h.attemptOf("a"+tries.length,Date.now()-at,null,detail,tag(null,SOL)));
+    if(!response.ok){const detail=await upstreamDetail(h,response);tries.push(h.attemptOf("a"+tries.length,Date.now()-at,null,detail,tag(null,selModel)));
       const e=Object.assign(new Error("provider_failed"),{detail,...(response.status>=400&&response.status<500&&response.status!==429?{failExtra:{retryable:false}}:{})});
       throw tries.length===1&&response.status>=400&&response.status<500?Object.assign(e,{refund:true,code:"provider_failed_or_invalid_output"}):failed(e);}
-    const raw=await h.boundedResponse(response,1024*1024),u=raw.usage||{};if(typeof raw.id==="string")ctx.gens.push(raw.id);
-    if(!raw.output?.length&&!raw.usage){tries.push(h.attemptOf("a"+tries.length,Date.now()-at,null,"provider_body_"+String(raw.error?.code??"empty").replace(/[^a-z0-9_]/gi,"_").slice(0,24),tag(raw,SOL)));
+    const raw=await h.boundedResponse(response,1024*1024),u=raw.usage||{};if(typeof raw.id==="string")ctx.gens.push(raw.id);report(raw);
+    if(!raw.output?.length&&!raw.usage){tries.push(h.attemptOf("a"+tries.length,Date.now()-at,null,"provider_body_"+String(raw.error?.code??"empty").replace(/[^a-z0-9_]/gi,"_").slice(0,24),tag(raw,selModel)));
       const e=Object.assign(new Error("provider_failed"),{detail:tries.at(-1).error});
       throw tries.length===1?Object.assign(e,{refund:true,code:"provider_failed_or_invalid_output"}):failed(e);}
     acc(u);{const c=h.costOf(u,...ctx.solRates,!raw.output?.length);if(c===null)reported=false;else amount+=c;}
-    tries.push(h.attemptOf("a"+tries.length,Date.now()-at,u,null,tag(raw,SOL)));
+    tries.push(h.attemptOf("a"+tries.length,Date.now()-at,u,null,tag(raw,selModel)));
     const out=extract(raw);
     if(out.status==="incomplete"&&out.reason==="max_output_tokens"){const t=tries.at(-1);t.status="error";t.error="llm_output_truncated.long";charge(Object.assign(new Error("llm_output_truncated"),{code:"llm_output_truncated",detail:t.error}));}
     if(out.status!=="completed")throw invalid("incomplete."+String(out.status+"."+(out.reason||"")).toLowerCase().replace(/[^a-z0-9_.]/g,"").slice(0,40));
@@ -320,7 +328,7 @@ async function run(ctx){
     const payload={...(stage==="plan"?{plan:fin.parsed}:stage==="editorial"?{editorialPlan:fin.parsed}:{output:fin.parsed}),
       ...(fin.salvaged?{salvaged:fin.salvaged,salvagedErrors:fin.salvagedErrors}:{}),
       usage:{...usage,costUsd:reported?amount:ctx.reserve/100},...versions(),noteSession:prefix?{v:1,id:session.id,mode,history:prefix}:snap()};
-    return{amount,reported,attempts:tries,payload};
+    return{amount,reported,attempts:tries,resolvedModel,reportedEffort,payload};
   };
   // 전문 worker 초안(그 밖의 단계는 세션 지시가 이미 덮는다)은 그 단계의 systemFor 지시를 작업 안에 싣는다 —
   // 고정 developer 접두는 그대로고 draft 전문 행이 빠지지 않는다.

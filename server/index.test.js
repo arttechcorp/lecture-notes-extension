@@ -203,10 +203,10 @@ test("/v1/me exposes per-task promptVersions and the policy version in remote co
     const me = await (await req(url, "/v1/me")).json();
     // 클라이언트 캐시 키 계약: 단계별 노트 프롬프트 버전(입력 재배치는 섹션 계열만 v7), judge 는 원격 설정 버전.
     for (const s of ["plan", "link"]) assert.equal(me.promptVersions[s], me.promptVersion, s);
-    assert.equal(me.promptVersions.global, "note-v7", "전역 지시는 한국어 전용 문장 규칙(한자·가나 문장 금지)을 더해 v7");
-    for (const s of ["section", "questions"]) assert.equal(me.promptVersions[s], "note-v7", s);
-    assert.equal(me.promptVersions.repair, "note-v9", "수리 지시는 msh 의 B10 보류/계산 공존 금지·B14 참조 범위 안내를 고쳐 v9");
-    assert.equal(me.promptVersions.draft, "note-v10", "초안 지시는 B06 비교표의 열별 고유 claimId 규칙(같은 문장 칸 재사용 금지)을 더해 v10");
+    assert.equal(me.promptVersions.global, "note-v10", "공유 규칙 변경(iter-4 충돌 값 인용)으로 전 단계 +1");
+    for (const s of ["section", "questions"]) assert.equal(me.promptVersions[s], "note-v10", s);
+    assert.equal(me.promptVersions.repair, "note-v12", "공유 규칙 변경으로 전 단계 +1");
+    assert.equal(me.promptVersions.draft, "note-v14", "iter-4 충돌 값 인용으로 +1");
     assert.equal(me.promptVersions.judge, me.config.promptVersion);
     assert.equal(me.config.policyVersion, "v1");
     assert.equal(me.config.linkEditor, false, "linkEditor 기본값은 꺼짐");
@@ -1389,7 +1389,8 @@ const input = sectionIn({ requestId: "request-one" });
 const noteDigest = body => JSON.stringify({ route: body.stage === "plan" ? "plan" : "write", stage: body.stage, model: body.model, noteSpecVersion: body.noteSpecVersion, rest: Object.fromEntries(Object.keys(Prompts.REQUEST[body.stage].properties).map(k => [k, body[k]])) });
 const globalIn = o => ({ model, requestId: "write-g", noteSpecVersion, stage: "global",
   plan: { concepts: notePlan.concepts, global: notePlan.global },
-  sections: [{ sectionId: "S1", title: noteS1.title, gist: noteWriter.sections.S1.first.gist, blocks: noteS1.blocks.map(b => ({ blockId: b.blockId, type: b.type, claims: [] })) }],
+  // 다이제스트 claims 는 전역 출력 스키마의 인용 enum 을 만든다 — 픽스처 출력이 인용하는 참조를 그대로 실어야 한다(iter-4).
+  sections: [{ sectionId: "S1", title: noteS1.title, gist: noteWriter.sections.S1.first.gist, blocks: noteS1.blocks.map(b => ({ blockId: b.blockId, type: b.type, claims: [{ text: "요약", basis: "lecture", evidenceIds: ["U2.t3", "S2_B3.c2", "S2_B3.c1", "S2_B3.i3", "U4.t2", "U4.t3", "U4.t4"] }] })) }],
   options: { ...noteOpts }, ...o });
 const repairIn = o => ({ model, requestId: "write-r", noteSpecVersion, stage: "repair", ...writerRest,
   repair: [{ blockId: "S1_B3", previous: noteWriter.sections.S1.first.blocks.S1_B3, errors: [{ code: "VAL_EVIDENCE_MISSING", detail: ["/content/note"] }] }], ...o });
@@ -1592,6 +1593,15 @@ test("plan and write retry a schema-invalid or unfinished output once on the sam
   });
 });
 
+test("repetitive truncation exposes only the safe subtype", async () => {
+  await withNoteServer(async () => noteReply("repeat loop ".repeat(600), { finish: "length", cost: .001 }), async url => {
+    const err = await errorOf(await req(url, "/v1/write", "POST", sectionIn({requestId:"cut-repetitive-detail"})), 422, "llm_output_truncated");
+    assert.equal(err.detail, "llm_output_truncated.rep");
+    assert.equal(err.retryable, false);
+    assert.ok(!JSON.stringify(err).includes("repeat loop"));
+  });
+});
+
 test("a length cut-off is not retried, answers llm_output_truncated and charges the reported cost", async () => {
   const replies = [];
   let calls = 0;
@@ -1603,6 +1613,7 @@ test("a length cut-off is not retried, answers llm_output_truncated and charges 
       const before = ledger()?.spentCents || 0;
       const err = await errorOf(await req(url, route, "POST", body), 422, "llm_output_truncated");
       assert.equal(err.retryable, false, label);
+      assert.equal(err.detail, "llm_output_truncated.long", label + ": 내용 없는 잘림 유형 전달");
       assert.equal(calls, 1, label + ": 한도를 키워 재시도하지 않는다");
       near(ledger().spentCents - before, settle(.003), label + ": 예약이 아니라 제공자가 보고한 금액만 청구한다");
       assert.equal(ledger().jobs[body.requestId].status, "completed");
@@ -4163,4 +4174,186 @@ test("v2 작성 호출도 sol-fork 처럼 세션 잠금 없이 병렬로 나간�
     assert.equal(a.status, 200); assert.equal(b.status, 200);
     assert.ok(peak >= 2, "sol-fork-2 작성 호출은 세션 잠금 없이 겹친다");
   }, v2Env);
+});
+
+// ── mis-luna-legacy: 모든 단계가 선택된 Luna 별칭 — 세션·독립·수리 양 경로, Sol·Haiku 호출 0 ──
+const LEG_M = "openai/gpt-6-luna@medium", LEG_H = "openai/gpt-6-luna@high";
+const legacyEnv = { ALLOWED_MODELS: JSON.stringify([model, SOL, LEG_M, LEG_H]),
+  OPENROUTER_PROVIDERS_JSON: JSON.stringify({ [model]: ["test-provider"], [SOL]: ["azure", "azure/us"], "openai/gpt-6-luna": ["azure", "azure/us"] }) };
+const legacyEdOut = { v: 1, glossary: [{ conceptId: "C1", preferredTerm: "고정비", aliases: ["정착비"], evidenceIds: ["U1.s1"] }],
+  sections: [{ sectionId: "S1", learningQuestion: null, learningItemIds: [], prerequisiteSectionIds: [], mustExplain: [], owns: ["C1"], referencesOnly: [], visuals: [], targetOutputTokens: 800 }] };
+const legacyEdReq = { v: 1, glossary: [], sections: [{ sectionId: "S1", learningQuestion: null, learningItemIds: [], prerequisiteSectionIds: [], mustExplain: [], owns: [], referencesOnly: [], visuals: [], targetOutputTokens: 800 }] };
+// Luna mock — 세션(Responses)과 독립(chat) 전선을 URL 로 가르고 단계별 유효 출력을 돌려준다.
+// 세션 응답은 model 을 보고하고 독립 응답은 보고하지 않는다 — resolvedModel 의 미보고 null 을 같이 본다.
+const legacyRouter = bodies => async (u, o) => {
+  const b = JSON.parse(o.body); bodies.push(b);
+  if (u.endsWith("/responses")) {
+    const stage = JSON.parse(b.input.at(-1).content[0].text).stage;
+    const text = stage === "plan" ? JSON.stringify(notePlanner) : stage === "editorial" ? JSON.stringify(legacyEdOut)
+      : stage === "review" ? JSON.stringify({ baseRevision: null, edits: [], unresolved: [] })
+      : stage === "repair" ? JSON.stringify({ blocks: { S1_B3: noteWriter.sections.S1.first.blocks.S1_B3 } }) : JSON.stringify(globalOut);
+    return { ok: true, json: async () => ({ id: "resp_luna", status: "completed",
+      output: [{ type: "reasoning", id: "rs_1", summary: [], encrypted_content: "enc" }, { type: "message", role: "assistant", status: "completed", content: [{ type: "output_text", text }] }],
+      usage: { input_tokens: 300, output_tokens: 80, cost: .001, output_tokens_details: { reasoning_tokens: 25 }, input_tokens_details: { cached_tokens: 120, cache_write_tokens: 64 } }, model: "openai/gpt-6-luna", reasoning: { effort: "medium" }, provider: "azure" }) };
+  }
+  const stage = (b.response_format?.json_schema?.name || "").replace("lecture_note_", "");
+  return noteReply(stage === "draft" ? v2DraftOut : stage === "questions" ? { blocks: { S2_B5: noteWriter.sections.S2.first.blocks.S2_B5 } } : { blocks: [{ blockId: "S1_B3", envelope: noteWriter.sections.S1.first.blocks.S1_B3 }] });
+};
+
+test("mis-luna-legacy-medium: plan→editorial→draft→questions→global→review→수리(세션·독립) 전 단계가 Luna — Sol·Haiku 0", async () => {
+  const MODE = "mis-luna-legacy-medium", ALIAS = LEG_M, bodies = [], { tokens } = Prompts.LIMITS;
+  const s2 = notePlan.sections.find(s => s.sectionId === "S2"), claims = [{ text: "공헌이익은 판매가격에서 단위당 변동비를 뺀 값이다", evidenceIds: ["U2.s1"], basis: "lecture" }];
+  const sess = (id, history) => ({ v: 1, id, mode: MODE, history });
+  await withNoteServer(legacyRouter(bodies), async url => {
+    const plan = await req(url, "/v1/plan", "POST", planIn({ model: ALIAS, requestId: "lm-1", noteMode: MODE, noteSession: sess("legseq01", []) }));
+    const po = await plan.json();
+    assert.equal(plan.status, 200, JSON.stringify(po.error || ""));
+    const PL = po.noteSession.history;
+    // usage.inference: 내용 없는 실험 관측 — 프로파일·요청 별칭·업스트림 보고 모델·보낸 effort·보고 effort·실제 전선·시도·캐시 합.
+    assert.deepEqual(po.usage.inference, { profile: MODE, requestedModel: ALIAS, resolvedModel: "openai/gpt-6-luna",
+      effort: "medium", reportedEffort: "medium", route: "openrouter", attempts: 1, reasoningTokens: 25, cachedInputTokens: 120, cacheWriteTokens: 64 });
+    assert.equal(po.usage.reasoningTokens, 25, "실험 도구가 수집하는 최상위에도 보고 토큰을 전달한다");
+    assert.equal(po.usage.cachedInputTokens, 120);
+    assert.equal(po.usage.cacheWriteTokens, 64);
+    const ed = await req(url, "/v1/write", "POST", { model: ALIAS, requestId: "lm-2", noteSpecVersion, stage: "editorial", options: { ...noteOpts }, allowedEvidenceIds: ["U1.s1"], allowedAssetIds: ["G1"], noteMode: MODE, noteSession: sess("legseq01", PL) });
+    const eo = await ed.json();
+    assert.equal(ed.status, 200, JSON.stringify(eo.error || ""));
+    const P = eo.noteSession.history;
+    const dr = await req(url, "/v1/write", "POST", sectionIn({ model: ALIAS, requestId: "lm-3", stage: "draft", noteMode: MODE }), tokenB);
+    const dro = await dr.json();
+    assert.equal(dr.status, 200, JSON.stringify(dro.error || ""));
+    assert.deepEqual(dro.usage.inference, { profile: MODE, requestedModel: ALIAS, resolvedModel: null,
+      effort: "medium", reportedEffort: null, route: "openrouter", attempts: 1, reasoningTokens: null, cachedInputTokens: null, cacheWriteTokens: null }, "업스트림 미보고면 resolvedModel·reportedEffort=null — 추정하지 않는다");
+    assert.equal(dro.usage.reasoningTokens, null);
+    assert.equal(dro.usage.cachedInputTokens, null);
+    assert.equal(dro.usage.cacheWriteTokens, null);
+    const q = await req(url, "/v1/write", "POST", { model: ALIAS, requestId: "lm-4", noteSpecVersion, stage: "questions", noteMode: MODE,
+      concepts: notePlan.concepts, sections: [{ sectionId: "S2", title: s2.title, gist: null, blocks: [{ blockId: "S2_B1", type: "B05", claims }] }],
+      options: { ...noteOpts }, section: s2, blockId: "S2_B5" }, tokenB);
+    assert.equal(q.status, 200, JSON.stringify((await q.json()).error || ""));
+    const g = await req(url, "/v1/write", "POST", globalIn({ model: ALIAS, requestId: "lm-5", noteMode: MODE, noteSession: sess("legseq01", P) }));
+    assert.equal(g.status, 200, JSON.stringify((await g.json()).error || ""));
+    const rv = await req(url, "/v1/write", "POST", { model: ALIAS, requestId: "lm-6", noteSpecVersion, stage: "review",
+      concepts: notePlan.concepts, html: "<div data-section=\"S1\"></div>", editorialPlan: legacyEdReq, options: { ...noteOpts }, noteMode: MODE, noteSession: sess("legseq01", P) });
+    assert.equal(rv.status, 200, JSON.stringify((await rv.json()).error || ""));
+    const rs = await req(url, "/v1/write", "POST", repairIn({ model: ALIAS, requestId: "lm-7", noteMode: MODE, noteSession: sess("legseq01", P) }));
+    assert.equal(rs.status, 200, JSON.stringify((await rs.json()).error || ""));
+    const ri = await req(url, "/v1/write", "POST", repairIn({ model: ALIAS, requestId: "lm-8", noteMode: MODE }), tokenB);
+    assert.equal(ri.status, 200, JSON.stringify((await ri.json()).error || ""));
+  }, legacyEnv);
+  // 전 단계·양 수리 경로의 업스트림 모델은 Luna base 하나뿐 — Sol·Haiku 호출은 한 건도 없다.
+  assert.equal(bodies.length, 8);
+  for (const [i, b] of bodies.entries()) assert.equal(b.model, "openai/gpt-6-luna", "call " + i + " wire 모델");
+  const [planB, edB, drB, qB, gB, rvB, rsB, riB] = bodies;
+  const edTask = JSON.parse(edB.input.at(-1).content[0].text);
+  assert.deepEqual(edTask.input.allowedEvidenceIds, ["U1.s1"], "허용 목록이 실제 제공자 작업에 도달");
+  assert.deepEqual(edTask.input.allowedAssetIds, ["G1"]);
+  assert.deepEqual(edB.text.format.schema.properties.glossary.items.properties.evidenceIds.items.enum, ["U1.s1"], "pattern 을 지운 제공자 스키마도 실제 근거 enum 유지");
+  assert.deepEqual(edB.text.format.schema.properties.sections.items.properties.visuals.items.properties.assetIds.items.enum, ["G1"]);
+
+  // 세션 호출(Responses): 선택 effort·암호화 reasoning 재생·캐시·제공자·session_id·모드별 출력 상한(+프로파일 여유분 8000).
+  for (const [name, b, cap] of [["plan", planB, tokens.plannerOutput], ["editorial", edB, tokens.plannerOutput], ["global", gB, tokens.globalOutput], ["review", rvB, tokens.globalOutput], ["수리(세션)", rsB, tokens.writerOutput]]) {
+    assert.deepEqual(b.reasoning, { effort: "medium", context: "all_turns" }, name);
+    assert.equal(b.max_output_tokens, cap + 8000, name + ": 프로파일 추론 여유분 8000");
+    assert.equal(b.session_id, "legseq01", name);
+    assert.deepEqual(b.include, ["reasoning.encrypted_content"], name);
+    assert.equal(b.store, false, name);
+    assert.deepEqual(b.provider?.only, ["azure", "azure/us"], name + ": 제공자 핀");
+    assert.equal(b.prompt_cache_options?.ttl, "30m", name);
+    assert.equal(b.input[0].role, "developer", name + ": developer 접두");
+  }
+  for (const [name, b] of [["editorial", edB], ["review", rvB]]) {
+    assert.equal(b.text?.format?.type, "json_schema", name + ": strict 스키마 유지");
+    assert.equal(b.text?.format?.strict, true, name);
+    assert.equal(b.text?.format?.name, "lecture_note_" + name, name);
+  }
+  for (const [name, b] of [["plan", planB], ["global", gB], ["수리(세션)", rsB]]) assert.equal(b.text?.format?.type, "json_object", name);
+  // 독립 호출(chat): 같은 base·effort·출력 상한 — strict json_schema 전선, sticky order 없음.
+  for (const [name, b] of [["draft", drB], ["questions", qB]]) {
+    assert.deepEqual(b.reasoning, { effort: "medium" }, name);
+    assert.equal(b.max_tokens, tokens.writerOutput + 8000, name);
+    assert.equal(b.response_format?.json_schema?.name, "lecture_note_" + name, name);
+    assert.equal(b.response_format?.json_schema?.strict, true, name);
+    assert.deepEqual(b.provider?.only, ["azure", "azure/us"], name);
+    assert.ok(!("order" in (b.provider || {})), name + ": v2 는 sticky order 없음");
+    assert.ok(!("session_id" in b) && !("include" in b), name + ": 독립 호출은 세션 칸이 없다");
+  }
+  assert.equal(riB.response_format?.json_schema?.name, "lecture_note_repair");
+  assert.equal(riB.response_format?.json_schema?.schema?.properties?.blocks?.type, "array", "msh 독립 수리의 배열 틀");
+  assert.equal(riB.max_tokens, tokens.writerOutput + 8000);
+  assert.deepEqual(riB.reasoning, { effort: "medium" });
+});
+
+test("mis-luna-legacy: medium·high 의 wire 차이는 reasoning.effort 뿐 — 출력 상한·제공자·전선 동일", async () => {
+  const got = {};
+  for (const [tag, MODE, ALIAS] of [["med", "mis-luna-legacy-medium", LEG_M], ["hi", "mis-luna-legacy-high", LEG_H]]) {
+    const bodies = [];
+    await withNoteServer(legacyRouter(bodies), async url => {
+      const plan = await req(url, "/v1/plan", "POST", planIn({ model: ALIAS, requestId: "lp-" + tag, noteMode: MODE, noteSession: { v: 1, id: "legpar01", mode: MODE, history: [] } }));
+      assert.equal(plan.status, 200);
+      const dr = await req(url, "/v1/write", "POST", sectionIn({ model: ALIAS, requestId: "ld-" + tag, stage: "draft", noteMode: MODE }), tokenB);
+      assert.equal(dr.status, 200, JSON.stringify((await dr.json()).error || ""));
+    }, legacyEnv);
+    got[tag] = bodies;
+  }
+  const norm = b => { const c = JSON.parse(JSON.stringify(b)); c.reasoning = { effort: "<same>" }; return JSON.stringify(c); };
+  assert.equal(norm(got.med[0]), norm(got.hi[0]), "세션 호출은 effort 빼고 같다 — 같은 입력·상한·제공자·전선");
+  assert.equal(got.med[0].max_output_tokens, got.hi[0].max_output_tokens);
+  assert.deepEqual(got.med[0].reasoning, { effort: "medium", context: "all_turns" });
+  assert.deepEqual(got.hi[0].reasoning, { effort: "high", context: "all_turns" });
+  assert.equal(norm(got.med[1]), norm(got.hi[1]), "독립 호출도 effort 빼고 같다");
+  assert.equal(got.med[1].max_tokens, got.hi[1].max_tokens, "프로파일 reasoningBudget 8000 으로 실제 출력 상한이 같다");
+  assert.deepEqual(got.med[1].reasoning, { effort: "medium" });
+  assert.deepEqual(got.hi[1].reasoning, { effort: "high" });
+});
+
+test("mis-luna-legacy: 모델 게이트·잘림·거부·형식 재시도는 기존 정책 그대로다", async () => {
+  const MODE = "mis-luna-legacy-high", ALIAS = LEG_H;
+  await withNoteServer(legacyRouter([]), async url => {
+    const sess = h => ({ v: 1, id: "leggate01", mode: MODE, history: h });
+    // 레거시 세션에 Sol·Haiku·다른 별칭·비v2 모델을 싣는 건 모두 거절 — 하드코딩이 아니라 단계→모델 표가 정한다.
+    for (const [m, id] of [[SOL, "g1"], ["anthropic/claude-haiku-5.5", "g2"], [LEG_M, "g3"], [model, "g4"]]) {
+      const e = await req(url, "/v1/write", "POST", globalIn({ model: m, requestId: "lg-" + id, noteMode: MODE, noteSession: sess(fork2P()) }));
+      assert.equal(e.status, 400, m);
+      assert.equal((await e.json()).error.code, "invalid_model_or_stage", m);
+    }
+    // 독립 단계(draft)에 세션 봉투를 실으면 transport 불일치로 거절한다.
+    assert.equal((await req(url, "/v1/write", "POST", sectionIn({ model: ALIAS, requestId: "lg-ds", stage: "draft", noteMode: MODE, noteSession: sess(fork2P()) }), tokenB)).status, 400);
+    // noteMode 와 세션 모드가 다르면 거절 — variation 끼리 섞지 않는다.
+    const mm = await req(url, "/v1/plan", "POST", planIn({ model: LEG_M, requestId: "lg-mm", noteMode: "mis-luna-legacy-medium", noteSession: { v: 1, id: "legmm001", mode: "mis-luna-legacy-high", history: [] } }));
+    assert.equal((await mm.json()).error?.code, "request_rejected");
+  }, legacyEnv);
+  // 세션 호출의 4xx 는 첫 시도 환불·비재시도 — 기존 분류와 같다.
+  await withNoteServer(async () => ({ ok: false, status: 400, headers: new Map(), json: async () => ({}) }), async url => {
+    const e = await errorOf(await req(url, "/v1/plan", "POST", planIn({ model: ALIAS, requestId: "lg-4xx", noteMode: MODE, noteSession: { v: 1, id: "leg4xx01", mode: MODE, history: [] } })), 502, "provider_failed_or_invalid_output");
+    assert.equal(e.retryable, false);
+  }, legacyEnv);
+  // 세션 호출 잘림은 llm_output_truncated — 보고 비용만 청구하고 이력을 돌려줘 같은 단계로 이어간다.
+  await withNoteServer(async () => ({ ok: true, json: async () => ({ id: "r_t", status: "incomplete", incomplete_details: { reason: "max_output_tokens" },
+    output: [{ type: "message", role: "assistant", status: "incomplete", content: [{ type: "output_text", text: "..." }] }],
+    usage: { input_tokens: 10, output_tokens: 5, cost: .001 } }) }), async url => {
+    const st = await req(url, "/v1/write", "POST", globalIn({ model: ALIAS, requestId: "lg-st", noteMode: MODE, noteSession: { v: 1, id: "legst001", mode: MODE, history: fork2P() } }));
+    assert.equal(st.status, 422);
+    const stBody = await st.json();
+    assert.equal(stBody.error.code, "llm_output_truncated");
+    assert.equal(stBody.error.noteSession?.mode, MODE, "잘린 세션 호출도 이력을 돌려준다");
+  }, legacyEnv);
+  // 독립 호출 거부(refusal 본문)는 readChoice 가 판독해 한 번 더 시도하고 502 — msh 판독 경로를 그대로 탄다.
+  let calls = 0;
+  await withNoteServer(async () => { calls++; return { ok: true, json: async () => ({ choices: [{ finish_reason: "stop", message: { refusal: "no", content: null } }], usage: { prompt_tokens: 10, completion_tokens: 2, cost: .0001 } }) }; }, async url => {
+    await errorOf(await req(url, "/v1/write", "POST", sectionIn({ model: ALIAS, requestId: "lg-rf", stage: "draft", noteMode: MODE }), tokenB), 502, "provider_failed_or_invalid_output");
+    assert.equal(calls, 2);
+  }, legacyEnv);
+  // 독립 호출 잘림은 422 — 재시도 없이 끝낸다.
+  await withNoteServer(async () => noteReply("{\"x\":", { finish: "length" }), async url => {
+    await errorOf(await req(url, "/v1/write", "POST", sectionIn({ model: ALIAS, requestId: "lg-ln", stage: "draft", noteMode: MODE }), tokenB), 422, "llm_output_truncated");
+  }, legacyEnv);
+  // 독립 호출 형식 실패는 같은 Luna 로 한 번 더 시도한다 — 재시도도 Sol·Haiku 로 바뀌지 않는다.
+  const bodies = []; calls = 0;
+  await withNoteServer(async (u, o) => { calls++; bodies.push(JSON.parse(o.body)); return noteReply(calls === 1 ? "{bad json" : v2DraftOut); }, async url => {
+    const ok = await req(url, "/v1/write", "POST", sectionIn({ model: ALIAS, requestId: "lg-rt", stage: "draft", noteMode: MODE }), tokenB);
+    assert.equal(ok.status, 200, JSON.stringify((await ok.json()).error || ""));
+    assert.equal(calls, 2, "형식 실패 재시도 1회");
+    for (const b of bodies) assert.equal(b.model, "openai/gpt-6-luna");
+  }, legacyEnv);
 });

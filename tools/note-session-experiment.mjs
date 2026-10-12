@@ -14,6 +14,10 @@
 //   sol-luna-3    : sol-luna-2 와 같은 경로 — 개선 실험 옵션은 cfg.noteV3(deps.noteV3 → stages ctx.v3)로 내린다.
 //   sol-fork-2    : 모든 단계(plan, draft, review, questions, global, repair)를 Sol 이 수행.
 //                   계획 응답 P(고정 anchor 포함)를 고정 접두로 공유하며 매 호출 P + 자기 작업으로 실행.
+//   mis-sol-hai   : Mistral OCR + MSH 프롬프트 경로 — Sol 세션 단계 + Haiku 5.5 독립 초안·문항, dual 수리.
+//   mis-luna-legacy-medium / mis-luna-legacy-high
+//                 : mis-sol-hai 와 같은 경로에 전 단계·양쪽 수리를 Luna medium/high 한 모델이 쓴다
+//                   (mis-luna-legacy-plan-2026-10-11.md). 두 변형은 effort 만 다르고 출력 상한은 같다(레지스트리 reasoningBudget).
 // 제공자(OpenRouter)는 절대 직접 부르지 않는다 — 모든 모델 호출은 SERVICE_URL 서비스를 거친다.
 // 모드는 input.models.noteMode 및 deps.noteMode 둘 다로 들어간다(운영 wiring 과 동일).
 // 로컬 출력 캐시는 끈다: deps.promptVersions 를 넘기지 않으면 stages.js 가 단계·호출 캐시를 쓰지 않고,
@@ -155,12 +159,13 @@ export class Budget {
 }
 
 // 요청 1건의 보수적 추정 비용 — 시스템 본문·스키마도 입력 토큰이라 고정 오버헤드를 얹는다.
-export function estCostUsd(route, model, body) {
+// mode 는 프로파일별 출력 상한(reasoningBudget, mis-luna-legacy-*)을 추정에 반영하는 선택 인자다 — 서버 modelParams 의 세 번째 인자.
+export function estCostUsd(route, model, body, mode = null) {
   const bytes = bytesOf(body);
   if (route === "/v1/judge") return (bytes / 4 * 0.4 + (body.items?.length ?? 0) * 0.4) / 1e6;
   const [pi, po] = RATES[model] || RATES[LLM.upstreamOf(model)] || [2, 10];
   const stage = route === "/v1/plan" ? "plan" : (Prompts.STAGES.includes(body.stage) ? body.stage : (body.stage === "review" ? "link" : "section"));
-  const maxTokens = Prompts.modelParams ? Prompts.modelParams(model, stage).max_tokens : 14000;
+  const maxTokens = Prompts.modelParams ? Prompts.modelParams(model, stage, mode ?? undefined).max_tokens : 14000;
   return ((bytes / 4 + 3000) * pi + maxTokens * po) / 1e6;
 }
 
@@ -235,18 +240,38 @@ export const planBody = (o, session) => {
     model: o.model, requestId: o.requestId, noteSpecVersion: o.noteSpecVersion, ir: o.ir,
     formulas: o.formulas, figures: o.figures, recognition: o.recognition, options: o.options,
     ...opt("jobId", o.jobId, JOB_ID), ...opt("host", o.host, HOST),
+    // Stages 가 실어 보낸 선택 칸만 넘긴다(Prompts.REQUEST.plan: allowedRefs·emphasis) — 임의 본문 spread 는 하지 않는다.
+    ...(o.allowedRefs != null ? { allowedRefs: o.allowedRefs } : {}),
+    ...(o.emphasis != null ? { emphasis: o.emphasis } : {}),
+    ...(o.noteMode != null ? { noteMode: o.noteMode } : {}),
     ...(sess ? { noteSession: sess } : {}),
   };
 };
 
 export const writeBody = (o, session) => {
-  const sess = session ? sessionBody(session, "write", o.stage) : (o.noteSession ?? null);
+  // Stages 의 봉투 유무가 전송 결정이다 — 실어 온 봉투는 그대로 쓰고(세션 경로), 빼면(의도된 독립 경로 —
+  // dual 수리의 봉투 없는 재작성처럼 model 이 alt 와 같은 경우) 다시 붙이지 않는다.
+  // session 만 넘긴 직접 호출(테스트)만 봉투를 재계산한다.
+  const sess = o.noteSession != null ? o.noteSession : (session ? sessionBody(session, "write", o.stage) : null);
   return {
     model: o.model, requestId: o.requestId, noteSpecVersion: o.noteSpecVersion, stage: o.stage,
     section: o.section, concepts: o.concepts, evidence: o.evidence, registry: o.registry,
     figures: o.figures, options: o.options, allowedRefs: o.allowedRefs, learningItems: o.learningItems,
     withGist: o.withGist, repair: o.repair, plan: o.plan, sections: o.sections, blockId: o.blockId,
     ...(o.editorialPlan ? { editorialPlan: o.editorialPlan } : {}),
+    // production Stages 가 실어 보낸 단계별 칸(Prompts.REQUEST 단계 스키마의 지원 칸만 — 임의 본문 spread 금지):
+    //   noteMode — v2 쓰기 모드(서버 MSH 분기·mode-aware 모델 파라미터가 읽는다)
+    //   packet — sol-luna-3 자급 수리 패킷, html·omittedSectionIds·baseRevision — HTML 검수 입력·판본,
+    //   images — draft 의 필기 이미지 첨부.
+    ...(o.noteMode != null ? { noteMode: o.noteMode } : {}),
+    ...(o.packet != null ? { packet: o.packet } : {}),
+    ...(o.html != null ? { html: o.html } : {}),
+    ...(o.omittedSectionIds != null ? { omittedSectionIds: o.omittedSectionIds } : {}),
+    ...(o.baseRevision != null ? { baseRevision: o.baseRevision } : {}),
+    ...(o.images != null ? { images: o.images } : {}),
+    //   allowedEvidenceIds·allowedAssetIds — editorial 의 실제 근거·자산 id 허용 목록(서버가 모르는 id 를 지어내지 않게 하는 칸).
+    ...(o.allowedEvidenceIds != null ? { allowedEvidenceIds: o.allowedEvidenceIds } : {}),
+    ...(o.allowedAssetIds != null ? { allowedAssetIds: o.allowedAssetIds } : {}),
     ...opt("jobId", o.jobId, JOB_ID), ...(o.sourceLang === "en" ? { sourceLang: "en" } : {}),
     ...(sess ? { noteSession: sess } : {}),
   };
@@ -292,7 +317,8 @@ export function makePost({ baseUrl, token, fetchImpl = fetch }) {
 }
 
 // ── 서비스 어댑터: deps.service 에 넣는 {plan,write,judge} + 호출별 메트릭 ──────
-export function makeService({ post, session = null, calls = [], budget = null, capture = null }) {
+// mode = arm 의 프로파일 id(메트릭의 profile·modelParams 추정에 쓴다 — 세션이 없는 군도 비우지 않는다).
+export function makeService({ post, session = null, calls = [], budget = null, capture = null, mode = null }) {
   // 고정 접두 캐시 웜업 게이트: 첫 쓰기 호출이 고정 접두를 쓸 때까지 나머지를 잡는다.
   let forkGate = null;
   // §9.4 규칙: 연속 상류 429 2회 추적
@@ -306,11 +332,18 @@ export function makeService({ post, session = null, calls = [], budget = null, c
 
   const call = async (route, o, stage, body) => {
     const model = body.model || o.model;
-    const est = Math.round(estCostUsd(route, model, body) * 1e6) / 1e6;
+    const est = Math.round(estCostUsd(route, model, body, mode ?? session?.mode ?? null) * 1e6) / 1e6;
     const m = {
       seq: calls.length, route, stage, model, requestId: o.requestId,
+      profile: mode ?? session?.mode ?? null,
+      resolvedModel: null, // usage.inference.resolvedModel — 미보고는 null 로 둔다(추정 금지)
+      // effort: requested = 레지스트리/모델 표의 설계값, sent = 실제로 보낸 요청의 effort(usage.inference.effort),
+      // reported = 제공자가 확인해 돌려준 effort(usage.inference.reportedEffort, 미보고는 null) — sent/requested 를 제공자 실측으로 표기하지 않는다.
+      effort: { requested: LLM.reasoningFor(model)?.effort ?? null, sent: null, reported: null },
+      inferenceRoute: null, // usage.inference.route — liner|openrouter(제공자 정체가 아니라 라우트)
+      attempts: null, // usage.inference.attempts — 미보고는 null(재시도 사용 관측)
       requestBytes: bytesOf(body), estUsd: est,
-      sessionSentItems: (session && !isLunaStage(session.mode, stage)) ? session.history.length : null,
+      sessionSentItems: body?.noteSession?.history?.length ?? null, // 실제로 실어 보낸 봉투만 — 독립 호출에 봉투 수를 지어내지 않는다
       latencyMs: null, ok: null, promptVersion: null,
       usage: Object.fromEntries(USAGE_FIELDS.map(k => [k, null])),
       tokens: {
@@ -365,9 +398,18 @@ export function makeService({ post, session = null, calls = [], budget = null, c
       reservation?.commit(repCost);
 
       m.promptVersion = typeof r?.promptVersion === "string" ? r.promptVersion.slice(0, 32) : null;
+      // usage.inference = {profile, requestedModel, resolvedModel, effort, route, attempts}(호스트 합의 계약) —
+      // 보고가 없으면 null 을 유지한다(요청값을 실측처럼 채우지 않는다).
+      const inf = u?.inference && typeof u.inference === "object" ? u.inference : null;
+      m.resolvedModel = typeof inf?.resolvedModel === "string" ? inf.resolvedModel : null;
+      m.effort.sent = typeof inf?.effort === "string" ? inf.effort : null;
+      m.effort.reported = typeof inf?.reportedEffort === "string" ? inf.reportedEffort : null;
+      m.inferenceRoute = typeof inf?.route === "string" ? inf.route : null;
+      m.attempts = Number.isInteger(inf?.attempts) ? inf.attempts : null;
 
-      // 봉투 갱신: plan 및 sol-fork/sol-fork-2/sol-session write 호출
-      if (session && (route === "/v1/plan" || (route === "/v1/write" && !isLunaStage(session.mode, stage)))) {
+      // 봉투 갱신: 실제로 봉투를 실어 보낸 호출만 채택한다 — 봉투 없는 독립 호출(dual 재작성 포함)의
+      // 응답은 noteSession 이 없을 수 있고 그게 정상이다(note_session_unsupported 로 멈추면 안 된다).
+      if (session && body?.noteSession && (route === "/v1/plan" || (route === "/v1/write" && !isLunaStage(session.mode, stage)))) {
         m.session = { ...applySessionReply(session, r, { plan: route === "/v1/plan", editorial: route === "/v1/write" && stage === "editorial" }), sentItems: m.sessionSentItems };
       }
 
@@ -430,8 +472,13 @@ export function makeService({ post, session = null, calls = [], budget = null, c
           session.prefix = o.noteSession.history;
         }
       }
-      const model = NoteV3.isLunaV2(session?.mode) ? modelForStage(session.mode, stage) : (o.model || modelForStage(session?.mode, stage));
-      return call("/v1/write", { ...o, model }, stage, writeBody({ ...o, model }, session));
+      // 봉투를 실은 호출만 세션 경로다 — 봉투 없는 호출은 Stages 의 독립 전송 결정을 그대로 보낸다
+      // (dual 수리의 의도된 독립 재작성: model 이 spec.alt 와 같아 봉투 재부착은 서버 계약 위반).
+      const sess = o.noteSession != null ? session : null;
+      const model = sess === null && o.model ? o.model
+        : NoteV3.isLunaV2(session?.mode) ? modelForStage(session.mode, stage)
+        : (o.model || modelForStage(session?.mode, stage));
+      return call("/v1/write", { ...o, model }, stage, writeBody({ ...o, model }, sess));
     },
     judge: o => call("/v1/judge", o, "judge." + String(o.task ?? "?"), judgeBody(o)),
   };
@@ -579,13 +626,13 @@ export async function runArm({ mode, loaded, cfg = {}, budget = null, post }) {
   const events = Events.safe(bus);
   const session = SESSION_MODES.has(mode) ? newSession(mode) : null;
   const calls = [], capture = { planRaw: null, editorialPlan: null };
-  const service = makeService({ post, session, calls, budget, capture });
+  const service = makeService({ post, session, calls, budget, capture, mode });
 
   const isV2 = V2_MODES.has(mode);
   const writeModel = NoteProfiles.get(mode).clientModels.write;
 
   const models = {
-    plan: SOL,
+    plan: NoteProfiles.get(mode).clientModels.plan, // mis-luna-legacy-* 는 계획도 Luna 다 — SOL 상수 하드코딩 금지
     write: writeModel,
     writeAlt: null, // 조용한 대체 모델 전환 금지
     judge: cfg.judge ?? null,
@@ -603,6 +650,7 @@ export async function runArm({ mode, loaded, cfg = {}, budget = null, post }) {
     linkEditor: isV2 ? false : (cfg.linkEditor === true && cfg.writer === "draft"),
     noteMode: mode, // production wiring (deps.noteMode)
     noteV3: cfg.noteV3, // sol-luna-3 개선 실험 옵션 → stages ctx.v3
+    emphasisSignals: NoteProfiles.get(mode)?.emphasisSignals === true, // production wiring (offscreen deps.emphasisSignals — mis-sol-hai·mis-luna 는 JEV 판정을 끈다)
     // v2 사전검사(stages.js)는 서버 프롬프트 버전(review)을 본다. noteMode 가 있으면 단계·호출 캐시는 어차피 꺼지므로 넘겨도 로컬 캐시 우회는 그대로다.
     ...(isV2 ? { promptVersions: cfg.promptVersions ?? { review: "preflight" } } : {}),
     cacheStats: { hits: 0, misses: 0 },
@@ -703,9 +751,20 @@ export function toSpec11ResultRow({
     repeat: armResult.run ?? 0,
     planComparison: fixedPlan ? "fixedPlan" : "endToEnd",
     rendererVersion: String(rendererVersion),
-    actualModels: armResult.mode === "independent" ? "plan:openai/gpt-6.1-sol,write:openai/gpt-6-luna@high"
-      : NoteV3.isLunaV2(armResult.mode) ? "plan:openai/gpt-6.1-sol,draft:openai/gpt-6-luna@high,review:openai/gpt-6.1-sol"
-      : "openai/gpt-6.1-sol",
+    requestedModels: (() => { // 요청 구성 — 단계→모델은 레지스트리가 단일 출처 — dual 은 세션|독립 양쪽 모델을 적는다.
+      const p = NoteProfiles.get(armResult.mode);
+      return p ? Object.entries(p.stages).map(([s, x]) => `${s}:${x.model}${x.alt ? "|" + x.alt : ""}`).join(",") : "unknown";
+    })(),
+    actualModels: (() => { // 서버가 보고한 실제 모델(usage.inference.resolvedModel)만 단계별로 모은다 — 미보고를 요청값으로 채워 실측처럼 보이게 하지 않는다.
+      const byStage = new Map();
+      for (const c of armResult.calls ?? []) {
+        if (!c?.stage || (c.route !== "/v1/plan" && c.route !== "/v1/write")) continue;
+        if (!byStage.has(c.stage)) byStage.set(c.stage, new Set());
+        if (typeof c.resolvedModel === "string" && c.resolvedModel) byStage.get(c.stage).add(c.resolvedModel);
+      }
+      if (!byStage.size) return null;
+      return [...byStage].map(([s, set]) => `${s}:${set.size ? [...set].join("|") : "unknown"}`).join(",");
+    })(),
     providerCallCount: t.sent ?? armResult.calls.length,
     retries: armResult.calls.filter(c => c.ok === false).length,
     tokens: {
@@ -741,12 +800,13 @@ export function planArms(cfg = {}) {
   return MODES.map(mode => ({
     mode,
     models: {
-      plan: SOL,
+      plan: NoteProfiles.get(mode).clientModels.plan,
       write: NoteProfiles.get(mode).clientModels.write,
       writeAlt: null,
       judge: cfg.judge ?? null,
       noteMode: mode,
     },
+    ...(NoteProfiles.get(mode).reasoningBudget ? { reasoningBudget: NoteProfiles.get(mode).reasoningBudget } : {}),
     sessionEnvelope: SESSION_MODES.has(mode) ? {
       v: 1, id: "<random per run>", mode,
       history: FORK_MODES.has(mode) ? "fixed plan prefix P, byte-identical on every write" : "provider output items, client threads verbatim",
@@ -762,7 +822,7 @@ export function planArms(cfg = {}) {
 async function main() {
   const { values: v } = parseArgs({
     options: {
-      mode: { type: "string", default: "all" },                    // independent | sol-session | sol-luna-tool | sol-fork | sol-luna-2 | sol-luna-3 | sol-fork-2 | all
+      mode: { type: "string", default: "all" },                    // 레지스트리 id(NoteProfiles.ids()) 전부 | all
       input: { type: "string", default: "tools/note-fixture/input.json" },
       repeat: { type: "string", default: "1" },
       "max-cost-usd": { type: "string" },                          // 명시적 예산 상한 USD (기본 $1.50)
@@ -816,6 +876,7 @@ async function main() {
     confounds: [
       "각 군은 같은 원입력·옵션을 쓰지만 계획(plan)은 군마다 새 호출이다 — 계획 차이를 모드 효과로만 읽으면 안 된다.",
       "sol-luna-2 는 Sol 계획·검수 + Luna High 섹션 작성(draft)이다. sol-luna-3 은 같은 경로다. sol-fork-2 는 전 단계 Sol(P 고정)이다.",
+      "mis-luna-legacy-medium·high 는 mis-sol-hai 경로의 Luna 치환군이다 — 전 단계·양쪽 수리가 선택된 effort 의 Luna 한 모델이다.",
       "연쇄 세션 군은 쓰기가 직렬이다(write lane 1). sol-fork 및 sol-fork-2 는 병렬 쓰기지만 첫 쓰기 웜업 게이트가 있다.",
       "로컬 출력 캐시는 모든 군에서 꺼져 있다 — 같은 접두 재사용은 서버·제공자 프롬프트 캐시만 관측한다.",
       "usage.costUsd 는 서버 보고값이며 미보고는 null 로 남기고 0으로 치환하지 않는다.",

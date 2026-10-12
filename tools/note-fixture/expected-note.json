@@ -84,13 +84,11 @@
         "items": [
           {
             "claim": {
-              "text": "정정된 월 고정비 3,000,000원과 개당 공헌이익 6,000원이면 손익분기 판매량은 500개다",
+              "text": "손익분기 판매량은 고정비를 개당 공헌이익으로 나눠 구한다",
               "evidenceIds": [
-                "S2_B3.c2",
-                "S2_B3.c1",
-                "S2_B3.i3"
+                "U2.t3"
               ],
-              "basis": "derived"
+              "basis": "lecture"
             },
             "reason": null,
             "targetIds": [
@@ -102,8 +100,7 @@
               "text": "거래비용 관점은 비용 비교로, 자원기반 관점은 자원과 역량의 경쟁우위로 기업 경계를 설명하지만 둘 다 무엇을 내부에 둘지를 묻는다",
               "evidenceIds": [
                 "U4.t2",
-                "U4.t3",
-                "U4.t4"
+                "U4.t3"
               ],
               "basis": "lecture"
             },
@@ -145,7 +142,7 @@
             "claim": {
               "text": "두 관점 모두 기업이 무엇을 내부에 둘지를 설명한다",
               "evidenceIds": [
-                "U4.t4"
+                "U4.t3"
               ],
               "basis": "lecture"
             },

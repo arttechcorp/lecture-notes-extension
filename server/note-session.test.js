@@ -494,3 +494,80 @@ test("run v2: 앵커 없는 작성 이력은 접두를 못 찾아 거절",async(
   await assert.rejects(()=>NoteSession.run(ctxFor({mode:"sol-fork-2",stage:"draft",
     session:{v:1,id:"v2bad-01",mode:"sol-fork-2",history:[msg()]},fetcher:seq(respMsg('{}'))})),e=>e.detail==="prefix_anchor_missing");
 });
+
+// ── mis-luna-legacy: 세션 단계도 프로파일이 고른 Luna 별칭 — Sol·Haiku 하드코딩 없음 ──
+test("solBody: model 은 선택된 단계 모델 — @effort 별칭은 base 만 wire 에 나간다",()=>{
+  const sess=m=>({v:1,id:"sess-01ab",mode:m,history:[]});
+  const med=NoteSession.solBody({stage:"review",system:"sys",items:[taskItem()],params:{max_tokens:512,reasoning:{effort:"medium"}},providers:["azure","azure/us"],session:sess("mis-luna-legacy-medium"),mode:"mis-luna-legacy-medium",choice:"none",model:"openai/gpt-6-luna@medium"});
+  const hi=NoteSession.solBody({stage:"review",system:"sys",items:[taskItem()],params:{max_tokens:512,reasoning:{effort:"high"}},providers:["azure","azure/us"],session:sess("mis-luna-legacy-high"),mode:"mis-luna-legacy-high",choice:"none",model:"openai/gpt-6-luna@high"});
+  for(const b of [med,hi]){
+    assert.equal(b.model,"openai/gpt-6-luna","별칭은 서버 안 식별자 — 업스트림엔 base 만");
+    assert.equal(b.store,false);
+    assert.deepEqual(b.include,["reasoning.encrypted_content"],"암호화 reasoning 재생 유지");
+    assert.deepEqual(b.prompt_cache_options,{mode:"explicit",ttl:"30m"},"두 variation 의 캐시 정책이 같다");
+    assert.ok(!("tools" in b)&&!("tool_choice" in b)&&!("seed" in b)&&!("parallel_tool_calls" in b));
+  }
+  assert.deepEqual(med.reasoning,{effort:"medium",context:"all_turns"});
+  assert.deepEqual(hi.reasoning,{effort:"high",context:"all_turns"});
+  // model 생략은 Sol — 구 모드의 전선은 바뀌지 않았다.
+  assert.equal(NoteSession.solBody({stage:"plan",system:"s",items:[],params:{},providers:[],session:sess("sol-session"),mode:"sol-session",choice:"none"}).model,SOL);
+});
+// OpenRouter /v1/responses 모양의 Luna 응답 — noModel 이면 공급자가 model 을 보고하지 않은 경우다.
+// reasoning.effort 에코는 라이브 Liner probe(2026-10-11)가 확인한 모양이다.
+const lunaResp=(text,o={})=>({ok:true,json:async()=>({id:"resp_luna",status:"completed",
+  output:[{type:"reasoning",id:"rs_1",summary:[],encrypted_content:"e"},{type:"message",role:"assistant",status:"completed",content:[{type:"output_text",text}]}],
+  usage:{input_tokens:300,output_tokens:80,cost:.001,input_tokens_details:{cached_tokens:0,cache_write_tokens:256},output_tokens_details:{reasoning_tokens:40}},
+  ...(o.noModel?{}:{model:"openai/gpt-6-luna",reasoning:{effort:o.effort||"medium"}}),provider:"Azure"})});
+test("run mis-luna-legacy: 세션 호출은 프로파일 단계 모델로 나간다 — 시도 라벨도 Sol 이 아니다",async()=>{
+  for(const [mode,eff,stage,text] of [["mis-luna-legacy-medium","medium","global",'{"ok":1}'],["mis-luna-legacy-high","high","review",JSON.stringify({edits:[],unresolved:[]})]]){
+    bodies.length=0;
+    const r=await NoteSession.run(ctxFor({stage,rest:{x:1},
+      session:{v:1,id:"leg-"+eff+"-01ab",mode,history:P2()},
+      params:{max_tokens:512,reasoning:{effort:eff}},fetcher:seq(lunaResp(text,{effort:eff}))}));
+    const b=bodies[0].body;
+    assert.equal(b.model,"openai/gpt-6-luna",mode+" wire 모델");
+    assert.equal(b.session_id,"leg-"+eff+"-01ab");
+    assert.deepEqual(b.reasoning,{effort:eff,context:"all_turns"},"선택 effort 가 Responses 본문에 도달한다");
+    assert.equal(b.max_output_tokens,512);
+    assert.ok(!("tools" in b)&&!("tool_choice" in b),"fork 계열은 도구 없는 전선 그대로");
+    assert.equal(b.input[0].content[0].text,NoteSession.V2_DEV,"v2 고정 developer 접두");
+    if(stage==="review")assert.equal(b.text.format.type,"json_schema","strict 표시 단계는 strict 스키마 유지");
+    else assert.deepEqual(b.text,{format:{type:"json_object"}});
+    assert.equal(JSON.stringify(r.payload.noteSession.history),JSON.stringify(P2()),"성공 history=P — fork 규칙");
+    assert.equal(r.attempts[0].model,"openai/gpt-6-luna","시도 라벨은 실제 호출 — Sol 로 잘못 붙이지 않는다");
+    assert.equal(r.attempts[0].stage,"write."+stage);
+    assert.equal(r.resolvedModel,"openai/gpt-6-luna","제공자 보고 모델만 실린다");
+    assert.equal(r.reportedEffort,eff,"제공자 에코 effort — 보낸 값이 아니라 되돌아온 값");
+  }
+  // 공급자가 model 을 보고하지 않으면 시도 라벨은 선택된 별칭 — 장부에 Luna 로 남고 effort 도 별칭 접미로 읽힌다.
+  bodies.length=0;
+  const r=await NoteSession.run(ctxFor({stage:"global",rest:{x:1},
+    session:{v:1,id:"leg-med-02ab",mode:"mis-luna-legacy-medium",history:P2()},
+    params:{max_tokens:512,reasoning:{effort:"medium"}},fetcher:seq(lunaResp('{"ok":1}',{noModel:true}))}));
+  assert.equal(r.attempts[0].model,"openai/gpt-6-luna@medium","미보고 시 선택 별칭 라벨 — Sol 오표시 없음");
+  assert.equal(r.resolvedModel,null,"미보고면 null — 별칭을 resolvedModel 로 추정하지 않는다");
+  assert.equal(r.reportedEffort,null);
+});
+test("run mis-luna-legacy: 잘림·형식 실패·4xx 는 기존 정책 그대로다",async()=>{
+  const sess=h=>({v:1,id:"leg-err-01ab",mode:"mis-luna-legacy-medium",history:h});
+  // 잘림: status incomplete + max_output_tokens — 모델이 달라도 llm_output_truncated 로 접는다.
+  const trunc={ok:true,json:async()=>({id:"resp_t",status:"incomplete",incomplete_details:{reason:"max_output_tokens"},
+    output:[{type:"message",role:"assistant",status:"incomplete",content:[{type:"output_text",text:"..."}]}],
+    usage:{input_tokens:10,output_tokens:5,cost:.001}})};
+  const e1=await(async()=>{try{await NoteSession.run(ctxFor({stage:"global",rest:{x:1},session:sess(P2()),fetcher:seq(trunc)}));return null;}catch(e){return e;}})();
+  assert.equal(e1.code,"llm_output_truncated");assert.ok(e1.charged,"잘린 생성 비용은 보고액만 청구");
+  // 형식 실패(스키마 위반)는 한 번 재시도하고 끝낸다 — 재시도도 같은 Luna 호출이다.
+  bodies.length=0;
+  const fin0=stubDeps.finalizeNote;
+  stubDeps.finalizeNote=()=>{throw Object.assign(new Error("invalid_note_output"),{detail:"schema_mismatch"});};
+  try{
+    const e2=await(async()=>{try{await NoteSession.run(ctxFor({stage:"global",rest:{x:1},session:sess(P2()),fetcher:seq(lunaResp('{}'),lunaResp('{}'))}));return null;}catch(e){return e;}})();
+    assert.equal(e2.detail,"schema_mismatch");
+    assert.equal(bodies.length,2,"형식 실패 재시도 1회");
+    assert.equal(bodies[1].body.model,"openai/gpt-6-luna","재시도도 Luna");
+    assert.ok(e2.charged);
+  }finally{stubDeps.finalizeNote=fin0;}
+  // 첫 호출의 4xx 는 환불 — 라우팅 단계 거절이라 기존 규칙과 같다.
+  const e3=await(async()=>{try{await NoteSession.run(ctxFor({stage:"global",rest:{x:1},session:sess(P2()),fetcher:async()=>({ok:false,status:400,json:async()=>({})})}));return null;}catch(e){return e;}})();
+  assert.equal(e3.refund,true);
+});

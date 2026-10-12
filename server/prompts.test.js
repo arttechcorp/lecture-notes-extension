@@ -5,6 +5,7 @@ const NoteContract = require("../lib/note-contract.js");
 const Boilerplate = require("../lib/boilerplate.js");
 const Preprocess = require("../lib/preprocess.js");
 const Prompts = require("./prompts.js");
+const NoteProfiles = require("../lib/note-profiles.js");
 
 const input = require("../tools/note-fixture/input.json");
 const plannerOutput = require("../tools/note-fixture/planner-output.json");
@@ -32,7 +33,7 @@ const basisOf = (schema, out = new Set()) => {
 };
 
 test("every stage has a versioned system prompt that treats input as untrusted data", () => {
-  assert.equal(Prompts.PROMPT_VERSION, "note-v6");
+  assert.equal(Prompts.PROMPT_VERSION, "note-v10");
   assert.match(Prompts.PROMPT_VERSION, /^[a-z0-9][a-z0-9._-]*$/);
   assert.deepEqual(Prompts.STAGES, ["plan", "section", "global", "repair", "link", "questions", "draft", "review", "editorial"]);
   for (const stage of Prompts.STAGES) {
@@ -44,6 +45,7 @@ test("every stage has a versioned system prompt that treats input as untrusted d
     assert.match(text, /\{\{F12\}\}/, stage + ": 수식은 등록부 id 참조로만");
     assert.match(text, /다시 쓰지 않는다/, stage + ": 원본 수식 재타이핑 금지");
     assert.match(text, /그대로 옮기거나 이어 붙이지 않는다/, stage + ": 비대체성");
+    assert.match(text, /그런 항목을 둘 근거가 없으면 status 는 supported 로 쓴다/, stage + ": status↔checks 탈출구(iter-2)");
     assert.ok(!/\$\{|undefined|\[object/.test(text), stage + ": 템플릿 잔재");
   }
   assert.equal(new Set(Prompts.STAGES.map(s => Prompts.systemFor(s))).size, 9, "단계마다 지시가 다르다");
@@ -138,7 +140,7 @@ test("request contracts are the stage's own field lists", () => {
   assert.deepEqual(Object.keys(Prompts.REQUEST.questions.properties), ["concepts", "sections", "options", "allowedRefs", "section", "blockId", "editorialPlan"]);
   // 선택 키: 네 단계 모두 allowedRefs, plan 은 mis-sol-hai emphasis, section·repair 는 섹션에 배정된 learningItems 도 없어도 된다 — 나머지 키는 모두 required 로 strict 규칙을 지킨다.
   for (const stage of Prompts.STAGES) {
-    const optional = stage === "draft" ? ["allowedRefs", "learningItems", "editorialPlan", "images"] : stage === "repair" ? ["allowedRefs", "learningItems", "packet"] : stage === "section" ? ["allowedRefs", "learningItems"] : stage === "questions" ? ["allowedRefs", "editorialPlan"] : stage === "editorial" ? [] : stage === "review" ? ["sections", "html", "omittedSectionIds", "allowedRefs", "baseRevision"] : stage === "plan" ? ["allowedRefs", "emphasis"] : ["allowedRefs"];
+    const optional = stage === "draft" ? ["allowedRefs", "learningItems", "editorialPlan", "images"] : stage === "repair" ? ["allowedRefs", "learningItems", "packet"] : stage === "section" ? ["allowedRefs", "learningItems"] : stage === "questions" ? ["allowedRefs", "editorialPlan"] : stage === "editorial" ? ["allowedEvidenceIds", "allowedAssetIds"] : stage === "review" ? ["sections", "html", "omittedSectionIds", "allowedRefs", "baseRevision"] : stage === "plan" ? ["allowedRefs", "emphasis"] : ["allowedRefs"];
     assert.deepEqual(Object.keys(Prompts.REQUEST[stage].properties).filter(k => !Prompts.REQUEST[stage].required.includes(k)), optional, stage + " 선택 키");
   }
   // plan·global 요청은 strict 모양을 지킨다. section·repair 는 정규화된 Plan 섹션을 싣는데,
@@ -202,6 +204,23 @@ test("allowedRefs: 선택 키지만 실으면 모양·패턴·경계를 검증�
   const glob = Prompts.outputSchema("global", { plan: { global: plan.global }, allowedRefs: refs });
   assert.deepEqual(glob.properties.blocks.properties.GB2.properties.content.properties.propositions.items.properties.targetIds.items,
     { type: "string", enum: refs.targetIds }, "전역 출력도 targetIds enum");
+  // iter-4 ③: global 요청의 sections 다이제스트가 실은 주장·요지의 evidenceIds 가 전역 출력 스키마의 인용 enum 이 된다.
+  // 다이제스트가 보이지 않는 id 는 모델이 인용할 수 없다 — 발명 근거 인용을 제공자 측에서 차단.
+  const digBody = {
+    plan: { global: plan.global }, allowedRefs: refs,
+    sections: [
+      { sectionId: "S1", title: "t", gist: { text: "g", evidenceIds: ["U1.s1"], basis: "lecture" },
+        blocks: [{ blockId: "S1_B1", type: "B05", claims: [{ text: "c", evidenceIds: ["U1.t1", "S1_B2.c1"], basis: "lecture" }] }] },
+      { sectionId: "S2", title: "t", gist: null,
+        blocks: [{ blockId: "S2_B1", type: "B14", claims: [{ text: "c", evidenceIds: ["U2.g1"], basis: "lecture" }] }] },
+    ],
+  };
+  const globEv = Prompts.outputSchema("global", digBody);
+  const gbEv = globEv.properties.blocks.properties.GB2.properties.content.properties.propositions.items.properties.claim.properties.evidenceIds.items;
+  assert.deepEqual(gbEv.enum, ["U1.s1", "U1.t1", "S1_B2.c1", "U2.g1"], "다이제스트 근거+계산 참조가 enum");
+  const globNo = Prompts.outputSchema("global", { plan: { global: plan.global }, allowedRefs: refs, sections: [] });
+  assert.ok(!("enum" in globNo.properties.blocks.properties.GB2.properties.content.properties.propositions.items.properties.claim.properties.evidenceIds.items), "빈 다이제스트는 enum 없음");
+  assert.equal(Contracts.isStrictCompatible(globEv), true, "좁힌 전역 스키마도 strict");
   // allowedRefs 가 없으면 기존과 같다 — 대상 칸은 패턴이다.
   const plain = Prompts.outputSchema("section", { section: s4, withGist: true, options: { ...OFF } });
   const pq = plain.properties.blocks.properties.S4_B2.properties.content.properties.items.items.properties;
@@ -244,6 +263,24 @@ test("modelParams never sends temperature to a model that rejects it (GPT-6.1 So
   assert.deepEqual({ ...sol.reasoning }, { effort: "medium" });
   for (const stage of ["plan", "editorial"]) assert.deepEqual({ ...Prompts.modelParams("openai/gpt-6.1-sol", stage).reasoning }, { effort: "medium" }, stage + ": 계획 계열 Sol 은 medium 으로 고정");
   assert.equal(Prompts.modelParams("xiaomi/mimo-v2.6-flash", "plan").temperature, 0);
+});
+
+test("modelParams mode arg: profile reasoningBudget overrides the alias default — legacy variants share one cap", () => {
+  const M = "openai/gpt-6-luna@medium", H = "openai/gpt-6-luna@high", { tokens } = Prompts.LIMITS;
+  // 별칭 등록값은 다르다(4000·8000) — mode 없이는 등록값 그대로다(기존 호출 불변).
+  assert.equal(Prompts.modelParams(M, "draft").max_tokens, tokens.writerOutput + 4000);
+  assert.equal(Prompts.modelParams(H, "draft").max_tokens, tokens.writerOutput + 8000);
+  // mis-luna-legacy 프로파일은 둘 다 reasoningBudget 8000 — 모든 단계의 실제 출력 상한이 variation 간 같다.
+  for (const stage of ["plan", "editorial", "draft", "questions", "global", "review", "repair"])
+    assert.equal(Prompts.modelParams(M, stage, "mis-luna-legacy-medium").max_tokens, Prompts.modelParams(H, stage, "mis-luna-legacy-high").max_tokens, stage);
+  assert.equal(Prompts.modelParams(M, "draft", "mis-luna-legacy-medium").max_tokens, tokens.writerOutput + 8000);
+  assert.equal(Prompts.modelParams(M, "plan", "mis-luna-legacy-medium").max_tokens, tokens.plannerOutput + 8000);
+  // 상한만 같고 effort 는 별칭이 정한 값으로 다르다 — variation 의 유일한 차이다.
+  assert.deepEqual(Prompts.modelParams(M, "draft", "mis-luna-legacy-medium").reasoning, { effort: "medium" });
+  assert.deepEqual(Prompts.modelParams(H, "draft", "mis-luna-legacy-high").reasoning, { effort: "high" });
+  // reasoningBudget 칸이 없는 프로파일·알 수 없는 mode 는 별칭 등록값 그대로 — 기존 프로파일 파라미터 불변.
+  assert.equal(Prompts.modelParams(M, "draft", "sol-fork-2").max_tokens, tokens.writerOutput + 4000);
+  assert.equal(Prompts.modelParams(M, "draft", "nope").max_tokens, tokens.writerOutput + 4000);
 });
 
 test("English lecture: writer stages get the English rules, section/repair schemas add a nullable src to every claim", () => {
@@ -399,7 +436,7 @@ test("review stage: integrated editorial review — request contract, prompt rul
 });
 
 test("v2 editorial: a separate second Sol turn carries the editorial instruction; plan output stays the v1 contract", () => {
-  assert.deepEqual(Prompts.V2_MODES, ["sol-luna-2", "sol-luna-3", "sol-fork-2", "mis-sol-hai"]);
+  assert.deepEqual(Prompts.V2_MODES, ["sol-luna-2", "sol-luna-3", "sol-fork-2", "mis-sol-hai", "mis-luna-legacy-medium", "mis-luna-legacy-high"]);
   for (const mode of Prompts.V2_MODES) {
     const t = Prompts.systemFor("editorial", OFF, undefined, undefined, mode);
     assert.match(t, /editorialPlan/, mode + ": 편집 명세 칸 안내");
@@ -412,8 +449,8 @@ test("v2 editorial: a separate second Sol turn carries the editorial instruction
     assert.equal(Contracts.isStrictCompatible(sch), true, mode + " 출력 strict");
     // 계획은 모드와 무관하게 구 계약 그대로 — 한 호출에 합치면 Sol 출력이 Edge 150초를 넘는다(2026-10-07 pilot).
     assert.equal(Prompts.outputSchema("plan", undefined, undefined, mode), NoteContract.schemas.plannerOutput, mode + ": plan 출력");
-    if (mode === "sol-luna-3" || mode === "mis-sol-hai") {
-      // sol-luna-3 는 슬림화된 plan 지시, mis-sol-hai 는 MSH plan 지시가 붙는다 — 모드별 테스트가 따로 단정한다.
+    if (mode === "sol-luna-3" || NoteProfiles.get(mode)?.prompts === "msh") {
+      // sol-luna-3 는 슬림화된 plan 지시, prompts:"msh" 프로파일(mis-sol-hai·mis-luna-legacy)은 MSH plan 지시가 붙는다 — 모드별 테스트가 따로 단정한다.
       assert.notEqual(Prompts.systemFor("plan", OFF, undefined, undefined, mode), Prompts.systemFor("plan"), mode + ": 모드 지시가 기본과 다르다");
     } else {
       assert.equal(Prompts.systemFor("plan", OFF, undefined, undefined, mode), Prompts.systemFor("plan"), mode + ": plan 지시");
@@ -421,6 +458,85 @@ test("v2 editorial: a separate second Sol turn carries the editorial instruction
   }
   assert.equal(Prompts.outputSchema("plan"), NoteContract.schemas.plannerOutput);
   assert.equal(Prompts.modelParams("openai/gpt-6.1-sol", "editorial").max_tokens, Prompts.modelParams("openai/gpt-6.1-sol", "plan").max_tokens);
+});
+
+test("editorial evidence/asset catalogs: optional bounded lists narrow the strict output schema", () => {
+  // 요청 계약: 두 칸은 선택이다 — 실린다면 실제 근거 항목 id(U#.s#/U#.t#/U#.g#)·도표 id(G#)의 배열만 받는다.
+  // 유닛 id(U#)는 근거 항목이 아니라 받지 않는다(editorialPlan 스키마의 evidenceIds 와 같은 도메인, §4.1).
+  assert.deepEqual(Object.keys(Prompts.REQUEST.editorial.properties), ["options", "allowedEvidenceIds", "allowedAssetIds"]);
+  const body = { options: { ...OFF } };
+  assert.ok(Contracts.validate(Prompts.REQUEST.editorial, body).ok, "목록 없는 구 요청 그대로 통과");
+  assert.ok(Contracts.validate(Prompts.REQUEST.editorial, { ...body, allowedEvidenceIds: ["U1.s1", "U13.t2", "U5.g1"], allowedAssetIds: ["G1", "G2"] }).ok, "실제 근거·도표 id 목록 통과");
+  assert.ok(Contracts.validate(Prompts.REQUEST.editorial, { ...body, allowedEvidenceIds: [], allowedAssetIds: [] }).ok, "빈 목록도 모양은 유효");
+  for (const [f, why] of [
+    [{ allowedEvidenceIds: ["U13"] }, "유닛 id(U#)는 근거 항목 id 가 아니다 — U#.x# 만 받는다"],
+    [{ allowedEvidenceIds: ["S1_B3"] }, "블록 id 는 근거 항목 id 가 아니다"],
+    [{ allowedEvidenceIds: "U1.s1" }, "배열이 아니면 거절"],
+    [{ allowedAssetIds: ["U1.g1"] }, "근거 항목 id 는 asset id 가 아니다"],
+    [{ allowedAssetIds: ["F1"] }, "수식 id 는 asset id 가 아니다"],
+    [{ allowedRefs: { targetIds: [], reviewIds: [] } }, "계약 밖 칸 거절"],
+  ]) assert.ok(!Contracts.validate(Prompts.REQUEST.editorial, { ...body, ...f }).ok, why);
+  assert.ok(!Contracts.validate(Prompts.REQUEST.editorial, { ...body, allowedEvidenceIds: Array(5001).fill("U1.s1") }).ok, "근거 목록 상한 5000");
+  assert.ok(!Contracts.validate(Prompts.REQUEST.editorial, { ...body, allowedAssetIds: Array(201).fill("G1") }).ok, "asset 목록 상한 200");
+
+  // 출력 스키마: 목록이 실리면 그 칸의 항목 스키마만 enum 으로 좁힌다 — 제공자는 pattern 을 지우지만 enum 은 강제한다
+  // (mis-luna-debug: 목록 안내만으로는 High 가 U4.s3·U24.s5 를 지어냈다). 칸이 없으면 계약 스키마 그대로다.
+  assert.equal(Prompts.outputSchema("editorial", body), NoteContract.editorialPlanSchema);
+  assert.equal(Contracts.isStrictCompatible(Prompts.outputSchema("editorial", body)), true, "editorial 출력 strict");
+  const evList = ["U1.s1", "U4.s1", "U13.t2"], asList = ["G2", "G7"];
+  const narrow = Prompts.outputSchema("editorial", { ...body, allowedEvidenceIds: evList, allowedAssetIds: asList });
+  const gEv = narrow.properties.glossary.items.properties.evidenceIds;
+  const meEv = narrow.properties.sections.items.properties.mustExplain.items.properties.evidenceIds;
+  const vP = narrow.properties.sections.items.properties.visuals.items.properties;
+  for (const p of [gEv, meEv, vP.evidenceIds]) {
+    assert.deepEqual(p.items.enum, evList, "근거 칸은 허용 목록 enum");
+    assert.equal(p.items.pattern, NoteContract.IDS.evidence, "로컬 패턴은 남는다(제공자는 pattern 을 지우고 enum 만 본다)");
+  }
+  assert.deepEqual(vP.assetIds.items.enum, asList, "자산 칸은 허용 목록 enum");
+  assert.equal(vP.assetIds.items.pattern, NoteContract.IDS.figure);
+  assert.ok(narrow !== NoteContract.editorialPlanSchema, "목록이 있으면 복제본");
+  assert.equal(NoteContract.editorialPlanSchema.properties.glossary.items.properties.evidenceIds.items.enum, undefined, "원본 계약 스키마는 바뀌지 않는다");
+  assert.equal(Contracts.isStrictCompatible(narrow), true, "좁힌 스키마도 strict");
+  // 범주는 독립이다 — 한쪽만 오면 그쪽만 좁힌다.
+  const evOnly = Prompts.outputSchema("editorial", { ...body, allowedEvidenceIds: evList });
+  assert.deepEqual(evOnly.properties.sections.items.properties.mustExplain.items.properties.evidenceIds.items.enum, evList);
+  assert.equal(evOnly.properties.sections.items.properties.visuals.items.properties.assetIds.items.enum, undefined, "자산 칸은 패턴 그대로");
+  const asOnly = Prompts.outputSchema("editorial", { ...body, allowedAssetIds: asList });
+  assert.equal(asOnly.properties.glossary.items.properties.evidenceIds.items.enum, undefined, "근거 칸은 패턴 그대로");
+  assert.deepEqual(asOnly.properties.sections.items.properties.visuals.items.properties.assetIds.items.enum, asList);
+  // 지어낸 근거 id(U4.s3·G9)는 좁힌 스키마가 거절하고 실제 허용 id(U4.s1·G2)는 받는다 — glossary·mustExplain·visuals 근거·visuals 자산 4칸 전부.
+  const EP = m => ({ v: 1,
+    glossary: [{ conceptId: "C1", preferredTerm: "공헌이익", aliases: [], evidenceIds: m.g ?? ["U4.s1"] }],
+    sections: [{ sectionId: "S1", learningQuestion: null, learningItemIds: [], prerequisiteSectionIds: [],
+      mustExplain: [{ role: "definition", learningItemIds: [], evidenceIds: m.m ?? ["U4.s1"] }],
+      owns: [], referencesOnly: [],
+      visuals: [{ visualId: "V1", kind: "comparison", purpose: "비교", learningItemIds: [], evidenceIds: m.ve ?? ["U4.s1"], assetIds: m.va ?? ["G2"], comparisonAxes: [], relationTypes: [], required: true }],
+      targetOutputTokens: 4000 }] });
+  assert.ok(Contracts.validate(narrow, EP({})).ok, "허용 목록 안의 id 는 통과");
+  for (const m of [{ g: ["U4.s3"] }, { m: ["U4.s3"] }, { ve: ["U4.s3"] }, { va: ["G9"] }])
+    assert.ok(!Contracts.validate(narrow, EP(m)).ok, "목록 밖 id 거절: " + JSON.stringify(m));
+  // 명시적으로 빈 목록 — 빈 enum 은 무효라 칸 자체를 maxItems:0 으로 둔다(모델은 그 칸을 비워야 한다).
+  const none = Prompts.outputSchema("editorial", { ...body, allowedEvidenceIds: [], allowedAssetIds: [] });
+  for (const p of [none.properties.glossary.items.properties.evidenceIds, none.properties.sections.items.properties.mustExplain.items.properties.evidenceIds, none.properties.sections.items.properties.visuals.items.properties.evidenceIds])
+    assert.equal(p.maxItems, 0, "빈 근거 목록 → 칸은 빈 배열만 받는다");
+  assert.equal(none.properties.sections.items.properties.visuals.items.properties.assetIds.maxItems, 0);
+  assert.ok(!Contracts.validate(none, EP({ g: ["U1.s1"] })).ok, "빈 목록인데 근거 인용은 거절");
+  assert.ok(Contracts.validate(none, EP({ g: [], m: [], ve: [], va: [] })).ok, "전부 비운 계획은 통과");
+
+  // 지시: 목록에 실린 실제 근거 id 만 쓰고, 유닛 번호에서 발화 근거(U#.t#)를 추정해 만들지 않는다.
+  for (const mode of Prompts.V2_MODES) {
+    const t = Prompts.systemFor("editorial", OFF, undefined, undefined, mode);
+    assert.match(t, /allowedEvidenceIds/, mode + ": 근거 목록 안내");
+    assert.match(t, /allowedAssetIds/, mode + ": asset 목록 안내");
+    assert.match(t, /유닛 id\(U#\)는 근거 항목 id가 아니다/, mode + ": 유닛 id 는 근거가 아님을 명시");
+    assert.match(t, /발화 근거를 추정해 만들지 않고/, mode + ": 발화 근거 추정·지어내기 금지");
+    assert.match(t, /목록에 발화 근거가 없으면 발화를 인용하지 않는다/, mode + ": 발화 근거 없으면 미인용");
+    assert.match(t, /중복 없이 V1부터 순서대로/, mode + ": visualId 전역 고유");
+  }
+  // 단계 버전: iter-4 공유 [주장] 규칙(충돌 값 인용) 변경으로 전 단계 +1 — editorial v11, plan v10, draft v14.
+  assert.equal(Prompts.PROMPT_VERSIONS.editorial, "note-v11");
+  assert.equal(Prompts.PROMPT_VERSIONS.plan, "note-v10");
+  assert.equal(Prompts.PROMPT_VERSIONS.draft, "note-v14");
 });
 
 test("repair request: regenerate_missing entries carry previous:null and the exact evidence list", () => {
@@ -566,8 +682,9 @@ test("existing modes immutability: sol-luna-2, sol-fork-2, independent, and unde
 });
 
 test("prompt size reporting: v3 reduces prompt bytes for plan, editorial, draft, review, questions", () => {
-  // 기준 plan 9,604(L3 emphasis 지시 추가) / editorial 7,894 / draft 10,741(B06 표 전체 칸 중복·희소 표 지시) / repair 8,135(근거 문구 실제 계약에 맞춤) / review 9,021(L1 전 모드 결함 수정 반영) / questions 7,745 (v2, ko, OFF)
-  const baselines = { plan: 9604, editorial: 7894, draft: 10741, repair: 8135, review: 9021, questions: 7745 };
+  // 기준 plan 10,025 / editorial 8,991 / draft 11,268 / repair 8,556 / review 9,442 / questions 8,166
+  // (iter-4: 공유 [주장] 규칙 충돌 값 인용 지시 +175B — 전 단계 공통 가산)
+  const baselines = { plan: 10025, editorial: 8991, draft: 11268, repair: 8556, review: 9442, questions: 8166 };
   for (const [st, baseSize] of Object.entries(baselines)) {
     const v2Size = Buffer.byteLength(Prompts.systemFor(st, OFF, undefined, undefined, "sol-luna-2"), "utf8");
     assert.equal(v2Size, baseSize, st + ": v2 기준 바이트 일치");
@@ -614,8 +731,12 @@ test("mis-sol-hai: plan·draft·review·repair 에만 모드 지시가 붙고 �
   assert.match(plan, /emphasis 는 유닛별 강조 신호/, "plan: 강조 신호 입력의 뜻");
   assert.match(plan, /B12 hint·background/, "plan: 강조 상위에 곁설명 배정");
   assert.match(plan, /slide_absent/, "plan: 말로만 한 내용의 B12 kind");
+  assert.match(plan, /발화에만 나온 배경·힌트 재료가 보이는 섹션에만 B12 를 배정한다/, "plan: B12 는 재료가 보일 때만 배정(iter-3)");
   const draft = Prompts.systemFor("draft", OFF, undefined, undefined, "mis-sol-hai");
-  assert.match(draft, /slide_absent.*발화 근거만 인용한다/, "draft: slide_absent 근거 제한");
+  assert.match(draft, /slide_absent.*발화 id\(`U#\.t#`\)만 인용하고 본문은 슬라이드 글에 없는 내용이어야 한다/, "draft: slide_absent 근거·본문 제한(iter-3)");
+  assert.match(draft, /`\.s#`·`\.g#`·필기 근거·문장 옮기기는 지워진다/, "draft: slide_absent 근거 id 모양(iter-3)");
+  assert.match(draft, /dependsOn 은 노트 생존 의존이다/, "draft: dependsOn 생존 의존(iter-3)");
+  assert.match(draft, /같은 양을 다른 값으로 말하면 주장이 쓴 그 값을 실제로 담은 근거를 인용한다/, "draft: 충돌 값 인용(iter-4)");
   assert.match(draft, /images 는 OCR 이 읽지 못한 필기 영역 이미지다/, "draft: 필기 이미지 근거");
   // review 는 축약 HTML 입력 지시 한 줄이 붙는다(§4.7 D8 — L6 가 html 칸을 싣는다).
   const review = Prompts.systemFor("review", OFF, undefined, undefined, "mis-sol-hai");
@@ -633,6 +754,14 @@ test("mis-sol-hai: plan·draft·review·repair 에만 모드 지시가 붙고 �
     assert.ok(!Prompts.systemFor(st, OFF, undefined, undefined, "sol-luna-3").includes("[mis-sol-hai]"), st + ": v3 무영향");
     assert.ok(!Prompts.systemFor(st, OFF).includes("[mis-sol-hai]"), st + ": 기본 경로 무영향");
   }
+});
+
+test("mis-luna legacy: mis-sol-hai iteration의 단계 지시를 공통으로 계승한다", () => {
+  // 표 고유 근거·수식 홈·봉투 수리·한국어·HTML 검수 지시가 별도 사본으로 갈라지지 않게 한다.
+  for (const mode of ["mis-luna-legacy-medium", "mis-luna-legacy-high"])
+    for (const stage of ["plan", "editorial", "draft", "questions", "review", "global", "repair"])
+      assert.equal(Prompts.systemFor(stage, OFF, undefined, undefined, mode),
+        Prompts.systemFor(stage, OFF, undefined, undefined, "mis-sol-hai"), `${mode}.${stage}: 공통 지시`);
 });
 
 test("mis-sol-hai: draft 요청의 images 칸 — 필기 영역 이미지 근거 모양(선택)", () => {
@@ -656,6 +785,7 @@ test("mis-sol-hai 프롬프트 길이 상한(기획 §7 — 버전과 함께 길
     const v2 = Buffer.byteLength(Prompts.systemFor(st, OFF, undefined, undefined, "sol-luna-2"), "utf8");
     assert.ok(msh - v2 > 0, `${st}: MSH 지시가 붙는다`);
     assert.ok(msh - v2 < 1400, `${st}: MSH 추가분 ${msh - v2}B 가 상한 안`);
-    assert.ok(msh < 12000, `${st}: 총량 ${msh}B 가 상한 안`);
+    // iter-1 slide_absent·inputs 부호 + iter-3 B12·dependsOn + iter-4 충돌 값 인용 누적으로 draft 가 12500 을 넘는다 — 상한을 12800 로 재기록.
+    assert.ok(msh < 12800, `${st}: 총량 ${msh}B 가 상한 안`);
   }
 });

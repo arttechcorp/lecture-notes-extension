@@ -3,9 +3,9 @@
 // 프롬프트는 변하지 않는 시스템 본문이 앞이고 변하는 입력(user)은 호출부가 뒤에 붙인다: 접두 캐시가 맞으려면 이 순서를 지킨다.
 const NoteContract=require("../lib/note-contract.js"),Contracts=require("../lib/contracts.js"),LLM=require("./llm.js"),SectionDraft=require("../lib/section-draft.js"),NoteV3=require("../lib/note-v3.js"),NoteProfiles=require("../lib/note-profiles.js");
 // 프롬프트 문구나 아래 규칙을 바꾸면 올린다. 응답에 실려 단계 캐시 키에 들어간다.
-const PROMPT_VERSION="note-v6";
+const PROMPT_VERSION="note-v10";
 // 단계별 버전: 프롬프트 문구나 아래 규칙을 바꾸면 그 단계만 올린다 — plan 캐시가 section 의 본문 재배치에 휘말려 무효가 되지 않게.
-const PROMPT_VERSIONS={plan:"note-v6",global:"note-v7",link:"note-v6",section:"note-v7",draft:"note-v10",repair:"note-v9",review:"note-v7",editorial:"note-v7",questions:"note-v7"};
+const PROMPT_VERSIONS={plan:"note-v10",global:"note-v10",link:"note-v10",section:"note-v10",draft:"note-v14",repair:"note-v12",review:"note-v10",editorial:"note-v11",questions:"note-v10"};
 const STAGES=["plan","section","global","repair","link","questions","draft","review","editorial"];
 // 두 실험 모드 — plan 직후 editorial 단계(같은 세션의 두 번째 Sol 턴)가 편집 명세(editorialPlan)를 낸다. 한 호출에 합치면 Edge 150초를 넘는다.
 const V2_MODES=NoteContract.V2_MODES;
@@ -26,12 +26,12 @@ const COMMON=[
 // §6·§9 공통 규칙. 슬롯 이름은 스키마가 알려 주고, 여기서는 뜻과 금지만 말한다.
 const NOTE_RULES=[
   "[주장] 주장은 {text, evidenceIds, basis}다. text는 600자 이하 한두 문장.",
-  "- basis \"lecture\": 강의 자료의 사실. evidenceIds에 근거 항목 id(예: \"U3.s2\" 슬라이드 줄, \"U3.t5\" 발화, \"U3.g1\" 도표)를 1개 이상 적는다. text의 숫자는 인용한 근거 텍스트에 그대로 있어야 한다(\"300만 원\"과 3,000,000은 같은 값).",
+  "- basis \"lecture\": 강의 자료의 사실. evidenceIds에 근거 항목 id(예: \"U3.s2\" 슬라이드 줄, \"U3.t5\" 발화, \"U3.g1\" 도표)를 1개 이상 적는다. text의 숫자는 인용한 근거 텍스트에 그대로 있어야 한다(\"300만 원\"과 3,000,000은 같은 값). 근거끼리 같은 양을 다른 값으로 말하면 주장이 쓴 그 값을 실제로 담은 근거를 인용한다 — 다른 값을 담은 근거와 짝짓지 않는다.",
   "- basis \"derived\": B10 계산 결과를 쓰는 주장. evidenceIds에 계산 참조(\"S2_B3.c2\" 단계, \"S2_B3.i1\" 입력)를 1개 이상 적는다. 같은 섹션의 B10만 참조한다.",
   "- basis \"pedagogical\": 교육용으로 일부러 틀린 문장. B14 OX 문항 중 정답이 X인 문항의 prompt, B11의 origin이 structural_check인 misconception에서만 쓴다.",
   "- 주장 하나에 무관한 내용을 섞지 않는다. 표의 칸, 논증 단계, 해설도 각각 주장이다.",
-  "[봉투] 블록은 {status, importance, emphasis, content}다. status는 보통 supported이고, uncertain·conflicting·corrected이면 같은 섹션 checks의 항목이 그 블록을 targetIds로 가리켜야 한다. importance는 학습상 중심성(core·supporting·reference)이다. emphasis는 인용 근거 텍스트에 강조어(stress: 중요·핵심·꼭·반드시·기억, exam: 시험·출제·중간고사·기말고사·퀴즈)가 실제로 있을 때만 적고, 시험 언급을 출제 확정으로 바꾸지 않는다.",
-  "[블록] B02 한눈에: 강의의 핵심 결론 1~3개(토론형이면 mode issues). B03 지도: 개념·단계 노드 3~7개와 관계, causes·supports 간선은 근거 있는 주장이 필수. B05 개념: conceptId는 계획한 개념 하나, term은 짧게, original은 근거에 실제로 나온 원어만. B06 비교: 같은 기준 행으로 대상들을 나란히, cells 수는 entities 수와 같고 확인 안 된 칸은 null. B07 논리: 단계 2~8개, 사실 근거(evidence)와 규범 전제(value_premise)를 다른 칸에, 생략된 연결은 missingLinks. B08 사례: 단서(clue)와 해석(reading)을 한 쌍으로. B09 자료: 저자 주장(authorClaim)과 강의의 해석(lecturerReading)을 나누고, quote는 근거에 글자 그대로 있는 150자 이하 구절만. B10 수식·표·계산: formulaIds·figureIds로 원본을 가리키고, 계산은 inputs(근거 숫자)와 steps(add·sub·mul·div, a·b는 i1·c1 같은 앞선 참조)로 쓰며 값은 직접 검산한다. %−%의 결과 단위는 %p다. 계산 조건이 모자라면 steps를 비우고 withheld에 이유를 적는다. B11 헷갈리는 점: 강의에서 바로잡은 오해(lecture_correction) 또는 구조상 구분할 점(structural_check). B12 곁설명: 앞 블록에 붙는 140자 이하 보충, 필수 조건·예외는 여기 두지 않는다. B13 연결 정리: 대상 사이의 관계 2~5개. B14 자기 점검: 문항과 답안을 같은 항목으로 쓴다. B18 공지: 실제 발언된 시험·과제·기한만, due는 근거에 적힌 그대로이고 절대 날짜를 추정하지 않는다.",
+  "[봉투] 블록은 {status, importance, emphasis, content}다. status는 보통 supported이고, uncertain·conflicting·corrected이면 같은 섹션 checks의 항목이 그 블록을 targetIds로 가리켜야 한다 — 그런 항목을 둘 근거가 없으면 status 는 supported 로 쓴다. importance는 학습상 중심성(core·supporting·reference)이다. emphasis는 인용 근거 텍스트에 강조어(stress: 중요·핵심·꼭·반드시·기억, exam: 시험·출제·중간고사·기말고사·퀴즈)가 실제로 있을 때만 적고, 시험 언급을 출제 확정으로 바꾸지 않는다.",
+  "[블록] B02 한눈에: 강의의 핵심 결론 1~3개(토론형이면 mode issues). B03 지도: 개념·단계 노드 3~7개와 관계, causes·supports 간선은 근거 있는 주장이 필수. B05 개념: conceptId는 계획한 개념 하나, term은 짧게, original은 근거에 실제로 나온 원어만. B06 비교: 같은 기준 행으로 대상들을 나란히, cells 수는 entities 수와 같고 확인 안 된 칸은 null. B07 논리: 단계 2~8개, 사실 근거(evidence)와 규범 전제(value_premise)를 다른 칸에, 생략된 연결은 missingLinks. B08 사례: 단서(clue)와 해석(reading)을 한 쌍으로. B09 자료: 저자 주장(authorClaim)과 강의의 해석(lecturerReading)을 나누고, quote는 근거에 글자 그대로 있는 150자 이하 구절만. B10 수식·표·계산: formulaIds·figureIds로 원본을 가리키고, 계산은 inputs(근거 숫자)와 steps(add·sub·mul·div, a·b는 i1·c1 같은 앞선 참조)로 쓰며 값은 직접 검산한다. %−%의 결과 단위는 %p다. inputs 의 value 는 근거 글의 부호 그대로 쓴다(- 부호·($1,000) 같은 괄호 음수 포함) — 없는 수치로 채운 입력은 블록이 지워진다. 계산 조건이 모자라면 steps를 비우고 withheld에 이유를 적는다. B11 헷갈리는 점: 강의에서 바로잡은 오해(lecture_correction) 또는 구조상 구분할 점(structural_check). B12 곁설명: 앞 블록에 붙는 140자 이하 보충, 필수 조건·예외는 여기 두지 않는다. B13 연결 정리: 대상 사이의 관계 2~5개. B14 자기 점검: 문항과 답안을 같은 항목으로 쓴다. B18 공지: 실제 발언된 시험·과제·기한만, due는 근거에 적힌 그대로이고 절대 날짜를 추정하지 않는다.",
   "[슬롯] B05는 definition=무엇인가(한 문장 정의), explanation=어떻게 이해하는가(직관·비유·읽는 법), mechanism=왜·어떻게 작동하는가(원인·구조·작동), scope=언제 성립하는가(적용 조건·예외)다. 네 칸은 서로 다른 질문에 답한다 — 한 칸의 말을 고쳐 다른 칸을 채우는 의역 반복은 하지 않는다. B06의 표가 비교를 다 담는다 — 비교 내용을 산문 주장으로 다시 나열하지 않고 확인되지 않은 칸은 null이다. B07은 순서(process·history), 인과(causal), 논증(argument)을 구분한다 — causal과 지도의 causes·supports, 연결의 cause는 근거 있는 주장이 있을 때만 달고, 나열된 순서나 앞뒤 언급만을 인과로 읽지 않는다.",
   "[문항] OX는 verdict 필수. X이면 prompt는 pedagogical이고 correction은 근거 있는 주장, O이면 prompt는 근거 있는 주장이고 correction은 null. OX가 아니면 verdict·correction은 null이고 prompt는 근거 있는 주장. argue는 rubric 1개 이상. calc는 explanation이 같은 섹션 B10의 계산 참조를 인용. 문항의 targetIds는 계획된 섹션·블록·개념 id와 사례·자료 단서 위치만이고 대상 개념은 defined 개념만이다. answer.reviewIds는 현재 B14 문항 블록을 제외한 실제 본문 블록(S#_B#) id이고 같은 섹션 블록도 된다 — 전역 블록(GB#)과 지도 노드 key는 쓰지 않는다. 본문에 없는 지식을 알아야 푸는 문항은 만들지 않는다.",
   "[정정] 강의에서 앞서 말한 값이나 설명을 바로잡으면 checks에 kind correction 항목을 넣는다. before는 정정 전 근거, after는 정정 후 근거를 인용하는 lecture 주장이다. 다른 주장은 정정 후 근거를 함께 인용한다. 인식이 불확실하거나 자료가 서로 다르면 recognition_uncertain·input_conflict 항목으로 알린다.",
@@ -97,7 +97,7 @@ const STAGE={
   ],
   draft:[
     "단계: 섹션 의미 초안. 입력은 이 섹션의 계획(section), 개념 목록(concepts), 인용할 수 있는 근거 항목(evidence: id, 종류, 시각, 텍스트), 수식 등록부(registry), 도표(figures)다. 지면(B01–B18 슬롯·색·번호·HTML)이 아니라 의미 단위만 쓴다 — 코드가 초안을 계획 블록으로 조판한다. gist가 스키마에 있으면 단원 요지를 40~100자 한 주장으로 쓴다.",
-    "claims는 주장의 평탄한 목록이다. claimId는 c1, c2처럼 이 초안 안에서만 유효한 로컬 키다. role은 주장의 의미 기능이다 — definition(정의)·intuition(직관·비유·읽는 법)·mechanism(왜·어떻게 작동하는가)·condition·exception(성립 조건·예외)·example(사례)·comparison·argument·procedure·calculation·notice(수업 공지). conceptIds는 주장이 다루는 계획 개념, dependsOn은 먼저 이해해야 하는 주장의 claimId다. 한 칸의 말을 고쳐 다른 주장으로 되풀이하지 않는다.",
+    "claims는 주장의 평탄한 목록이다. claimId는 c1, c2처럼 이 초안 안에서만 유효한 로컬 키다. role은 주장의 의미 기능이다 — definition(정의)·intuition(직관·비유·읽는 법)·mechanism(왜·어떻게 작동하는가)·condition·exception(성립 조건·예외)·example(사례)·comparison·argument·procedure·calculation·notice(수업 공지). conceptIds는 주장이 다루는 계획 개념, dependsOn 은 노트 생존 의존이다 — 기대는 주장이 본문을 떠나면 이 주장도 지워진다. 기대려면 그 주장을 관계에 먼저 실어라. 한 칸의 말을 고쳐 다른 주장으로 되풀이하지 않는다.",
     "relations는 주장을 구조로 엮은 typed 객체다 — 산문으로 쓴 뒤 다시 구조화하지 않는다. 관계 안의 주장 칸은 모두 claimId다. 같은 타입의 계획 블록과 계획 순서로 하나씩 대응한다: 계획이 B05 두 개를 세우고 claims에 그 개념의 주장이 있으면 conceptIds로 갈린다. B06은 comparisons, B07은 arguments, B08은 cases, B09는 materials, B10은 calcs, B11은 pitfalls, B12는 notes, B13은 links, B18은 notices, B03은 maps다. B14(자기 점검)는 이 단계에서 만들지 않는다.",
     "설명 순서는 강의 유형을 따라간다 — 개념형은 정의→직관→원리→조건·예외→적용, 논증형은 주장–근거–숨은 전제–반론–한계, 경영형은 정의–작동–가정–비교–사례·의사결정. 역사·철학처럼 원리가 해당 없으면 mechanism 주장을 지어내지 않는다.",
     "재료가 없는 관계·칸은 만들지 않는다 — 확인되지 않은 칸에 넣을 주장을 지어내지 않고 null·빈 배열로 둔다. 근거가 부족해 계획한 블록의 재료를 만들 수 없으면 그 타입의 관계를 만들지 않는다.",
@@ -133,13 +133,14 @@ const EDITORIAL=[
   "editorialPlan.sections는 plan의 섹션과 같은 sectionId를 갖고 모든 섹션을 덮는다. 섹션마다 learningQuestion(그 단원이 답하는 질문), learningItemIds(배정 학습 항목), prerequisiteSectionIds(먼저 읽어야 할 섹션), mustExplain(설명해야 할 내용: role·learningItemIds·evidenceIds), owns(그 개념의 정의·설명을 책임지는 섹션), referencesOnly(짧게 참조만 할 개념), visuals(시각화 명세), targetOutputTokens(예상 출력량)을 정한다. 한 개념의 owns는 한 섹션뿐이다 — 같은 개념의 정의를 여러 섹션에 반복하지 않는다.",
   "예시·예외·조건은 mustExplain에서 빈칸 채우기보다 먼저 배정한다. 근거에 없는 인과 화살표·비교 축·수치 곡선을 만들지 않는다 — visuals의 comparisonAxes·relationTypes·assetIds는 근거와 실제 asset에서만 고른다.",
   "id는 입력의 id만 쓴다 — conceptId·sectionId·learningItemIds·evidenceIds·assetIds를 지어내지 않는다. visualId는 V1부터 순서대로 붙인다.",
+  "입력의 allowedEvidenceIds는 인용할 수 있는 근거 항목 id의 전체 목록(U#.s# 슬라이드 줄·U#.t# 발화·U#.g# 도표의 실제 항목 id)이고, allowedAssetIds는 연결할 수 있는 도표 id(G#)의 전체 목록이다 — mustExplain과 visuals의 evidenceIds는 allowedEvidenceIds에 실린 id만, visuals의 assetIds는 allowedAssetIds에 실린 id만 고른다. 유닛 id(U#)는 근거 항목 id가 아니다 — 유닛 번호에서 U#.t# 같은 발화 근거를 추정해 만들지 않고, 목록에 발화 근거가 없으면 발화를 인용하지 않는다. visualId는 editorialPlan 전체에서 중복 없이 V1부터 순서대로 붙인다.",
 ];
 STAGE.editorial=EDITORIAL;
 // 조건부 전문 워커(§3): 계획 섹션의 선택 필드 worker(W2-B)가 있으면 draft 지시 끝에 한 문장을 붙인다.
 // 같은 worker 값이면 같은 문자열이어야 한다 — 문장을 바꾸면 그 worker 의 캐시 접두가 갈린다. 없으면 general(추가 없음).
 const WORKER={
   general:null,
-  formula:"[전문 초점: 수식·단위·계산] 수식의 의미와 변수의 단위, 계산의 입력·단계·해석을 claims와 calcs 관계로 정확히 나눈다. inputs에는 근거에 있는 숫자만 넣고 단순 산술의 결과 값은 코드가 검산한다.",
+  formula:"[전문 초점: 수식·단위·계산] 수식의 의미와 변수의 단위, 계산의 입력·단계·해석을 claims와 calcs 관계로 정확히 나눈다. inputs에는 근거에 있는 숫자를 부호 그대로 넣고 단순 산술의 결과 값은 코드가 검산한다.",
   comparison:"[전문 초점: 비교] 같은 기준 행으로 대상을 나란히 비교하는 comparisons 관계로 구조화한다. 확인되지 않은 칸은 주장을 지어내지 않고 null로 둔다.",
   argument:"[전문 초점: 논증] 주장–근거–숨은 전제–반론–한계를 arguments 관계의 steps·missingLinks로 구조화하고, 사실 근거(evidence)와 규범 전제(value_premise)를 구분한다.",
   figure:"[전문 초점: 도표·자료 해석] 자료가 말하는 것과 말하지 못하는 것을 나누어 쓰고, 표·그래프의 값은 근거 항목과 calcs의 figureIds로만 가리킨다.",
@@ -178,7 +179,7 @@ const STAGE_V3={
   editorial:STAGE.editorial,
   draft:[
     "단계: 섹션 의미 초안(Luna). 입력은 이 섹션의 계획(section), 개념 목록(concepts), 인용할 수 있는 근거 항목(evidence: id, 종류, 시각, 텍스트), 수식 등록부(registry), 도표(figures), 편집 명세(editorialPlan)다. 지면(B01–B18 슬롯·HTML)이 아니라 의미 단위만 작성한다 — 코드가 초안을 계획 블록으로 조판한다. gist가 스키마에 있으면 단원 요지를 40~100자 한 주장으로 쓴다.",
-    "claims는 주장의 평탄한 목록이다. claimId는 c1, c2처럼 이 초안 안에서만 유효한 로컬 키다. role은 주장의 의미 기능이다 — definition(정의)·intuition(직관·비유·읽는 법)·mechanism(왜·어떻게 작동하는가)·condition·exception(성립 조건·예외)·example(사례)·comparison·argument·procedure·calculation·notice(공지). conceptIds는 주장이 다루는 계획 개념, dependsOn은 먼저 이해해야 하는 주장의 claimId다. text는 600자 이하 한두 문장이다.",
+    "claims는 주장의 평탄한 목록이다. claimId는 c1, c2처럼 이 초안 안에서만 유효한 로컬 키다. role은 주장의 의미 기능이다 — definition(정의)·intuition(직관·비유·읽는 법)·mechanism(왜·어떻게 작동하는가)·condition·exception(성립 조건·예외)·example(사례)·comparison·argument·procedure·calculation·notice(공지). conceptIds는 주장이 다루는 계획 개념, dependsOn 은 노트 생존 의존이다 — 기대는 주장이 본문을 떠나면 이 주장도 지워진다. 기대려면 그 주장을 관계에 먼저 실어라. text는 600자 이하 한두 문장이다.",
     "주장의 basis는 lecture(강의 자료의 사실) 또는 derived(B10 계산 결과)다. evidenceIds에 근거 항목 id(예: \"U3.s2\", \"U3.t5\", \"U3.g1\")를 1개 이상 적는다. text의 숫자는 인용한 근거 텍스트에 그대로 있어야 한다. 한 주장 안에 무관한 내용을 섞지 않는다.",
     "완결된 설명 기준: 한 개념의 정의와 설명은 핵심 조건과 예외를 본문 주장 안에 완전히 포함해야 한다 — 핵심 조건·예외를 곁설명으로 보내거나 생략하지 않는다. 곁설명(notes)에는 본문 없이도 이해되는 보조 설명만 둔다.",
     "내용 없는 고정 상자 채우지 않기: 근거 자료가 부족하거나 없는 관계·칸은 억지로 주장을 지어내 채우지 않는다. 확인되지 않은 칸은 null이나 빈 배열로 둔다. 계획된 블록이라도 근거가 부족해 채울 수 없으면 그 관계를 만들지 않고 nullReasons에 그 블록 id의 사유(insufficient_evidence·duplicate·unsupported_format·policy·unknown)를 적는다.",
@@ -208,10 +209,10 @@ const MSH={
   plan:[
     "[mis-sol-hai] 모든 슬라이드를 정확히 한 섹션에 배정한다 — 제목만 있거나 내용이 없는 슬라이드는 다음 슬라이드의 섹션에 합친다.",
     "개념 이름(concepts[].name)은 강의 자료에 나온 전공 용어 원어를 앞에, 한국어 번역을 괄호에 쓴다 — 예: k-Fold Cross-Validation(k겹 교차검증), Over-fitting(과적합). 자료에 한국어 용어만 있으면 한국어만 쓴다.",
-    "입력의 emphasis 는 유닛별 강조 신호(체류·핵심어 재등장·강조어·재방문·필기 면적)다 — 신호가 높은 자리의 블록에 곁설명(B12 hint·background)을 배정해 부가 설명을 붙이고, 슬라이드에 없이 말로만 한 내용에는 B12 블록을 배정한다(작성 단계가 kind slide_absent 로 채운다).",
+    "입력의 emphasis 는 유닛별 강조 신호(체류·핵심어 재등장·강조어·재방문·필기 면적)다 — 신호가 높은 자리의 블록에 곁설명(B12 hint·background)을 배정해 부가 설명을 붙이고, 슬라이드에 없이 말로만 한 내용에는 B12 블록을 배정한다(작성 단계가 kind slide_absent 로 채운다). 발화에만 나온 배경·힌트 재료가 보이는 섹션에만 B12 를 배정한다.",
   ],
   draft:[
-    "[mis-sol-hai] 슬라이드에 없이 말로만 한 내용은 notes 관계의 kind \"slide_absent\"로 쓴다 — 그 관계의 주장은 발화 근거만 인용한다.",
+    "[mis-sol-hai] 슬라이드에 없이 말로만 한 내용은 notes 관계의 kind \"slide_absent\"로 쓴다 — 주장은 발화 id(`U#.t#`)만 인용하고 본문은 슬라이드 글에 없는 내용이어야 한다(`.s#`·`.g#`·필기 근거·문장 옮기기는 지워진다). 발화만으로 못 채우면 다른 kind 나 보류다.",
     "입력의 images 는 OCR 이 읽지 못한 필기 영역 이미지다 — id 는 그 영역이 속한 근거다. 이미지에서 읽은 내용은 그 근거 id 를 인용하는 주장으로 쓰고, 읽히지 않는 필기는 쓰지 않는다.",
     "figureNotes: 입력 figures 의 도표마다 하나씩 — figureId 는 그 도표 id(G#), claim 은 그 도표가 무엇을 보여 주고 강의에서 어떤 뜻인지(축·색·곡선이 무엇이고 어떤 추세가 무슨 결론을 받치는지) 1~2문장으로 쓴 claims 의 claimId 다. 그 주장은 도표 근거(figures 의 evidenceId)와 그 내용을 말한 슬라이드 글·발화를 인용하고, 근거 글에 없는 값·축 이름은 쓰지 않는다. blockId 는 그 도표를 둘 계획 블록 — 도표가 설명하는 개념의 B05, 계산·표 해석이면 B10 — 이고 맞는 블록이 없으면 null 이다.",
     "formulaNotes: 수식(F#)마다 — claim=식 전체 뜻 한 문장, blockId=홈(개념 설명 식은 그 B05, 계산 식은 B10, 없으면 null). 인용은 figureNotes 준용.",
@@ -364,8 +365,13 @@ const REQUEST={
     allowedRefs,
     baseRevision:{type:"string",maxLength:64},
   },["allowedRefs","baseRevision","sections","html","omittedSectionIds"]),
-  // v2 편집 계획: 입력은 옵션뿐이다 — 계획은 noteSession 이력(앞 턴)에 이미 있다. 이력 없이는 서버가 거절한다.
-  editorial:opt({options},[]),
+  // v2 편집 계획: 계획은 noteSession 이력(앞 턴)에 있고 이번 요청은 옵션·실제 인용 가능 ID 목록을 싣는다. 이력 없이는 서버가 거절한다.
+  // allowedEvidenceIds·allowedAssetIds(선택): 인용 가능한 실제 근거 항목·도표 id 목록 — 유닛 id(U#)는 근거 항목 id 가 아니라 받지 않는다.
+  // 입력 안내만으로는 모델이 목록 밖 id 를 지어낼 수 있어(mis-luna-debug: High 의 U4.s3·U24.s5) 출력 스키마의 해당 칸도 같은 목록으로 좁힌다.
+  editorial:opt({options,
+    allowedEvidenceIds:arr(pat(IDS.evidence),5000),
+    allowedAssetIds:arr(pat(IDS.figure),200),
+  },["allowedEvidenceIds","allowedAssetIds"]),
   // 본문 확정 뒤 문항(draft 경로): 채울 B14 는 계획 블록 하나, 참고는 살아남은 본문 주장이다.
   questions:opt({
     concepts:planConcepts,
@@ -381,14 +387,37 @@ const REQUEST={
 };
 // 요청별 출력 스키마. 계획에 없는 blockId 같은 잘못된 요청은 note-contract 가 던진다 — 라우트가 request_rejected 로 바꾼다.
 // 영어 강의의 섹션·repair 는 주장마다 src 칸이 더해진다(NoteContract.withSource).
+// editorial 의 근거·자산 칸을 요청의 허용 목록으로 좁힌다 — 목록이 오면 그 칸의 항목 스키마만 enum 으로 바꾼다
+// (제공자용 스키마 변환에서 pattern 은 빠지고 enum 은 유지된다). 목록이 빈 배열이면 그 칸은 maxItems:0 이 된다(빈 enum 은 무효).
+// 칸이 아예 없으면 계약 스키마 그대로다. 원본은 공유 객체라 복제본만 고친다.
+const narrowIdProp=(prop,ids)=>ids===undefined?prop:(ids.length?{...prop,items:{...prop.items,enum:[...new Set(ids)]}}:{...prop,maxItems:0});
+const editorialOutputFor=body=>{
+  const ev=body?.allowedEvidenceIds,as=body?.allowedAssetIds;
+  if(ev===undefined&&as===undefined)return NoteContract.editorialPlanSchema;
+  const out=JSON.parse(JSON.stringify(NoteContract.editorialPlanSchema));
+  const g=out.properties.glossary.items.properties,s=out.properties.sections.items.properties,v=s.visuals.items.properties;
+  g.evidenceIds=narrowIdProp(g.evidenceIds,ev);
+  s.mustExplain.items.properties.evidenceIds=narrowIdProp(s.mustExplain.items.properties.evidenceIds,ev);
+  v.evidenceIds=narrowIdProp(v.evidenceIds,ev);
+  v.assetIds=narrowIdProp(v.assetIds,as);
+  return out;
+};
+// 전역 출력의 인용 enum: 요청 본문의 sections 다이제스트(요지+블록 주장)에 실제 실린 evidenceIds — 모델이 본 것만.
+// 계산 참조(S#_B#.c#·i#)도 주장 evidenceIds 에 섞여 오므로 그대로 통한다. 모르는 id 인용은 스키마가 막는다(iter-4).
+const digestRefs=(sections)=>{const ids=[];const seen=new Set();
+  const w=v=>{if(Array.isArray(v)){v.forEach(w);return}
+    if(!v||typeof v!=="object")return;
+    if(Array.isArray(v.evidenceIds))for(const r of v.evidenceIds)if(typeof r==="string"&&!seen.has(r)){seen.add(r);ids.push(r)}
+    for(const x of Object.values(v))w(x)};
+  for(const s of sections||[]){w(s?.gist);w(s?.blocks)}return ids};
 function outputSchema(stage,body,sourceLang,mode){
   const src=sch=>sourceLang==="en"?NoteContract.withSource(sch):sch;
   if(stage==="plan")return S.plannerOutput;
-  if(stage==="editorial")return NoteContract.editorialPlanSchema;
+  if(stage==="editorial")return editorialOutputFor(body);
   if(stage==="section")return src(NoteContract.sectionOutputSchemaFor(body.section,{gist:body.withGist,policy:body.options,allowedRefs:body.allowedRefs}));
   if(stage==="draft")return SectionDraft.outputSchemaFor(body.section,{gist:body.withGist,policy:body.options,allowedRefs:body.allowedRefs,sourceLang,nullReasons:V2_MODES.includes(mode),figureNotes:NoteProfiles.get(mode)?.prompts==="msh"});
   if(stage==="repair")return src(NoteContract.repairOutputSchemaFor(body.section,[...new Set(body.repair.map(r=>r.blockId))],body.options,body.allowedRefs));
-  if(stage==="global")return NoteContract.globalOutputSchemaFor(body.plan.global,body.allowedRefs);
+  if(stage==="global")return NoteContract.globalOutputSchemaFor(body.plan.global,body.allowedRefs,digestRefs(body.sections));
   if(stage==="link")return NoteContract.linkOutputSchema;
   if(stage==="review")return NoteContract.reviewOutputSchema;
   // questions 는 계획된 B14 블록 하나만 채운다 — 다른 타입이나 계획 밖 id 는 거절이다.
@@ -400,8 +429,10 @@ const estimateTokens=text=>Math.ceil(Buffer.byteLength(text)/LIMITS.bytesPerToke
 const inputTokenLimit=stage=>stage==="plan"?T.plannerInput:["global","link","questions","review"].includes(stage)?T.globalInput:T.writerInput;
 // 생성 파라미터. seed 를 지원하지 않는 모델에 보내면 require_parameters 때문에 요청이 통째로 거절된다(Anthropic).
 const NO_SEED=/^anthropic\//,SEED=7;
-const modelParams=(model,stage)=>({
-  max_tokens:Math.min(LLM.maxTokensFor(model),(stage==="plan"||stage==="editorial"?T.plannerOutput:["global","link","review"].includes(stage)?T.globalOutput:T.writerOutput)+LLM.reasoningBudgetFor(model)),
+// 추론 여유분은 모델 별칭의 등록값이 기본이다 — 프로파일이 reasoningBudget 을 달면(mis-luna-legacy: effort 만 다른
+// 두 variation 의 실제 출력 상한을 같게) 그 값이 이긴다. mode 없음·칸 없는 프로파일은 기존 동작 그대로다.
+const modelParams=(model,stage,mode)=>({
+  max_tokens:Math.min(LLM.maxTokensFor(model),(stage==="plan"||stage==="editorial"?T.plannerOutput:["global","link","review"].includes(stage)?T.globalOutput:T.writerOutput)+(NoteProfiles.get(mode)?.reasoningBudget??LLM.reasoningBudgetFor(model))),
   reasoning:LLM.reasoningFor(model),...(LLM.noTemperature(model)?{}:{temperature:0}),...(NO_SEED.test(model)?{}:{seed:SEED}), // temperature 를 거절하는 모델(GPT 추론형)에 보내면 require_parameters 로 404 가 난다
 });
 module.exports={PROMPT_VERSION,PROMPT_VERSIONS,STAGES,LIMITS,V2_MODES,systemFor,repairPacket,REQUEST,outputSchema,estimateTokens,inputTokenLimit,modelParams,editorialPlanSchema:NoteContract.editorialPlanSchema,reviewOutputSchema:NoteContract.reviewOutputSchema};

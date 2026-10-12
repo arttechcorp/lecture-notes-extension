@@ -84,7 +84,7 @@
     const tex = s => {
       let t = String(s ?? "");
       const bare = (ch, rep) => { t = t.replace(new RegExp(`(\\\\*)${ch}`, "g"), (m, bs) => (bs.length % 2 ? m : bs + rep)); };
-      bare("%", "\\%"); bare("#", "\\#");
+      bare("%", "\\%"); bare("#", "\\#"); bare("\\$", "\\$"); // bare $ 는 수학 모드에서 던진다 — % 보정이 주석을 풀어 노출될 수 있다(engine3). 패턴은 \$(리터럴 $)로.
       if (!/\\begin\s*\{/.test(t)) bare("&", "\\&");
       return t;
     };
@@ -92,8 +92,8 @@
     // 인쇄에서 잘린다(mis-sol-hai-28: eq-F9/eq-F10 OVERFLOW_X. % 보정으로 잘리던 꼬리가 다시
     // 그려지면서 실제 폭이 드러난 것). 추정 폭이 예산을 넘으면 최상위 관계 뒤·이항 연산자 앞에서
     // gathered 줄로 나누고, 끊을 곳이 없는 긴 식은 단계 축소 클래스를 단다(읽기 하한 70%).
-    const EQ_BUDGET = 660;   // .equation 안쪽 보수 폭(px) — A4 본문 686px·.note 704px 모두 안쪽
-    const EQ_UNIT = 9.4;     // .equation 15px·KaTeX 1.21em 기준 문자 1개 평균 전진폭(px)
+    const EQ_BUDGET = 480;   // .equation 안쪽 보수 폭(px) — B10 식 행의 최소 실폭. with-aside 곁설명 열(aside 150px+gap/padding≈189px)을 빼면 인쇄 본문 686px 기준 ≈498px, 여유를 두고 480
+    const EQ_UNIT = 10.4;    // .equation 15px·KaTeX 1.21em 기준 문자 1개 평균 전진폭(px) — 숫자·\$·\% 밀도가 높은 식은 9.4로 ~7% 저평가됐다(engine3 eq-F2/F3: est 479 vs 실측 ~511px)
     // 문자 단위 폭 추정 — 실측이 아니라 보수 추정이라 분수 괄호 안까지 합산해 약간 넓게 잡는다.
     const CMDW = {
       cdot: 1, times: 1.2, div: 1.2, cdots: 2.6, ldots: 2.6, dotsb: 2.6, dotsc: 2.6, dotsi: 2.6,

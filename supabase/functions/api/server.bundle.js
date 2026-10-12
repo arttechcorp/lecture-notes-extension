@@ -224,12 +224,16 @@ const __defs = {
   // 숫자는 NFKC로 ASCII에 맞춘다. "1\,000" 류 천 단위 구분은 명령 제거가 "\,"를
   // 먹어버리기 전에 합친다. \frac12 축약만 "1 2"로 펼친다 — 중괄호 형태는 어차피
   // 숫자가 갈라져 나온다.
+  // 토큰은 수치로 정규화한다("2,336.40"="2,336.4", ".5"="0.5") — 문자열 그대로 비교하면
+  // 표기만 다른 같은 값이 불일치로 떨어져 정상 수식이 image 가 된다(mis-sol-hai-30).
+  // verify.js 의 numbersOf·tokenizeMathSymbols 가 쓰는 값 비교와 같은 눈이다.
+  const numTok = t => { const n = Number(t); return Number.isFinite(n) ? String(n) : t; };
   function numericTokens(s) {
     s = String(s || "").normalize("NFKC");
     s = s.replace(/(?<=\d)(?:\\,|\{,\}|,)(?=\d{3}(?!\d))/g, "");
     s = s.replace(/\\[dt]?frac\s*(\d)\s*(\d)/g, " $1 $2 ");
     s = s.replace(/\\[a-zA-Z]+/g, " ").replace(/\\./g, " ");
-    return (s.match(/\d+(?:\.\d+)?|\.\d+/g) || []).sort((a, b) => a - b);
+    return (s.match(/\d+(?:\.\d+)?|\.\d+/g) || []).map(numTok).sort((a, b) => a - b);
   }
 
   // OCR 숫자와 LaTeX 숫자의 다중집합 차이. 비교할 OCR이 없으면 검증을 스킵한다.
@@ -560,9 +564,13 @@ const __defs = {
   // 봉투 스키마의 대상·복습 칸을 요청의 참조 목록 enum 으로 좁힌다. 목록이 빈 칸은 enum 이 아무 값도
   // 못 받으니 두지 않는다 — 코드 검사(VAL_REF_UNKNOWN)가 그대로 걸러낸다. 원본은 얼려 있어 복사본을 고친다.
   // ownId 는 이 봉투의 블록 id — B14 복습 위치는 자기 블록을 가리킬 수 없어서 목록에서 뺀다(한 섹션에 B14 가 여럿이면 블록마다 다르다).
-  const restrictRefs = (schema, refs, ownId) => {
-    if (!refs) return schema;
-    const t = [...new Set(refs.targetIds || [])], r = [...new Set(refs.reviewIds || [])].filter(id => id !== ownId);
+  // allowedEvidence(선택)는 주장 칸의 근거 인용 enum — 전역 작성자가 다이제스트에서 볼 수 있는 id 집합만
+  // 넘긴다(섹션 작성자는 근거 원문을 보니 넘기지 않는다). IDS.ref 칸은 근거+계산 참조 전체, IDS.evidence 칸은 근거만.
+  const restrictRefs = (schema, refs, ownId, allowedEvidence = null) => {
+    if (!refs && !allowedEvidence?.length) return schema;
+    const t = [...new Set(refs?.targetIds || [])], r = [...new Set(refs?.reviewIds || [])].filter(id => id !== ownId);
+    const evIds = allowedEvidence?.length ? [...new Set(allowedEvidence)] : null;
+    const evOnly = evIds?.filter(id => new RegExp(IDS.evidence).test(id));
     const out = JSON.parse(JSON.stringify(schema));
     (function walk(v) {
       if (Array.isArray(v)) return v.forEach(walk);
@@ -572,6 +580,8 @@ const __defs = {
         if (t.length && p.targetIds?.items?.pattern === IDS.target) p.targetIds = { ...p.targetIds, items: en(t) };
         if (t.length && p.targetId?.pattern === IDS.target) p.targetId = { ...p.targetId, enum: [...t, null] };
         if (r.length && p.reviewIds?.items?.pattern === IDS.secBlock) p.reviewIds = { ...p.reviewIds, items: en(r) };
+        if (evIds?.length && p.evidenceIds?.items?.pattern === IDS.ref) p.evidenceIds = { ...p.evidenceIds, items: en(evIds) };
+        else if (evOnly?.length && p.evidenceIds?.items?.pattern === IDS.evidence) p.evidenceIds = { ...p.evidenceIds, items: en(evOnly) };
       }
       Object.values(v).forEach(walk);
     })(out);
@@ -836,6 +846,8 @@ const __defs = {
     dropped: arr(obj({
       blockId: pat(IDS.block), type: en(WRITER_TYPES), codes: arr(s64, 8, 1),
       cause: orNull(en(["direct", "cascade"])),
+      // 오류 코드별 detail — 경로·id·수치 raw 만(내용 없음). 어떤 칸·어떤 값이 거절됐는지 복호화 없이 분간한다.
+      details: arr(obj({ code: s64, detail: arr({ type: ["string", "number"] }, 16) }), 8),
     }, ["blockId", "type", "codes"]), 500),
     pruned: arr(obj({
       id: s64, codes: arr(s64, 4, 1),
@@ -854,7 +866,12 @@ const __defs = {
     pending: arr(obj({
       blockId: pat(IDS.block), sectionId: orNull(pat(IDS.section)), type: en(WRITER_TYPES),
       paths: arr(s64, 8, 1), claims: arr(claim, 8), envelope: { type: ["object", "null"] },
-    }), 200),
+      cause: en(["support_low", "dep_dead", "unknown"]),
+      // dep_dead 전용 — 잘린 원장 주장의 로컬 키와 그 주장을 직접 죽인 의존 키(c#, 내용 없음).
+      claimIds: arr(pat("^c[0-9]{1,4}$"), 8), deadDeps: arr(pat("^c[0-9]{1,4}$"), 8),
+      // 보류 사유의 detail(코드·경로·수치, 내용 없음) — 보유 시에만.
+      details: arr(obj({ code: s64, detail: arr({ type: ["string", "number"] }, 16) }), 8),
+    }, ["blockId", "sectionId", "type", "paths", "claims", "envelope"]), 200),
     coverage: coverageSchema,
   }, ["schemaVersion", "noteSpecVersion", "promptVersion", "status", "tier", "policy", "meta", "concepts", "global", "sections", "registry", "figures", "sources", "notices", "dropped", "pruned", "advisories"]);
 
@@ -893,8 +910,9 @@ const __defs = {
   // §8.4: { blocks: { "GB1": Envelope|null, ... } }. 전역 블록에는 가상·보강이 허용되지 않는다.
   // targetIds·targetId 의 유효 집합은 계획 전체(빠진 블록 포함, §8.4) — 요청이 allowedRefs 를 싣고 오면 그 목록으로
   // 좁히고, 없으면 패턴 그대로 두고 VAL_REF_UNKNOWN 과 조립 정리가 거른다.
-  const globalOutputSchemaFor = (planGlobal, allowedRefs = null) => obj({
-    blocks: obj(Object.fromEntries(planGlobal.map(g => [g.blockId, orNull(restrictRefs(envelopeSchema(g.type), allowedRefs, g.blockId))]))),
+  const globalOutputSchemaFor = (planGlobal, allowedRefs = null, allowedEvidence = null) => obj({
+    // allowedEvidence: 전역 작성자가 다이제스트에서 본 근거+계산 참조 집합 — enum 이 발명 id 를 막는다(iter-4).
+    blocks: obj(Object.fromEntries(planGlobal.map(g => [g.blockId, orNull(restrictRefs(envelopeSchema(g.type), allowedRefs, g.blockId, allowedEvidence))]))),
   });
 
   // 연결 편집 출력(제안서 §3 제한된 워커): 본문 재작성이 아니라 변경 제안 목록이다. targets 는
@@ -1916,7 +1934,7 @@ const __defs = {
   // §10: 섹션 Writer 출력의 코드 검사. 한 블록의 오류가 다른 블록 검사를 막지 않는다.
   // assembleNote 에서 두 번 불린다 — 1차로 각 섹션의 정정 지도를 모으고 2차에서 합쳐진 지도를
   // superseded 로 넣는다. 블록은 B10 먼저(계산 색인), 그다음 나머지를 계획 순서로 본다.
-  function validateSection({ plan, sectionId, output, evidence = [], registry = [], formulaUnits = {}, figures = [], katex, superseded = {} }) {
+  function validateSection({ plan, sectionId, output, evidence = [], registry = [], formulaUnits = {}, figures = [], katex, superseded = {}, evidenceAll = false, sections = [] }) {
     if (!katex || typeof katex.renderToString !== "function") throw new TypeError("KaTeX 객체가 필요합니다.");
     const sec = (plan.sections || []).find(s => s.sectionId === sectionId);
     if (!sec) throw new Error("계획에 없는 섹션: " + sectionId);
@@ -1941,6 +1959,12 @@ const __defs = {
     const calcIndex = new Map();
     const units = new Set([...sec.unitIds, ...sec.crossUnitIds]);
     const evById = new Map(evidence.filter(e => units.has(e.unitId)).map(e => [e.id, e]));
+    // questions 채움 재검증(iter-1 D3): B14 문항만 전 섹션 주장 인용·계산 참조를 허용한다 — 나머지
+    // 블록의 섹션 근거 제한은 유지한다(전 블록에 주면 근거 제한이 풀리는 범위 확대, p34 리뷰).
+    // evAll 은 전 근거, calcAll 은 앞서 통과한 섹션들의 calc 를 합친다(validateGlobal 과 같은 합치기).
+    const evAll = evidenceAll ? new Map(evidence.map(e => [e.id, e])) : evById;
+    const calcAll = evidenceAll ? new Map() : calcIndex;
+    if (evidenceAll) for (const s of sections) for (const [k, v] of Object.entries(s.calc || {})) calcAll.set(k, v);
     const fEntries = registry.filter(f => (formulaUnits[f.id] || []).some(u => units.has(u)));
     const idx = planIndex(plan);
     const ctx = {
@@ -1952,6 +1976,8 @@ const __defs = {
       planB10: idx.b10BySection.get(sectionId) || new Set(),
       global: false, targetAll: false, katex, pedOk: () => false, policy: policyOf(plan.policy), augOk: () => false,
     };
+    // B14 전용 넓은 문맥 — 근거·계산 참조는 노트 전체를 본다.
+    const ctxWide = evidenceAll ? { ...ctx, evById: evAll, evNums: numIndex(evAll), calc: calcAll } : ctx;
     // checks 는 블록보다 먼저 본다 — 정정 지도가 블록 주장 검사의 입력이다(§10 d).
     // 확인 항목의 주장(특히 correction 의 before)은 문제가 된 근거를 일부러 인용하므로
     // 대체 검사(VAL_SUPERSEDED)는 걸지 않는다. 깨진 확인 항목은 오류 없이 버린다(§12.1.3).
@@ -2000,10 +2026,10 @@ const __defs = {
       if (!rec.envelope || rec.errors.length) continue;
       normalizeContent(rec);
       if (rec.envelope.status !== "supported" && !explained.has(rec.id)) pushErr(rec.errors, "VAL_STATUS_UNEXPLAINED");
-      inspectBlock(rec, ctx);
+      inspectBlock(rec, rec.type === "B14" ? ctxWide : ctx);
       if (rec.type === "B10" && !rec.errors.length) {
         rec.calcRun = checkCalc(rec.envelope.content);
-        for (const [k, v] of Object.entries(rec.calcRun.values)) calcIndex.set(`${rec.id}.${k}`, v);
+        for (const [k, v] of Object.entries(rec.calcRun.values)) { const key = `${rec.id}.${k}`; calcIndex.set(key, v); calcAll.set(key, v); }
       }
     }
     // 커버리지: 자기 유닛(교차 제외)의 절반 이상이 살아남은 주장의 근거로 인용돼야 한다.
@@ -2076,10 +2102,18 @@ const __defs = {
     const outputs = new Map(sections.map(s => [s.sectionId, s.output]));
     const run = sup => {
       const m = new Map();
+      // questions 채움 블록은 타 섹션 근거·계산 참조를 인용할 수 있다(입력 계약) — 조립의 재검증도 같은
+      // 스코프(evidenceAll)를 쓴다. 계산 참조는 통과 B10 색인이 필요해 먼저 시드 없이 돌려 모은다(iter-1 D3).
+      const seed = [];
       for (const sec of plan.sections || []) {
         const output = outputs.get(sec.sectionId);
         if (output != null)
-          m.set(sec.sectionId, validateSection({ plan, sectionId: sec.sectionId, output, evidence, registry, formulaUnits, figures, katex, superseded: sup }));
+          seed.push(validateSection({ plan, sectionId: sec.sectionId, output, evidence, registry, formulaUnits, figures, katex, superseded: sup, evidenceAll: true }));
+      }
+      for (const sec of plan.sections || []) {
+        const output = outputs.get(sec.sectionId);
+        if (output != null)
+          m.set(sec.sectionId, validateSection({ plan, sectionId: sec.sectionId, output, evidence, registry, formulaUnits, figures, katex, superseded: sup, evidenceAll: true, sections: seed }));
       }
       return m;
     };
@@ -2101,14 +2135,38 @@ const __defs = {
       if (pending.length >= 200) break;
       const entry = {
         blockId: p.blockId, sectionId: p.sectionId ?? s.sectionId ?? null, type: p.type,
+        cause: ["support_low", "dep_dead"].includes(p.cause) ? p.cause : "unknown",
         paths: (p.paths || []).map(String).slice(0, 8),
         claims: (p.claims || []).map(deep).slice(0, 8),
         envelope: p.envelope && typeof p.envelope === "object" ? deep(p.envelope) : null,
       };
+      // 로컬 키(c#)만 — 본문은 절대 안 싣는다.
+      for (const k of ["claimIds", "deadDeps"]) {
+        const v = Array.isArray(p[k]) ? p[k].filter(x => /^c[0-9]{1,4}$/.test(x)).slice(0, 8) : [];
+        if (v.length) entry[k] = v;
+      }
+      // 코드·detail 은 허용 모양만 통과 — 본문 문장 같은 자유 텍스트는 뗀다.
+      const dets = (Array.isArray(p.details) ? p.details : [])
+        .filter(d => d && typeof d === "object" && typeof d.code === "string" && d.code.length <= 64)
+        .map(d => ({ code: d.code, detail: (Array.isArray(d.detail) ? d.detail : []).filter(x => ["string", "number"].includes(typeof x)).slice(0, 16) }))
+        .filter(d => d.detail.length).slice(0, 8);
+      if (dets.length) entry.details = dets;
       pending.push(entry);
       if (entry.envelope) pendingIds.add(entry.blockId);
     }
-        const dropOf = (b, cause = "direct") => ({ blockId: b.id, type: b.type, codes: [...new Set(b.errors.map(e => e.code))].slice(0, 8), cause });
+        // detail 값 정책: 경로·id·참조는 그대로, 순수 수치 raw 는 근거 어딘가에 실재하는 값일 때만 실린다 —
+        // 작성자가 지어낸 강의 밖 수치(골든 픽스처의 1937)가 탈락 기록으로 새는 것을 막는다.
+        const evNumsAll = new Set();
+        for (const e of evidence || []) for (const n of Verify.numbersOf(e.text || "")) for (const v of n.values) evNumsAll.add(v);
+        const numRaw = x => typeof x === "string" && /^-?[\d,]+(\.\d+)?[천만억조]?$/.test(x)
+          && !Verify.numbersOf(x).some(n => n.values.some(v => evNumsAll.has(v)));
+        const dropOf = (b, cause = "direct") => {
+          const details = b.errors.filter(e => e.detail?.length)
+            .map(e => ({ code: e.code, detail: e.detail.filter(x => ["string", "number"].includes(typeof x) && !numRaw(x)).slice(0, 16) }))
+            .filter(e => e.detail.length).slice(0, 8);
+          // detail 은 경로·id·근거 내 수치뿐(본문 없음) — 어느 칸·값이 거절됐는지 기록해 조사 가능하게 한다.
+          return { blockId: b.id, type: b.type, codes: [...new Set(b.errors.map(e => e.code))].slice(0, 8), cause, ...(details.length ? { details } : {}) };
+        };
     for (const sec of plan.sections || []) {
       const r = results.get(sec.sectionId);
       const valid = r ? r.blocks.filter(b => !b.errors.length) : [];
@@ -2189,7 +2247,12 @@ const __defs = {
     const pushPending = entry => { if (pending.length < 200) pending.push(entry); };
     // 죽은 주장을 살아 있는 봉투에서 뺀다 — 뺀 주장(절단 노드 아래 주장 전부)은 pending 에 보존한다.
     // 필수 칸만 건드릴 수 있거나 뺀 뒤 봉투 계약이 깨지면 블록째 보류하되 봉투는 pending 에 남긴다 — 탈락(dropped)으로 세지 않는다.
-    const withholdDeps = (b, paths) => {
+    // claimIds·deadDeps 는 원장 로컬 키(c#)뿐 — 어느 주장이 씨앗인지 사후에 분간한다(본문 없음, iter-3).
+    const withholdDeps = (b, depPaths) => {
+      const paths = [...depPaths.keys()];
+      const meta = [...depPaths.values()];
+      const claimIds = [...new Set(meta.map(m => m.claimId))].slice(0, 8);
+      const deadDeps = [...new Set(meta.flatMap(m => m.deps))].slice(0, 8);
       const cuts = new Map();
       for (const p of paths) {
         const cut = cutAt(b.type, p);
@@ -2199,15 +2262,16 @@ const __defs = {
       const env2 = cuts.size ? withoutAt(b.env, [...cuts.values()]) : null;
       if (env2 && Contracts.validate(envelopeSchema(b.type, plan.policy), env2).ok) {
         const claims = [...cuts.values()].flatMap(c => claimsOf(nodeAtPath(b.env, c.path)).map(x => x.claim));
-        pushPending({ blockId: b.id, sectionId: b.sectionId, type: b.type, paths: paths.slice(0, 8), claims: claims.map(deep).slice(0, 8), envelope: null });
+        pushPending({ blockId: b.id, sectionId: b.sectionId, type: b.type, cause: "dep_dead", claimIds, deadDeps, paths: paths.slice(0, 8), claims: claims.map(deep).slice(0, 8), envelope: null });
         b.env = env2; b.wrapped = null;
       } else {
-        pushPending({ blockId: b.id, sectionId: b.sectionId, type: b.type, paths: paths.slice(0, 8), claims: claimsOf(b.env).map(x => deep(x.claim)).slice(0, 8), envelope: deep(b.env) });
+        pushPending({ blockId: b.id, sectionId: b.sectionId, type: b.type, cause: "dep_dead", claimIds, deadDeps, paths: paths.slice(0, 8), claims: claimsOf(b.env).map(x => deep(x.claim)).slice(0, 8), envelope: deep(b.env) });
         live.delete(b.id); pendingIds.add(b.id);
       }
     };
     // 매 회차 다시 센다 — 아직 살아 있는 봉투에 남은 죽은 주장의 봉투 안 경로(블록별).
-    const depCut = new Map();
+    // 경로별로 어떤 원장 주장이 죽었고 그 주장이 어떤(역시 죽은) 의존에 기대는지 보존한다 — pending 의 사후 분간 재료.
+    const depCut = new Map(); // blockId → Map<봉투 안 경로, { claimId, deps }>
     const scanDeps = () => {
       depCut.clear();
       for (const frags of fragOf.values()) for (const f of frags) {
@@ -2221,10 +2285,14 @@ const __defs = {
         }
         for (const [cid, c] of Object.entries(claims)) {
           if (!dead.has(cid)) continue;
+          const deadDeps = (Array.isArray(c?.dependsOn) ? c.dependsOn : []).filter(d => dead.has(d));
           for (const p of Array.isArray(c?.places) ? c.places : []) {
             const b = livePlace(p);
             if (!b) continue;
-            (depCut.get(b.id) ?? depCut.set(b.id, new Set()).get(b.id)).add(String(p).slice(String(p).indexOf("#") + 1));
+            const cuts = depCut.get(b.id) ?? depCut.set(b.id, new Map()).get(b.id);
+            const path = String(p).slice(String(p).indexOf("#") + 1);
+            const cur = cuts.get(path);
+            cuts.set(path, { claimId: cur?.claimId ?? cid, deps: [...new Set([...(cur?.deps ?? []), ...deadDeps])] });
           }
         }
       }
@@ -2237,7 +2305,7 @@ const __defs = {
       scanDeps(); // 원장 상 죽은 주장이 아직 본문에 남은 곳 — 빼고 나면 다음 회차에서 뒤따른 의존이 정리된다
       for (const [id, b] of [...live]) {
         const depPaths = depCut.get(id);
-        if (depPaths?.size) { withholdDeps(b, [...depPaths]); changed = true; continue; }
+        if (depPaths?.size) { withholdDeps(b, depPaths); changed = true; continue; }
         const spec = LIST[b.type];
         if (spec) {
           const [field, prefix] = spec;
@@ -2245,7 +2313,12 @@ const __defs = {
           const keep = [];
           for (const w of b.wrapped) {
             const it = w.item, codes = [];
-            if ((it.targetIds || []).some(t => !liveIds.has(t))) codes.push("NOTE_TARGET_DROPPED");
+            // 죽은 대상만 빼고 항목은 살린다 — 겨눔이 전부 죽었을 때만 항목을 뗀다(B14 reviewIds 와 같은 규칙).
+            if (Array.isArray(it.targetIds)) {
+              const kept = it.targetIds.filter(t => liveIds.has(t));
+              if (kept.length !== it.targetIds.length) { it.targetIds = kept; changed = true; }
+              if (!kept.length) codes.push("NOTE_TARGET_DROPPED");
+            }
             if (hasDeadCalc(it)) codes.push("NOTE_CALC_DROPPED");
             if (b.type === "B14") {
               const kept = it.answer.reviewIds.filter(r => liveIds.has(r));
@@ -2400,6 +2473,10 @@ const __defs = {
       if (b.type === "B10") { for (const f of b.env.content.formulaIds) refF.add(f); for (const g of b.env.content.figureIds) refG.add(g); }
       for (const g of b.planBlock?.figureIds || []) refG.add(g);
     }
+    // 작성자 해설(formulaNotes·figureNotes)의 blockId 홈으로 실린 항목도 참조다 — {{F#}}·formulaIds 밖에서만
+    // 실리면 고지 집계가 못 세서 display="check" 여도 "확인이 필요한" 고지가 안 난다(mis-sol-hai-30).
+    for (const e of reg) if (e.blockId && live.has(e.blockId)) refF.add(e.id);
+    for (const f of figs) if (f.blockId && live.has(f.blockId)) refG.add(f.id);
     const pick = (ids, list, want) => [...ids].filter(id => list.find(e => e.id === id)?.display === want);
     const fCrop = pick(refF, reg, "crop"), fChk = pick(refF, reg, "check"), gChk = pick(refG, figs, "check");
     if (fCrop.length) notice("NOTE_FORMULAS_IMAGE", fCrop.length, fCrop);
@@ -2548,7 +2625,7 @@ const __defs = {
 // 새 실험 모드 = 이 표에 항목 하나(docs/note-experiments.md). 모드 이름 문자열 비교·목록을 다른 곳에 두지 않는다.
 // 클라이언트(offscreen·stages)와 서버(server/note-session.js·index.js)가 같은 파일을 읽는다(UMD: 전역 NoteProfiles / module.exports).
 (() => {
-  const SOL="openai/gpt-6.1-sol",LUNA="openai/gpt-6-luna@high",HAIKU="anthropic/claude-haiku-5.5";
+  const SOL="openai/gpt-6.1-sol",LUNA="openai/gpt-6-luna@high",LUNA_M="openai/gpt-6-luna@medium",HAIKU="anthropic/claude-haiku-5.5";
   // stages.<단계>: 서버가 강제하는 그 단계의 모델과 전송 방식.
   //   transport "session"     — noteSession 봉투를 실은 Sol 호출(fork 계열은 고정 접두 P+자기 작업)
   //   transport "independent" — 봉투 없는 독립 호출(Luna 독립 호출 포함)
@@ -2583,6 +2660,14 @@ const __defs = {
     //   visionLanes — 비전 호출 레인 상한. Mistral OCR 은 초당 요청 한도가 낮아 1 로 줄인다(background-job 이 읽는다).
     "mis-sol-hai":{id:"mis-sol-hai",family:"v2",session:"fork",vision:"mistral-ocr-4-1",visionLanes:1,prompts:"msh",reviewInput:"html",emphasisSignals:true,lastFrame:true,clientModels:{plan:SOL,write:HAIKU},options:null,
       stages:{plan:SE(SOL),editorial:{...SE(SOL),strict:true},draft:I(HAIKU),questions:I(HAIKU),review:{...SE(SOL),strict:true},global:SE(SOL),repair:DU(SOL,HAIKU)}},
+    // mis-luna(legacy)(기획 mis-luna-legacy-plan-2026-10-11): mis-sol-hai 의 인식·지면·검수 구성은 그대로, 계획·편집·초안·문항·검수·전역·수리·재작성을
+    //   전부 Luna 한 모델이 쓴다 — Sol·Haiku 대체는 두지 않는다. medium/high 두 변형은 effort 만 다르다.
+    //   reasoningBudget 8000 — 단계 출력 상한 위 추론 여유분을 두 변형 모두 8000 으로 고정해(medium 의 서버 기본 4000 을 끌어올림)
+    //   실제 요청의 출력 상한까지 같게 한다(서버 worker 의 modelParams(mode) 가 이 칸을 읽는다).
+    "mis-luna-legacy-medium":{id:"mis-luna-legacy-medium",family:"v2",session:"fork",vision:"mistral-ocr-4-1",visionLanes:1,prompts:"msh",reviewInput:"html",emphasisSignals:true,lastFrame:true,reasoningBudget:8000,clientModels:{plan:LUNA_M,write:LUNA_M},options:null,
+      stages:{plan:SE(LUNA_M),editorial:{...SE(LUNA_M),strict:true},draft:I(LUNA_M),questions:I(LUNA_M),review:{...SE(LUNA_M),strict:true},global:SE(LUNA_M),repair:DU(LUNA_M,LUNA_M)}},
+    "mis-luna-legacy-high":{id:"mis-luna-legacy-high",family:"v2",session:"fork",vision:"mistral-ocr-4-1",visionLanes:1,prompts:"msh",reviewInput:"html",emphasisSignals:true,lastFrame:true,reasoningBudget:8000,clientModels:{plan:LUNA,write:LUNA},options:null,
+      stages:{plan:SE(LUNA),editorial:{...SE(LUNA),strict:true},draft:I(LUNA),questions:I(LUNA),review:{...SE(LUNA),strict:true},global:SE(LUNA),repair:DU(LUNA,LUNA)}},
   };
   const build=profiles=>{
     const get=id=>Object.hasOwn(profiles,id)?profiles[id]:null;
@@ -3310,13 +3395,29 @@ if (typeof module !== "undefined") module.exports = api;
   // ponytail: 오탐 한 번이 LLM 재생성 한 번이라 일부러 좁게 잡았다. 부호(−3 vs 3), 범위(10~20),
   // 복합 한글 수사(3억 5천만), 수사어("두 배"), 단위 환산(25% vs 0.25), 위첨자 접힘(10² → 102)은
   // 비교하지 않는다. 필요해지면 토큰 종류를 여기에 더한다.
+  // 숫자 토큰의 부호 — 인식 원문의 "-168", "−2,336"(U+2212), "–100"(U+2013), "-$1,000",
+  // "($1,000)" 같은 회계 음수 표기를 잡는다. 앞이 숫자·닫는 괄호면 범위(10-20)나 빼기(2-1)라
+  // 부호가 아니다. 맨 괄호(1,000)는 음수가 아니다 — 통화 기호가 든 괄호만 음수로 본다(engine3 D2-b).
+  const signOf = (s, i, end) => {
+    const pre = s.slice(Math.max(0, i - 4), i);
+    const sgnM = pre.match(/([-−–])\s*[$₩￦]?\s*$/);
+    if (sgnM) {
+      const pb = pre[pre.length - sgnM[0].length - 1];
+      return /[0-9)\]]/.test(pb ?? " ") ? 1 : -1;
+    }
+    if (/\(\s*[$₩￦]\s*$/.test(pre) && s[end] === ")") return -1;
+    return 1;
+  };
   function numbersOf(text, keepSmall = false) {
     const out = [];
-    for (const [raw, num, mult] of String(text ?? "").normalize("NFKC").replace(REF, " ").matchAll(NUM)) {
+    const src = String(text ?? "").normalize("NFKC").replace(REF, " ");
+    for (const m of src.matchAll(NUM)) {
+      const [raw, num, mult] = m;
       const n = num.replace(/,/g, "");
       if (!mult && !keepSmall && /^\d$/.test(n)) continue;
+      const sgn = signOf(src, m.index, m.index + raw.length);
       // 지수 표기로 파싱하면 1.5e4 가 정확히 15000 이다(부동소수 곱셈의 오차가 없다).
-      out.push({ raw, values: mult ? [Number(n), Number(n + "e" + EXP[mult])] : [Number(n)] });
+      out.push({ raw: sgn < 0 ? "-" + raw : raw, values: mult ? [sgn * Number(n), sgn * Number(n + "e" + EXP[mult])] : [sgn * Number(n)] });
     }
     return out;
   }
@@ -3494,13 +3595,16 @@ if (typeof module !== "undefined") module.exports = api;
 
     const tokens = [];
 
+    // 숫자 토큰은 수치로 정규화한다("2,336.40"="2,336.4", ".5"="0.5") — 문자열 그대로
+    // 비교하면 표기만 다른 같은 값이 기호 불일치로 떨어진다(mis-sol-hai-30). Formulas.numericTokens 와 같은 눈.
+    const numTok = t => { const n = Number(t); return Number.isFinite(n) ? String(n) : t; };
     // 헬퍼: 하위 문자열에서 변수와 숫자 토큰을 prefix 와 함께 수집
     const extractSubTokens = (subStr, prefix) => {
       let sub = subStr.normalize("NFKC");
       // 천단위 쉼표 제거
       sub = sub.replace(/(?<=\d)(?:\\,|\{,\}|,)(?=\d{3}(?!\d))/g, "");
       for (const m of sub.match(/\d+(?:\.\d+)?|\.\d+/g) || []) {
-        tokens.push(`${prefix}_val:${m}`);
+        tokens.push(`${prefix}_val:${numTok(m)}`);
       }
       sub = sub.replace(/\d+(?:\.\d+)?|\.\d+/g, " ");
       sub = sub.replace(/\\[a-zA-Z]+/g, " ");
@@ -3551,7 +3655,7 @@ if (typeof module !== "undefined") module.exports = api;
     // 4. 일반 숫자 토큰
     s = s.replace(/(?<=\d)(?:\\,|\{,\}|,)(?=\d{3}(?!\d))/g, "");
     for (const m of s.match(/\d+(?:\.\d+)?|\.\d+/g) || []) {
-      tokens.push(`val:${m}`);
+      tokens.push(`val:${numTok(m)}`);
     }
     s = s.replace(/\d+(?:\.\d+)?|\.\d+/g, " ");
 
@@ -4277,7 +4381,7 @@ function createServer(env=process.env,deps={}){
       // 정산이 안 닫혀도 이미 만든 결과는 돌려준다 — 예약이 reserved 로 남아 비용이 보수적으로 잡힌다. 환불만은 예약이 안 풀렸으므로 같은 requestId 재시도를 약속할 수 없다.
       if(!error)return send(res,200,payload);
       if(status==="refunded")return stored?fail(res,code,error.retryAfterMs,error.failExtra):fail(res,"usage_store_failed");
-      fail(res,code,undefined,{...error.failExtra,...(error.session?{noteSession:error.session}:{})});
+      fail(res,code,undefined,{...error.failExtra,...(code==="llm_output_truncated"&&["llm_output_truncated.rep","llm_output_truncated.long"].includes(error.detail)?{detail:error.detail}:{}),...(error.session?{noteSession:error.session}:{})});
     }finally{clearTimeout(timer);res.removeListener("close",disconnect);const n=(inflight.get(id)||1)-1;n>0?inflight.set(id,n):inflight.delete(id);active.delete(controller);}
   }
   async function vision(input,account,res){
@@ -4558,8 +4662,23 @@ function createServer(env=process.env,deps={}){
     }else if(stage==="review"||stage==="editorial")return fail(res,"invalid_model_or_stage"); // review·editorial 은 v2 모드 전용 단계다
     // mis-sol-hai(프로파일 prompts:"msh"): 초안·문항·독립 수리는 Haiku 독립 호출 — 이미지 근거 칸·출력 스키마·응답 판독이 표준 경로와 다르다.
     const msh=NoteProfiles.get(v2)?.prompts==="msh";
+    // 실험 관측(mis-luna-legacy 만): 어떤 프로파일·모델·effort·전선으로 실제 호출이 나갔는지 내용 없이 응답 usage.inference 에 실는다.
+    // 장부(usage.js 의 eventFields·attemptRow 허용 칸)에는 profile·route·resolvedModel·reportedEffort 칸이 없어 DB 에는 가지 않는다.
+    // effort 는 요청 본문에 실어 보낸 값이다 — 제공자가 지켰는지는 이 필드가 말하지 않는다.
+    // reportedEffort·resolvedModel 은 제공자가 응답에 되돌려준 값이고 미보고면 null 이다(추정하지 않는다).
+    // route 는 toLiner 가 실제로 고른 전송 대상(liner|openrouter)이다.
+    const legacyMode=/^mis-luna-legacy-/.test(v2??session?.mode??"")?v2??session?.mode:null;
+    let lastRoute=null,resolvedModel=null,reportedEffort=null;
+    const callFetch=legacyMode?(url,init)=>{const r=toLiner(url,init,liner);lastRoute=r?"liner":"openrouter";return r?rawFetch(...r):rawFetch(url,init);}:fetcher;
+    const inferOf=(resolved,tries,repEff)=>{const sum=k=>{let n=0,saw=false;for(const t of tries||[])if(Number.isFinite(t?.[k])&&t[k]>=0){n+=t[k];saw=true;}return saw?n:null;};
+      return {profile:legacyMode,requestedModel:input.model,resolvedModel:resolved??null,effort:params?.reasoning?.effort??null,reportedEffort:repEff??null,
+        route:lastRoute,attempts:(tries||[]).length,reasoningTokens:sum("reasoningTokens"),cachedInputTokens:sum("cachedInputTokens"),cacheWriteTokens:sum("cacheWriteTokens")};};
+    const legacyUsage=(resolved,tries,repEff)=>{const inference=inferOf(resolved,tries,repEff);
+      return {inference,reasoningTokens:inference.reasoningTokens,cachedInputTokens:inference.cachedInputTokens,cacheWriteTokens:inference.cacheWriteTokens};};
     if(session){
-      if(input.model!==NoteSession.SOL)return fail(res,stage==="plan"?"invalid_model":"invalid_model_or_stage");
+      // 세션 호출의 실제 모델은 단계→모델 표가 정한다 — v2 는 route.model 로 위에서 이미 대조됐다
+      // (mis-luna-legacy 는 세션 단계도 Luna 별칭). 세션 표가 없는 구 모드(sol-session·sol-luna-tool·sol-fork)는 Sol 고정 그대로다.
+      if(input.model!==(v2?route.model:NoteSession.SOL))return fail(res,stage==="plan"?"invalid_model":"invalid_model_or_stage");
       // 도구가 실행하는 작성 모델도 클라이언트 선택과 같은 게이트를 거친다 — 허용 목록·계정 등급·제공자 핀 모두 필요하다.
       if(session.mode==="sol-luna-tool"){
         if(!c.allow.includes(NoteSession.LUNA))return fail(res,"invalid_model_or_stage");
@@ -4591,7 +4710,7 @@ function createServer(env=process.env,deps={}){
     // noteSession 이력은 내용을 저장하지 않고 해시만 digest 에 둔다 — 같은 이력·본문·계정은 같은 요청이다.
     const digest=digestOf(account,JSON.stringify({route:stage==="plan"?"plan":"write",stage,model:input.model,noteSpecVersion:input.noteSpecVersion,rest,...(sourceLang?{sourceLang}:{}),...(v2?{noteMode:v2}:{}),
       ...(session?{ns:{id:session.id,mode:session.mode,h:crypto.createHash("sha256").update(JSON.stringify(session.history)).digest("hex")}}:{})}));
-    const [pi,po]=RATES[input.model]||RATES[upstreamOf(input.model)],params=Prompts.modelParams(input.model,stage),attempts=2;
+    const [pi,po]=RATES[input.model]||RATES[upstreamOf(input.model)],params=Prompts.modelParams(input.model,stage,v2??session?.mode),attempts=2;
     // 수리 패킷의 출력은 대상 블록뿐 — 예상 출력량으로 상한을 낮춘다(대상당 봉투 하나 + 추론 여유).
     if(packetReq)params.max_tokens=Math.min(params.max_tokens,(rest.repair?.length||1)*1600+reasoningBudgetFor(input.model));
     const upModel=upstreamOf(input.model),upProviders=c.providers[input.model]??c.providers[upModel];
@@ -4622,7 +4741,7 @@ function createServer(env=process.env,deps={}){
     // 형식 실패 재시도분까지 예약하고 정산에서 되돌린다. 시스템 본문과 스키마도 입력 토큰이다.
     // 세션 모드는 요청 안에서 Sol·Luna 여러 호출이 돈다 — 도구 호출(Luna)과 Sol 이 도구 결과를 다시 읽는 입력까지 예약에 넣는다.
     const lunaProviders=c.providers[NoteSession.LUNA]??c.providers[upstreamOf(NoteSession.LUNA)],
-      [lpi,lpo]=RATES[NoteSession.LUNA]||RATES[upstreamOf(NoteSession.LUNA)],lunaParams=session?.mode==="sol-luna-tool"?Prompts.modelParams(NoteSession.LUNA,stage):null,
+      [lpi,lpo]=RATES[NoteSession.LUNA]||RATES[upstreamOf(NoteSession.LUNA)],lunaParams=session?.mode==="sol-luna-tool"?Prompts.modelParams(NoteSession.LUNA,stage,session.mode):null,
       solIn=session?Prompts.estimateTokens(NoteSession.systemFor(opts)+JSON.stringify(session.history)+JSON.stringify(rest)+JSON.stringify(sessionOut)):0;
     const reserve=session?Math.ceil((2*(solIn*pi+params.max_tokens*po)/1e6
       +(lunaParams?(Prompts.estimateTokens(system+user+JSON.stringify(providerOut))*lpi+lunaParams.max_tokens*lpo+lunaParams.max_tokens*pi)/1e6:0))*100*1.2)
@@ -4635,18 +4754,18 @@ function createServer(env=process.env,deps={}){
     return await withReservation({account,requestId:input.requestId,digest,reserve,minutes,model:input.model,res,meta,...(v2&&(stage==="plan"||stage==="editorial")?{timeoutMs:Math.max(c.timeout,145000)}:{})},async (signal,store,gens,deadline)=>{
       // 세션 경로: 분야 분류(Jev)는 대화 이력에 넣지 않는다 — Sol·Luna 호출 전부가 이 예약·deadline 안에서 돌고
       // 시간이 모자라면 200 pending 으로 넘겨 클라이언트가 같은 단계를 다시 보낸다(최대 3요청은 클라이언트 계약).
-      if(session)return await NoteSession.run({
+      if(session){const r=await NoteSession.run({
         stage,rest,session,sourceLang,options:opts,params,providerOut:sessionOut,outSchema,outPatch,
         noteSpecVersion:NoteContract.NOTE_SPEC_VERSION,schemaVersion:c.remoteConfig.schemaVersion,
         // sol-fork·v2 작성 호출은 같은 접두 P 만 읽는 독립 호출이라 세션 잠금 없이 병렬로 간다 — 접두를 만드는 계획 호출은 잠금을 유지한다.
-        reserve,deadline,signal,fetcher,key:c.key,gens,lock:NoteProfiles.get(session.mode)?.session==="fork"&&stage!=="plan"&&stage!=="editorial"?async()=>()=>{}:sessionLock,
+        reserve,deadline,signal,fetcher:callFetch,key:c.key,gens,lock:NoteProfiles.get(session.mode)?.session==="fork"&&stage!=="plan"&&stage!=="editorial"?async()=>()=>{}:sessionLock,
         solProviders:upProviders,solRates:[pi,po],
         luna:session.mode==="sol-luna-tool"?{model:NoteSession.LUNA,up:upstreamOf(NoteSession.LUNA),params:lunaParams,providers:lunaProviders,
           rates:[lpi,lpo],system,user,
           cacheFields:cacheModeOf(NoteSession.LUNA)==="openai-explicit"?{prompt_cache_options:{mode:"explicit",ttl:"30m"},prompt_cache_key:`ns:${stage}:${crypto.createHash("sha256").update(session.id).digest("hex").slice(0,32)}`}:{}}:null,
         store,
         deps:{boundedResponse,costOf,attemptOf,errCode,finalizeNote,httpDetail,acquire},
-      });
+      });if(legacyMode&&r.payload?.usage)Object.assign(r.payload.usage,legacyUsage(r.resolvedModel,r.attempts,r.reportedEffort));return r;}
       // 분류는 계획 호출과 병렬로 시작해 계획이 끝난 뒤에만 기다린다 — 지연(자체 5초)·실패는 meta 를 비워 두고
       // 응답·상태·청구액은 그대로다. Jev 비용은 사용자 청구에 더하지 않는다.
       const classifying=titles.length&&c.judgeModels.includes(JEV_MODEL)?(async()=>{
@@ -4661,7 +4780,7 @@ function createServer(env=process.env,deps={}){
       try{
         for(let retry=0;retry<attempts;retry++){
           const at=Date.now();
-          const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
+          const response=await callFetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
             model:upModel,...params,...cacheFields,
             // strict 스키마를 못 거는 단계(Haiku 초안)는 스키마를 system 메시지로 주고 response_format json_object 로 받는다 — 출력은 아래 계약 검증이 본다.
             // msh 독립 수리는 strict 배열 틀만 내려가 봉투 안 모양이 안 보인다 — blockId 별 봉투 계약을 system 메시지로 알린다(실행 mis-sol-hai-27).
@@ -4675,6 +4794,8 @@ function createServer(env=process.env,deps={}){
           // 5xx·전송 실패는 제공자 쪽에서 돈이 나갔는지 알 수 없어 예약을 그대로 둔다(보수적).
           if(!response.ok){const st=response.status;tries.push(attemptOf("a"+tries.length,Date.now()-at,null,"provider_http_"+st));throw Object.assign(new Error("provider_failed"),{detail:"provider_http_"+st,...(st>=400&&st<500&&st!==429?{failExtra:{retryable:false}}:{})},retry===0&&st>=400&&st<500?{refund:true,code:"provider_failed_or_invalid_output"}:{});}
           const raw=await boundedResponse(response,1024*1024),u=raw.usage||{},choice=raw.choices?.[0];if(typeof raw.id==="string")gens.push(raw.id);
+          if(typeof raw.model==="string")resolvedModel=raw.model;
+          if(typeof raw.reasoning?.effort==="string")reportedEffort=raw.reasoning.effort;else if(typeof raw.reasoning_effort==="string")reportedEffort=raw.reasoning_effort;
           // 200 이어도 본문이 오류이고 생성이 없으면(사용량 없음·선택지 없음) 돈이 나가지 않았다 — 첫 시도면 환불한다.
           // 필드: OpenRouter 크레딧이 바닥난 순간 이런 응답 3건이 각각 예약금 전액($0.57)으로 정산됐다.
           if(!choice&&!raw.usage){tries.push(attemptOf("a"+tries.length,Date.now()-at,null,"provider_body_"+String(raw.error?.code??"empty").replace(/[^a-z0-9_]/gi,"_").slice(0,24)));throw Object.assign(new Error("provider_failed"),{detail:tries.at(-1).error},retry===0?{refund:true,code:"provider_failed_or_invalid_output"}:{});}
@@ -4696,7 +4817,7 @@ function createServer(env=process.env,deps={}){
           // 계획 호출이 끝난 뒤에만 분류 결과를 기다린다 — 앞서 병렬로 나간 호출이고 이미 끝났거나 5초 안에 끝난다.
           const classified=classifying?await classifying:null;
           if(classified){meta.subject=classified.subject;meta.subjectConf=classified.conf;}
-          return {amount,reported,attempts:tries,payload:{...(stage==="plan"?{plan:fin.parsed}:{output:fin.parsed}),...(fin.salvaged?{salvaged:fin.salvaged,salvagedErrors:fin.salvagedErrors}:{}),usage:{...usage,costUsd:reported?amount:reserve/100},promptVersion:Prompts.PROMPT_VERSIONS[stage]||Prompts.PROMPT_VERSION,schemaVersion:c.remoteConfig.schemaVersion,noteSpecVersion:NoteContract.NOTE_SPEC_VERSION}};
+          return {amount,reported,attempts:tries,payload:{...(stage==="plan"?{plan:fin.parsed}:{output:fin.parsed}),...(fin.salvaged?{salvaged:fin.salvaged,salvagedErrors:fin.salvagedErrors}:{}),usage:{...usage,costUsd:reported?amount:reserve/100,...(legacyMode?legacyUsage(resolvedModel,tries,reportedEffort):{})},promptVersion:Prompts.PROMPT_VERSIONS[stage]||Prompts.PROMPT_VERSION,schemaVersion:c.remoteConfig.schemaVersion,noteSpecVersion:NoteContract.NOTE_SPEC_VERSION}};
         }catch(error){const t=tries.at(-1);t.status="error";t.error=errCode(error);if(retry===attempts-1)throw error.charged||error.refund?error:Object.assign(error,{code:error.code||"provider_failed_or_invalid_output",charged:{amount,reported,usage}});} // 형식 실패: 보고된 금액만 청구한다
         }
       }catch(e){e.attempts??=tries;throw e;}
@@ -5485,8 +5606,10 @@ const keepItem=i=>{const ks=KEEP[i?.type];if(!ks)return null;const o={};for(cons
 // strictSchema: 프로파일이 단계에 단 표시(stages.<단계>.strict, lib/note-profiles.js)면 출력을 strict
 // json_schema 로 받는다 — Liner Responses 는 json_schema+strict 를 지원한다(기획 §3.3, mis-sol-hai 의 editorial·review).
 // 스키마는 요청 본문(호출마다 다른 칸)이라 P 접두를 깨지 않는다.
-function solBody({stage,system,items,params,providers,session,mode,choice,strictSchema}){
-  const body={model:SOL,store:false,
+// model: 단계→모델 표(lib/note-profiles.js)가 고른 실제 호출 모델 — @effort 별칭은 서버 안 식별자라
+// 업스트림엔 base 만 나간다(upstreamOf). 생략은 Sol — 모드 이름 하드코딩은 없다.
+function solBody({stage,system,items,params,providers,session,mode,choice,strictSchema,model}){
+  const body={model:LLM.upstreamOf(model||SOL),store:false,
     input:[{role:"developer",content:[{type:"input_text",text:system,prompt_cache_breakpoint:{mode:"explicit"}}]},...items],
     reasoning:{...(params.reasoning||{}),context:"all_turns"},
     include:["reasoning.encrypted_content"],
@@ -5522,6 +5645,9 @@ async function run(ctx){
   const {stage,rest,session}=ctx,h=ctx.deps,mode=session.mode,v2=V2.includes(mode);
   // v2 모드는 고정된 짧은 지시(V2_DEV)가 developer 접두다 — 전 단계 지시를 이어붙인 systemFor 는 쓰지 않는다.
   const system=v2?V2_DEV:systemFor(ctx.options),history=[...session.history],tries=[],usage={promptTokens:0,completionTokens:0};
+  // 이 호출의 실제 세션 모델 — 단계→모델 표(lib/note-profiles.js)가 정한다. mis-luna-legacy 같은 프로파일은
+  // 세션 단계도 Luna 별칭을 고르며, Sol 을 상수로 박지 않는다. 시도 기록의 model 도 이 값으로 라벨한다(보고 모델이 우선).
+  const selModel=NoteProfiles.stageModel(mode,stage)||SOL;
   // sol-fork 작성 호출의 고정 접두 P: 들어온 history 의 두 번째 user(이 호출 자신의 작업) 앞까지다.
   // 성공 응답의 history 는 이 P 를 그대로 돌려준다 — 이 단계의 턴은 접두에 붙지 않아 입력 크기가 단계 수와 무관하게 일정하다.
   let prefix=null;
@@ -5530,7 +5656,7 @@ async function run(ctx){
   if(v2&&stage!=="plan"&&stage!=="editorial"){const i=history.findIndex(isAnchor);if(i<0)throw Object.assign(new Error("invalid_note_output"),{detail:"prefix_anchor_missing"});prefix=history.slice(0,i+1);}
   // continuation — v2 는 앵커 아래 구간(이 호출의 자기 턴), 그 외는 이력 전체. 꼬리 상태 판정은 이 구간에서 한다.
   const cont=()=>prefix?history.slice(prefix.length):history;
-  let amount=0,reported=true;
+  let amount=0,reported=true,resolvedModel=null,reportedEffort=null; // 업스트림이 응답에 되돌려준 모델·effort — 미보고면 null(추정하지 않는다)
   // 시도별 행의 실제 호출 식별 — 응답이 provider·model 을 싣지 않으면 미보고 null(추정하지 않는다).
   const tag=(raw,m)=>({model:typeof raw?.model==="string"?raw.model:m,provider:typeof raw?.provider==="string"?raw.provider.slice(0,64):null,stage:stage==="plan"?"plan":"write."+stage});
   const snap=()=>({v:1,id:session.id,mode,history});
@@ -5543,7 +5669,10 @@ async function run(ctx){
   const acc=u=>{usage.promptTokens+=Number(u.prompt_tokens??u.input_tokens)||0;usage.completionTokens+=Number(u.completion_tokens??u.output_tokens)||0;};
   const versions=()=>({promptVersion:Prompts.PROMPT_VERSIONS[stage]||Prompts.PROMPT_VERSION,schemaVersion:ctx.schemaVersion,noteSpecVersion:ctx.noteSpecVersion});
   // 시간 예산에 남은 단계를 못 마칠 때의 명시적 연속 응답 — 계약상 200 성공이고 output/plan 은 없다.
-  const pendingResult=kind=>({amount,reported,attempts:tries,payload:{pending:true,stage,kind,noteSession:snap(),usage:{...usage,costUsd:reported?amount:ctx.reserve/100},...versions()}});
+  // 응답이 되돌려준 호출 식별(model·effort)을 하나로 모은다 — Responses 모양(reasoning.effort)과 chat 모양(reasoning_effort) 둘 다 받는다.
+  const report=raw=>{if(typeof raw?.model==="string")resolvedModel=raw.model;
+    if(typeof raw?.reasoning?.effort==="string")reportedEffort=raw.reasoning.effort;else if(typeof raw?.reasoning_effort==="string")reportedEffort=raw.reasoning_effort;};
+  const pendingResult=kind=>({amount,reported,attempts:tries,resolvedModel,reportedEffort,payload:{pending:true,stage,kind,noteSession:snap(),usage:{...usage,costUsd:reported?amount:ctx.reserve/100},...versions()}});
   // 도구 실행(Luna) — 현재 검증된 요청의 시스템·본문·스키마를 그대로 쓴다. 도구 결과를 무료로 두지 않는다:
   // 이 호출도 usage·시도·비용에 그대로 센다. chat/completions 경로는 운영 작성 호출과 같은 모양이다.
   const lunaCall=async()=>{
@@ -5559,7 +5688,7 @@ async function run(ctx){
       response_format:{type:"json_schema",json_schema:{name:"lecture_note_"+stage,strict:true,schema:ctx.providerOut}},
       provider:{only:ctx.luna.providers,order:ctx.luna.providers,require_parameters:true,allow_fallbacks:false,zdr:true,data_collection:"deny"}})});
     if(!response.ok){const detail=await upstreamDetail(h,response);tries.push(h.attemptOf("a"+tries.length,Date.now()-at,null,detail,tag(null,ctx.luna.model)));charge(Object.assign(new Error("provider_failed"),{detail,...(response.status>=400&&response.status<500&&response.status!==429?{failExtra:{retryable:false}}:{})}));}
-    const raw=await h.boundedResponse(response,1024*1024),u=raw.usage||{},choice=raw.choices?.[0];if(typeof raw.id==="string")ctx.gens.push(raw.id);
+    const raw=await h.boundedResponse(response,1024*1024),u=raw.usage||{},choice=raw.choices?.[0];if(typeof raw.id==="string")ctx.gens.push(raw.id);report(raw);
     if(!choice&&!raw.usage){tries.push(h.attemptOf("a"+tries.length,Date.now()-at,null,"provider_body_"+String(raw.error?.code??"empty").replace(/[^a-z0-9_]/gi,"_").slice(0,24),tag(raw,ctx.luna.model)));charge(Object.assign(new Error("provider_failed"),{detail:tries.at(-1).error}));}
     acc(u);{const c=h.costOf(u,...ctx.luna.rates,!choice?.message?.content&&choice?.finish_reason!=="length");if(c===null)reported=false;else amount+=c;}
     tries.push(h.attemptOf("a"+tries.length,Date.now()-at,u,null,tag(raw,ctx.luna.model)));
@@ -5568,23 +5697,23 @@ async function run(ctx){
     return choice.message.content;
     }finally{release();}
   };
-  // Sol(Responses) 호출 — 입력은 developer 블록 + 이력 전체(서버 작업·공급자 아이템·도구 결과).
+  // 세션(Responses) 호출 — 입력은 developer 블록 + 이력 전체(서버 작업·공급자 아이템·도구 결과). 실제 모델은 selModel.
   const solCall=async choice=>{
     const at=Date.now();
     const response=await ctx.fetcher(RESPONSES_ENDPOINT,{method:"POST",redirect:"error",signal:ctx.signal,headers:{authorization:"Bearer "+ctx.key,"content-type":"application/json"},body:JSON.stringify(
-      solBody({stage,system,items:history,params:ctx.params,providers:ctx.solProviders,session,mode,choice,
+      solBody({stage,system,items:history,params:ctx.params,providers:ctx.solProviders,session,mode,choice,model:selModel,
         strictSchema:NoteProfiles.get(mode)?.stages?.[stage]?.strict===true?ctx.providerOut:null}))});
     // HTTP 거절: 4xx 는 라우팅 단계의 거절이라 생성 비용이 없다 — 이 요청의 첫 시도면 예약을 환불한다.
     // 5xx·전송 실패는 제공자 쪽에서 돈이 나갔는지 알 수 없어 예약을 그대로 둔다(보수적). 두 번째 이후 호출의 거절은 항상 과금 확정.
-    if(!response.ok){const detail=await upstreamDetail(h,response);tries.push(h.attemptOf("a"+tries.length,Date.now()-at,null,detail,tag(null,SOL)));
+    if(!response.ok){const detail=await upstreamDetail(h,response);tries.push(h.attemptOf("a"+tries.length,Date.now()-at,null,detail,tag(null,selModel)));
       const e=Object.assign(new Error("provider_failed"),{detail,...(response.status>=400&&response.status<500&&response.status!==429?{failExtra:{retryable:false}}:{})});
       throw tries.length===1&&response.status>=400&&response.status<500?Object.assign(e,{refund:true,code:"provider_failed_or_invalid_output"}):failed(e);}
-    const raw=await h.boundedResponse(response,1024*1024),u=raw.usage||{};if(typeof raw.id==="string")ctx.gens.push(raw.id);
-    if(!raw.output?.length&&!raw.usage){tries.push(h.attemptOf("a"+tries.length,Date.now()-at,null,"provider_body_"+String(raw.error?.code??"empty").replace(/[^a-z0-9_]/gi,"_").slice(0,24),tag(raw,SOL)));
+    const raw=await h.boundedResponse(response,1024*1024),u=raw.usage||{};if(typeof raw.id==="string")ctx.gens.push(raw.id);report(raw);
+    if(!raw.output?.length&&!raw.usage){tries.push(h.attemptOf("a"+tries.length,Date.now()-at,null,"provider_body_"+String(raw.error?.code??"empty").replace(/[^a-z0-9_]/gi,"_").slice(0,24),tag(raw,selModel)));
       const e=Object.assign(new Error("provider_failed"),{detail:tries.at(-1).error});
       throw tries.length===1?Object.assign(e,{refund:true,code:"provider_failed_or_invalid_output"}):failed(e);}
     acc(u);{const c=h.costOf(u,...ctx.solRates,!raw.output?.length);if(c===null)reported=false;else amount+=c;}
-    tries.push(h.attemptOf("a"+tries.length,Date.now()-at,u,null,tag(raw,SOL)));
+    tries.push(h.attemptOf("a"+tries.length,Date.now()-at,u,null,tag(raw,selModel)));
     const out=extract(raw);
     if(out.status==="incomplete"&&out.reason==="max_output_tokens"){const t=tries.at(-1);t.status="error";t.error="llm_output_truncated.long";charge(Object.assign(new Error("llm_output_truncated"),{code:"llm_output_truncated",detail:t.error}));}
     if(out.status!=="completed")throw invalid("incomplete."+String(out.status+"."+(out.reason||"")).toLowerCase().replace(/[^a-z0-9_.]/g,"").slice(0,40));
@@ -5602,7 +5731,7 @@ async function run(ctx){
     const payload={...(stage==="plan"?{plan:fin.parsed}:stage==="editorial"?{editorialPlan:fin.parsed}:{output:fin.parsed}),
       ...(fin.salvaged?{salvaged:fin.salvaged,salvagedErrors:fin.salvagedErrors}:{}),
       usage:{...usage,costUsd:reported?amount:ctx.reserve/100},...versions(),noteSession:prefix?{v:1,id:session.id,mode,history:prefix}:snap()};
-    return{amount,reported,attempts:tries,payload};
+    return{amount,reported,attempts:tries,resolvedModel,reportedEffort,payload};
   };
   // 전문 worker 초안(그 밖의 단계는 세션 지시가 이미 덮는다)은 그 단계의 systemFor 지시를 작업 안에 싣는다 —
   // 고정 developer 접두는 그대로고 draft 전문 행이 빠지지 않는다.
@@ -5813,9 +5942,9 @@ module.exports={ENDPOINT,MODEL,USD_PER_PAGE,MAX_ATTEMPTS,requestBody,toSlideDoc,
 // 프롬프트는 변하지 않는 시스템 본문이 앞이고 변하는 입력(user)은 호출부가 뒤에 붙인다: 접두 캐시가 맞으려면 이 순서를 지킨다.
 const NoteContract=require("../lib/note-contract.js"),Contracts=require("../lib/contracts.js"),LLM=require("./llm.js"),SectionDraft=require("../lib/section-draft.js"),NoteV3=require("../lib/note-v3.js"),NoteProfiles=require("../lib/note-profiles.js");
 // 프롬프트 문구나 아래 규칙을 바꾸면 올린다. 응답에 실려 단계 캐시 키에 들어간다.
-const PROMPT_VERSION="note-v6";
+const PROMPT_VERSION="note-v10";
 // 단계별 버전: 프롬프트 문구나 아래 규칙을 바꾸면 그 단계만 올린다 — plan 캐시가 section 의 본문 재배치에 휘말려 무효가 되지 않게.
-const PROMPT_VERSIONS={plan:"note-v6",global:"note-v7",link:"note-v6",section:"note-v7",draft:"note-v10",repair:"note-v9",review:"note-v7",editorial:"note-v7",questions:"note-v7"};
+const PROMPT_VERSIONS={plan:"note-v10",global:"note-v10",link:"note-v10",section:"note-v10",draft:"note-v14",repair:"note-v12",review:"note-v10",editorial:"note-v11",questions:"note-v10"};
 const STAGES=["plan","section","global","repair","link","questions","draft","review","editorial"];
 // 두 실험 모드 — plan 직후 editorial 단계(같은 세션의 두 번째 Sol 턴)가 편집 명세(editorialPlan)를 낸다. 한 호출에 합치면 Edge 150초를 넘는다.
 const V2_MODES=NoteContract.V2_MODES;
@@ -5836,12 +5965,12 @@ const COMMON=[
 // §6·§9 공통 규칙. 슬롯 이름은 스키마가 알려 주고, 여기서는 뜻과 금지만 말한다.
 const NOTE_RULES=[
   "[주장] 주장은 {text, evidenceIds, basis}다. text는 600자 이하 한두 문장.",
-  "- basis \"lecture\": 강의 자료의 사실. evidenceIds에 근거 항목 id(예: \"U3.s2\" 슬라이드 줄, \"U3.t5\" 발화, \"U3.g1\" 도표)를 1개 이상 적는다. text의 숫자는 인용한 근거 텍스트에 그대로 있어야 한다(\"300만 원\"과 3,000,000은 같은 값).",
+  "- basis \"lecture\": 강의 자료의 사실. evidenceIds에 근거 항목 id(예: \"U3.s2\" 슬라이드 줄, \"U3.t5\" 발화, \"U3.g1\" 도표)를 1개 이상 적는다. text의 숫자는 인용한 근거 텍스트에 그대로 있어야 한다(\"300만 원\"과 3,000,000은 같은 값). 근거끼리 같은 양을 다른 값으로 말하면 주장이 쓴 그 값을 실제로 담은 근거를 인용한다 — 다른 값을 담은 근거와 짝짓지 않는다.",
   "- basis \"derived\": B10 계산 결과를 쓰는 주장. evidenceIds에 계산 참조(\"S2_B3.c2\" 단계, \"S2_B3.i1\" 입력)를 1개 이상 적는다. 같은 섹션의 B10만 참조한다.",
   "- basis \"pedagogical\": 교육용으로 일부러 틀린 문장. B14 OX 문항 중 정답이 X인 문항의 prompt, B11의 origin이 structural_check인 misconception에서만 쓴다.",
   "- 주장 하나에 무관한 내용을 섞지 않는다. 표의 칸, 논증 단계, 해설도 각각 주장이다.",
-  "[봉투] 블록은 {status, importance, emphasis, content}다. status는 보통 supported이고, uncertain·conflicting·corrected이면 같은 섹션 checks의 항목이 그 블록을 targetIds로 가리켜야 한다. importance는 학습상 중심성(core·supporting·reference)이다. emphasis는 인용 근거 텍스트에 강조어(stress: 중요·핵심·꼭·반드시·기억, exam: 시험·출제·중간고사·기말고사·퀴즈)가 실제로 있을 때만 적고, 시험 언급을 출제 확정으로 바꾸지 않는다.",
-  "[블록] B02 한눈에: 강의의 핵심 결론 1~3개(토론형이면 mode issues). B03 지도: 개념·단계 노드 3~7개와 관계, causes·supports 간선은 근거 있는 주장이 필수. B05 개념: conceptId는 계획한 개념 하나, term은 짧게, original은 근거에 실제로 나온 원어만. B06 비교: 같은 기준 행으로 대상들을 나란히, cells 수는 entities 수와 같고 확인 안 된 칸은 null. B07 논리: 단계 2~8개, 사실 근거(evidence)와 규범 전제(value_premise)를 다른 칸에, 생략된 연결은 missingLinks. B08 사례: 단서(clue)와 해석(reading)을 한 쌍으로. B09 자료: 저자 주장(authorClaim)과 강의의 해석(lecturerReading)을 나누고, quote는 근거에 글자 그대로 있는 150자 이하 구절만. B10 수식·표·계산: formulaIds·figureIds로 원본을 가리키고, 계산은 inputs(근거 숫자)와 steps(add·sub·mul·div, a·b는 i1·c1 같은 앞선 참조)로 쓰며 값은 직접 검산한다. %−%의 결과 단위는 %p다. 계산 조건이 모자라면 steps를 비우고 withheld에 이유를 적는다. B11 헷갈리는 점: 강의에서 바로잡은 오해(lecture_correction) 또는 구조상 구분할 점(structural_check). B12 곁설명: 앞 블록에 붙는 140자 이하 보충, 필수 조건·예외는 여기 두지 않는다. B13 연결 정리: 대상 사이의 관계 2~5개. B14 자기 점검: 문항과 답안을 같은 항목으로 쓴다. B18 공지: 실제 발언된 시험·과제·기한만, due는 근거에 적힌 그대로이고 절대 날짜를 추정하지 않는다.",
+  "[봉투] 블록은 {status, importance, emphasis, content}다. status는 보통 supported이고, uncertain·conflicting·corrected이면 같은 섹션 checks의 항목이 그 블록을 targetIds로 가리켜야 한다 — 그런 항목을 둘 근거가 없으면 status 는 supported 로 쓴다. importance는 학습상 중심성(core·supporting·reference)이다. emphasis는 인용 근거 텍스트에 강조어(stress: 중요·핵심·꼭·반드시·기억, exam: 시험·출제·중간고사·기말고사·퀴즈)가 실제로 있을 때만 적고, 시험 언급을 출제 확정으로 바꾸지 않는다.",
+  "[블록] B02 한눈에: 강의의 핵심 결론 1~3개(토론형이면 mode issues). B03 지도: 개념·단계 노드 3~7개와 관계, causes·supports 간선은 근거 있는 주장이 필수. B05 개념: conceptId는 계획한 개념 하나, term은 짧게, original은 근거에 실제로 나온 원어만. B06 비교: 같은 기준 행으로 대상들을 나란히, cells 수는 entities 수와 같고 확인 안 된 칸은 null. B07 논리: 단계 2~8개, 사실 근거(evidence)와 규범 전제(value_premise)를 다른 칸에, 생략된 연결은 missingLinks. B08 사례: 단서(clue)와 해석(reading)을 한 쌍으로. B09 자료: 저자 주장(authorClaim)과 강의의 해석(lecturerReading)을 나누고, quote는 근거에 글자 그대로 있는 150자 이하 구절만. B10 수식·표·계산: formulaIds·figureIds로 원본을 가리키고, 계산은 inputs(근거 숫자)와 steps(add·sub·mul·div, a·b는 i1·c1 같은 앞선 참조)로 쓰며 값은 직접 검산한다. %−%의 결과 단위는 %p다. inputs 의 value 는 근거 글의 부호 그대로 쓴다(- 부호·($1,000) 같은 괄호 음수 포함) — 없는 수치로 채운 입력은 블록이 지워진다. 계산 조건이 모자라면 steps를 비우고 withheld에 이유를 적는다. B11 헷갈리는 점: 강의에서 바로잡은 오해(lecture_correction) 또는 구조상 구분할 점(structural_check). B12 곁설명: 앞 블록에 붙는 140자 이하 보충, 필수 조건·예외는 여기 두지 않는다. B13 연결 정리: 대상 사이의 관계 2~5개. B14 자기 점검: 문항과 답안을 같은 항목으로 쓴다. B18 공지: 실제 발언된 시험·과제·기한만, due는 근거에 적힌 그대로이고 절대 날짜를 추정하지 않는다.",
   "[슬롯] B05는 definition=무엇인가(한 문장 정의), explanation=어떻게 이해하는가(직관·비유·읽는 법), mechanism=왜·어떻게 작동하는가(원인·구조·작동), scope=언제 성립하는가(적용 조건·예외)다. 네 칸은 서로 다른 질문에 답한다 — 한 칸의 말을 고쳐 다른 칸을 채우는 의역 반복은 하지 않는다. B06의 표가 비교를 다 담는다 — 비교 내용을 산문 주장으로 다시 나열하지 않고 확인되지 않은 칸은 null이다. B07은 순서(process·history), 인과(causal), 논증(argument)을 구분한다 — causal과 지도의 causes·supports, 연결의 cause는 근거 있는 주장이 있을 때만 달고, 나열된 순서나 앞뒤 언급만을 인과로 읽지 않는다.",
   "[문항] OX는 verdict 필수. X이면 prompt는 pedagogical이고 correction은 근거 있는 주장, O이면 prompt는 근거 있는 주장이고 correction은 null. OX가 아니면 verdict·correction은 null이고 prompt는 근거 있는 주장. argue는 rubric 1개 이상. calc는 explanation이 같은 섹션 B10의 계산 참조를 인용. 문항의 targetIds는 계획된 섹션·블록·개념 id와 사례·자료 단서 위치만이고 대상 개념은 defined 개념만이다. answer.reviewIds는 현재 B14 문항 블록을 제외한 실제 본문 블록(S#_B#) id이고 같은 섹션 블록도 된다 — 전역 블록(GB#)과 지도 노드 key는 쓰지 않는다. 본문에 없는 지식을 알아야 푸는 문항은 만들지 않는다.",
   "[정정] 강의에서 앞서 말한 값이나 설명을 바로잡으면 checks에 kind correction 항목을 넣는다. before는 정정 전 근거, after는 정정 후 근거를 인용하는 lecture 주장이다. 다른 주장은 정정 후 근거를 함께 인용한다. 인식이 불확실하거나 자료가 서로 다르면 recognition_uncertain·input_conflict 항목으로 알린다.",
@@ -5907,7 +6036,7 @@ const STAGE={
   ],
   draft:[
     "단계: 섹션 의미 초안. 입력은 이 섹션의 계획(section), 개념 목록(concepts), 인용할 수 있는 근거 항목(evidence: id, 종류, 시각, 텍스트), 수식 등록부(registry), 도표(figures)다. 지면(B01–B18 슬롯·색·번호·HTML)이 아니라 의미 단위만 쓴다 — 코드가 초안을 계획 블록으로 조판한다. gist가 스키마에 있으면 단원 요지를 40~100자 한 주장으로 쓴다.",
-    "claims는 주장의 평탄한 목록이다. claimId는 c1, c2처럼 이 초안 안에서만 유효한 로컬 키다. role은 주장의 의미 기능이다 — definition(정의)·intuition(직관·비유·읽는 법)·mechanism(왜·어떻게 작동하는가)·condition·exception(성립 조건·예외)·example(사례)·comparison·argument·procedure·calculation·notice(수업 공지). conceptIds는 주장이 다루는 계획 개념, dependsOn은 먼저 이해해야 하는 주장의 claimId다. 한 칸의 말을 고쳐 다른 주장으로 되풀이하지 않는다.",
+    "claims는 주장의 평탄한 목록이다. claimId는 c1, c2처럼 이 초안 안에서만 유효한 로컬 키다. role은 주장의 의미 기능이다 — definition(정의)·intuition(직관·비유·읽는 법)·mechanism(왜·어떻게 작동하는가)·condition·exception(성립 조건·예외)·example(사례)·comparison·argument·procedure·calculation·notice(수업 공지). conceptIds는 주장이 다루는 계획 개념, dependsOn 은 노트 생존 의존이다 — 기대는 주장이 본문을 떠나면 이 주장도 지워진다. 기대려면 그 주장을 관계에 먼저 실어라. 한 칸의 말을 고쳐 다른 주장으로 되풀이하지 않는다.",
     "relations는 주장을 구조로 엮은 typed 객체다 — 산문으로 쓴 뒤 다시 구조화하지 않는다. 관계 안의 주장 칸은 모두 claimId다. 같은 타입의 계획 블록과 계획 순서로 하나씩 대응한다: 계획이 B05 두 개를 세우고 claims에 그 개념의 주장이 있으면 conceptIds로 갈린다. B06은 comparisons, B07은 arguments, B08은 cases, B09는 materials, B10은 calcs, B11은 pitfalls, B12는 notes, B13은 links, B18은 notices, B03은 maps다. B14(자기 점검)는 이 단계에서 만들지 않는다.",
     "설명 순서는 강의 유형을 따라간다 — 개념형은 정의→직관→원리→조건·예외→적용, 논증형은 주장–근거–숨은 전제–반론–한계, 경영형은 정의–작동–가정–비교–사례·의사결정. 역사·철학처럼 원리가 해당 없으면 mechanism 주장을 지어내지 않는다.",
     "재료가 없는 관계·칸은 만들지 않는다 — 확인되지 않은 칸에 넣을 주장을 지어내지 않고 null·빈 배열로 둔다. 근거가 부족해 계획한 블록의 재료를 만들 수 없으면 그 타입의 관계를 만들지 않는다.",
@@ -5943,13 +6072,14 @@ const EDITORIAL=[
   "editorialPlan.sections는 plan의 섹션과 같은 sectionId를 갖고 모든 섹션을 덮는다. 섹션마다 learningQuestion(그 단원이 답하는 질문), learningItemIds(배정 학습 항목), prerequisiteSectionIds(먼저 읽어야 할 섹션), mustExplain(설명해야 할 내용: role·learningItemIds·evidenceIds), owns(그 개념의 정의·설명을 책임지는 섹션), referencesOnly(짧게 참조만 할 개념), visuals(시각화 명세), targetOutputTokens(예상 출력량)을 정한다. 한 개념의 owns는 한 섹션뿐이다 — 같은 개념의 정의를 여러 섹션에 반복하지 않는다.",
   "예시·예외·조건은 mustExplain에서 빈칸 채우기보다 먼저 배정한다. 근거에 없는 인과 화살표·비교 축·수치 곡선을 만들지 않는다 — visuals의 comparisonAxes·relationTypes·assetIds는 근거와 실제 asset에서만 고른다.",
   "id는 입력의 id만 쓴다 — conceptId·sectionId·learningItemIds·evidenceIds·assetIds를 지어내지 않는다. visualId는 V1부터 순서대로 붙인다.",
+  "입력의 allowedEvidenceIds는 인용할 수 있는 근거 항목 id의 전체 목록(U#.s# 슬라이드 줄·U#.t# 발화·U#.g# 도표의 실제 항목 id)이고, allowedAssetIds는 연결할 수 있는 도표 id(G#)의 전체 목록이다 — mustExplain과 visuals의 evidenceIds는 allowedEvidenceIds에 실린 id만, visuals의 assetIds는 allowedAssetIds에 실린 id만 고른다. 유닛 id(U#)는 근거 항목 id가 아니다 — 유닛 번호에서 U#.t# 같은 발화 근거를 추정해 만들지 않고, 목록에 발화 근거가 없으면 발화를 인용하지 않는다. visualId는 editorialPlan 전체에서 중복 없이 V1부터 순서대로 붙인다.",
 ];
 STAGE.editorial=EDITORIAL;
 // 조건부 전문 워커(§3): 계획 섹션의 선택 필드 worker(W2-B)가 있으면 draft 지시 끝에 한 문장을 붙인다.
 // 같은 worker 값이면 같은 문자열이어야 한다 — 문장을 바꾸면 그 worker 의 캐시 접두가 갈린다. 없으면 general(추가 없음).
 const WORKER={
   general:null,
-  formula:"[전문 초점: 수식·단위·계산] 수식의 의미와 변수의 단위, 계산의 입력·단계·해석을 claims와 calcs 관계로 정확히 나눈다. inputs에는 근거에 있는 숫자만 넣고 단순 산술의 결과 값은 코드가 검산한다.",
+  formula:"[전문 초점: 수식·단위·계산] 수식의 의미와 변수의 단위, 계산의 입력·단계·해석을 claims와 calcs 관계로 정확히 나눈다. inputs에는 근거에 있는 숫자를 부호 그대로 넣고 단순 산술의 결과 값은 코드가 검산한다.",
   comparison:"[전문 초점: 비교] 같은 기준 행으로 대상을 나란히 비교하는 comparisons 관계로 구조화한다. 확인되지 않은 칸은 주장을 지어내지 않고 null로 둔다.",
   argument:"[전문 초점: 논증] 주장–근거–숨은 전제–반론–한계를 arguments 관계의 steps·missingLinks로 구조화하고, 사실 근거(evidence)와 규범 전제(value_premise)를 구분한다.",
   figure:"[전문 초점: 도표·자료 해석] 자료가 말하는 것과 말하지 못하는 것을 나누어 쓰고, 표·그래프의 값은 근거 항목과 calcs의 figureIds로만 가리킨다.",
@@ -5988,7 +6118,7 @@ const STAGE_V3={
   editorial:STAGE.editorial,
   draft:[
     "단계: 섹션 의미 초안(Luna). 입력은 이 섹션의 계획(section), 개념 목록(concepts), 인용할 수 있는 근거 항목(evidence: id, 종류, 시각, 텍스트), 수식 등록부(registry), 도표(figures), 편집 명세(editorialPlan)다. 지면(B01–B18 슬롯·HTML)이 아니라 의미 단위만 작성한다 — 코드가 초안을 계획 블록으로 조판한다. gist가 스키마에 있으면 단원 요지를 40~100자 한 주장으로 쓴다.",
-    "claims는 주장의 평탄한 목록이다. claimId는 c1, c2처럼 이 초안 안에서만 유효한 로컬 키다. role은 주장의 의미 기능이다 — definition(정의)·intuition(직관·비유·읽는 법)·mechanism(왜·어떻게 작동하는가)·condition·exception(성립 조건·예외)·example(사례)·comparison·argument·procedure·calculation·notice(공지). conceptIds는 주장이 다루는 계획 개념, dependsOn은 먼저 이해해야 하는 주장의 claimId다. text는 600자 이하 한두 문장이다.",
+    "claims는 주장의 평탄한 목록이다. claimId는 c1, c2처럼 이 초안 안에서만 유효한 로컬 키다. role은 주장의 의미 기능이다 — definition(정의)·intuition(직관·비유·읽는 법)·mechanism(왜·어떻게 작동하는가)·condition·exception(성립 조건·예외)·example(사례)·comparison·argument·procedure·calculation·notice(공지). conceptIds는 주장이 다루는 계획 개념, dependsOn 은 노트 생존 의존이다 — 기대는 주장이 본문을 떠나면 이 주장도 지워진다. 기대려면 그 주장을 관계에 먼저 실어라. text는 600자 이하 한두 문장이다.",
     "주장의 basis는 lecture(강의 자료의 사실) 또는 derived(B10 계산 결과)다. evidenceIds에 근거 항목 id(예: \"U3.s2\", \"U3.t5\", \"U3.g1\")를 1개 이상 적는다. text의 숫자는 인용한 근거 텍스트에 그대로 있어야 한다. 한 주장 안에 무관한 내용을 섞지 않는다.",
     "완결된 설명 기준: 한 개념의 정의와 설명은 핵심 조건과 예외를 본문 주장 안에 완전히 포함해야 한다 — 핵심 조건·예외를 곁설명으로 보내거나 생략하지 않는다. 곁설명(notes)에는 본문 없이도 이해되는 보조 설명만 둔다.",
     "내용 없는 고정 상자 채우지 않기: 근거 자료가 부족하거나 없는 관계·칸은 억지로 주장을 지어내 채우지 않는다. 확인되지 않은 칸은 null이나 빈 배열로 둔다. 계획된 블록이라도 근거가 부족해 채울 수 없으면 그 관계를 만들지 않고 nullReasons에 그 블록 id의 사유(insufficient_evidence·duplicate·unsupported_format·policy·unknown)를 적는다.",
@@ -6018,10 +6148,10 @@ const MSH={
   plan:[
     "[mis-sol-hai] 모든 슬라이드를 정확히 한 섹션에 배정한다 — 제목만 있거나 내용이 없는 슬라이드는 다음 슬라이드의 섹션에 합친다.",
     "개념 이름(concepts[].name)은 강의 자료에 나온 전공 용어 원어를 앞에, 한국어 번역을 괄호에 쓴다 — 예: k-Fold Cross-Validation(k겹 교차검증), Over-fitting(과적합). 자료에 한국어 용어만 있으면 한국어만 쓴다.",
-    "입력의 emphasis 는 유닛별 강조 신호(체류·핵심어 재등장·강조어·재방문·필기 면적)다 — 신호가 높은 자리의 블록에 곁설명(B12 hint·background)을 배정해 부가 설명을 붙이고, 슬라이드에 없이 말로만 한 내용에는 B12 블록을 배정한다(작성 단계가 kind slide_absent 로 채운다).",
+    "입력의 emphasis 는 유닛별 강조 신호(체류·핵심어 재등장·강조어·재방문·필기 면적)다 — 신호가 높은 자리의 블록에 곁설명(B12 hint·background)을 배정해 부가 설명을 붙이고, 슬라이드에 없이 말로만 한 내용에는 B12 블록을 배정한다(작성 단계가 kind slide_absent 로 채운다). 발화에만 나온 배경·힌트 재료가 보이는 섹션에만 B12 를 배정한다.",
   ],
   draft:[
-    "[mis-sol-hai] 슬라이드에 없이 말로만 한 내용은 notes 관계의 kind \"slide_absent\"로 쓴다 — 그 관계의 주장은 발화 근거만 인용한다.",
+    "[mis-sol-hai] 슬라이드에 없이 말로만 한 내용은 notes 관계의 kind \"slide_absent\"로 쓴다 — 주장은 발화 id(`U#.t#`)만 인용하고 본문은 슬라이드 글에 없는 내용이어야 한다(`.s#`·`.g#`·필기 근거·문장 옮기기는 지워진다). 발화만으로 못 채우면 다른 kind 나 보류다.",
     "입력의 images 는 OCR 이 읽지 못한 필기 영역 이미지다 — id 는 그 영역이 속한 근거다. 이미지에서 읽은 내용은 그 근거 id 를 인용하는 주장으로 쓰고, 읽히지 않는 필기는 쓰지 않는다.",
     "figureNotes: 입력 figures 의 도표마다 하나씩 — figureId 는 그 도표 id(G#), claim 은 그 도표가 무엇을 보여 주고 강의에서 어떤 뜻인지(축·색·곡선이 무엇이고 어떤 추세가 무슨 결론을 받치는지) 1~2문장으로 쓴 claims 의 claimId 다. 그 주장은 도표 근거(figures 의 evidenceId)와 그 내용을 말한 슬라이드 글·발화를 인용하고, 근거 글에 없는 값·축 이름은 쓰지 않는다. blockId 는 그 도표를 둘 계획 블록 — 도표가 설명하는 개념의 B05, 계산·표 해석이면 B10 — 이고 맞는 블록이 없으면 null 이다.",
     "formulaNotes: 수식(F#)마다 — claim=식 전체 뜻 한 문장, blockId=홈(개념 설명 식은 그 B05, 계산 식은 B10, 없으면 null). 인용은 figureNotes 준용.",
@@ -6174,8 +6304,13 @@ const REQUEST={
     allowedRefs,
     baseRevision:{type:"string",maxLength:64},
   },["allowedRefs","baseRevision","sections","html","omittedSectionIds"]),
-  // v2 편집 계획: 입력은 옵션뿐이다 — 계획은 noteSession 이력(앞 턴)에 이미 있다. 이력 없이는 서버가 거절한다.
-  editorial:opt({options},[]),
+  // v2 편집 계획: 계획은 noteSession 이력(앞 턴)에 있고 이번 요청은 옵션·실제 인용 가능 ID 목록을 싣는다. 이력 없이는 서버가 거절한다.
+  // allowedEvidenceIds·allowedAssetIds(선택): 인용 가능한 실제 근거 항목·도표 id 목록 — 유닛 id(U#)는 근거 항목 id 가 아니라 받지 않는다.
+  // 입력 안내만으로는 모델이 목록 밖 id 를 지어낼 수 있어(mis-luna-debug: High 의 U4.s3·U24.s5) 출력 스키마의 해당 칸도 같은 목록으로 좁힌다.
+  editorial:opt({options,
+    allowedEvidenceIds:arr(pat(IDS.evidence),5000),
+    allowedAssetIds:arr(pat(IDS.figure),200),
+  },["allowedEvidenceIds","allowedAssetIds"]),
   // 본문 확정 뒤 문항(draft 경로): 채울 B14 는 계획 블록 하나, 참고는 살아남은 본문 주장이다.
   questions:opt({
     concepts:planConcepts,
@@ -6191,14 +6326,37 @@ const REQUEST={
 };
 // 요청별 출력 스키마. 계획에 없는 blockId 같은 잘못된 요청은 note-contract 가 던진다 — 라우트가 request_rejected 로 바꾼다.
 // 영어 강의의 섹션·repair 는 주장마다 src 칸이 더해진다(NoteContract.withSource).
+// editorial 의 근거·자산 칸을 요청의 허용 목록으로 좁힌다 — 목록이 오면 그 칸의 항목 스키마만 enum 으로 바꾼다
+// (제공자용 스키마 변환에서 pattern 은 빠지고 enum 은 유지된다). 목록이 빈 배열이면 그 칸은 maxItems:0 이 된다(빈 enum 은 무효).
+// 칸이 아예 없으면 계약 스키마 그대로다. 원본은 공유 객체라 복제본만 고친다.
+const narrowIdProp=(prop,ids)=>ids===undefined?prop:(ids.length?{...prop,items:{...prop.items,enum:[...new Set(ids)]}}:{...prop,maxItems:0});
+const editorialOutputFor=body=>{
+  const ev=body?.allowedEvidenceIds,as=body?.allowedAssetIds;
+  if(ev===undefined&&as===undefined)return NoteContract.editorialPlanSchema;
+  const out=JSON.parse(JSON.stringify(NoteContract.editorialPlanSchema));
+  const g=out.properties.glossary.items.properties,s=out.properties.sections.items.properties,v=s.visuals.items.properties;
+  g.evidenceIds=narrowIdProp(g.evidenceIds,ev);
+  s.mustExplain.items.properties.evidenceIds=narrowIdProp(s.mustExplain.items.properties.evidenceIds,ev);
+  v.evidenceIds=narrowIdProp(v.evidenceIds,ev);
+  v.assetIds=narrowIdProp(v.assetIds,as);
+  return out;
+};
+// 전역 출력의 인용 enum: 요청 본문의 sections 다이제스트(요지+블록 주장)에 실제 실린 evidenceIds — 모델이 본 것만.
+// 계산 참조(S#_B#.c#·i#)도 주장 evidenceIds 에 섞여 오므로 그대로 통한다. 모르는 id 인용은 스키마가 막는다(iter-4).
+const digestRefs=(sections)=>{const ids=[];const seen=new Set();
+  const w=v=>{if(Array.isArray(v)){v.forEach(w);return}
+    if(!v||typeof v!=="object")return;
+    if(Array.isArray(v.evidenceIds))for(const r of v.evidenceIds)if(typeof r==="string"&&!seen.has(r)){seen.add(r);ids.push(r)}
+    for(const x of Object.values(v))w(x)};
+  for(const s of sections||[]){w(s?.gist);w(s?.blocks)}return ids};
 function outputSchema(stage,body,sourceLang,mode){
   const src=sch=>sourceLang==="en"?NoteContract.withSource(sch):sch;
   if(stage==="plan")return S.plannerOutput;
-  if(stage==="editorial")return NoteContract.editorialPlanSchema;
+  if(stage==="editorial")return editorialOutputFor(body);
   if(stage==="section")return src(NoteContract.sectionOutputSchemaFor(body.section,{gist:body.withGist,policy:body.options,allowedRefs:body.allowedRefs}));
   if(stage==="draft")return SectionDraft.outputSchemaFor(body.section,{gist:body.withGist,policy:body.options,allowedRefs:body.allowedRefs,sourceLang,nullReasons:V2_MODES.includes(mode),figureNotes:NoteProfiles.get(mode)?.prompts==="msh"});
   if(stage==="repair")return src(NoteContract.repairOutputSchemaFor(body.section,[...new Set(body.repair.map(r=>r.blockId))],body.options,body.allowedRefs));
-  if(stage==="global")return NoteContract.globalOutputSchemaFor(body.plan.global,body.allowedRefs);
+  if(stage==="global")return NoteContract.globalOutputSchemaFor(body.plan.global,body.allowedRefs,digestRefs(body.sections));
   if(stage==="link")return NoteContract.linkOutputSchema;
   if(stage==="review")return NoteContract.reviewOutputSchema;
   // questions 는 계획된 B14 블록 하나만 채운다 — 다른 타입이나 계획 밖 id 는 거절이다.
@@ -6210,8 +6368,10 @@ const estimateTokens=text=>Math.ceil(Buffer.byteLength(text)/LIMITS.bytesPerToke
 const inputTokenLimit=stage=>stage==="plan"?T.plannerInput:["global","link","questions","review"].includes(stage)?T.globalInput:T.writerInput;
 // 생성 파라미터. seed 를 지원하지 않는 모델에 보내면 require_parameters 때문에 요청이 통째로 거절된다(Anthropic).
 const NO_SEED=/^anthropic\//,SEED=7;
-const modelParams=(model,stage)=>({
-  max_tokens:Math.min(LLM.maxTokensFor(model),(stage==="plan"||stage==="editorial"?T.plannerOutput:["global","link","review"].includes(stage)?T.globalOutput:T.writerOutput)+LLM.reasoningBudgetFor(model)),
+// 추론 여유분은 모델 별칭의 등록값이 기본이다 — 프로파일이 reasoningBudget 을 달면(mis-luna-legacy: effort 만 다른
+// 두 variation 의 실제 출력 상한을 같게) 그 값이 이긴다. mode 없음·칸 없는 프로파일은 기존 동작 그대로다.
+const modelParams=(model,stage,mode)=>({
+  max_tokens:Math.min(LLM.maxTokensFor(model),(stage==="plan"||stage==="editorial"?T.plannerOutput:["global","link","review"].includes(stage)?T.globalOutput:T.writerOutput)+(NoteProfiles.get(mode)?.reasoningBudget??LLM.reasoningBudgetFor(model))),
   reasoning:LLM.reasoningFor(model),...(LLM.noTemperature(model)?{}:{temperature:0}),...(NO_SEED.test(model)?{}:{seed:SEED}), // temperature 를 거절하는 모델(GPT 추론형)에 보내면 require_parameters 로 404 가 난다
 });
 module.exports={PROMPT_VERSION,PROMPT_VERSIONS,STAGES,LIMITS,V2_MODES,systemFor,repairPacket,REQUEST,outputSchema,estimateTokens,inputTokenLimit,modelParams,editorialPlanSchema:NoteContract.editorialPlanSchema,reviewOutputSchema:NoteContract.reviewOutputSchema};

@@ -510,7 +510,7 @@ function createServer(env=process.env,deps={}){
       // 정산이 안 닫혀도 이미 만든 결과는 돌려준다 — 예약이 reserved 로 남아 비용이 보수적으로 잡힌다. 환불만은 예약이 안 풀렸으므로 같은 requestId 재시도를 약속할 수 없다.
       if(!error)return send(res,200,payload);
       if(status==="refunded")return stored?fail(res,code,error.retryAfterMs,error.failExtra):fail(res,"usage_store_failed");
-      fail(res,code,undefined,{...error.failExtra,...(error.session?{noteSession:error.session}:{})});
+      fail(res,code,undefined,{...error.failExtra,...(code==="llm_output_truncated"&&["llm_output_truncated.rep","llm_output_truncated.long"].includes(error.detail)?{detail:error.detail}:{}),...(error.session?{noteSession:error.session}:{})});
     }finally{clearTimeout(timer);res.removeListener("close",disconnect);const n=(inflight.get(id)||1)-1;n>0?inflight.set(id,n):inflight.delete(id);active.delete(controller);}
   }
   async function vision(input,account,res){
@@ -791,8 +791,23 @@ function createServer(env=process.env,deps={}){
     }else if(stage==="review"||stage==="editorial")return fail(res,"invalid_model_or_stage"); // review·editorial 은 v2 모드 전용 단계다
     // mis-sol-hai(프로파일 prompts:"msh"): 초안·문항·독립 수리는 Haiku 독립 호출 — 이미지 근거 칸·출력 스키마·응답 판독이 표준 경로와 다르다.
     const msh=NoteProfiles.get(v2)?.prompts==="msh";
+    // 실험 관측(mis-luna-legacy 만): 어떤 프로파일·모델·effort·전선으로 실제 호출이 나갔는지 내용 없이 응답 usage.inference 에 실는다.
+    // 장부(usage.js 의 eventFields·attemptRow 허용 칸)에는 profile·route·resolvedModel·reportedEffort 칸이 없어 DB 에는 가지 않는다.
+    // effort 는 요청 본문에 실어 보낸 값이다 — 제공자가 지켰는지는 이 필드가 말하지 않는다.
+    // reportedEffort·resolvedModel 은 제공자가 응답에 되돌려준 값이고 미보고면 null 이다(추정하지 않는다).
+    // route 는 toLiner 가 실제로 고른 전송 대상(liner|openrouter)이다.
+    const legacyMode=/^mis-luna-legacy-/.test(v2??session?.mode??"")?v2??session?.mode:null;
+    let lastRoute=null,resolvedModel=null,reportedEffort=null;
+    const callFetch=legacyMode?(url,init)=>{const r=toLiner(url,init,liner);lastRoute=r?"liner":"openrouter";return r?rawFetch(...r):rawFetch(url,init);}:fetcher;
+    const inferOf=(resolved,tries,repEff)=>{const sum=k=>{let n=0,saw=false;for(const t of tries||[])if(Number.isFinite(t?.[k])&&t[k]>=0){n+=t[k];saw=true;}return saw?n:null;};
+      return {profile:legacyMode,requestedModel:input.model,resolvedModel:resolved??null,effort:params?.reasoning?.effort??null,reportedEffort:repEff??null,
+        route:lastRoute,attempts:(tries||[]).length,reasoningTokens:sum("reasoningTokens"),cachedInputTokens:sum("cachedInputTokens"),cacheWriteTokens:sum("cacheWriteTokens")};};
+    const legacyUsage=(resolved,tries,repEff)=>{const inference=inferOf(resolved,tries,repEff);
+      return {inference,reasoningTokens:inference.reasoningTokens,cachedInputTokens:inference.cachedInputTokens,cacheWriteTokens:inference.cacheWriteTokens};};
     if(session){
-      if(input.model!==NoteSession.SOL)return fail(res,stage==="plan"?"invalid_model":"invalid_model_or_stage");
+      // 세션 호출의 실제 모델은 단계→모델 표가 정한다 — v2 는 route.model 로 위에서 이미 대조됐다
+      // (mis-luna-legacy 는 세션 단계도 Luna 별칭). 세션 표가 없는 구 모드(sol-session·sol-luna-tool·sol-fork)는 Sol 고정 그대로다.
+      if(input.model!==(v2?route.model:NoteSession.SOL))return fail(res,stage==="plan"?"invalid_model":"invalid_model_or_stage");
       // 도구가 실행하는 작성 모델도 클라이언트 선택과 같은 게이트를 거친다 — 허용 목록·계정 등급·제공자 핀 모두 필요하다.
       if(session.mode==="sol-luna-tool"){
         if(!c.allow.includes(NoteSession.LUNA))return fail(res,"invalid_model_or_stage");
@@ -824,7 +839,7 @@ function createServer(env=process.env,deps={}){
     // noteSession 이력은 내용을 저장하지 않고 해시만 digest 에 둔다 — 같은 이력·본문·계정은 같은 요청이다.
     const digest=digestOf(account,JSON.stringify({route:stage==="plan"?"plan":"write",stage,model:input.model,noteSpecVersion:input.noteSpecVersion,rest,...(sourceLang?{sourceLang}:{}),...(v2?{noteMode:v2}:{}),
       ...(session?{ns:{id:session.id,mode:session.mode,h:crypto.createHash("sha256").update(JSON.stringify(session.history)).digest("hex")}}:{})}));
-    const [pi,po]=RATES[input.model]||RATES[upstreamOf(input.model)],params=Prompts.modelParams(input.model,stage),attempts=2;
+    const [pi,po]=RATES[input.model]||RATES[upstreamOf(input.model)],params=Prompts.modelParams(input.model,stage,v2??session?.mode),attempts=2;
     // 수리 패킷의 출력은 대상 블록뿐 — 예상 출력량으로 상한을 낮춘다(대상당 봉투 하나 + 추론 여유).
     if(packetReq)params.max_tokens=Math.min(params.max_tokens,(rest.repair?.length||1)*1600+reasoningBudgetFor(input.model));
     const upModel=upstreamOf(input.model),upProviders=c.providers[input.model]??c.providers[upModel];
@@ -855,7 +870,7 @@ function createServer(env=process.env,deps={}){
     // 형식 실패 재시도분까지 예약하고 정산에서 되돌린다. 시스템 본문과 스키마도 입력 토큰이다.
     // 세션 모드는 요청 안에서 Sol·Luna 여러 호출이 돈다 — 도구 호출(Luna)과 Sol 이 도구 결과를 다시 읽는 입력까지 예약에 넣는다.
     const lunaProviders=c.providers[NoteSession.LUNA]??c.providers[upstreamOf(NoteSession.LUNA)],
-      [lpi,lpo]=RATES[NoteSession.LUNA]||RATES[upstreamOf(NoteSession.LUNA)],lunaParams=session?.mode==="sol-luna-tool"?Prompts.modelParams(NoteSession.LUNA,stage):null,
+      [lpi,lpo]=RATES[NoteSession.LUNA]||RATES[upstreamOf(NoteSession.LUNA)],lunaParams=session?.mode==="sol-luna-tool"?Prompts.modelParams(NoteSession.LUNA,stage,session.mode):null,
       solIn=session?Prompts.estimateTokens(NoteSession.systemFor(opts)+JSON.stringify(session.history)+JSON.stringify(rest)+JSON.stringify(sessionOut)):0;
     const reserve=session?Math.ceil((2*(solIn*pi+params.max_tokens*po)/1e6
       +(lunaParams?(Prompts.estimateTokens(system+user+JSON.stringify(providerOut))*lpi+lunaParams.max_tokens*lpo+lunaParams.max_tokens*pi)/1e6:0))*100*1.2)
@@ -868,18 +883,18 @@ function createServer(env=process.env,deps={}){
     return await withReservation({account,requestId:input.requestId,digest,reserve,minutes,model:input.model,res,meta,...(v2&&(stage==="plan"||stage==="editorial")?{timeoutMs:Math.max(c.timeout,145000)}:{})},async (signal,store,gens,deadline)=>{
       // 세션 경로: 분야 분류(Jev)는 대화 이력에 넣지 않는다 — Sol·Luna 호출 전부가 이 예약·deadline 안에서 돌고
       // 시간이 모자라면 200 pending 으로 넘겨 클라이언트가 같은 단계를 다시 보낸다(최대 3요청은 클라이언트 계약).
-      if(session)return await NoteSession.run({
+      if(session){const r=await NoteSession.run({
         stage,rest,session,sourceLang,options:opts,params,providerOut:sessionOut,outSchema,outPatch,
         noteSpecVersion:NoteContract.NOTE_SPEC_VERSION,schemaVersion:c.remoteConfig.schemaVersion,
         // sol-fork·v2 작성 호출은 같은 접두 P 만 읽는 독립 호출이라 세션 잠금 없이 병렬로 간다 — 접두를 만드는 계획 호출은 잠금을 유지한다.
-        reserve,deadline,signal,fetcher,key:c.key,gens,lock:NoteProfiles.get(session.mode)?.session==="fork"&&stage!=="plan"&&stage!=="editorial"?async()=>()=>{}:sessionLock,
+        reserve,deadline,signal,fetcher:callFetch,key:c.key,gens,lock:NoteProfiles.get(session.mode)?.session==="fork"&&stage!=="plan"&&stage!=="editorial"?async()=>()=>{}:sessionLock,
         solProviders:upProviders,solRates:[pi,po],
         luna:session.mode==="sol-luna-tool"?{model:NoteSession.LUNA,up:upstreamOf(NoteSession.LUNA),params:lunaParams,providers:lunaProviders,
           rates:[lpi,lpo],system,user,
           cacheFields:cacheModeOf(NoteSession.LUNA)==="openai-explicit"?{prompt_cache_options:{mode:"explicit",ttl:"30m"},prompt_cache_key:`ns:${stage}:${crypto.createHash("sha256").update(session.id).digest("hex").slice(0,32)}`}:{}}:null,
         store,
         deps:{boundedResponse,costOf,attemptOf,errCode,finalizeNote,httpDetail,acquire},
-      });
+      });if(legacyMode&&r.payload?.usage)Object.assign(r.payload.usage,legacyUsage(r.resolvedModel,r.attempts,r.reportedEffort));return r;}
       // 분류는 계획 호출과 병렬로 시작해 계획이 끝난 뒤에만 기다린다 — 지연(자체 5초)·실패는 meta 를 비워 두고
       // 응답·상태·청구액은 그대로다. Jev 비용은 사용자 청구에 더하지 않는다.
       const classifying=titles.length&&c.judgeModels.includes(JEV_MODEL)?(async()=>{
@@ -894,7 +909,7 @@ function createServer(env=process.env,deps={}){
       try{
         for(let retry=0;retry<attempts;retry++){
           const at=Date.now();
-          const response=await fetcher("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
+          const response=await callFetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",redirect:"error",signal,headers:{authorization:"Bearer "+c.key,"content-type":"application/json"},body:JSON.stringify({
             model:upModel,...params,...cacheFields,
             // strict 스키마를 못 거는 단계(Haiku 초안)는 스키마를 system 메시지로 주고 response_format json_object 로 받는다 — 출력은 아래 계약 검증이 본다.
             // msh 독립 수리는 strict 배열 틀만 내려가 봉투 안 모양이 안 보인다 — blockId 별 봉투 계약을 system 메시지로 알린다(실행 mis-sol-hai-27).
@@ -908,6 +923,8 @@ function createServer(env=process.env,deps={}){
           // 5xx·전송 실패는 제공자 쪽에서 돈이 나갔는지 알 수 없어 예약을 그대로 둔다(보수적).
           if(!response.ok){const st=response.status;tries.push(attemptOf("a"+tries.length,Date.now()-at,null,"provider_http_"+st));throw Object.assign(new Error("provider_failed"),{detail:"provider_http_"+st,...(st>=400&&st<500&&st!==429?{failExtra:{retryable:false}}:{})},retry===0&&st>=400&&st<500?{refund:true,code:"provider_failed_or_invalid_output"}:{});}
           const raw=await boundedResponse(response,1024*1024),u=raw.usage||{},choice=raw.choices?.[0];if(typeof raw.id==="string")gens.push(raw.id);
+          if(typeof raw.model==="string")resolvedModel=raw.model;
+          if(typeof raw.reasoning?.effort==="string")reportedEffort=raw.reasoning.effort;else if(typeof raw.reasoning_effort==="string")reportedEffort=raw.reasoning_effort;
           // 200 이어도 본문이 오류이고 생성이 없으면(사용량 없음·선택지 없음) 돈이 나가지 않았다 — 첫 시도면 환불한다.
           // 필드: OpenRouter 크레딧이 바닥난 순간 이런 응답 3건이 각각 예약금 전액($0.57)으로 정산됐다.
           if(!choice&&!raw.usage){tries.push(attemptOf("a"+tries.length,Date.now()-at,null,"provider_body_"+String(raw.error?.code??"empty").replace(/[^a-z0-9_]/gi,"_").slice(0,24)));throw Object.assign(new Error("provider_failed"),{detail:tries.at(-1).error},retry===0?{refund:true,code:"provider_failed_or_invalid_output"}:{});}
@@ -929,7 +946,7 @@ function createServer(env=process.env,deps={}){
           // 계획 호출이 끝난 뒤에만 분류 결과를 기다린다 — 앞서 병렬로 나간 호출이고 이미 끝났거나 5초 안에 끝난다.
           const classified=classifying?await classifying:null;
           if(classified){meta.subject=classified.subject;meta.subjectConf=classified.conf;}
-          return {amount,reported,attempts:tries,payload:{...(stage==="plan"?{plan:fin.parsed}:{output:fin.parsed}),...(fin.salvaged?{salvaged:fin.salvaged,salvagedErrors:fin.salvagedErrors}:{}),usage:{...usage,costUsd:reported?amount:reserve/100},promptVersion:Prompts.PROMPT_VERSIONS[stage]||Prompts.PROMPT_VERSION,schemaVersion:c.remoteConfig.schemaVersion,noteSpecVersion:NoteContract.NOTE_SPEC_VERSION}};
+          return {amount,reported,attempts:tries,payload:{...(stage==="plan"?{plan:fin.parsed}:{output:fin.parsed}),...(fin.salvaged?{salvaged:fin.salvaged,salvagedErrors:fin.salvagedErrors}:{}),usage:{...usage,costUsd:reported?amount:reserve/100,...(legacyMode?legacyUsage(resolvedModel,tries,reportedEffort):{})},promptVersion:Prompts.PROMPT_VERSIONS[stage]||Prompts.PROMPT_VERSION,schemaVersion:c.remoteConfig.schemaVersion,noteSpecVersion:NoteContract.NOTE_SPEC_VERSION}};
         }catch(error){const t=tries.at(-1);t.status="error";t.error=errCode(error);if(retry===attempts-1)throw error.charged||error.refund?error:Object.assign(error,{code:error.code||"provider_failed_or_invalid_output",charged:{amount,reported,usage}});} // 형식 실패: 보고된 금액만 청구한다
         }
       }catch(e){e.attempts??=tries;throw e;}
