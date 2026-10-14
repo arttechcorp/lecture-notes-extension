@@ -53,7 +53,7 @@ const lmsCreds = () => {
   const password = execFileSync('security', ['find-generic-password', '-s', 'learnus-e2e', '-w'], { encoding: 'utf8' }).trim();
   return { account, password };
 };
-const isLoginPage = u => /login\.php|\/login\/|infra\.yonsei\.ac\.kr|sso/i.test(u);
+const isLoginPage = u => /login\.php|\/login\/|infra\.yonsei\.ac\.kr|sso|learnus\.org\/?(\?.*)?$/i.test(u); // bare origin = viewer redirected to the home login box
 const stripUrl = u => { try { const x = new URL(u); const origin = x.origin === 'null' ? `${x.protocol}//${x.host}` : x.origin; return origin + x.pathname; } catch { return u.split('?')[0].slice(0, 120); } };
 let serviceHost = ''; // read from settings once the SW channel is up (launch/auth)
 // network.ndjson privacy: media manifests/segments and any non-service host are
@@ -363,7 +363,7 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
           let ok = false, lastWhere = '', route = 'none';
           for (let attempt = 1; attempt <= 2 && !ok; attempt++) {
             try {
-              if (/login\.php/.test(lecture.url())) {
+              if (/login\.php|learnus\.org\/?$/.test(lecture.url())) {
                 // student number → 연세포털 SSO; navigating directly 403s, must click through
                 await lecture.click('a.btn-sso', { timeout: 10000 });
                 await lecture.waitForURL(/yonsei\.ac\.kr|learnus\.org/, { timeout: 30000 });

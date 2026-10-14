@@ -111,6 +111,7 @@ test("editorial guidance: slot meanings, comparison table, logic kinds, quiz all
   assert.match(plan, /한 B06에 모은다/, "plan: 같은 축 비교를 한 표에");
   assert.match(plan, /learningItems.*L1/, "plan: 학습 항목 id 체계");
   assert.match(plan, /core 항목은 반드시 한 섹션에 배정한다/, "plan: core 배정 의무");
+  assert.match(plan, /모든 유닛이 어떤 항목의 unitIds에든 속하게 한다/, "plan: 유닛 커버 의무");
   const sec = Prompts.systemFor("section"), rep = Prompts.systemFor("repair"), glob = Prompts.systemFor("global");
   assert.match(sec, /purpose에 배정된 문항 수와 각 문항의 목적을 그대로 따라/, "section: 배분 준수");
   assert.match(sec, /지도 노드 key\(n1 등\)는 어떤 칸의 문서 참조도 아니다/, "section: 노드 키는 참조 아님");
@@ -533,9 +534,10 @@ test("editorial evidence/asset catalogs: optional bounded lists narrow the stric
     assert.match(t, /목록에 발화 근거가 없으면 발화를 인용하지 않는다/, mode + ": 발화 근거 없으면 미인용");
     assert.match(t, /중복 없이 V1부터 순서대로/, mode + ": visualId 전역 고유");
   }
-  // 단계 버전: iter-4 공유 [주장] 규칙(충돌 값 인용) 변경으로 전 단계 +1 — editorial v11, plan v10, draft v14.
+  // 단계 버전: iter-4 공유 [주장] 규칙(충돌 값 인용) 변경으로 전 단계 +1 — editorial v11, draft v14.
+  // lecture-medium 유닛 커버 의무 지시 추가로 plan 만 +1 — plan v11.
   assert.equal(Prompts.PROMPT_VERSIONS.editorial, "note-v11");
-  assert.equal(Prompts.PROMPT_VERSIONS.plan, "note-v10");
+  assert.equal(Prompts.PROMPT_VERSIONS.plan, "note-v11");
   assert.equal(Prompts.PROMPT_VERSIONS.draft, "note-v14");
 });
 
@@ -682,9 +684,10 @@ test("existing modes immutability: sol-luna-2, sol-fork-2, independent, and unde
 });
 
 test("prompt size reporting: v3 reduces prompt bytes for plan, editorial, draft, review, questions", () => {
-  // 기준 plan 10,025 / editorial 8,991 / draft 11,268 / repair 8,556 / review 9,442 / questions 8,166
-  // (iter-4: 공유 [주장] 규칙 충돌 값 인용 지시 +175B — 전 단계 공통 가산)
-  const baselines = { plan: 10025, editorial: 8991, draft: 11268, repair: 8556, review: 9442, questions: 8166 };
+  // 기준 plan 10,234 / editorial 8,991 / draft 11,268 / repair 8,556 / review 9,442 / questions 8,166
+  // (iter-4: 공유 [주장] 규칙 충돌 값 인용 지시 +175B — 전 단계 공통 가산.
+  //  lecture-medium: plan 유닛 커버 의무 지시 +209B — plan 단계만 가산)
+  const baselines = { plan: 10234, editorial: 8991, draft: 11268, repair: 8556, review: 9442, questions: 8166 };
   for (const [st, baseSize] of Object.entries(baselines)) {
     const v2Size = Buffer.byteLength(Prompts.systemFor(st, OFF, undefined, undefined, "sol-luna-2"), "utf8");
     assert.equal(v2Size, baseSize, st + ": v2 기준 바이트 일치");

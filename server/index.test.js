@@ -202,7 +202,8 @@ test("/v1/me exposes per-task promptVersions and the policy version in remote co
   try {
     const me = await (await req(url, "/v1/me")).json();
     // 클라이언트 캐시 키 계약: 단계별 노트 프롬프트 버전(입력 재배치는 섹션 계열만 v7), judge 는 원격 설정 버전.
-    for (const s of ["plan", "link"]) assert.equal(me.promptVersions[s], me.promptVersion, s);
+    assert.equal(me.promptVersions.plan, "note-v11", "lecture-medium 유닛 커버 지시로 plan 만 +1");
+    for (const s of ["link"]) assert.equal(me.promptVersions[s], me.promptVersion, s);
     assert.equal(me.promptVersions.global, "note-v10", "공유 규칙 변경(iter-4 충돌 값 인용)으로 전 단계 +1");
     for (const s of ["section", "questions"]) assert.equal(me.promptVersions[s], "note-v10", s);
     assert.equal(me.promptVersions.repair, "note-v12", "공유 규칙 변경으로 전 단계 +1");
@@ -1424,7 +1425,7 @@ test("plan reads units through strict json_schema, allows the free tier and carr
     assert.deepEqual(out.plan, notePlanner);
     // W2 선택 칸을 뺀 출력도 클라이언트가 채운 기본값으로는 strict 계획 스키마를 통과한다.
     assert.ok(Contracts.validate(NoteContract.schemas.plannerOutput, NoteContract.withPlannerDefaults(out.plan)).ok);
-    assert.equal(out.promptVersion, Prompts.PROMPT_VERSION);
+    assert.equal(out.promptVersion, Prompts.PROMPT_VERSIONS.plan);
     assert.equal(out.schemaVersion, Contracts.CONTRACT_VERSION);
     assert.equal(out.noteSpecVersion, NoteContract.NOTE_SPEC_VERSION);
     assert.deepEqual(out.usage, { promptTokens: 800, completionTokens: 90, costUsd: .002 });

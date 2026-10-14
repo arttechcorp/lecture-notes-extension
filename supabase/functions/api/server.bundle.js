@@ -5944,7 +5944,7 @@ const NoteContract=require("../lib/note-contract.js"),Contracts=require("../lib/
 // 프롬프트 문구나 아래 규칙을 바꾸면 올린다. 응답에 실려 단계 캐시 키에 들어간다.
 const PROMPT_VERSION="note-v10";
 // 단계별 버전: 프롬프트 문구나 아래 규칙을 바꾸면 그 단계만 올린다 — plan 캐시가 section 의 본문 재배치에 휘말려 무효가 되지 않게.
-const PROMPT_VERSIONS={plan:"note-v10",global:"note-v10",link:"note-v10",section:"note-v10",draft:"note-v14",repair:"note-v12",review:"note-v10",editorial:"note-v11",questions:"note-v10"};
+const PROMPT_VERSIONS={plan:"note-v11",global:"note-v10",link:"note-v10",section:"note-v10",draft:"note-v14",repair:"note-v12",review:"note-v10",editorial:"note-v11",questions:"note-v10"};
 const STAGES=["plan","section","global","repair","link","questions","draft","review","editorial"];
 // 두 실험 모드 — plan 직후 editorial 단계(같은 세션의 두 번째 Sol 턴)가 편집 명세(editorialPlan)를 낸다. 한 호출에 합치면 Edge 150초를 넘는다.
 const V2_MODES=NoteContract.V2_MODES;
@@ -5998,7 +5998,7 @@ const STAGE={
     "개념(concepts): conceptId는 C1, C2처럼 C 뒤에 차례 번호다. 강의가 정의하는 개념은 depth defined이고, 홈 섹션에 그 개념 하나만 다루는 B05가 정확히 하나 있다. 이름만 언급되면 mentioned이고 B05를 만들지 않는다.",
     "B12는 섹션의 첫 블록이 될 수 없다. 같은 기준으로 비교할 개념은 한 B06에 모은다. B14 자기 점검 문항은 노트 전체 4~8개로 정해 섹션별 purpose에 나눠 배정한다. 수업 공지가 있으면 그 섹션에 B18을 둔다.",
     "global에는 B02(한눈에), 필요하면 B03(강의 지도), B13(연결 정리)을 각각 최대 1개 둔다.",
-    "학습 항목(learningItems): 이 강의에서 배워야 할 것을 항목으로 뽑아 L1, L2처럼 번호를 매긴다(최대 200개, 없으면 null). kind는 definition·causal·procedure·comparison_criterion·example·condition·exception·formula·interpretation_caution 중 하나, unitIds는 그 항목의 근거 유닛, importance는 core·supporting·minor다. 강의가 앞선 항목을 바로잡으면 correctionOf에 그 itemId를 적고 아니면 null이다.",
+    "학습 항목(learningItems): 이 강의에서 배워야 할 것을 항목으로 뽑아 L1, L2처럼 번호를 매긴다(최대 200개, 없으면 null). kind는 definition·causal·procedure·comparison_criterion·example·condition·exception·formula·interpretation_caution 중 하나, unitIds는 그 항목의 근거 유닛, importance는 core·supporting·minor다. 인사·잡담처럼 학습 내용이 없는 유닛을 빼고 모든 유닛이 어떤 항목의 unitIds에든 속하게 한다 — 항목에 속하지 않은 유닛의 내용은 노트에 실리지 않는다. 강의가 앞선 항목을 바로잡으면 correctionOf에 그 itemId를 적고 아니면 null이다.",
     "섹션마다 다룰 학습 항목의 id를 learningItemIds에 배정한다 — core 항목은 반드시 한 섹션에 배정한다. 필요하면 prerequisites(먼저 알아야 할 conceptIds), compareAxes(비교 기준 문자열 5개 이하), needs({formula, figure}), expectedSize(small·medium·large), worker(general·formula·comparison·argument·figure)를 적고 해당 없으면 null이다.",
     "제목, 질문, 개념 이름에 숫자를 쓰면 그 숫자는 해당 유닛 자료에 있어야 한다.",
   ],
