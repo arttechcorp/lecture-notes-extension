@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git push:*)",
+      "Bash(git * push:*)",
+      "Bash(git checkout main:*)",
+      "Bash(git switch main:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(rm -rf:*)",
+      "Bash(supabase:*)",
+      "Bash(npx supabase:*)",
+      "PowerShell(git push:*)",
+      "PowerShell(git * push:*)",
+      "PowerShell(git checkout main:*)",
+      "PowerShell(git switch main:*)",
+      "PowerShell(git reset --hard:*)",
+      "PowerShell(Remove-Item * -Recurse:*)",
+      "PowerShell(supabase:*)",
+      "PowerShell(npx supabase:*)"
+    ]
+  }
+}

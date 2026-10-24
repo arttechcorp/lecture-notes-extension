@@ -559,6 +559,10 @@ const netUrl = u => { try { const x = new URL(u); return (!netKeep(x.hostname) |
             const label = (await panel.locator('#bgBtn').textContent().catch(() => '')).trim();
             await panel.click('#bgBtn');
             rec.detail = `clicked "${label}"`;
+            // Direct evidence for the YouTube negative scenario: the panel's own notice, and that nothing started on its own.
+            await panel.waitForTimeout(800);
+            const after = await panel.evaluate(() => ({ bgStatus: document.getElementById('bgStatus')?.textContent?.trim(), live: !document.getElementById('stageLive')?.hidden })).catch(() => ({}));
+            rec.detail += ` | bgStatus="${after.bgStatus || ''}" stageLive=${!!after.live}`;
           }, true);
 
           // ---- bg_progress -----------------------------------------------------
